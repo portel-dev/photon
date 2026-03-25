@@ -4620,6 +4620,19 @@ export class ResultViewer extends LitElement {
   private _slidesScaling = false;
   private _slidesLastZoom = '';
 
+  // ── Pre-render pipeline: triple-buffer for flicker-free slide navigation ──
+  // Caches rendered HTML + computed zoom for adjacent slides so navigation is instant.
+  private _slidesParsed: string[] = []; // all parsed slide markdown strings
+  private _slidesConfig: Record<string, string> = {}; // frontmatter config
+  private _slidesBaseUrl = '';
+  private _slidesThemeClass = '';
+  private _slidesPrerendered: Map<
+    number,
+    { html: string; zoom: string; embedResults: Map<string, unknown> }
+  > = new Map();
+  private _slidesPrerendering: Set<number> = new Set(); // indices currently being pre-rendered
+  private _slidesMcpCache: Map<string, unknown> = new Map(); // method+args → result cache
+
   private _parseSlides(raw: string): {
     slides: string[];
     theme: string;
@@ -4665,6 +4678,30 @@ export class ResultViewer extends LitElement {
     return { slides, theme: config.theme || defaultTheme, config };
   }
 
+  /** Render a single slide's markdown to HTML (shared by live render + pre-render) */
+  private _renderSlideHtml(slideMarkdown: string): {
+    html: string;
+    mermaidBlocks: { id: string; code: string }[];
+    codeBlocks: { id: string; code: string; language: string }[];
+  } {
+    // Rewrite relative paths
+    let md = slideMarkdown;
+    if (this._slidesBaseUrl) {
+      md = md.replace(
+        /(!?\[([^\]]*)\])\((?!https?:\/\/|\/|data:)([^)]+)\)/g,
+        (_, prefix, _alt, relPath) => `${prefix}(${this._slidesBaseUrl}${relPath})`
+      );
+      md = md.replace(
+        /(\bsrc=["'])(?!https?:\/\/|\/|data:)([^"']+)(["'])/g,
+        (_, pre, relPath, post) => `${pre}${this._slidesBaseUrl}${relPath}${post}`
+      );
+    }
+    return this._parseRichMarkdown(md, {
+      stripFrontMatter: false,
+      includeInlineStyles: true,
+    });
+  }
+
   private _renderSlides(data: any): TemplateResult {
     const raw = String(data);
     const { slides, theme: rawTheme, config } = this._parseSlides(raw);
@@ -4672,6 +4709,10 @@ export class ResultViewer extends LitElement {
     if (slides.length === 0) {
       return this._renderMarkdown(raw);
     }
+
+    // Cache parsed slides for pre-rendering pipeline
+    this._slidesParsed = slides;
+    this._slidesConfig = config;
 
     // Restore slide position from URL hash (e.g., #slide-5 → index 4)
     try {
@@ -4698,35 +4739,11 @@ export class ResultViewer extends LitElement {
     const stripQuotes = (s: string) => s.replace(/^["']|["']$/g, '');
 
     // Resolve base URL for relative paths (images, links)
-    // Set via frontmatter: baseUrl: /custom/path/
-    // Default: /api/assets/{photonName}/ (relative to photon's asset directory)
     const rawBaseUrl = stripQuotes(config.baseUrl || '');
-    const baseUrl =
+    this._slidesBaseUrl =
       rawBaseUrl || (this.photonName ? `/api/assets/${encodeURIComponent(this.photonName)}/` : '');
 
-    // Rewrite relative paths in markdown before parsing
-    let slideMarkdown = current;
-    if (baseUrl) {
-      // Rewrite ![alt](relative/path) but not ![alt](https://...) or ![alt](/absolute) or ![alt](data:...)
-      slideMarkdown = slideMarkdown.replace(
-        /(!?\[([^\]]*)\])\((?!https?:\/\/|\/|data:)([^)]+)\)/g,
-        (_, prefix, _alt, relPath) => `${prefix}(${baseUrl}${relPath})`
-      );
-      // Rewrite HTML src="relative/path" (img, iframe, etc.) but not absolute/protocol URLs
-      slideMarkdown = slideMarkdown.replace(
-        /(\bsrc=["'])(?!https?:\/\/|\/|data:)([^"']+)(["'])/g,
-        (_, pre, relPath, post) => `${pre}${baseUrl}${relPath}${post}`
-      );
-    }
-
-    const {
-      html: slideHtml,
-      mermaidBlocks,
-      codeBlocks,
-    } = this._parseRichMarkdown(slideMarkdown, {
-      stripFrontMatter: false,
-      includeInlineStyles: true,
-    });
+    const { html: slideHtml, mermaidBlocks, codeBlocks } = this._renderSlideHtml(current);
     this._pendingMermaidBlocks = mermaidBlocks;
     this._pendingCodeBlocks = codeBlocks;
 
@@ -4739,6 +4756,7 @@ export class ResultViewer extends LitElement {
           : 'default'
         : rawTheme;
     const themeClass = `slides-theme-${resolvedTheme}`;
+    this._slidesThemeClass = themeClass;
 
     // Frontmatter-driven inline overrides
     const bgOverride = config.backgroundColor ? `background:${config.backgroundColor};` : '';
@@ -5337,6 +5355,54 @@ export class ResultViewer extends LitElement {
     return this._slidesTransitions.get(slideIndex) ?? this._slidesDefaultTransition;
   }
 
+  /**
+   * Apply pre-rendered zoom and embed results to the visible slide.
+   * Lit renders the slide HTML normally; we only inject cached MCP results
+   * and apply the pre-computed zoom to avoid flicker.
+   */
+  private _applyPrerendered(slideIndex: number): boolean {
+    const cached = this._slidesPrerendered.get(slideIndex);
+    if (!cached) return false;
+
+    const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
+    if (!content) return false;
+
+    // Apply pre-computed zoom immediately (no measurement needed)
+    content.style.zoom = cached.zoom;
+    this._slidesLastZoom = cached.zoom;
+
+    // Convert data-embed to data-method and inject cached MCP results
+    this._bindSlideElements();
+
+    // Inject cached embed results into bound data-method elements
+    if (cached.embedResults.size > 0) {
+      content.querySelectorAll('[data-method]').forEach((el) => {
+        const method = el.getAttribute('data-method') || '';
+        const format = el.getAttribute('data-format') || '';
+        const argsRaw = el.getAttribute('data-args') || '{}';
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(argsRaw);
+        } catch {
+          /* */
+        }
+        const cacheKey = `${method}:${JSON.stringify(args)}`;
+        const data = this._slidesMcpCache.get(cacheKey);
+        if (data !== undefined) {
+          // Render cached result directly — no MCP call needed
+          el.classList.remove('loading');
+          if (format) {
+            this._renderSlideFormat(el as HTMLElement, data, format);
+          } else {
+            this._renderBindingResult(el as HTMLElement, data, format, '');
+          }
+        }
+      });
+    }
+
+    return true;
+  }
+
   private _slidesNavigate(newIndex: number, total: number): void {
     if (newIndex < 0 || newIndex >= total || newIndex === this._slidesCurrentIndex) return;
 
@@ -5357,52 +5423,54 @@ export class ResultViewer extends LitElement {
     this.setAttribute('data-slides-transition', transition);
     this.setAttribute('data-slides-direction', this._slidesDirection);
 
+    const afterRender = () => {
+      // Try to apply pre-rendered content (instant, no flicker)
+      const applied = this._applyPrerendered(newIndex);
+      if (applied) {
+        // Still need to highlight code + set up resize observer + pre-render next
+        this._highlightInlineCodeElements();
+        this._preRenderAdjacentSlides();
+      } else {
+        // Fall back to normal bind + scale cycle
+        this._afterSlideRender();
+      }
+    };
+
     if (transition === 'none' || !('startViewTransition' in document)) {
       this._slidesCurrentIndex = newIndex;
       this.requestUpdate();
-      this._afterSlideRender();
+      void this.updateComplete.then(() => afterRender());
       return;
     }
 
-    // Use View Transition API — scoped to document since shadow DOM ::view-transition
-    // pseudo-elements are matched on the document level in current implementations
     (document as any)
       .startViewTransition(() => {
         this._slidesCurrentIndex = newIndex;
         this.requestUpdate();
-        // Return a promise that resolves after Lit's update cycle
         return this.updateComplete;
       })
       .finished.then(() => {
-        this._afterSlideRender();
+        afterRender();
       })
       .catch(() => {
-        // View transition was skipped — still bind elements
-        this._afterSlideRender();
+        afterRender();
       });
   }
 
   private _afterSlideRender(): void {
     void this.updateComplete.then(() => {
       this._bindSlideElements();
-      // Highlight inline HTML <code class="language-*"> elements (not captured by fenced regex)
       this._highlightInlineCodeElements();
-      // Scale immediately for static content
       this._autoScaleSlide();
 
-      // Watch for content size changes from async data-method bindings (gauge, metric, etc.)
-      // ResizeObserver fires automatically when async content renders, replacing hardcoded timeouts.
-      // Debounce to prevent infinite loop: zoom change → resize → zoom change → ...
+      // Watch for content size changes from async data-method bindings
       if (this._slidesResizeObserver) {
         this._slidesResizeObserver.disconnect();
       }
       const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
       if (content) {
         this._slidesResizeObserver = new ResizeObserver(() => {
-          // Guard: don't re-enter while _autoScaleSlide is applying zoom
           if (this._slidesScaling) return;
-          // Debounce: wait for async data-method embeds to finish rendering
-          // before recalculating zoom (prevents visible resize jumps)
           if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
           this._slidesScaleDebounce = setTimeout(() => {
             this._autoScaleSlide();
@@ -5410,6 +5478,175 @@ export class ResultViewer extends LitElement {
         });
         this._slidesResizeObserver.observe(content);
       }
+
+      // Pre-render adjacent slides in background (triple-buffer)
+      this._preRenderAdjacentSlides();
+    });
+  }
+
+  /**
+   * Pre-render slides N-1 and N+1 in a hidden container.
+   * Binds data-method elements (calls MCP) and measures zoom.
+   * Results are cached so navigation can swap instantly.
+   */
+  private _preRenderAdjacentSlides(): void {
+    const idx = this._slidesCurrentIndex;
+    const total = this._slidesParsed.length;
+    if (total === 0) return;
+
+    // Pre-render next and previous (next has higher priority)
+    const targets: number[] = [];
+    if (idx + 1 < total) targets.push(idx + 1);
+    if (idx - 1 >= 0) targets.push(idx - 1);
+
+    // Evict stale cache entries (keep only current ± 2)
+    for (const cached of this._slidesPrerendered.keys()) {
+      if (Math.abs(cached - idx) > 2) {
+        this._slidesPrerendered.delete(cached);
+      }
+    }
+
+    for (const target of targets) {
+      if (this._slidesPrerendered.has(target) || this._slidesPrerendering.has(target)) continue;
+      void this._preRenderSlide(target);
+    }
+  }
+
+  private async _preRenderSlide(slideIndex: number): Promise<void> {
+    if (this._slidesPrerendering.has(slideIndex)) return;
+    this._slidesPrerendering.add(slideIndex);
+
+    try {
+      const markdown = this._slidesParsed[slideIndex];
+      if (!markdown) return;
+
+      const root = this.shadowRoot;
+      if (!root) return;
+      const viewport = root.querySelector('.slides-viewport') as HTMLElement;
+      if (!viewport) return;
+
+      // Render markdown to HTML
+      const { html: slideHtml } = this._renderSlideHtml(markdown);
+
+      // Create hidden container for rendering + measurement
+      const container = document.createElement('div');
+      container.className = 'slides-prerender';
+      container.innerHTML = slideHtml;
+      viewport.appendChild(container);
+
+      // Bind data-embed → data-method conversion + resolve formats
+      this._bindPrerenderedEmbeds(container);
+
+      // Invoke data-method elements and render results
+      const methodEls = container.querySelectorAll('[data-method]');
+      const embedResults = new Map<string, unknown>();
+
+      await Promise.all(
+        Array.from(methodEls).map(async (el) => {
+          const method = el.getAttribute('data-method') || '';
+          const argsRaw = el.getAttribute('data-args') || '{}';
+          const format = el.getAttribute('data-format') || '';
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(argsRaw);
+          } catch {
+            /* */
+          }
+
+          // Check MCP cache first
+          const cacheKey = `${method}:${JSON.stringify(args)}`;
+          let data = this._slidesMcpCache.get(cacheKey);
+          if (data === undefined) {
+            try {
+              const result = await mcpClient.callTool(method, args);
+              data = mcpClient.parseToolResult(result);
+              this._slidesMcpCache.set(cacheKey, data);
+            } catch {
+              (el as HTMLElement).textContent = '';
+              return;
+            }
+          }
+          embedResults.set(method, data);
+
+          // Render format into the element
+          if (format) {
+            this._renderSlideFormat(el as HTMLElement, data, format);
+          } else {
+            (el as HTMLElement).textContent =
+              typeof data === 'object'
+                ? JSON.stringify(data, null, 2)
+                : String((data ?? '') as string | number | boolean);
+          }
+        })
+      );
+
+      // Measure zoom at natural size
+      container.style.zoom = '1';
+      const padV = document.fullscreenElement ? 128 : 96;
+      const padH = document.fullscreenElement ? 240 : 128;
+      const viewH = viewport.clientHeight - padV;
+      const viewW = viewport.clientWidth - padH;
+      const contentH = container.scrollHeight;
+      const contentW = container.scrollWidth;
+
+      let zoom = '';
+      if (contentH > 0 && viewH > 0 && contentW > 0 && viewW > 0) {
+        const scale = Math.min(viewH / contentH, viewW / contentW);
+        const clamped = Math.max(0.5, Math.min(2.5, scale));
+        zoom = Math.abs(clamped - 1) > 0.02 ? String(clamped) : '';
+      }
+
+      // Cache the pre-rendered result
+      this._slidesPrerendered.set(slideIndex, {
+        html: container.innerHTML,
+        zoom,
+        embedResults,
+      });
+
+      // Clean up hidden container
+      container.remove();
+    } finally {
+      this._slidesPrerendering.delete(slideIndex);
+    }
+  }
+
+  /** Convert data-embed to data-method in a pre-render container (same logic as _bindSlideElements) */
+  private _bindPrerenderedEmbeds(container: HTMLElement): void {
+    const embeds = container.querySelectorAll('[data-embed]');
+    embeds.forEach((el) => {
+      const embedPath = el.getAttribute('data-embed') || '';
+      const paramsRaw = el.getAttribute('data-embed-params') || '';
+      const height = el.getAttribute('data-embed-height') || '320';
+      const embedView = el.getAttribute('data-embed-view') || '';
+
+      // Form embeds: skip pre-rendering (they need iframe interaction)
+      if (embedView === 'form') return;
+
+      el.setAttribute('data-method', embedPath);
+      el.removeAttribute('data-embed');
+      if (paramsRaw) el.setAttribute('data-args', paramsRaw);
+
+      // Resolve @format from photon metadata
+      if (!el.getAttribute('data-format')) {
+        const parts = embedPath.split('/');
+        if (parts.length === 2) {
+          try {
+            const beamApp =
+              (this.getRootNode() as ShadowRoot)?.host || document.querySelector('beam-app');
+            const photons = (beamApp as any)?._photons || [];
+            const photon = photons.find((p: any) => p.name === parts[0]);
+            const method = photon?.methods?.find((m: any) => m.name === parts[1]);
+            if (method?.outputFormat) {
+              el.setAttribute('data-format', method.outputFormat);
+            }
+          } catch {
+            /* */
+          }
+        }
+      }
+
+      (el as HTMLElement).style.height = `${height}px`;
+      (el as HTMLElement).style.overflow = 'auto';
     });
   }
 
