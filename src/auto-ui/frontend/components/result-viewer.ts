@@ -4762,10 +4762,11 @@ export class ResultViewer extends LitElement {
 ${bridge}
 <style>
   /* All colors derive from MCP host theme tokens — adapts to any client */
+  /* Background is transparent — the outer slide viewport provides the bg */
   *, *::before, *::after { box-sizing: border-box; }
+  :root, html, body { background: transparent !important; background-color: transparent !important; }
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
     font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
-    background: transparent !important;
     color: var(--color-on-surface, var(--text, #e6e6e6));
     font-size: 16px; line-height: 1.6; }
   h1, h2, h3 { color: var(--color-primary, var(--accent, #79aef0)); }
@@ -4787,7 +4788,15 @@ ${bridge}
     color: var(--color-on-surface-variant, var(--text-secondary, #b3b3b3)); }
   code { font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace); font-size: 0.9em; }
   pre { background: var(--color-surface-container, var(--bg-secondary, rgba(0,0,0,0.3)));
-    padding: 12px; border-radius: var(--radius-md, 8px); overflow-x: auto; }
+    padding: 12px; border-radius: var(--radius-md, 8px); overflow-x: auto; position: relative; }
+  .code-block-wrapper { position: relative; margin: 1em 0; }
+  .code-block-wrapper pre { margin: 0; }
+  .code-block-wrapper .language-label { position: absolute; top: 0; right: 0;
+    padding: 2px 8px; font-size: 10px; text-transform: uppercase;
+    color: var(--color-on-surface-muted, rgba(255,255,255,0.4));
+    background: var(--color-surface-container-high, rgba(0,0,0,0.3));
+    border-radius: 0 var(--radius-md, 8px) 0 4px;
+    font-family: var(--font-mono, monospace); }
   code.inline, code:not([class]) { background: var(--color-surface-container-high, var(--bg-tertiary, rgba(128,128,128,0.15)));
     padding: 2px 6px; border-radius: var(--radius-sm, 4px); }
   img { max-width: 100%; border-radius: var(--radius-sm, 4px); }
