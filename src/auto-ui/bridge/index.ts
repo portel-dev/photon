@@ -1016,9 +1016,10 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
             if (prefilled !== '') input.value = String(prefilled);
           } else if (prop.format === 'date') {
             input = document.createElement('input');
-            input.type = 'date';
+            input.type = 'text';
             input.name = key;
             input.id = 'pf-' + key;
+            input.placeholder = 'YYYY-MM-DD';
             if (prefilled) input.value = String(prefilled);
           } else if (prop.maxLength && prop.maxLength > 200) {
             input = document.createElement('textarea');
