@@ -4886,6 +4886,10 @@ export class ResultViewer extends LitElement {
           width: 100%;
           max-width: 960px;
           line-height: 1.6;
+          visibility: hidden;
+        }
+        .slides-content.ready {
+          visibility: visible;
         }
         .slides-prerender {
           position: absolute;
@@ -5372,6 +5376,7 @@ export class ResultViewer extends LitElement {
 
     // Apply pre-computed zoom immediately (no measurement needed)
     content.style.zoom = cached.zoom;
+    content.classList.add('ready');
     this._slidesLastZoom = cached.zoom;
 
     // Convert data-embed to data-method and inject cached MCP results
@@ -5473,6 +5478,9 @@ export class ResultViewer extends LitElement {
       this._slidesResizeObserver.disconnect();
     }
     const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
+
+    // Reveal content now that zoom is computed — prevents the size jump
+    content?.classList.add('ready');
     if (content) {
       this._slidesResizeObserver = new ResizeObserver(() => {
         if (this._slidesScaling) return;
