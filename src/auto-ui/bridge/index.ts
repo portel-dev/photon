@@ -229,6 +229,10 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       if (m.type === 'photon:result') {
         toolOutput = m.data;
         listeners.result.forEach(function(cb) { cb(m.data); });
+        // Also dispatch to named event listeners (proxy.onResult uses photon.on('result', cb))
+        if (eventListeners['result']) {
+          eventListeners['result'].forEach(function(cb) { cb(m.data); });
+        }
       }
       else if (m.type === 'photon:theme-change') {
         ctx.theme = m.theme || 'dark';
