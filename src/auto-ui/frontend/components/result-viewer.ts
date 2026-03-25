@@ -4900,7 +4900,6 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     var canvas = document.querySelector('.slide-canvas');
     if (!canvas) return;
     var scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
-    scale = Math.min(scale, 1.5); // cap max scale to avoid blurry upscaling
     canvas.style.setProperty('--slide-scale', scale);
   }
   scaleSlide();
