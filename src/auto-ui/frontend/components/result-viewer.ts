@@ -4367,9 +4367,16 @@ export class ResultViewer extends LitElement {
   }
 
   private async _onSlidesRendered(): Promise<void> {
+    // Load bridge script if not cached (needed for bridge-powered slide iframes)
+    if (!this._slidesBridgeScript) {
+      await this._ensureBridgeScript();
+      // Re-render now that bridge is available (template switches from raw HTML to iframe)
+      this.requestUpdate();
+      await this.updateComplete;
+    }
     // Wait for Lit's render to fully commit to the DOM
     await this.updateComplete;
-    // Wait for browser to complete layout (all microtask-based renders done)
+    // Wait for browser to complete layout
     await new Promise((resolve) => requestAnimationFrame(resolve));
     // DOM is now fully ready for measurement and binding
     this._afterSlideRender();
@@ -4623,6 +4630,12 @@ export class ResultViewer extends LitElement {
   private _slidesScaling = false;
   private _slidesLastZoom = '';
 
+  // ── Bridge-powered slide rendering ──
+  // Slide embeds run inside an iframe with the platform bridge loaded.
+  // The bridge handles data-method binding, format rendering, streaming, and live updates.
+  private _slidesBridgeScript: string | null = null; // cached bridge script
+  private _slidesBridgeLoading = false;
+
   // ── Pre-render pipeline: triple-buffer for flicker-free slide navigation ──
   // Caches rendered HTML + computed zoom for adjacent slides so navigation is instant.
   private _slidesParsed: string[] = []; // all parsed slide markdown strings
@@ -4679,6 +4692,81 @@ export class ResultViewer extends LitElement {
     // Default theme: match Beam's active theme (dark→default, light→uncover)
     const defaultTheme = 'auto';
     return { slides, theme: config.theme || defaultTheme, config };
+  }
+
+  /** Ensure the bridge script is loaded and cached */
+  private async _ensureBridgeScript(): Promise<string> {
+    if (this._slidesBridgeScript) return this._slidesBridgeScript;
+    if (this._slidesBridgeLoading) {
+      // Wait for existing fetch
+      while (this._slidesBridgeLoading) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return this._slidesBridgeScript || '';
+    }
+    this._slidesBridgeLoading = true;
+    try {
+      const photonName = this.photonName || '';
+      const res = await fetch(
+        `/api/platform-bridge?photon=${encodeURIComponent(photonName)}&method=&theme=${encodeURIComponent(this.theme)}`
+      );
+      this._slidesBridgeScript = await res.text();
+    } catch {
+      this._slidesBridgeScript = '';
+    }
+    this._slidesBridgeLoading = false;
+    return this._slidesBridgeScript || '';
+  }
+
+  /** Build an iframe srcdoc for a slide with the bridge loaded */
+  private _buildSlideSrcdoc(slideHtml: string): string {
+    const bridge = this._slidesBridgeScript || '';
+    // Convert data-embed="photon/method" to data-method="method" for bridge binding.
+    // The bridge is scoped to the photon, so strip the photon prefix.
+    // e.g., data-embed="walkthrough/monitor" → data-method="monitor"
+    const photonPrefix = this.photonName ? this.photonName + '/' : '';
+    let html = slideHtml
+      .replace(/data-embed="([^"]+)"/g, (_, path) => {
+        const method = path.startsWith(photonPrefix) ? path.slice(photonPrefix.length) : path;
+        // Add data-live so the bridge subscribes to streaming updates
+        return `data-method="${method}" data-live`;
+      })
+      .replace(/data-embed-params=/g, 'data-args=')
+      .replace(/data-embed-height="([^"]+)"/g, 'style="height:$1px;overflow:auto"')
+      .replace(/data-embed-view="[^"]*"/g, ''); // strip view hint (bridge auto-detects)
+    const themeClass = this._slidesThemeClass || 'slides-theme-default';
+    return `<!doctype html>
+<html lang="en" class="${themeClass}">
+<head>
+<meta charset="UTF-8">
+<meta name="photon-template" content="true">
+${bridge}
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: transparent; color: var(--color-on-surface, #c0caf5);
+    font-size: 16px; line-height: 1.6; }
+  body { padding: 0; }
+  [data-method] { position: relative; max-height: 50vh; overflow: hidden; }
+  [data-method].loading::after {
+    content: ''; display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(128,128,128,0.3); border-top-color: currentColor;
+    border-radius: 50%; animation: spin 0.6s linear infinite;
+    margin-left: 8px; vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  [data-method].error { color: #f87171; font-style: italic; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 8px 12px; border-bottom: 1px solid rgba(128,128,128,0.2); text-align: left; }
+  th { font-weight: 600; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
+  code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; }
+  pre { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  img { max-width: 100%; border-radius: 4px; }
+</style>
+</head>
+<body>${html}</body>
+</html>`;
   }
 
   /** Render a single slide's markdown to HTML (shared by live render + pre-render) */
@@ -4785,7 +4873,17 @@ export class ResultViewer extends LitElement {
       >
         ${headerText ? html`<div class="slides-header">${headerText}</div>` : ''}
         <div class="slides-viewport">
-          <div class="slides-content">${unsafeHTML(slideHtml)}</div>
+          <div class="slides-content">
+            ${this._slidesBridgeScript
+              ? html`<iframe
+                  class="slide-bridge-frame"
+                  .srcdoc=${this._buildSlideSrcdoc(slideHtml)}
+                  sandbox="allow-scripts allow-same-origin allow-popups"
+                  frameborder="0"
+                  style="width:100%;height:100%;border:none;background:transparent;"
+                ></iframe>`
+              : unsafeHTML(slideHtml)}
+          </div>
           <div class="slides-controls">
             <button
               class="slides-btn"
@@ -5739,11 +5837,16 @@ export class ResultViewer extends LitElement {
     const root = this.shadowRoot;
     if (!root) return;
 
-    // Clear previous refresh timers
+    // Clear previous refresh timers and streaming subscriptions
     for (const timer of this._slidesRefreshTimers) {
       clearInterval(timer);
     }
     this._slidesRefreshTimers = [];
+    // Clean up render event listeners from previous slide
+    this._slidesBoundElements.forEach((el) => {
+      const cleanup = (el as any)._renderCleanup;
+      if (typeof cleanup === 'function') cleanup();
+    });
     this._slidesBoundElements.clear();
 
     // Process data-embed elements — convert to inline data-method divs (no iframes).
@@ -5864,10 +5967,10 @@ export class ResultViewer extends LitElement {
           }
 
           this._renderBindingResult(target as HTMLElement, data, format, field);
-        } catch (err) {
+        } catch {
+          // Streaming methods (generators) may timeout or hang — that's OK,
+          // render events arrive via SSE and are handled by the render listener below.
           target.classList.remove('loading');
-          target.classList.add('error');
-          target.textContent = err instanceof Error ? err.message : 'Failed';
         }
       };
 
@@ -5875,8 +5978,26 @@ export class ResultViewer extends LitElement {
         void invoke();
       } else if (trigger === 'click') {
         el.addEventListener('click', () => void invoke(), { once: false });
-        // Add pointer cursor for clickable elements
         (el as HTMLElement).style.cursor = 'pointer';
+      }
+
+      // Subscribe to streaming render events (generator yields, this.render() calls)
+      // Match by photon/method name — e.g., data-method="walkthrough/monitor"
+      const [embedPhoton, embedMethod] = method.split('/');
+      if (embedPhoton && embedMethod) {
+        const renderHandler = (data: any) => {
+          if (data?.photon === embedPhoton && data?.method === embedMethod) {
+            const target = targetSel ? (root.querySelector(targetSel) ?? el) : el;
+            target.classList.remove('loading');
+            const renderFormat = data.format || format;
+            if (renderFormat && data.value !== undefined) {
+              this._renderSlideFormat(target as HTMLElement, data.value, renderFormat);
+            }
+          }
+        };
+        mcpClient.on('render', renderHandler);
+        // Store cleanup reference — cleared when _bindSlideElements resets
+        (el as any)._renderCleanup = () => mcpClient.off('render', renderHandler);
       }
 
       // Polling via data-refresh

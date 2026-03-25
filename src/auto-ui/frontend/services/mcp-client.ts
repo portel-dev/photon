@@ -105,7 +105,8 @@ type MCPEventType =
   | 'reconnect' // SSE reconnected after disconnect
   | 'auth-required' // MCP OAuth: server requires authentication
   | 'auth-changed' // MCP OAuth: auth state changed (login/logout)
-  | 'auth-error'; // MCP OAuth: auth flow error
+  | 'auth-error' // MCP OAuth: auth flow error
+  | 'render'; // Streaming render event (generator yield / this.render())
 
 // Pending operation for offline queue
 interface PendingOperation {

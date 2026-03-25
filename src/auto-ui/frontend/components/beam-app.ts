@@ -2617,9 +2617,11 @@ export class BeamApp extends LitElement {
 
       // Handle render events — intermediate formatted results from this.render()
       mcpClient.on('render', (data: any) => {
-        // Only apply render events for the currently selected photon/method.
-        // The server broadcasts to ALL SSE clients; without this guard,
-        // an embed iframe's streaming gauge would overwrite the parent's slides.
+        // Forward ALL render events to bridge iframes (slides, custom UI) —
+        // they handle their own filtering by photon/method name.
+        this._forwardRenderToSlideIframes(data);
+
+        // Only apply to main result viewer if it matches the currently selected photon/method.
         if (data?.photon && data?.method) {
           const currentPhoton = this._selectedPhoton?.name;
           const currentMethod = this._selectedMethod?.name;
@@ -7029,6 +7031,32 @@ ${photon.errorMessage || 'Unknown error'}</pre
       this._showError('Not connected');
     }
   }
+  /**
+   * Forward render events to bridge iframes inside result-viewer (slide embeds).
+   * The bridge inside the iframe receives these as host-context notifications
+   * and its onResult listeners update live data-method elements.
+   */
+  private _forwardRenderToSlideIframes(data: any): void {
+    // Find bridge iframes inside result-viewer's shadow DOM
+    const rv = this.shadowRoot?.querySelector('result-viewer');
+    const slideIframe = rv?.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
+    if (slideIframe?.contentWindow && data?.method && data?.value !== undefined) {
+      // Forward as photon:result (legacy format) — the bridge's onResult listeners
+      // in _bindElements match by data.method and call renderResult(data.result)
+      slideIframe.contentWindow.postMessage(
+        {
+          type: 'photon:result',
+          data: {
+            method: data.method,
+            result: data.value,
+            format: data.format,
+          },
+        },
+        '*'
+      );
+    }
+  }
+
   /**
    * Forward a message to all custom-ui-renderer iframes
    */
