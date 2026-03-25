@@ -4747,7 +4747,8 @@ ${bridge}
     font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: transparent; color: var(--color-on-surface, #c0caf5);
     font-size: 16px; line-height: 1.6; }
-  body { padding: 0; }
+  body { padding: 48px 64px; display: flex; align-items: center; justify-content: center; }
+  body > * { max-width: 960px; width: 100%; }
   [data-method] { position: relative; max-height: 50vh; overflow: hidden; }
   [data-method].loading::after {
     content: ''; display: inline-block; width: 14px; height: 14px;
@@ -4984,10 +4985,12 @@ ${bridge}
           width: 100%;
           max-width: 960px;
           line-height: 1.6;
-          visibility: hidden;
         }
-        .slides-content.ready {
-          visibility: visible;
+        /* When slide content is a bridge iframe, fill the viewport */
+        .slides-content:has(.slide-bridge-frame) {
+          max-width: none;
+          height: 100%;
+          width: 100%;
         }
         .slides-prerender {
           position: absolute;
@@ -5474,7 +5477,6 @@ ${bridge}
 
     // Apply pre-computed zoom immediately (no measurement needed)
     content.style.zoom = cached.zoom;
-    content.classList.add('ready');
     this._slidesLastZoom = cached.zoom;
 
     // Convert data-embed to data-method and inject cached MCP results
@@ -5578,7 +5580,6 @@ ${bridge}
     const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
 
     // Reveal content now that zoom is computed — prevents the size jump
-    content?.classList.add('ready');
     if (content) {
       this._slidesResizeObserver = new ResizeObserver(() => {
         if (this._slidesScaling) return;
