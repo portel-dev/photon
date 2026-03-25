@@ -4719,7 +4719,10 @@ export class ResultViewer extends LitElement {
   }
 
   /** Build an iframe srcdoc for a slide with the bridge loaded */
-  private _buildSlideSrcdoc(slideHtml: string): string {
+  private _buildSlideSrcdoc(
+    slideHtml: string,
+    codeBlocks?: { id: string; code: string; language: string }[]
+  ): string {
     const bridge = this._slidesBridgeScript || '';
     // Convert data-embed="photon/method" to data-method="method" for bridge binding.
     // The bridge is scoped to the photon, so strip the photon prefix.
@@ -4734,6 +4737,22 @@ export class ResultViewer extends LitElement {
       .replace(/data-embed-params=/g, 'data-args=')
       .replace(/data-embed-height="([^"]+)"/g, 'style="height:$1px;overflow:auto"')
       .replace(/data-embed-view="[^"]*"/g, ''); // strip view hint (bridge auto-detects)
+
+    // Inline code blocks: replace "Loading..." placeholders with actual code
+    // so Prism.js can highlight them inside the iframe
+    if (codeBlocks) {
+      for (const block of codeBlocks) {
+        const escaped = block.code
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        html = html.replace(
+          `<code class="language-${block.language}">Loading...</code>`,
+          `<code class="language-${block.language}">${escaped}</code>`
+        );
+      }
+    }
+
     const themeClass = this._slidesThemeClass || 'slides-theme-default';
     return `<!doctype html>
 <html lang="en" class="${themeClass}">
@@ -4950,7 +4969,7 @@ ${bridge}
             ${this._slidesBridgeScript
               ? html`<iframe
                   class="slide-bridge-frame"
-                  .srcdoc=${this._buildSlideSrcdoc(slideHtml)}
+                  .srcdoc=${this._buildSlideSrcdoc(slideHtml, codeBlocks)}
                   sandbox="allow-scripts allow-same-origin allow-popups"
                   frameborder="0"
                   style="width:100%;height:100%;border:none;background:transparent;"
