@@ -4768,7 +4768,7 @@ ${bridge}
     font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
     color: var(--color-on-surface, var(--text, #e6e6e6));
     font-size: 16px; line-height: 1.6; }
-  body { padding: 48px 64px; display: flex; flex-direction: column; justify-content: center; }
+  body { padding: 5vh 5vw; display: flex; flex-direction: column; justify-content: center; }
   h1, h2, h3 { color: var(--color-primary, var(--accent, #79aef0)); }
   a { color: var(--color-primary, var(--accent, #79aef0)); }
   strong { color: var(--color-on-surface, var(--text-primary, inherit)); }
@@ -5082,6 +5082,9 @@ ${bridge}
           flex: 1;
           aspect-ratio: auto;
           padding: 64px 120px;
+        }
+        .slides-container:fullscreen .slides-viewport:has(.slide-bridge-frame) {
+          padding: 0;
         }
         .slides-content {
           width: 100%;
