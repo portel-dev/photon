@@ -5644,9 +5644,18 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
     if (!content) return false;
 
-    // Apply pre-computed zoom immediately (no measurement needed)
-    content.style.zoom = cached.zoom;
-    this._slidesLastZoom = cached.zoom;
+    // Bridge iframe slides use reveal.js-style transform:scale() internally.
+    // Never apply CSS zoom on top — it causes blurry text (double-scaling).
+    const iframe = content.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
+    if (iframe) {
+      // Clear any stale zoom from a previous non-iframe slide
+      content.style.zoom = '';
+      this._slidesLastZoom = '';
+    } else {
+      // Non-iframe slides: apply pre-computed zoom
+      content.style.zoom = cached.zoom;
+      this._slidesLastZoom = cached.zoom;
+    }
 
     // Convert data-embed to data-method and inject cached MCP results
     this._bindSlideElements();

@@ -2005,6 +2005,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               '<script>window.__PHOTON_SHELL_INIT=true</script></head>'
             );
           }
+          // Pre-apply view mode class to prevent chrome flash in iframe embeds.
+          // beam-app's :host(.view-form) CSS hides sidebar/toolbar — adding the class
+          // before first paint eliminates the brief flash of full UI.
+          const viewMode = url.searchParams.get('view');
+          if (viewMode === 'form' || viewMode === 'result') {
+            content = content.replace(
+              '<beam-app>',
+              `<beam-app class="view-${viewMode} focus-mode">`
+            );
+          }
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end(content);
         } catch (err) {
