@@ -24,6 +24,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { setSecurityHeaders, SimpleRateLimiter, escapeHtml } from '../shared/security.js';
+import fastJsonPatch from 'fast-json-patch';
 
 /**
  * Check if shell integration has been installed (photon init cli).
@@ -2731,6 +2732,19 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         photonName,
         channel,
         (message: any) => {
+          // Apply JSON Patch to Beam's local instance so silent refresh returns fresh data.
+          // Without this, Beam and the daemon hold separate instances — mutations via CLI
+          // update the daemon's copy but Beam's local instance stays stale.
+          if (message?.patch?.length > 0) {
+            const mcp = photonMCPs.get(photonName);
+            if (mcp?.instance) {
+              try {
+                fastJsonPatch.applyPatch(mcp.instance, structuredClone(message.patch));
+              } catch {
+                // Patch failure is non-fatal — silent refresh will still return stale data
+              }
+            }
+          }
           if (message?.instance === instanceName || !message?.instance) {
             broadcastNotification('state-changed', {
               photon: photonName,
