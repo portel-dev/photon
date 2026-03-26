@@ -3224,6 +3224,19 @@ Run: photon mcp ${mcpName} --config
       const toolMeta: any = mcp.tools.find((t: any) => t.name === toolName) || {};
       const hasFunctionalTags = toolMeta.middleware?.length > 0;
 
+      // Validate required parameters before execution
+      const requiredParams: string[] = toolMeta.inputSchema?.required || [];
+      if (requiredParams.length > 0 && parameters) {
+        const missing = requiredParams.filter(
+          (p: string) => !(p in parameters) || parameters[p] === undefined
+        );
+        if (missing.length > 0) {
+          throw new Error(
+            `Missing required parameter${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`
+          );
+        }
+      }
+
       // Log deprecation warning if tool is deprecated
       if (toolMeta.deprecated) {
         const msg =
