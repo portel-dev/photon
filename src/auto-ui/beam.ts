@@ -298,6 +298,12 @@ const extractCspFromSource = extractCspFromModule;
 const photonNotificationSubscriptions = new Map<string, string[]>();
 
 /**
+ * Track which state-changed channels we've already subscribed to,
+ * so dynamically discovered photons can be subscribed without duplicates.
+ */
+const subscribedStateChannels = new Set<string>();
+
+/**
  * Generate the service worker JS that validates the Beam backend
  * on PWA launch and shows a diagnostic page if something is wrong.
  */
@@ -2471,6 +2477,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 // else: photon was removed while we were reloading — discard result
               }
 
+              // Subscribe to state-changed events for newly discovered stateful photons
+              if (isStateful) {
+                subscribeStatefulPhoton(photonName).catch((err) => {
+                  logger.warn(
+                    `Failed to subscribe dynamically to ${photonName}: ${getErrorMessage(err)}`
+                  );
+                });
+              }
+
               // If this photon is symlinked and was previously errored (or new), set up
               // source-directory watchers that may have been skipped at startup.
               if (isNewPhoton || !previouslyConfigured) {
@@ -2703,66 +2718,64 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Notify connected clients that photon list is now available
   broadcastPhotonChange();
 
+  // Subscribe a single stateful photon to its state-changed daemon channel.
+  // Extracted so it can be called both at startup and when new photons are discovered.
+  async function subscribeStatefulPhoton(photonName: string): Promise<void> {
+    const instanceNames = ['default'];
+    for (const instanceName of instanceNames) {
+      const channel = `${photonName}:${instanceName}:state-changed`;
+      if (subscribedStateChannels.has(channel)) continue;
+      subscribedStateChannels.add(channel);
+
+      subscribeChannel(
+        photonName,
+        channel,
+        (message: any) => {
+          if (message?.instance === instanceName || !message?.instance) {
+            broadcastNotification('state-changed', {
+              photon: photonName,
+              instance: instanceName,
+              patches: message?.patches,
+              method: message?.method,
+              params: message?.params,
+              data: message?.data,
+              ...(message?.patch && { patch: message.patch }),
+              ...(message?.inversePatch && { inversePatch: message.inversePatch }),
+            });
+          }
+        },
+        {
+          reconnect: true,
+          workingDir,
+          onReconnect: () => logger.debug(`📡 Reconnected ${channel} subscription`),
+          onRefreshNeeded: () => {
+            logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
+            broadcastNotification('state-changed', {
+              photon: photonName,
+              instance: instanceName,
+              method: '_refresh',
+              patches: undefined,
+            });
+          },
+        }
+      )
+        .then(() => {
+          logger.info(`📡 Subscribed to ${channel} for cross-client sync`);
+        })
+        .catch((err) => {
+          logger.warn(`Failed to subscribe to ${channel}: ${getErrorMessage(err)}`);
+        });
+    }
+  }
+
   // Auto-start daemon and subscribe to state-changed events for stateful photons
   // Uses reconnect: true so subscriptions survive daemon restarts
   const statefulPhotons = photons.filter((p) => p.stateful && p.configured);
   if (statefulPhotons.length > 0) {
     try {
       await ensureDaemon();
-
       for (const photon of statefulPhotons) {
-        const photonName = photon.name;
-        // Subscribe to 'default' instance + any other instances that appear
-        const instanceNames = ['default'];
-
-        for (const instanceName of instanceNames) {
-          // Channel is now instance-specific: photon:instance:state-changed
-          const channel = `${photonName}:${instanceName}:state-changed`;
-          subscribeChannel(
-            photonName,
-            channel,
-            (message: any) => {
-              // Only broadcast if instance matches (prevents cross-instance leakage)
-              if (message?.instance === instanceName || !message?.instance) {
-                // Minimal transmission: include instance and patches for global sync
-                broadcastNotification('state-changed', {
-                  photon: photonName,
-                  instance: instanceName,
-                  // JSON Patch array for client-side state sync
-                  patches: message?.patches,
-                  // Keep legacy fields for backward compatibility
-                  method: message?.method,
-                  params: message?.params,
-                  data: message?.data,
-                  // Optional fields for undo/redo support
-                  ...(message?.patch && { patch: message.patch }),
-                  ...(message?.inversePatch && { inversePatch: message.inversePatch }),
-                });
-              }
-            },
-            {
-              reconnect: true,
-              workingDir,
-              onReconnect: () => logger.debug(`📡 Reconnected ${channel} subscription`),
-              onRefreshNeeded: () => {
-                logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
-                // Broadcast minimal refresh signal to all clients
-                broadcastNotification('state-changed', {
-                  photon: photonName,
-                  instance: instanceName,
-                  method: '_refresh',
-                  patches: undefined, // No patches, signal full refresh needed
-                });
-              },
-            }
-          )
-            .then(() => {
-              logger.info(`📡 Subscribed to ${channel} for cross-client sync`);
-            })
-            .catch((err) => {
-              logger.warn(`Failed to subscribe to ${channel}: ${getErrorMessage(err)}`);
-            });
-        }
+        await subscribeStatefulPhoton(photon.name);
       }
     } catch (err) {
       logger.warn(`Failed to start daemon for stateful photons: ${getErrorMessage(err)}`);
