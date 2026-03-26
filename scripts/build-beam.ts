@@ -42,6 +42,36 @@ async function build() {
     tsconfig: 'src/auto-ui/frontend/tsconfig.json',
   };
 
+  // Form components bundle — invoke-form + custom inputs for pure-view context.
+  // Uses mcp-client-shim (postMessage-based) instead of the full Beam SSE client.
+  const mcpClientShimPlugin: esbuild.Plugin = {
+    name: 'mcp-client-shim',
+    setup(build) {
+      // Redirect mcp-client imports to the lightweight postMessage shim
+      build.onResolve({ filter: /mcp-client\.js$/ }, (args) => {
+        if (args.importer.includes('invoke-form') || args.importer.includes('form-bundle')) {
+          return {
+            path: path.resolve(__dirname, '../src/auto-ui/frontend/services/mcp-client-shim.ts'),
+          };
+        }
+        return undefined;
+      });
+    },
+  };
+
+  const formBundleOptions: esbuild.BuildOptions = {
+    entryPoints: ['src/auto-ui/frontend/form-bundle.ts'],
+    bundle: true,
+    outfile: 'dist/beam-form.bundle.js',
+    format: 'esm',
+    target: 'es2020',
+    platform: 'browser',
+    sourcemap: true,
+    minify: false,
+    tsconfig: 'src/auto-ui/frontend/tsconfig.json',
+    plugins: [mcpClientShimPlugin],
+  };
+
   if (isWatch) {
     copyHtmlTemplates();
     const ctx = await esbuild.context({
@@ -74,12 +104,29 @@ async function build() {
         },
       ],
     });
+    const formCtx = await esbuild.context({
+      ...formBundleOptions,
+      plugins: [
+        {
+          name: 'rebuild-notify-form',
+          setup(build) {
+            build.onEnd((result) => {
+              if (result.errors.length === 0) {
+                console.log(`⚡️ Beam form bundle rebuilt at ${new Date().toLocaleTimeString()}`);
+              }
+            });
+          },
+        },
+      ],
+    });
     await ctx.watch();
     await workerCtx.watch();
+    await formCtx.watch();
     console.log('👀 Watching for Beam UI changes...');
   } else {
     await esbuild.build(buildOptions);
     await esbuild.build(workerBuildOptions);
+    await esbuild.build(formBundleOptions);
     copyHtmlTemplates();
     console.log('⚡️ Beam UI bundle built');
   }

@@ -345,6 +345,7 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/api/') ||
     url.pathname === '/sw.js' ||
     url.pathname === '/beam.bundle.js' ||
+    url.pathname === '/beam-form.bundle.js' ||
     url.pathname === '/beam-ts-worker.js'
   ) return;
 
@@ -1477,6 +1478,23 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
 
+      // Serve form components bundle (invoke-form + custom inputs for pure-view)
+      if (url.pathname === '/beam-form.bundle.js') {
+        try {
+          const formBundlePath = path.join(__dirname, '../../dist/beam-form.bundle.js');
+          const content = await fs.readFile(formBundlePath, 'utf-8');
+          res.writeHead(200, {
+            'Content-Type': 'text/javascript',
+            'Cache-Control': 'no-cache',
+          });
+          res.end(content);
+        } catch {
+          res.writeHead(404);
+          res.end('Form bundle not found. Run npm run build:beam first.');
+        }
+        return;
+      }
+
       if (url.pathname === '/beam-ts-worker.js') {
         try {
           const workerPath = path.join(__dirname, '../../dist/beam-ts-worker.js');
@@ -1948,12 +1966,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
 
-      // Pure view mode — serve lightweight bridge-powered page (no beam-app shell)
-      // ?view=form serves full Beam (for custom input components like date picker)
-      // ?view=result|embed serves pure-view.html (lightweight bridge only)
+      // Pure view mode — serve lightweight bridge-powered page (no beam-app shell).
+      // All view modes (form, result, embed) use pure-view.html with the bridge.
+      // Form views lazy-load the form-components bundle for custom inputs.
       const viewParam = url.searchParams.get('view');
       if (
-        (viewParam === 'result' || viewParam === 'embed') &&
+        (viewParam === 'result' || viewParam === 'embed' || viewParam === 'form') &&
         url.pathname !== '/' &&
         !url.pathname.startsWith('/api')
       ) {
@@ -1976,8 +1994,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             .replaceAll('__METHOD__', escapeHtml(methodName))
             .replaceAll('__ARGS__', argsJson);
 
-          // Add data-view override only if explicitly requesting result
-          if (viewParam === 'result') {
+          // Add data-view for form and result modes
+          if (viewParam === 'form' || viewParam === 'result') {
             html = html.replace(
               'data-method=',
               `data-view="${escapeHtml(viewParam)}" data-method=`
@@ -2005,41 +2023,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               '<script>window.__PHOTON_SHELL_INIT=true</script></head>'
             );
           }
-          // Pre-apply view mode class and hide beam-app until shadow DOM is ready.
-          // Without this, the full Beam chrome (sidebar, toolbar) briefly flashes
-          // before the shadow DOM :host(.view-form) styles take effect.
-          const viewMode = url.searchParams.get('view');
-          if (viewMode === 'form' || viewMode === 'result') {
-            content = content
-              .replace('<beam-app>', `<beam-app class="view-${viewMode} focus-mode">`)
-              .replace(
-                '</head>',
-                `<style id="view-mode-hide">
-  /* Dark background on body + hidden beam-app prevents any flash of chrome.
-     The body bg matches the app's dark theme so the iframe blends seamlessly. */
-  body { background: #111318 !important; }
-  beam-app.view-form, beam-app.view-result {
-    visibility: hidden;
-  }
-</style>
-<script>
-  // Reveal beam-app after its first full render cycle — shadow DOM styles
-  // (which hide chrome) are active by then.
-  customElements.whenDefined('beam-app').then(function() {
-    var app = document.querySelector('beam-app');
-    if (!app) return;
-    app.updateComplete.then(function() {
-      requestAnimationFrame(function() {
-        // Remove the hide style entirely — shadow DOM :host(.view-form) takes over
-        var hideStyle = document.getElementById('view-mode-hide');
-        if (hideStyle) hideStyle.remove();
-        app.style.visibility = 'visible';
-      });
-    });
-  });
-</script></head>`
-              );
-          }
+          // Note: ?view=form and ?view=result are handled by pure-view.html above.
+          // This default route only serves the full Beam app for the main UI.
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end(content);
         } catch (err) {

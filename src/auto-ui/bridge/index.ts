@@ -950,6 +950,62 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  /**
+   * Load Beam's invoke-form component (Lit) for rich form rendering.
+   * Lazy-loads the form bundle on first use — provides custom inputs
+   * (date-picker, segmented-control, star-rating, etc.) in pure-view context.
+   */
+  function _loadRichForm(el, method, meta, args, proxy, format, renderResult) {
+    // Inject form bundle script (once)
+    if (!document.querySelector('script[data-form-bundle]')) {
+      var s = document.createElement('script');
+      s.type = 'module';
+      s.src = '/beam-form.bundle.js';
+      s.setAttribute('data-form-bundle', '1');
+      document.head.appendChild(s);
+    }
+
+    // Wait for invoke-form custom element to be defined
+    customElements.whenDefined('invoke-form').then(function() {
+      var form = document.createElement('invoke-form');
+      form.photonName = ctx.photon;
+      form.methodName = method;
+      form.params = meta.inputSchema.properties || {};
+      // Pass along any pre-set args as shared values
+      if (args && Object.keys(args).length > 0) {
+        form.sharedValues = args;
+      }
+
+      // Handle form submission — call the method via bridge proxy
+      form.addEventListener('submit', function(e) {
+        form.loading = true;
+        try {
+          var p = proxy[method](e.detail.args);
+          if (p && typeof p.then === 'function') {
+            p.then(function(r) {
+              form.loading = false;
+              renderResult(r);
+            }).catch(function(err) {
+              form.loading = false;
+              el.insertAdjacentHTML('beforeend',
+                '<div style="color:var(--color-error,#f87171);padding:8px;">Error: ' + _escHtml(err.message) + '</div>');
+            });
+          } else {
+            form.loading = false;
+            renderResult(p);
+          }
+        } catch (err) {
+          form.loading = false;
+          el.insertAdjacentHTML('beforeend',
+            '<div style="color:var(--color-error,#f87171);padding:8px;">Error: ' + _escHtml(err.message) + '</div>');
+        }
+      });
+
+      el.innerHTML = '';
+      el.appendChild(form);
+    });
+  }
+
   function _generateForm(el, method, meta, args, proxy, format, renderResult) {
     _injectFormCSS();
     var schema = meta.inputSchema;
@@ -1227,7 +1283,14 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         }
 
         if (showForm && meta.inputSchema) {
-          _generateForm(el, method, meta, args, proxy, format, renderResult);
+          // Use rich invoke-form (Lit component) for pure-view form mode.
+          // The form bundle is lazy-loaded on first use — provides custom inputs
+          // (date-picker, segmented-control, etc.) without loading full Beam chrome.
+          if (viewOverride === 'form') {
+            _loadRichForm(el, method, meta, args, proxy, format, renderResult);
+          } else {
+            _generateForm(el, method, meta, args, proxy, format, renderResult);
+          }
           return; // form handles its own lifecycle
         }
 

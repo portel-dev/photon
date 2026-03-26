@@ -49,6 +49,17 @@
         box-sizing: border-box;
       }
 
+      /* Form mode: top-aligned, full width for form content */
+      #pure-view[data-view='form'] {
+        align-items: flex-start;
+        justify-content: center;
+        padding: 24px;
+      }
+      #pure-view[data-view='form'] invoke-form {
+        width: 100%;
+        max-width: 640px;
+      }
+
       /* Prism.js Dark Theme (One Dark inspired) */
       code[class*='language-'],
       pre[class*='language-'] {
@@ -175,9 +186,12 @@
         var msg = event.data;
         if (!msg || typeof msg !== 'object') return;
 
-        // Handle JSON-RPC tools/call from bridge
+        // Handle JSON-RPC tools/call from bridge and form components
         if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
-          var toolName = photonName + '/' + (msg.params && msg.params.name || '');
+          var rawName = (msg.params && msg.params.name) || '';
+          // Don't double-prefix: invoke-form sends fully-qualified names (photon/method),
+          // bridge sends unqualified names (just method). Check for prefix before adding.
+          var toolName = rawName.indexOf('/') !== -1 ? rawName : photonName + '/' + rawName;
           var args = (msg.params && msg.params.arguments) || {};
 
           var doCall = function() {
