@@ -4806,8 +4806,10 @@ ${bridge}
     display: flex; flex-direction: column; justify-content: start; }
   /* Title slides: vertically centered when content is minimal */
   .slide-body.title-slide { justify-content: center; align-items: flex-start; }
-  /* Content slides: spread content vertically to fill available space */
-  .slide-body.content-slide { justify-content: space-between; }
+  /* Content slides: spread content vertically with equal spacing all around.
+     space-evenly gives equal gaps before first, between, and after last element —
+     so the bottom gets the same breathing room as the gaps between content. */
+  .slide-body.content-slide { justify-content: space-evenly; }
   .slide-body.content-slide > h1,
   .slide-body.content-slide > h2 { flex-shrink: 0; }
   .slide-footer { padding: 3px 32px; font-size: 8px; opacity: 0.35; display: flex; justify-content: space-between;
