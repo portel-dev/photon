@@ -302,7 +302,7 @@ export function generateRenderersScript(): string {
     }
 
     var canvasId = '_pc' + Math.random().toString(36).slice(2, 8);
-    container.innerHTML = '<div style="position:relative;width:100%;height:100%"><canvas id="' + canvasId + '"></canvas></div>';
+    container.innerHTML = '<div style="position:relative;width:100%;max-height:360px"><canvas id="' + canvasId + '"></canvas></div>';
 
     _loadChartJS(function() {
       var canvas = document.getElementById(canvasId);
@@ -327,7 +327,7 @@ export function generateRenderersScript(): string {
         data: { labels: labels, datasets: datasets },
         options: {
           responsive: true,
-          maintainAspectRatio: false,
+          maintainAspectRatio: true,
           indexAxis: isHorizontal ? 'y' : 'x',
           plugins: { legend: { labels: { color: colors.textMuted } } },
           scales: (chartType === 'pie' || chartType === 'doughnut') ? {} : {

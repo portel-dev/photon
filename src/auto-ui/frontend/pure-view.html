@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" style="color-scheme:dark;background:#111318">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -47,6 +47,10 @@
         justify-content: center;
         padding: 16px;
         box-sizing: border-box;
+        visibility: hidden;
+      }
+      #pure-view.ready {
+        visibility: visible;
       }
 
       /* Form mode: top-aligned, full width for form content.
@@ -271,5 +275,12 @@
   <body>
     <div id="pure-view" data-method="__METHOD__" data-args="__ARGS__"></div>
     <script src="/api/platform-bridge?photon=__PHOTON__&raw=1"></script>
+    <script>
+      // Reveal content only after everything is loaded — prevents white flash
+      window.addEventListener('load', function() {
+        var el = document.getElementById('pure-view');
+        if (el) el.classList.add('ready');
+      });
+    </script>
   </body>
 </html>
