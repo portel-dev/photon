@@ -264,10 +264,16 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   }
 
   // Handle @format qr — render QR code in terminal
-  if ((hint as string) === 'qr' && result && typeof result === 'object') {
-    const qrValue = result.qr || result.value || result.url || result.link;
+  if ((hint as string) === 'qr' && result) {
+    // Support both plain string results and object results with qr/value/url/link keys
+    const qrValue =
+      typeof result === 'string'
+        ? result
+        : typeof result === 'object'
+          ? result.qr || result.value || result.url || result.link
+          : null;
     if (qrValue && typeof qrValue === 'string') {
-      if (result.message) {
+      if (typeof result === 'object' && result.message) {
         console.log(result.message);
       }
       import('qrcode')
@@ -284,7 +290,7 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
         .catch(() => console.log(`[QR] ${qrValue}`));
       return true;
     }
-    if (result.message) {
+    if (typeof result === 'object' && result.message) {
       console.log(result.message);
       return true;
     }
