@@ -1153,14 +1153,14 @@ async function testSourcePatterns() {
     );
   });
 
-  await test('beam does NOT call reloadDaemon anymore', async () => {
+  await test('beam calls reloadDaemonPhoton for stateful hot-reload sync', async () => {
     const source = await fsPromises.readFile(
       path.join(process.cwd(), 'src/auto-ui/beam.ts'),
       'utf-8'
     );
     assert.ok(
-      !source.includes('reloadDaemon'),
-      'Beam should not import or call reloadDaemon — daemon watches its own files'
+      source.includes('reloadDaemonPhoton'),
+      'Beam should call reloadDaemonPhoton after hot-reloading @stateful photons'
     );
   });
 
