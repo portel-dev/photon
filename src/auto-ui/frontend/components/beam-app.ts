@@ -6010,6 +6010,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
    */
   private _willAutoInvoke(method: any): boolean {
     if (!method || !this._mcpReady) return false;
+    // Never auto-invoke destructive methods — require explicit user action
+    if (method.destructiveHint) return false;
     const shouldAutorun = method.autorun === true;
     const params = method.params || {};
     const properties = params.properties || {};

@@ -117,7 +117,7 @@ import { logger, createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
-import { subscribeChannel, pingDaemon } from '../daemon/client.js';
+import { subscribeChannel, pingDaemon, reloadDaemonPhoton } from '../daemon/client.js';
 import {
   ensurePhotonEditorDeclaration,
   writePhotonEditorDeclaration,
@@ -2482,6 +2482,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                   logger.warn(
                     `Failed to subscribe dynamically to ${photonName}: ${getErrorMessage(err)}`
                   );
+                });
+                // Tell daemon to reload so its instance has the new methods/code
+                reloadDaemonPhoton(photonName, photonPath, workingDir).catch((err) => {
+                  logger.debug(`Daemon reload for ${photonName}: ${getErrorMessage(err)}`);
                 });
               }
 

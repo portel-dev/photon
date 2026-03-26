@@ -167,6 +167,63 @@ export async function sendCommand(
 }
 
 /**
+ * Tell the daemon to reload a photon (re-compile and re-instantiate).
+ * Called by Beam after hot-reload so the daemon's instance matches.
+ */
+export async function reloadDaemonPhoton(
+  photonName: string,
+  photonPath: string,
+  workingDir?: string
+): Promise<void> {
+  const socketPath = getGlobalSocketPath();
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+    const requestId = `reload_${Date.now()}`;
+    let buffer = '';
+
+    const timeout = setTimeout(() => {
+      client.destroy();
+      reject(new Error('Daemon reload timeout'));
+    }, 15000);
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'reload',
+        id: requestId,
+        photonName,
+        photonPath,
+        workingDir,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const response = JSON.parse(line);
+          if (response.id === requestId) {
+            clearTimeout(timeout);
+            client.end();
+            resolve();
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+    });
+
+    client.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+}
+
+/**
  * Send command directly to daemon (no retry logic)
  */
 async function sendCommandDirect(
