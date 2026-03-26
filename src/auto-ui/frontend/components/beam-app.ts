@@ -2882,6 +2882,10 @@ export class BeamApp extends LitElement {
         // Only auto-refresh if we're viewing a SAFE (read-only) method on the changed photon.
         // Methods with required params are mutations (add, remove, update) — replaying them
         // would duplicate side-effects. Only parameterless methods (get, list, stats) are safe.
+        // Show warmth indicator on sidebar for the changed photon
+        const sidebarEl = this.renderRoot?.querySelector?.('beam-sidebar');
+        (sidebarEl as any)?.updatePhotonWarmth?.(data.photon);
+
         const methodParams = this._selectedMethod?.params;
         const hasRequiredParams = methodParams?.required?.length > 0;
         if (

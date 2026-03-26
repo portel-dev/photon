@@ -24,7 +24,6 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { setSecurityHeaders, SimpleRateLimiter, escapeHtml } from '../shared/security.js';
-import fastJsonPatch from 'fast-json-patch';
 
 /**
  * Check if shell integration has been installed (photon init cli).
@@ -2732,31 +2731,45 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         photonName,
         channel,
         (message: any) => {
-          // Apply JSON Patch to Beam's local instance so silent refresh returns fresh data.
-          // Without this, Beam and the daemon hold separate instances — mutations via CLI
-          // update the daemon's copy but Beam's local instance stays stale.
-          if (message?.patch?.length > 0) {
-            const mcp = photonMCPs.get(photonName);
-            if (mcp?.instance) {
-              try {
-                fastJsonPatch.applyPatch(mcp.instance, structuredClone(message.patch));
-              } catch {
-                // Patch failure is non-fatal — silent refresh will still return stale data
+          // Sync Beam's local instance from the daemon-persisted state file BEFORE
+          // notifying the frontend. The daemon persists state to disk after mutations,
+          // and Beam's local instance must match before _silentRefresh re-queries it.
+          void (async () => {
+            if (message?.patch?.length > 0) {
+              const mcp = photonMCPs.get(photonName);
+              if (mcp?.instance) {
+                const instName = instanceName || 'default';
+                const stateFile = path.join(workingDir, 'state', photonName, `${instName}.json`);
+                try {
+                  const json = await fs.readFile(stateFile, 'utf-8');
+                  const state = JSON.parse(json);
+                  for (const [key, value] of Object.entries(state)) {
+                    const target = mcp.instance[key];
+                    if (target && typeof target.splice === 'function' && Array.isArray(value)) {
+                      target.splice(0, target.length, ...value);
+                    } else {
+                      mcp.instance[key] = value;
+                    }
+                  }
+                } catch {
+                  // State file not yet written — ignore
+                  // State file not yet written — ignore
+                }
               }
             }
-          }
-          if (message?.instance === instanceName || !message?.instance) {
-            broadcastNotification('state-changed', {
-              photon: photonName,
-              instance: instanceName,
-              patches: message?.patches,
-              method: message?.method,
-              params: message?.params,
-              data: message?.data,
-              ...(message?.patch && { patch: message.patch }),
-              ...(message?.inversePatch && { inversePatch: message.inversePatch }),
-            });
-          }
+            if (message?.instance === instanceName || !message?.instance) {
+              broadcastNotification('state-changed', {
+                photon: photonName,
+                instance: instanceName,
+                patches: message?.patches,
+                method: message?.method,
+                params: message?.params,
+                data: message?.data,
+                ...(message?.patch && { patch: message.patch }),
+                ...(message?.inversePatch && { inversePatch: message.inversePatch }),
+              });
+            }
+          })();
         },
         {
           reconnect: true,
