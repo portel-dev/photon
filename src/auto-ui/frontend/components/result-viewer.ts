@@ -4779,6 +4779,9 @@ ${bridge}
 <style>
   /* reveal.js-style scaling: fixed design canvas + transform:scale() */
   *, *::before, *::after { box-sizing: border-box; }
+  /* Hide native scrollbars everywhere — slide canvas is fixed-size, no scrolling needed */
+  ::-webkit-scrollbar { display: none; }
+  * { scrollbar-width: none; }
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden;
     font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
     color: var(--color-on-surface, var(--text, #e6e6e6));
