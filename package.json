@@ -68,6 +68,7 @@
     "test:sqlite": "npm run build && npx tsx tests/sqlite.test.ts",
     "test:github": "npm run build && npx tsx tests/github-issues.test.ts",
     "test:beam": "npm run build && npx tsx tests/beam/rendering.test.ts",
+    "test:beam:regressions": "npm run build && npx tsx tests/beam/beam-integration-regressions.test.ts",
     "test:e2e": "npm run build && npx playwright test",
     "test:e2e:ui": "npm run build && npx playwright test --ui",
     "test:visual": "npm run build && npm run build:beam && npx tsx tests/beam/visual/visual.test.ts",
