@@ -236,7 +236,7 @@ async function runTests() {
       assert.equal(typeof instanceAssets, 'function', 'Instance assets should remain callable');
       assert.ok(Array.isArray(instanceAssets.ui), 'Instance assets should expose UI metadata');
       assert.equal(instanceAssets.ui[0].id, 'dashboard', 'Instance UI metadata should be attached');
-      const expectedAssetsDir = path.join(fsSync.realpathSync(testDir), photonName, 'ui');
+      const expectedAssetsDir = path.join(fsSync.realpathSync(testDir), photonName, 'assets', 'ui');
       assert.equal(
         instanceAssets('ui'),
         expectedAssetsDir,
