@@ -395,7 +395,51 @@ export default class DynList {
     );
   });
 
-  // ─── Test 5: System methods excluded, user methods included ───
+  // ─── Test 5: Hot-reload adds a method → callable via daemon ───
+  await test('new method added via hot-reload is callable through daemon', async () => {
+    // sync-list already exists with add() and get().
+    // Add a clear() method by rewriting the source.
+    const updatedSource = `
+/**
+ * @stateful
+ * @description Sync test list
+ */
+export default class SyncList {
+  items: string[];
+  constructor(items: string[] = []) { this.items = items; }
+  add(item: string) { this.items.push(item); return item; }
+  get() { return this.items; }
+  /** @destructive */
+  clear() { this.items.length = 0; return true; }
+}
+`;
+    await fs.writeFile(path.join(tmpDir, 'sync-list.photon.ts'), updatedSource);
+
+    // Wait for hot-reload + daemon reload
+    await new Promise((r) => setTimeout(r, 5000));
+
+    // Verify clear appears in tools/list
+    const tools = await mcpListTools(sessionId);
+    const clearTool = tools.find((t: any) => t.name === 'sync-list/clear');
+    assert(!!clearTool, 'sync-list/clear should appear in tools after hot-reload');
+
+    // Verify clear is callable (not "Tool not found")
+    const clearResp = await mcpCallTool(sessionId, 'sync-list/clear', {}, 40);
+    assert(
+      !clearResp.result?.isError,
+      `sync-list/clear should succeed, got: ${clearResp.result?.content?.[0]?.text}`
+    );
+
+    // Verify items are actually cleared
+    const getResp = await mcpCallTool(sessionId, 'sync-list/get', {}, 41);
+    const items = parseToolResult(getResp);
+    assert(
+      Array.isArray(items) && items.length === 0,
+      `Items should be empty after clear, got: ${JSON.stringify(items)}`
+    );
+  });
+
+  // ─── Test 6: System methods excluded, user methods included ───
   await test('_use and _instances methods are excluded from tools/list for user photons', async () => {
     const tools = await mcpListTools(sessionId);
     // sync-list is @stateful, so it gets _use and _instances — but they should be hidden
