@@ -203,3 +203,56 @@ export function exitWithError(
 
   process.exit(exitCode);
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TOOL ERROR FORMATTING (shared across STDIO and SSE transports)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Format a tool call error into a structured message for AI clients.
+ * Used by both STDIO and SSE transports to ensure consistent error reporting.
+ */
+export function formatToolError(
+  toolName: string,
+  error: unknown
+): { text: string; errorType: string } {
+  let errorMessage = error instanceof Error ? error.message : String(error);
+  let errorType = 'runtime_error';
+  let suggestion = '';
+
+  // Photon authors can attach userMessage and hint for friendly display
+  const userMessage =
+    error && typeof error === 'object' && 'userMessage' in error ? String(error.userMessage) : '';
+  const userHint = error && typeof error === 'object' && 'hint' in error ? String(error.hint) : '';
+
+  if (userMessage) errorMessage = userMessage;
+
+  if (userHint) {
+    suggestion = userHint;
+  } else if (errorMessage.includes('not a function') || errorMessage.includes('undefined')) {
+    errorType = 'implementation_error';
+    suggestion =
+      'The tool implementation may have an issue. Check that all methods are properly defined.';
+  } else if (errorMessage.includes('required') || errorMessage.includes('validation')) {
+    errorType = 'validation_error';
+    suggestion = 'Check the parameters provided match the tool schema requirements.';
+  } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+    errorType = 'timeout_error';
+    suggestion = 'The operation took too long. Try again or check external service availability.';
+  } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('network')) {
+    errorType = 'network_error';
+    suggestion =
+      'Cannot connect to external service. Check network connection and service availability.';
+  } else if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
+    errorType = 'permission_error';
+    suggestion = 'Permission denied. Check file/resource access permissions.';
+  } else if (errorMessage.includes('not found') || errorMessage.includes('ENOENT')) {
+    errorType = 'not_found_error';
+    suggestion = 'Resource not found. Check that the file or resource exists.';
+  }
+
+  let text = `Tool Error: ${toolName}\n\nError Type: ${errorType}\nMessage: ${errorMessage}\n`;
+  if (suggestion) text += `\nSuggestion: ${suggestion}\n`;
+
+  return { text, errorType };
+}

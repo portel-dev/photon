@@ -23,6 +23,7 @@ import { readdir, stat, readFile, writeFile } from 'fs/promises';
 import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
+import { formatToolError } from '../shared/error-handler.js';
 import { AGUIEventType } from '../ag-ui/types.js';
 import { proxyExternalAgent, createAGUIOutputHandler } from '../ag-ui/adapter.js';
 import type { RunAgentInput } from '../ag-ui/types.js';
@@ -1931,7 +1932,7 @@ const handlers: Record<string, RequestHandler> = {
 
       return toolResponse;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const { text } = formatToolError(methodName, error);
       audit({
         ts: new Date().toISOString(),
         event: 'tool_error',
@@ -1940,13 +1941,13 @@ const handlers: Record<string, RequestHandler> = {
         instance: session?.instanceName || 'default',
         client: session?.clientInfo?.name || 'beam',
         sessionId: session?.id,
-        error: message,
+        error: error instanceof Error ? error.message : String(error),
       });
       return {
         jsonrpc: '2.0',
         id: req.id,
         result: {
-          content: [{ type: 'text', text: `Error: ${message}` }],
+          content: [{ type: 'text', text }],
           isError: true,
         },
       };

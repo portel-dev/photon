@@ -13,12 +13,13 @@ import * as path from 'path';
 // ════════════════════════════════════════════════════════════════════════════════
 
 /**
- * Default bundled photons that ship with the runtime
+ * Default bundled photons that ship with the runtime.
+ * Available in CLI, STDIO, and Beam.
  */
-export const DEFAULT_BUNDLED_PHOTONS = ['maker'];
+export const DEFAULT_BUNDLED_PHOTONS = ['maker', 'marketplace'];
 
 /**
- * Extended bundled photons for beam (includes tunnel)
+ * Extended bundled photons for Beam (includes tunnel for port forwarding UI)
  */
 export const BEAM_BUNDLED_PHOTONS = ['maker', 'marketplace', 'tunnel'];
 

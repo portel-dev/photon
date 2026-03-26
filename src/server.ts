@@ -30,7 +30,7 @@ import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
 import { createLogger, Logger, LoggerOptions, LogLevel } from './shared/logger.js';
-import { getErrorMessage } from './shared/error-handler.js';
+import { getErrorMessage, formatToolError } from './shared/error-handler.js';
 import {
   validateOrThrow,
   assertString,
@@ -1774,70 +1774,19 @@ export class PhotonServer {
    * Provides structured, actionable error messages
    */
   private formatError(error: any, toolName: string, args: any): any {
-    // Determine error type
-    let errorType = 'runtime_error';
-    let errorMessage = getErrorMessage(error) || String(error);
-    let suggestion = '';
+    const { text, errorType: _errorType } = formatToolError(toolName, error);
 
-    // Photon authors can attach userMessage and hint to errors for friendly display:
-    //   throw Object.assign(new Error('internal'), { userMessage: 'friendly msg', hint: 'try this' })
-    const userMessage =
-      error && typeof error === 'object' && 'userMessage' in error ? String(error.userMessage) : '';
-    const userHint =
-      error && typeof error === 'object' && 'hint' in error ? String(error.hint) : '';
-
-    // Use userMessage as the display message if provided
-    if (userMessage) {
-      errorMessage = userMessage;
-    }
-
-    // Use author-provided hint over auto-generated suggestion
-    if (userHint) {
-      suggestion = userHint;
-    } else if (errorMessage.includes('not a function') || errorMessage.includes('undefined')) {
-      // Categorize common errors and provide suggestions
-      errorType = 'implementation_error';
-      suggestion =
-        'The tool implementation may have an issue. Check that all methods are properly defined.';
-    } else if (errorMessage.includes('required') || errorMessage.includes('validation')) {
-      errorType = 'validation_error';
-      suggestion = 'Check the parameters provided match the tool schema requirements.';
-    } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
-      errorType = 'timeout_error';
-      suggestion = 'The operation took too long. Try again or check external service availability.';
-    } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('network')) {
-      errorType = 'network_error';
-      suggestion =
-        'Cannot connect to external service. Check network connection and service availability.';
-    } else if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
-      errorType = 'permission_error';
-      suggestion = 'Permission denied. Check file/resource access permissions.';
-    } else if (errorMessage.includes('not found') || errorMessage.includes('ENOENT')) {
-      errorType = 'not_found_error';
-      suggestion = 'Resource not found. Check that the file or resource exists.';
-    }
-
-    // Build structured error message for AI
-    let structuredMessage = `❌ Tool Error: ${toolName}\n\n`;
-    structuredMessage += `Error Type: ${errorType}\n`;
-    structuredMessage += `Message: ${errorMessage}\n`;
-
-    if (suggestion) {
-      structuredMessage += `\nSuggestion: ${suggestion}\n`;
-    }
-
-    // Include parameters for debugging (in dev mode)
+    // Add dev-mode extras
+    let devExtras = '';
     if (this.options.devMode && Object.keys(args || {}).length > 0) {
-      structuredMessage += `\nParameters provided:\n${JSON.stringify(args, null, 2)}\n`;
+      devExtras += `\nParameters provided:\n${JSON.stringify(args, null, 2)}\n`;
     }
-
-    // Include stack trace in dev mode
     if (this.options.devMode && error.stack) {
-      structuredMessage += `\nStack trace:\n${error.stack}\n`;
+      devExtras += `\nStack trace:\n${error.stack}\n`;
     }
 
     // Log to stderr for debugging
-    this.log('error', `[Photon Error] ${toolName}: ${errorMessage}`);
+    this.log('error', `[Photon Error] ${toolName}: ${getErrorMessage(error)}`);
     if (this.options.devMode && error.stack) {
       this.log('debug', error.stack);
     }
@@ -1846,7 +1795,7 @@ export class PhotonServer {
       content: [
         {
           type: 'text',
-          text: structuredMessage,
+          text: text + devExtras,
         },
       ],
       isError: true,
