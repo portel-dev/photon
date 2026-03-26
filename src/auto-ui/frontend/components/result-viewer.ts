@@ -4740,7 +4740,7 @@ export class ResultViewer extends LitElement {
       /<div\s+data-embed="([^"]+)"\s+data-embed-view="form"(?:\s+data-embed-height="([^"]*)")?[^>]*><\/div>/g,
       (_, path, height) => {
         const h = height || '400';
-        return `<iframe src="/${path}?view=form" style="width:100%;height:${h}px;border:none;border-radius:8px;overflow:hidden;" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>`;
+        return `<iframe src="/${path}?view=form" style="width:100%;height:${h}px;border:none;border-radius:8px;overflow:hidden;background:#111318;" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>`;
       }
     );
 
