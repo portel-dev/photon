@@ -4751,7 +4751,7 @@ export class ResultViewer extends LitElement {
         return `data-method="${method}" data-live`;
       })
       .replace(/data-embed-params=/g, 'data-args=')
-      .replace(/data-embed-height="([^"]+)"/g, 'style="min-height:$1px"')
+      .replace(/data-embed-height="([^"]+)"/g, 'style="height:$1px;flex-shrink:0"')
       .replace(/data-embed-view="[^"]*"/g, '');
 
     // Inline code blocks: replace "Loading..." placeholders with actual code
@@ -4802,7 +4802,14 @@ ${bridge}
   .slide-header { padding: 4px 32px; font-size: 9px; opacity: 0.4;
     color: var(--color-on-surface-variant, inherit);
     border-bottom: 1px solid var(--color-outline-variant, rgba(128,128,128,0.1)); flex-shrink: 0; }
-  .slide-body { flex: 1; padding: 16px 32px 12px; overflow: hidden; }
+  .slide-body { flex: 1; padding: 16px 32px 12px; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: start; }
+  /* Title slides: vertically centered when content is minimal */
+  .slide-body.title-slide { justify-content: center; align-items: flex-start; }
+  /* Content slides: spread content vertically to fill available space */
+  .slide-body.content-slide { justify-content: space-between; }
+  .slide-body.content-slide > h1,
+  .slide-body.content-slide > h2 { flex-shrink: 0; }
   .slide-footer { padding: 3px 32px; font-size: 8px; opacity: 0.35; display: flex; justify-content: space-between;
     color: var(--color-on-surface-variant, inherit);
     border-top: 1px solid var(--color-outline-variant, rgba(128,128,128,0.1)); flex-shrink: 0; }
@@ -4926,6 +4933,21 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
   window.addEventListener('resize', scaleSlide);
   // Re-scale after bridge initializes (theme tokens may change layout)
   document.addEventListener('DOMContentLoaded', function() { setTimeout(scaleSlide, 100); });
+
+  // Detect slide type: title slide (minimal content) vs content slide.
+  // Title slides get vertically centered; content slides keep title at top.
+  (function() {
+    var body = document.querySelector('.slide-body');
+    if (!body) return;
+    var children = body.children;
+    var hasComplex = body.querySelector('pre, table, .cols, [data-method], iframe, canvas, ul, ol, .card, .callout, blockquote');
+    // Title slide: only headings + maybe one short paragraph, no complex elements
+    if (!hasComplex && children.length <= 4) {
+      body.classList.add('title-slide');
+    } else {
+      body.classList.add('content-slide');
+    }
+  })();
 <\/script>
 </body>
 </html>`;
