@@ -49,11 +49,51 @@
         box-sizing: border-box;
       }
 
-      /* Form mode: top-aligned, full width for form content */
+      /* Form mode: top-aligned, full width for form content.
+         Provides the design system CSS variables that invoke-form expects
+         (normally inherited from beam-app, but pure-view has no beam-app). */
       #pure-view[data-view='form'] {
         align-items: flex-start;
         justify-content: center;
         padding: 24px;
+
+        /* Colors — dark theme (matches beam-app :host defaults) */
+        --bg-app: hsl(220, 15%, 10%);
+        --bg-glass: hsla(220, 15%, 14%, 0.6);
+        --bg-glass-strong: hsla(220, 15%, 14%, 0.85);
+        --bg-panel: hsl(220, 15%, 12%);
+        --t-primary: hsl(220, 10%, 95%);
+        --t-secondary: hsl(220, 10%, 75%);
+        --t-muted: hsl(220, 10%, 65%);
+        --border-glass: hsla(220, 10%, 80%, 0.1);
+        --accent-primary: hsl(260, 100%, 65%);
+        --accent-secondary: hsl(190, 100%, 50%);
+        --glow-primary: hsla(260, 100%, 65%, 0.3);
+        --color-error: #ff4444;
+        --color-error-glow: rgba(255, 68, 68, 0.6);
+        --color-error-bg: rgba(255, 68, 68, 0.1);
+        --color-success: #00e676;
+        --color-warning: #ffab00;
+
+        /* Spacing / radius / typography */
+        --space-xs: 4px;
+        --space-sm: 8px;
+        --space-md: 16px;
+        --space-lg: 24px;
+        --space-xl: 32px;
+        --radius-xs: 4px;
+        --radius-sm: 6px;
+        --radius-md: 12px;
+        --radius-lg: 18px;
+        --radius-full: 9999px;
+        --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        --font-mono: 'JetBrains Mono', monospace;
+        --text-md: 0.9rem;
+        --text-sm: 0.8rem;
+        --text-xs: 0.7rem;
+
+        color: var(--t-primary);
+        font-family: var(--font-sans);
       }
       #pure-view[data-view='form'] invoke-form {
         width: 100%;
