@@ -1018,7 +1018,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-
       // Always surface errored photons in the sidebar instead of silently dropping them
       return {
         id: generatePhotonId(photonPath),

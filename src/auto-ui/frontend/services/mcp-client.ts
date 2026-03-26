@@ -922,8 +922,11 @@ class MCPClientService {
           });
         }
 
-        // Skip internal runtime tools (_use, _instances) — they are not user-facing methods
-        if (!tool['x-photon-internal']) {
+        // Skip internal runtime tools (_use, _instances, _undo, _redo) — they are not user-facing.
+        // Note: x-photon-internal on a tool means the tool itself is a system method,
+        // not that the parent photon is @internal. Internal photons (maker, marketplace)
+        // still have user-facing methods that need to be displayed.
+        if (!methodName.startsWith('_')) {
           photonMap.get(serverName).methods.push({
             name: methodName,
             description: tool.description || '',
