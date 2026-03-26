@@ -4806,12 +4806,14 @@ ${bridge}
     display: flex; flex-direction: column; justify-content: start; }
   /* Title slides: vertically centered when content is minimal */
   .slide-body.title-slide { justify-content: center; align-items: flex-start; }
-  /* Content slides: spread content vertically with equal spacing all around.
-     space-evenly gives equal gaps before first, between, and after last element —
-     so the bottom gets the same breathing room as the gaps between content. */
-  .slide-body.content-slide { justify-content: space-evenly; }
-  .slide-body.content-slide > h1,
-  .slide-body.content-slide > h2 { flex-shrink: 0; }
+  /* Content slides: title anchored at top, remaining content distributed below
+     with equal gaps (including bottom padding so nothing touches the edge). */
+  .slide-body.content-slide > h1:first-child,
+  .slide-body.content-slide > h2:first-child { flex-shrink: 0; margin-top: 0; }
+  .slide-body.content-slide > .slide-content-area {
+    flex: 1; display: flex; flex-direction: column;
+    justify-content: space-evenly;
+  }
   .slide-footer { padding: 3px 32px; font-size: 8px; opacity: 0.35; display: flex; justify-content: space-between;
     color: var(--color-on-surface-variant, inherit);
     border-top: 1px solid var(--color-outline-variant, rgba(128,128,128,0.1)); flex-shrink: 0; }
@@ -4936,18 +4938,29 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
   // Re-scale after bridge initializes (theme tokens may change layout)
   document.addEventListener('DOMContentLoaded', function() { setTimeout(scaleSlide, 100); });
 
-  // Detect slide type: title slide (minimal content) vs content slide.
-  // Title slides get vertically centered; content slides keep title at top.
+  // Detect slide type and layout content.
+  // Title slides: vertically centered.
+  // Content slides: title stays at top, everything else wrapped in a
+  // .slide-content-area div that distributes with space-evenly.
   (function() {
     var body = document.querySelector('.slide-body');
     if (!body) return;
     var children = body.children;
     var hasComplex = body.querySelector('pre, table, .cols, [data-method], iframe, canvas, ul, ol, .card, .callout, blockquote');
-    // Title slide: only headings + maybe one short paragraph, no complex elements
     if (!hasComplex && children.length <= 4) {
       body.classList.add('title-slide');
     } else {
       body.classList.add('content-slide');
+      // Wrap everything after the first heading into a content area
+      var first = children[0];
+      if (first && (first.tagName === 'H1' || first.tagName === 'H2')) {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'slide-content-area';
+        while (body.children.length > 1) {
+          wrapper.appendChild(body.children[1]);
+        }
+        body.appendChild(wrapper);
+      }
     }
   })();
 <\/script>
