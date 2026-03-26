@@ -1358,6 +1358,24 @@ const handlers: Record<string, RequestHandler> = {
       uiMetadata['x-output-format'] = methodInfo.outputFormat;
     }
 
+    // Auto-confirm @destructive operations before execution (any transport path)
+    if (methodInfo?.destructiveHint) {
+      const elicitResult = await requestBeamElicitation({
+        ask: 'confirm',
+        message: `"${methodName}" is a destructive operation. Continue?`,
+      });
+      if (elicitResult.action !== 'accept' || elicitResult.content === false) {
+        return {
+          jsonrpc: '2.0' as const,
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: `${methodName} cancelled` }],
+            isError: false,
+          },
+        };
+      }
+    }
+
     // Stateful photons: route through daemon for shared instance across all clients
     if (photonInfo?.stateful && photonInfo.path) {
       try {
