@@ -322,12 +322,16 @@ export function generateRenderersScript(): string {
         };
       });
 
+      // Force high-DPI rendering: use at least 2x pixel ratio so charts
+      // stay crisp inside transform:scale() slide canvases on retina displays.
+      var dpr = Math.max(window.devicePixelRatio || 1, 2);
       new Chart(canvas, {
         type: chartType,
         data: { labels: labels, datasets: datasets },
         options: {
           responsive: true,
           maintainAspectRatio: true,
+          devicePixelRatio: dpr,
           indexAxis: isHorizontal ? 'y' : 'x',
           plugins: { legend: { labels: { color: colors.textMuted } } },
           scales: (chartType === 'pie' || chartType === 'doughnut') ? {} : {

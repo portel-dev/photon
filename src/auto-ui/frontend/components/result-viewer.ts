@@ -2218,8 +2218,40 @@ export class ResultViewer extends LitElement {
 
   private _handleGlobalKeydown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
+      // Exit slide fullscreen from anywhere (not just when container is focused)
+      if (this._slidesFullscreen) {
+        this._slidesFullscreen = false;
+        document.exitFullscreen?.().catch(() => {});
+        return;
+      }
       this._closeFullscreen();
     }
+
+    // Slide navigation — works globally so iframe focus doesn't block it
+    if (this.outputFormat === 'slides' && this._slidesParsed?.length > 0) {
+      const total = this._slidesParsed.length;
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+        e.preventDefault();
+        if (this._slidesCurrentIndex < total - 1) {
+          this._slidesNavigate(this._slidesCurrentIndex + 1, total);
+        }
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        if (this._slidesCurrentIndex > 0) {
+          this._slidesNavigate(this._slidesCurrentIndex - 1, total);
+        }
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        this._slidesNavigate(0, total);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        this._slidesNavigate(total - 1, total);
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        this._slidesToggleFullscreen();
+      }
+    }
+
     // Zoom with + and - keys when fullscreen is open
     if (this._fullscreenImage || this._fullscreenMermaid) {
       if (e.key === '+' || e.key === '=') {
