@@ -1275,7 +1275,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               loader,
               savedConfig,
               broadcastPhotonChange,
-              activeLoads
+              activeLoads,
+              (name, path, isStateful) => {
+                if (isStateful) {
+                  subscribeStatefulPhoton(name).catch(() => {});
+                  reloadDaemonPhoton(name, path, workingDir).catch(() => {});
+                }
+              }
             );
           },
           removePhoton: async (photonName: string) => {

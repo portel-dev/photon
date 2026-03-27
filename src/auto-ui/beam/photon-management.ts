@@ -208,7 +208,8 @@ export async function reloadPhotonViaMCP(
   loader: PhotonLoader,
   savedConfig: PhotonConfig,
   broadcastChange: () => void,
-  activeLoads?: Set<string>
+  activeLoads?: Set<string>,
+  onReloaded?: (photonName: string, photonPath: string, isStateful: boolean) => void
 ): Promise<{ success: boolean; photon?: PhotonInfo; error?: string }> {
   const photonIndex = photons.findIndex((p) => p.name === photonName);
   if (photonIndex === -1) {
@@ -279,6 +280,11 @@ export async function reloadPhotonViaMCP(
 
     logger.info(`🔄 ${photonName} reloaded via MCP`);
     broadcastChange();
+
+    // Notify caller for daemon sync and subscription updates
+    if (onReloaded && photonPath) {
+      onReloaded(photonName, photonPath, reloadedPhoton.stateful || false);
+    }
 
     return { success: true, photon: reloadedPhoton };
   } catch (error) {
