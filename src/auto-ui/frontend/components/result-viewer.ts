@@ -7,6 +7,7 @@ import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
 import { link, expand } from '../icons.js';
 import { mcpClient } from '../services/mcp-client.js';
+import { MotionObserver } from '../services/motion.js';
 
 type LayoutType =
   | 'table'
@@ -2165,6 +2166,7 @@ export class ResultViewer extends LitElement {
   // Recency heat: track when items were last added/updated
   private _itemHeatTimestamps = new Map<string, number>();
   private _warmthTimer: number | undefined;
+  private _motion = new MotionObserver();
 
   // Audit trail expansion state: track which items have expanded audit trails
   private _expandedAuditTrails = new Set<string>();
@@ -2203,11 +2205,16 @@ export class ResultViewer extends LitElement {
     this._warmthTimer = window.setInterval(() => {
       if (this._itemHeatTimestamps.size > 0) this.requestUpdate();
     }, 60_000);
+    // Universal motion observer — enables data-enter/data-depth on any result element
+    void this.updateComplete.then(() => {
+      if (this.shadowRoot) this._motion.observe(this.shadowRoot);
+    });
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener('keydown', this._handleGlobalKeydown, true);
+    this._motion.disconnect();
     if (this._warmthTimer) clearInterval(this._warmthTimer);
     if (this._chartInstance) {
       this._chartInstance.destroy();
@@ -4665,6 +4672,8 @@ export class ResultViewer extends LitElement {
   private _slidesDirection: 'forward' | 'backward' = 'forward';
   private _slidesTransitions: Map<number, string> = new Map(); // per-slide transition overrides
   private _slidesDefaultTransition = 'fade';
+  private _slidesBackgrounds: Map<number, string> = new Map(); // per-slide bg (color, url, gradient)
+  private _slidesEffects: Map<number, string> = new Map(); // per-slide element effect
   private _slidesBoundElements: Set<Element> = new Set();
   private _slidesRefreshTimers: number[] = [];
   private _slidesResizeObserver: ResizeObserver | null = null;
@@ -4723,18 +4732,56 @@ export class ResultViewer extends LitElement {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
-    // Parse per-slide transition overrides from HTML comments
+    // Parse per-slide directives from HTML comments
     this._slidesTransitions.clear();
+    this._slidesBackgrounds.clear();
+    this._slidesEffects.clear();
     slides.forEach((slide, i) => {
-      const match = slide.match(/<!--\s*transition:\s*(\w+)\s*-->/);
-      if (match) {
-        this._slidesTransitions.set(i, match[1]);
-      }
+      // <!-- transition: slide -->
+      const tMatch = slide.match(/<!--\s*transition:\s*(\w+)\s*-->/);
+      if (tMatch) this._slidesTransitions.set(i, tMatch[1]);
+      // <!-- bg: #hex | url(image.jpg) | linear-gradient(...) | rgba(...) -->
+      const bgMatch = slide.match(/<!--\s*bg:\s*(.+?)\s*-->/);
+      if (bgMatch) this._slidesBackgrounds.set(i, bgMatch[1].trim());
+      // <!-- effect: fade-up | scale-in | slide-in-left | ... -->
+      const fxMatch = slide.match(/<!--\s*effect:\s*(\S+)\s*-->/);
+      if (fxMatch) this._slidesEffects.set(i, fxMatch[1].trim());
     });
 
     // Default theme: match Beam's active theme (dark→default, light→uncover)
     const defaultTheme = 'auto';
     return { slides, theme: config.theme || defaultTheme, config };
+  }
+
+  /** Build HTML for a background layer (image, video, or gradient) inside bridge iframe */
+  private _buildSlideBgHtml(bg: string): string {
+    if (!bg) return '';
+    const isVideo = bg.startsWith('video:') || /\.(mp4|webm|mov)(\?|$)/i.test(bg);
+    if (isVideo) {
+      const src = bg.replace(/^video:/, '');
+      return `<video class="slide-bg-video" src="${src}" autoplay muted loop playsinline></video>`;
+    }
+    const style = this._buildSlideBgStyle(bg);
+    if (!style) return '';
+    return `<div class="slide-bg-layer" style="${style}"></div>`;
+  }
+
+  /** Convert a bg directive value into inline CSS for the background layer */
+  private _buildSlideBgStyle(bg: string): string {
+    if (!bg) return '';
+    // Strip video: prefix (handled separately as <video>)
+    if (bg.startsWith('video:') || /\.(mp4|webm|mov)(\?|$)/i.test(bg)) return '';
+    // URL or url()
+    if (/^url\(/.test(bg) || /\.(jpg|jpeg|png|gif|svg|webp|avif)(\?|$)/i.test(bg)) {
+      const url = bg.startsWith('url(') ? bg : `url(${bg})`;
+      return `background-image:${url};background-size:cover;background-position:center;`;
+    }
+    // Gradient
+    if (/^(linear|radial|conic)-gradient/i.test(bg)) {
+      return `background:${bg};`;
+    }
+    // Plain color
+    return `background:${bg};`;
   }
 
   /** Ensure the bridge script is loaded and cached */
@@ -4767,7 +4814,9 @@ export class ResultViewer extends LitElement {
     codeBlocks?: { id: string; code: string; language: string }[],
     headerText?: string,
     footerText?: string,
-    pageNum?: string
+    pageNum?: string,
+    slideBg?: string,
+    slideEffect?: string
   ): string {
     const bridge = this._slidesBridgeScript || '';
     // Convert data-embed="photon/method" to data-method="method" for bridge binding.
@@ -4841,6 +4890,42 @@ ${bridge}
     transform-origin: 50% 50%;
     display: flex; flex-direction: column;
     overflow: hidden;
+    z-index: 1;
+  }
+  /* Background layers (image, gradient, color) */
+  .slide-bg-layer {
+    position: absolute; inset: 0; z-index: 0;
+  }
+  .slide-bg-video {
+    position: absolute; inset: 0; z-index: 0;
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  /* When bg is present, add a scrim for text readability */
+  .slide-bg-layer + .slide-canvas,
+  .slide-bg-video + .slide-canvas {
+    background: rgba(0,0,0,0.35);
+  }
+  /* Universal motion system — matches motion.ts keyframes via data-enter attribute */
+  @keyframes motion-slide-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  @keyframes motion-slide-down { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: none; } }
+  @keyframes motion-slide-in-right { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+  @keyframes motion-slide-in-left { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: none; } }
+  @keyframes motion-scale-in { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: none; } }
+  @keyframes motion-scale-up { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: none; } }
+  @keyframes motion-flip-in { from { opacity: 0; transform: perspective(800px) rotateY(90deg); } to { opacity: 1; transform: none; } }
+  @keyframes motion-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes motion-drop-in { from { opacity: 0; transform: translateY(-40px) scale(0.95); } 60% { opacity: 1; transform: translateY(4px) scale(1.01); } to { opacity: 1; transform: none; } }
+  [data-enter="slide-up"] { animation: motion-slide-up 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="slide-down"] { animation: motion-slide-down 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="slide-in-right"] { animation: motion-slide-in-right 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="slide-in-left"] { animation: motion-slide-in-left 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="scale-in"] { animation: motion-scale-in 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="scale-up"] { animation: motion-scale-up 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="flip-in"] { animation: motion-flip-in 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="fade-in"] { animation: motion-fade-in 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="drop-in"] { animation: motion-drop-in 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+  @media (prefers-reduced-motion: reduce) {
+    [data-enter] { animation: none !important; opacity: 1 !important; }
   }
   .slide-header { padding: 4px 32px; font-size: 9px; opacity: 0.4;
     color: var(--color-on-surface-variant, inherit);
@@ -4963,7 +5048,8 @@ ${bridge}
 <\/script>
 </head>
 <body>
-<div class="slide-canvas">
+${this._buildSlideBgHtml(slideBg || '')}
+<div class="slide-canvas"${slideEffect ? ` data-effect="${slideEffect}"` : ''}>
 ${headerText ? `<div class="slide-header">${headerText}</div>` : ''}
 <div class="slide-body">${html}</div>
 ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</span><span>${pageNum || ''}</span></div>` : ''}
@@ -5103,17 +5189,36 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     // Determine current transition for data attributes
     const currentTransition = this._getSlideTransition(idx);
 
+    // Per-slide background (color, image URL, gradient, or video)
+    const slideBg = this._slidesBackgrounds.get(idx) || '';
+    const slideEffect = this._slidesEffects.get(idx) || '';
+    const slideBgStyle = this._buildSlideBgStyle(slideBg);
+    const isVideoBg = /\.(mp4|webm|mov)(\?|$)/i.test(slideBg) || slideBg.startsWith('video:');
+
     return html`
       <div
         class="slides-container ${themeClass}"
         id="slides-root"
         data-transition="${currentTransition}"
         data-direction="${this._slidesDirection}"
+        data-effect="${slideEffect}"
         @keydown=${(e: KeyboardEvent) => this._slidesKeydown(e, total)}
         tabindex="0"
         style="${viewportStyle}"
       >
         <div class="slides-viewport">
+          ${slideBg
+            ? isVideoBg
+              ? html`<video
+                  class="slides-bg-video"
+                  src="${slideBg.replace(/^video:/, '')}"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                ></video>`
+              : html`<div class="slides-bg-layer" style="${slideBgStyle}"></div>`
+            : ''}
           <div class="slides-content">
             ${this._slidesBridgeScript
               ? html`<iframe
@@ -5123,7 +5228,9 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
                     codeBlocks,
                     headerText,
                     footerText,
-                    showPaginate ? `${idx + 1} / ${total}` : ''
+                    showPaginate ? `${idx + 1} / ${total}` : '',
+                    slideBg,
+                    slideEffect
                   )}
                   sandbox="allow-scripts allow-same-origin allow-popups"
                   frameborder="0"
@@ -5235,6 +5342,30 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         .slides-container:fullscreen .slides-viewport:has(.slide-bridge-frame) {
           padding: 0;
         }
+        /* ═══ BACKGROUND LAYERS ═══ */
+        .slides-bg-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          border-radius: inherit;
+        }
+        .slides-bg-video {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          border-radius: inherit;
+        }
+        /* Scrim for readability when bg image/video is present */
+        .slides-viewport:has(.slides-bg-layer) .slides-content,
+        .slides-viewport:has(.slides-bg-video) .slides-content {
+          position: relative;
+          z-index: 1;
+          text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+        }
+
         .slides-content {
           width: 100%;
           max-width: 960px;
@@ -5396,20 +5527,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           animation: slides-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
         }
 
-        /* ═══ ELEMENT STAGGER-IN ═══ */
-        @keyframes slide-stagger-up {
-          from {
-            opacity: 0;
-            transform: translateY(18px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .slide-stagger-item {
-          animation: slide-stagger-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
+        /* Element stagger uses universal data-enter from motion system — no custom keyframes */
 
         /* ═══ PROGRESS BAR ═══ */
         .slides-progress {
@@ -5752,10 +5870,6 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           .slides-shake {
             animation: none !important;
           }
-          .slide-stagger-item {
-            animation: none !important;
-            opacity: 1 !important;
-          }
         }
 
         /* ═══ DECLARATIVE BINDING STYLES ═══ */
@@ -5890,65 +6004,67 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     );
   }
 
-  /** Trigger stagger-in animation on slide content children after transition */
+  // Map slide effect directives to universal motion data-enter values
+  private static readonly _EFFECT_MAP: Record<string, string> = {
+    'fade-up': 'slide-up',
+    'fade-down': 'slide-down',
+    'fade-left': 'slide-in-left',
+    'fade-right': 'slide-in-right',
+    'scale-in': 'scale-in',
+    'zoom-in': 'scale-up',
+    'flip-up': 'flip-in',
+    'drop-in': 'drop-in',
+    'fade-in': 'fade-in',
+    // Also accept motion names directly
+    'slide-up': 'slide-up',
+    'slide-down': 'slide-down',
+    'slide-in-left': 'slide-in-left',
+    'slide-in-right': 'slide-in-right',
+    'scale-up': 'scale-up',
+    'flip-in': 'flip-in',
+  };
+
+  /** Trigger stagger-in animation on slide content children after transition.
+   *  Uses the universal data-enter attribute from the motion system. */
   private _slidesStaggerIn(): void {
+    // Resolve effect: per-slide directive → motion data-enter value, default 'slide-up'
+    const slideEffect = this._slidesEffects.get(this._slidesCurrentIndex) || '';
+    const enterValue =
+      ResultViewer._EFFECT_MAP[slideEffect] || (slideEffect ? slideEffect : 'slide-up');
+    const CHILD_SELECTOR =
+      ':scope > h1, :scope > h2, :scope > h3, :scope > p, :scope > ul, :scope > ol, :scope > table, :scope > blockquote, :scope > pre, :scope > div:not(.slide-header):not(.slide-footer), :scope > figure, :scope > img, :scope > .slide-content-area';
+
+    const applyToChildren = (container: Element) => {
+      const children = container.querySelectorAll(CHILD_SELECTOR);
+      children.forEach((el, i) => {
+        const htmlEl = el as HTMLElement;
+        htmlEl.removeAttribute('data-enter');
+        void htmlEl.offsetWidth; // force reflow to restart animation
+        htmlEl.setAttribute('data-enter', enterValue);
+        htmlEl.style.animationDelay = `${i * 60}ms`;
+      });
+    };
+
     const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
     if (iframe) {
-      // Bridge slides: inject stagger into iframe's document after it loads
+      // Bridge slides: apply data-enter after iframe loads
       const applyStagger = () => {
         try {
           const iframeDoc = iframe.contentDocument;
           if (!iframeDoc) return;
           const body = iframeDoc.querySelector('.slide-body') || iframeDoc.body;
-          if (!body) return;
-          // Inject stagger keyframes if not already present
-          if (!iframeDoc.getElementById('photon-stagger-css')) {
-            const style = iframeDoc.createElement('style');
-            style.id = 'photon-stagger-css';
-            style.textContent = `
-              @keyframes slide-stagger-up {
-                from { opacity: 0; transform: translateY(18px); }
-                to { opacity: 1; transform: translateY(0); }
-              }
-              .slide-stagger-item {
-                animation: slide-stagger-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
-              }
-              @media (prefers-reduced-motion: reduce) {
-                .slide-stagger-item { animation: none !important; opacity: 1 !important; }
-              }
-            `;
-            iframeDoc.head.appendChild(style);
-          }
-          const children = body.querySelectorAll(
-            ':scope > h1, :scope > h2, :scope > h3, :scope > p, :scope > ul, :scope > ol, :scope > table, :scope > blockquote, :scope > pre, :scope > div:not(.slide-header):not(.slide-footer), :scope > figure, :scope > img, :scope > .slide-content-area'
-          );
-          children.forEach((el, i) => {
-            const htmlEl = el as HTMLElement;
-            htmlEl.classList.remove('slide-stagger-item');
-            void htmlEl.offsetWidth; // force reflow to restart animation
-            htmlEl.classList.add('slide-stagger-item');
-            htmlEl.style.animationDelay = `${i * 60}ms`;
-          });
+          if (body) applyToChildren(body);
         } catch {
-          /* cross-origin iframe — skip stagger */
+          /* cross-origin iframe — skip */
         }
       };
-      // Always wait for load — srcdoc just changed so the iframe is reloading
       iframe.addEventListener('load', applyStagger, { once: true });
       return;
     }
 
-    // Non-bridge slides: target direct children of .slides-content
+    // Non-bridge slides: target .slides-content children
     const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
-    if (!content) return;
-    const children = content.querySelectorAll(
-      ':scope > h1, :scope > h2, :scope > h3, :scope > p, :scope > ul, :scope > ol, :scope > table, :scope > blockquote, :scope > pre, :scope > div, :scope > figure, :scope > img'
-    );
-    children.forEach((el, i) => {
-      const htmlEl = el as HTMLElement;
-      htmlEl.classList.add('slide-stagger-item');
-      htmlEl.style.animationDelay = `${i * 60}ms`;
-    });
+    if (content) applyToChildren(content);
   }
 
   private _slidesNavigate(newIndex: number, total: number): void {
