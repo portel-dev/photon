@@ -18,6 +18,9 @@ import {
   DEFAULT_BUNDLED_PHOTONS,
   BEAM_BUNDLED_PHOTONS,
   getErrorMessage,
+  detectPM,
+  detectRunner,
+  globalInstallCmd,
 } from '../dist/shared-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -349,6 +352,49 @@ console.log('\n📋 shared-utils.ts Tests (Error Handling)');
     getErrorMessage({ code: 404 }) === '[object Object]',
     'getErrorMessage: stringifies object errors'
   );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PACKAGE MANAGER DETECTION TESTS
+// ═══════════════════════════════════════════════════════════════════
+
+console.log('\n📋 shared-utils.ts Tests (Package Manager Detection)');
+
+// detectPM tests
+{
+  const pm = detectPM();
+  test(pm === 'bun' || pm === 'npm' || pm === 'npm.cmd', `detectPM: returns valid PM (got: ${pm})`);
+
+  // Caching: second call should return same value
+  const pm2 = detectPM();
+  test(pm === pm2, 'detectPM: returns cached result on subsequent calls');
+}
+
+// detectRunner tests
+{
+  const runner = detectRunner();
+  test(
+    runner === 'bunx' || runner === 'npx',
+    `detectRunner: returns valid runner (got: ${runner})`
+  );
+
+  // Must match detectPM
+  const pm = detectPM();
+  const expectedRunner = pm === 'bun' ? 'bunx' : 'npx';
+  test(runner === expectedRunner, `detectRunner: matches detectPM (${pm} → ${runner})`);
+}
+
+// globalInstallCmd tests
+{
+  const cmd = globalInstallCmd('@portel/photon');
+  test(cmd.includes('@portel/photon'), 'globalInstallCmd: includes package name');
+
+  const pm = detectPM();
+  if (pm === 'bun') {
+    test(cmd.startsWith('bun add -g'), 'globalInstallCmd: uses bun add -g for bun');
+  } else {
+    test(cmd.startsWith('npm install -g'), 'globalInstallCmd: uses npm install -g for npm');
+  }
 }
 
 console.log(`\n✅ Shared Utilities tests: ${passed} passed, ${failed} failed\n`);
