@@ -6,15 +6,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { existsSync } from 'fs';
 import { execSync, spawn } from 'child_process';
-
-function detectPM(): string {
-  try {
-    execSync('bun --version', { stdio: 'ignore' });
-    return 'bun';
-  } catch {}
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
-}
 import { fileURLToPath } from 'url';
+import { detectPM, detectRunner } from '../shared-utils.js';
 import { createRequire } from 'module';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from '../version.js';
@@ -197,13 +190,13 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // Check for wrangler authentication
   logger.info('Checking Cloudflare authentication...');
   try {
-    execSync('npx wrangler whoami', { cwd: outputDir, stdio: 'pipe' });
+    execSync(`${detectRunner()} wrangler whoami`, { cwd: outputDir, stdio: 'pipe' });
   } catch {
     logger.warn('Not logged in to Cloudflare');
     logger.info('Running: wrangler login');
 
     // Run wrangler login interactively
-    const login = spawn('npx', ['wrangler', 'login'], {
+    const login = spawn(detectRunner(), ['wrangler', 'login'], {
       cwd: outputDir,
       stdio: 'inherit',
     });
@@ -219,7 +212,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // Deploy
   logger.info('Deploying to Cloudflare Workers...');
 
-  const deploy = spawn('npx', ['wrangler', 'deploy'], {
+  const deploy = spawn(detectRunner(), ['wrangler', 'deploy'], {
     cwd: outputDir,
     stdio: 'inherit',
   });
@@ -258,7 +251,7 @@ export async function devCloudflare(options: CloudflareDeployOptions): Promise<v
 
   logger.info('Starting local Cloudflare Workers dev server...');
 
-  const dev = spawn('npx', ['wrangler', 'dev'], {
+  const dev = spawn(detectRunner(), ['wrangler', 'dev'], {
     cwd: outputDir,
     stdio: 'inherit',
   });

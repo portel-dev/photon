@@ -22,7 +22,7 @@ import { printError, printWarning, printInfo, printSuccess } from '../../cli-for
 import { printHeader } from '../../cli-formatter.js';
 import { resolvePhotonPath } from '../../path-resolver.js';
 import { getDefaultContext } from '../../context.js';
-import { getBundledPhotonPath, DEFAULT_BUNDLED_PHOTONS } from '../../shared-utils.js';
+import { getBundledPhotonPath, DEFAULT_BUNDLED_PHOTONS, detectRunner } from '../../shared-utils.js';
 import { toEnvVarName } from '../../shared/config-docs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -257,7 +257,7 @@ async function showConfigTemplate(
   const config = {
     mcpServers: {
       [mcpName]: {
-        command: 'npx',
+        command: detectRunner(),
         args: ['@portel/photon', 'mcp', mcpName],
         env: envExample,
       },

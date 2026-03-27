@@ -10,6 +10,7 @@ import * as os from 'os';
 import { getErrorMessage } from '../../shared/error-handler.js';
 import { renderSection } from '../../shared/cli-sections.js';
 import { toEnvVarName } from '../../shared/config-docs.js';
+import { detectRunner } from '../../shared-utils.js';
 import { PHOTON_VERSION } from '../../version.js';
 import { resolvePhotonPath, listPhotonMCPs } from '../../path-resolver.js';
 import { getDefaultContext } from '../../context.js';
@@ -185,7 +186,7 @@ export function registerInfoCommand(program: Command): void {
                   ...(Object.keys(env).length > 0 && { env }),
                 }
               : {
-                  command: 'npx',
+                  command: detectRunner(),
                   args: ['@portel/photon', 'mcp', name],
                   ...(Object.keys(env).length > 0 && { env }),
                 };
@@ -302,7 +303,7 @@ export function registerInfoCommand(program: Command): void {
                   ...(Object.keys(env).length > 0 && { env }),
                 }
               : {
-                  command: 'npx',
+                  command: detectRunner(),
                   args: ['@portel/photon', 'mcp', mcpName],
                   ...(Object.keys(env).length > 0 && { env }),
                 };

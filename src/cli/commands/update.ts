@@ -8,6 +8,7 @@ import type { Command } from 'commander';
 import { getErrorMessage } from '../../shared/error-handler.js';
 import { runTask } from '../../shared/task-runner.js';
 import { PHOTON_VERSION } from '../../version.js';
+import { detectPM, globalInstallCmd } from '../../shared-utils.js';
 
 /**
  * Register the hidden `update` command
@@ -45,7 +46,13 @@ export function registerUpdateCommand(program: Command): void {
         try {
           latestVersion = await runTask('Checking for Photon CLI updates', async () => {
             const { execSync } = await import('child_process');
-            return execSync('npm view @portel/photon version', {
+            const pm = detectPM();
+            // bun doesn't have `bun view`, use npm view regardless of pm for registry checks
+            const viewCmd =
+              pm === 'bun'
+                ? 'npm view @portel/photon version'
+                : `${pm} view @portel/photon version`;
+            return execSync(viewCmd, {
               encoding: 'utf-8',
               timeout: 10000,
             }).trim();
@@ -61,7 +68,7 @@ export function registerUpdateCommand(program: Command): void {
             printHeader('Update available');
             printWarning(`Current: ${version}`);
             printInfo(`Latest:  ${latestVersion}`);
-            printInfo(`Update with: npm install -g @portel/photon`);
+            printInfo(`Update with: ${globalInstallCmd('@portel/photon')}`);
           } else {
             printSuccess(`Photon CLI is up to date (${version})`);
           }

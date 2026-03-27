@@ -1484,7 +1484,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           res.end(content);
         } catch {
           res.writeHead(404);
-          res.end('Bundle not found. Run npm run build:beam first.');
+          res.end('Bundle not found. Run the beam build script first.');
         }
         return;
       }
@@ -1501,7 +1501,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           res.end(content);
         } catch {
           res.writeHead(404);
-          res.end('Form bundle not found. Run npm run build:beam first.');
+          res.end('Form bundle not found. Run the beam build script first.');
         }
         return;
       }
@@ -1517,7 +1517,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           res.end(content);
         } catch {
           res.writeHead(404);
-          res.end('TS worker not found. Run npm run build:beam first.');
+          res.end('TS worker not found. Run the beam build script first.');
         }
         return;
       }

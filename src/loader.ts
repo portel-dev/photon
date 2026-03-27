@@ -118,23 +118,11 @@ import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage, wrapError } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
 import { warnIfDangerous } from './shared/security.js';
-
-// ════════════════════════════════════════════════════════════════════════════════
-// PACKAGE MANAGER DETECTION
-// ════════════════════════════════════════════════════════════════════════════════
-
-let _cachedPM: string | null = null;
+import { detectPM } from './shared-utils.js';
 
 /** Detect preferred package manager. Prefers bun for speed, falls back to npm. */
 function detectPreferredPackageManager(): string {
-  if (_cachedPM) return _cachedPM;
-  try {
-    execSync('bun --version', { stdio: 'ignore' });
-    _cachedPM = 'bun';
-  } catch {
-    _cachedPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  }
-  return _cachedPM;
+  return detectPM();
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

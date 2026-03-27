@@ -13,6 +13,7 @@ import { existsSync } from 'fs';
 import { resolvePhotonPath } from './path-resolver.js';
 import { getDefaultContext } from './context.js';
 import { getErrorMessage } from './shared/error-handler.js';
+import { detectRunner } from './shared-utils.js';
 import { logger } from './shared/logger.js';
 
 const ALIAS_DIR = path.join(getDefaultContext().baseDir, 'bin');
@@ -252,8 +253,8 @@ async function findPhotonExecutable(): Promise<string> {
     return globalPhoton;
   }
 
-  // Fallback to npx
-  return 'npx @portel/photon';
+  // Fallback to runner (npx or bunx)
+  return `${detectRunner()} @portel/photon`;
 }
 
 /**

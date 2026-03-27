@@ -13,6 +13,7 @@ import { isLocalRequest, readBody } from '../../../shared/security.js';
 import { generateOpenAPISpec } from '../../openapi-generator.js';
 import type { PhotonInfo, UnconfiguredPhotonInfo } from '../../types.js';
 import type { BeamState, RouteHandler } from '../types.js';
+import { detectRunner } from '../../../shared-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -260,7 +261,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
         {
           mcpServers: {
             [`photon-${photonName}`]: {
-              command: 'npx',
+              command: detectRunner(),
               args: ['-y', '@portel/photon', 'mcp', photonName],
             },
           },

@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { logger } from './shared/logger.js';
 import { findForbiddenIdentifier } from './shared/security.js';
+import { globalInstallCmd } from './shared-utils.js';
 
 interface TemplateHash {
   version: string;
@@ -407,7 +408,7 @@ We welcome contributions! Submit pull requests for:
 ### 1. Install Photon
 
 \\\`\\\`\\\`bash
-npm install -g @portel/photon
+${globalInstallCmd('@portel/photon')}
 \\\`\\\`\\\`
 
 ### 2. Add Any Photon

@@ -41,7 +41,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { exec, execFile } from 'child_process';
+import { exec, execFile, execSync } from 'child_process';
 import { promisify } from 'util';
 import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
 const execAsync = promisify(exec);
@@ -53,6 +53,19 @@ const NPM_PACKAGE_NAME_RE =
   /^(@[a-z0-9\-~][a-z0-9\-._~]*\/)?[a-z0-9\-~][a-z0-9\-._~]*(@[a-z0-9\-._^~>=<| ]+)?$/;
 function validateNpmPackageName(input: string): boolean {
   return NPM_PACKAGE_NAME_RE.test(input);
+}
+
+// Inlined from shared-utils — photon files can't import from runtime shared modules
+let _cachedMakerPM: string | null = null;
+function detectMakerPM(): string {
+  if (_cachedMakerPM) return _cachedMakerPM;
+  try {
+    execSync('bun --version', { stdio: 'ignore' });
+    _cachedMakerPM = 'bun';
+  } catch {
+    _cachedMakerPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  }
+  return _cachedMakerPM;
 }
 
 /** Wizard step types using standard ask/emit protocol */
@@ -563,7 +576,10 @@ ${allStubs.join('\n\n')}
       return { valid: false };
     }
     try {
-      const { stdout } = await execFileAsync('npm', ['view', name, 'version', '--json'], {
+      const pm = detectMakerPM();
+      // bun doesn't support `view` subcommand — fall back to npm for registry queries
+      const pmForView = pm === 'bun' ? 'npm' : pm;
+      const { stdout } = await execFileAsync(pmForView, ['view', name, 'version', '--json'], {
         timeout: 10000,
       });
       const version = JSON.parse(stdout.trim());

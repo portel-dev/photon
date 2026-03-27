@@ -11,6 +11,7 @@ import * as fs from 'fs/promises';
 import * as net from 'net';
 import { getErrorMessage } from '../../shared/error-handler.js';
 import { toEnvVarName } from '../../shared/config-docs.js';
+import { detectPM } from '../../shared-utils.js';
 import { resolvePhotonPath, listPhotonMCPs } from '../../path-resolver.js';
 import { getDefaultContext } from '../../context.js';
 
@@ -103,15 +104,16 @@ export function registerDoctorCommand(program: Command): void {
           suggestions.push('Upgrade to Node.js 18+ (https://nodejs.org).');
         }
 
-        // npm availability
+        // Package manager availability (bun or npm)
         try {
           const { execSync } = await import('child_process');
-          const npmVersion = execSync('npm --version', { encoding: 'utf-8' }).trim();
-          diagnostics['Package manager'] = { npm: npmVersion, status: STATUS.OK };
+          const pm = detectPM();
+          const pmVersion = execSync(`${pm} --version`, { encoding: 'utf-8' }).trim();
+          diagnostics['Package manager'] = { [pm]: pmVersion, status: STATUS.OK };
         } catch {
-          diagnostics['Package manager'] = { npm: 'not found', status: STATUS.ERROR };
+          diagnostics['Package manager'] = { version: 'not found', status: STATUS.ERROR };
           issuesFound++;
-          suggestions.push('Install npm / npx so Photon can install dependencies.');
+          suggestions.push('Install npm or bun so Photon can install dependencies.');
         }
 
         // Working directory health

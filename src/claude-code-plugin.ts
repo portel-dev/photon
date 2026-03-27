@@ -172,7 +172,11 @@ fi
 
 # Photon not found or not working, install it
 echo "📦 Installing Photon CLI..." >&2
-npm install -g @portel/photon &> /dev/null
+if command -v bun &> /dev/null; then
+  bun add -g @portel/photon &> /dev/null
+else
+  npm install -g @portel/photon &> /dev/null
+fi
 
 if [ $? -eq 0 ]; then
   echo "✅ Photon CLI installed successfully" >&2
@@ -236,7 +240,11 @@ echo ""
 if ! command -v photon &> /dev/null; then
   echo -e "\${RED}❌ Photon CLI not found.\${NC}"
   echo -e "Installing..."
-  npm install -g @portel/photon
+  if command -v bun &> /dev/null; then
+    bun add -g @portel/photon
+  else
+    npm install -g @portel/photon
+  fi
 
   if [ $? -ne 0 ]; then
     echo -e "\${RED}Failed to install Photon CLI\${NC}"
