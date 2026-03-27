@@ -2196,7 +2196,9 @@ export class ResultViewer extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    window.addEventListener('keydown', this._handleGlobalKeydown);
+    // Use capture phase so slide navigation intercepts arrow keys before
+    // the page scrolls or other handlers consume the event
+    window.addEventListener('keydown', this._handleGlobalKeydown, true);
     // Periodically re-render to decay warmth classes
     this._warmthTimer = window.setInterval(() => {
       if (this._itemHeatTimestamps.size > 0) this.requestUpdate();
@@ -2205,7 +2207,7 @@ export class ResultViewer extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    window.removeEventListener('keydown', this._handleGlobalKeydown);
+    window.removeEventListener('keydown', this._handleGlobalKeydown, true);
     if (this._warmthTimer) clearInterval(this._warmthTimer);
     if (this._chartInstance) {
       this._chartInstance.destroy();
@@ -2227,28 +2229,36 @@ export class ResultViewer extends LitElement {
       this._closeFullscreen();
     }
 
-    // Slide navigation — works globally so iframe focus doesn't block it
+    // Slide navigation — capture phase so arrow keys work without clicking slides first.
+    // Skip if user is typing in an input/textarea elsewhere on the page.
     if (this.outputFormat === 'slides' && this._slidesParsed?.length > 0) {
-      const total = this._slidesParsed.length;
-      if (e.key === 'ArrowRight' || e.key === 'PageDown') {
-        e.preventDefault();
-        if (this._slidesCurrentIndex < total - 1) {
+      const active = document.activeElement;
+      const isInput =
+        active instanceof HTMLElement &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.tagName === 'SELECT' ||
+          active.isContentEditable);
+      if (!isInput) {
+        const total = this._slidesParsed.length;
+        let handled = true;
+        if (e.key === 'ArrowRight' || e.key === 'PageDown') {
           this._slidesNavigate(this._slidesCurrentIndex + 1, total);
-        }
-      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
-        e.preventDefault();
-        if (this._slidesCurrentIndex > 0) {
+        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
           this._slidesNavigate(this._slidesCurrentIndex - 1, total);
+        } else if (e.key === 'Home') {
+          this._slidesNavigate(0, total);
+        } else if (e.key === 'End') {
+          this._slidesNavigate(total - 1, total);
+        } else if (e.key === 'f' || e.key === 'F') {
+          this._slidesToggleFullscreen();
+        } else {
+          handled = false;
         }
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        this._slidesNavigate(0, total);
-      } else if (e.key === 'End') {
-        e.preventDefault();
-        this._slidesNavigate(total - 1, total);
-      } else if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault();
-        this._slidesToggleFullscreen();
+        if (handled) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }
     }
 
@@ -4661,6 +4671,7 @@ export class ResultViewer extends LitElement {
   private _slidesScaleDebounce: ReturnType<typeof setTimeout> | null = null;
   private _slidesScaling = false;
   private _slidesLastZoom = '';
+  private _slidesShaking = false; // boundary shake animation guard
 
   // ── Bridge-powered slide rendering ──
   // Slide embeds run inside an iframe with the platform bridge loaded.
@@ -5121,11 +5132,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
               : unsafeHTML(slideHtml)}
           </div>
           <div class="slides-controls">
-            <button
-              class="slides-btn"
-              ?disabled=${idx === 0}
-              @click=${() => this._slidesNavigate(idx - 1, total)}
-            >
+            <button class="slides-btn" @click=${() => this._slidesNavigate(idx - 1, total)}>
               <svg
                 width="14"
                 height="14"
@@ -5140,11 +5147,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
               </svg>
             </button>
             <span class="slides-counter">${idx + 1} / ${total}</span>
-            <button
-              class="slides-btn"
-              ?disabled=${idx === total - 1}
-              @click=${() => this._slidesNavigate(idx + 1, total)}
-            >
+            <button class="slides-btn" @click=${() => this._slidesNavigate(idx + 1, total)}>
               <svg
                 width="14"
                 height="14"
@@ -5178,6 +5181,19 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
                 ></path>
               </svg>
             </button>
+          </div>
+          <!-- Progress bar -->
+          <div class="slides-progress">
+            ${Array.from(
+              { length: total },
+              (_, i) =>
+                html`<div
+                  class="slides-progress-segment ${i <= idx ? 'visited' : ''} ${i === idx
+                    ? 'current'
+                    : ''}"
+                  @click=${() => this._slidesNavigate(i, total)}
+                ></div>`
+            )}
           </div>
         </div>
         ${footerText && !this._slidesBridgeScript
@@ -5354,6 +5370,90 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         .slides-btn:disabled {
           opacity: 0.3;
           cursor: default;
+        }
+
+        /* ═══ BOUNDARY SHAKE ═══ */
+        @keyframes slides-shake {
+          10%,
+          90% {
+            transform: translateX(-1px);
+          }
+          20%,
+          80% {
+            transform: translateX(2px);
+          }
+          30%,
+          50%,
+          70% {
+            transform: translateX(-4px);
+          }
+          40%,
+          60% {
+            transform: translateX(4px);
+          }
+        }
+        .slides-shake {
+          animation: slides-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+        }
+
+        /* ═══ ELEMENT STAGGER-IN ═══ */
+        @keyframes slide-stagger-up {
+          from {
+            opacity: 0;
+            transform: translateY(18px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .slide-stagger-item {
+          animation: slide-stagger-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        /* ═══ PROGRESS BAR ═══ */
+        .slides-progress {
+          display: flex;
+          gap: 2px;
+          padding: 0 16px;
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 4px;
+          z-index: 11;
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        }
+        .slides-container:hover .slides-progress,
+        .slides-container:focus-within .slides-progress {
+          opacity: 1;
+        }
+        .slides-progress-segment {
+          flex: 1;
+          background: rgba(255, 255, 255, 0.15);
+          border-radius: 2px;
+          cursor: pointer;
+          transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .slides-progress-segment.visited {
+          background: var(--color-primary, rgba(125, 211, 252, 0.5));
+        }
+        .slides-progress-segment.current {
+          background: var(--color-primary, #7dd3fc);
+        }
+        .slides-progress-segment:hover {
+          background: var(--color-primary, #7dd3fc);
+          opacity: 0.8;
+        }
+        .slides-theme-uncover .slides-progress-segment {
+          background: rgba(0, 0, 0, 0.08);
+        }
+        .slides-theme-uncover .slides-progress-segment.visited {
+          background: var(--color-primary, rgba(26, 26, 46, 0.4));
+        }
+        .slides-theme-uncover .slides-progress-segment.current {
+          background: var(--color-primary, #1a1a2e);
         }
         .slides-counter {
           font-size: 13px;
@@ -5579,72 +5679,83 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
         /* Transition: fade (default) */
         ::view-transition-old(slide-content) {
-          animation: fadeOut 0.4s ease;
+          animation: fadeOut 0.2s ease;
         }
         ::view-transition-new(slide-content) {
-          animation: fadeIn 0.4s ease;
+          animation: fadeIn 0.2s ease;
         }
 
         /* Transition: slide forward */
         :host([data-slides-transition='slide'][data-slides-direction='forward'])
           ::view-transition-old(slide-content) {
-          animation: slideOutLeft 0.4s ease;
+          animation: slideOutLeft 0.2s ease;
         }
         :host([data-slides-transition='slide'][data-slides-direction='forward'])
           ::view-transition-new(slide-content) {
-          animation: slideInRight 0.4s ease;
+          animation: slideInRight 0.2s ease;
         }
         :host([data-slides-transition='slide'][data-slides-direction='backward'])
           ::view-transition-old(slide-content) {
-          animation: slideOutRight 0.4s ease;
+          animation: slideOutRight 0.2s ease;
         }
         :host([data-slides-transition='slide'][data-slides-direction='backward'])
           ::view-transition-new(slide-content) {
-          animation: slideInLeft 0.4s ease;
+          animation: slideInLeft 0.2s ease;
         }
 
         /* Transition: cover */
         :host([data-slides-transition='cover'][data-slides-direction='forward'])
           ::view-transition-old(slide-content) {
-          animation: stayPut 0.4s ease;
+          animation: stayPut 0.2s ease;
         }
         :host([data-slides-transition='cover'][data-slides-direction='forward'])
           ::view-transition-new(slide-content) {
-          animation: coverIn 0.4s ease;
+          animation: coverIn 0.2s ease;
         }
         :host([data-slides-transition='cover'][data-slides-direction='backward'])
           ::view-transition-old(slide-content) {
-          animation: stayPut 0.4s ease;
+          animation: stayPut 0.2s ease;
         }
         :host([data-slides-transition='cover'][data-slides-direction='backward'])
           ::view-transition-new(slide-content) {
-          animation: coverInReverse 0.4s ease;
+          animation: coverInReverse 0.2s ease;
         }
 
         /* Transition: reveal */
         :host([data-slides-transition='reveal'][data-slides-direction='forward'])
           ::view-transition-old(slide-content) {
-          animation: revealOut 0.4s ease;
+          animation: revealOut 0.2s ease;
         }
         :host([data-slides-transition='reveal'][data-slides-direction='forward'])
           ::view-transition-new(slide-content) {
-          animation: stayPut 0.4s ease;
+          animation: stayPut 0.2s ease;
         }
         :host([data-slides-transition='reveal'][data-slides-direction='backward'])
           ::view-transition-old(slide-content) {
-          animation: revealOutReverse 0.4s ease;
+          animation: revealOutReverse 0.2s ease;
         }
         :host([data-slides-transition='reveal'][data-slides-direction='backward'])
           ::view-transition-new(slide-content) {
-          animation: stayPut 0.4s ease;
+          animation: stayPut 0.2s ease;
         }
 
         /* Transition: zoom */
         :host([data-slides-transition='zoom']) ::view-transition-old(slide-content) {
-          animation: zoomOut 0.4s ease;
+          animation: zoomOut 0.2s ease;
         }
         :host([data-slides-transition='zoom']) ::view-transition-new(slide-content) {
-          animation: zoomIn 0.4s ease;
+          animation: zoomIn 0.2s ease;
+        }
+
+        /* ═══ REDUCED MOTION (slides) ═══ */
+        @media (prefers-reduced-motion: reduce) {
+          .slides-shake {
+            animation: none !important;
+          }
+          .slide-stagger-item {
+            animation: none !important;
+            opacity: 1 !important;
+          }
         }
 
         /* ═══ DECLARATIVE BINDING STYLES ═══ */
@@ -5762,8 +5873,91 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     return true;
   }
 
+  /** Shake the slide viewport to signal boundary (first/last slide) */
+  private _slidesBoundaryShake(): void {
+    if (this._slidesShaking) return;
+    const viewport = this.shadowRoot?.querySelector('.slides-viewport') as HTMLElement;
+    if (!viewport) return;
+    this._slidesShaking = true;
+    viewport.classList.add('slides-shake');
+    viewport.addEventListener(
+      'animationend',
+      () => {
+        viewport.classList.remove('slides-shake');
+        this._slidesShaking = false;
+      },
+      { once: true }
+    );
+  }
+
+  /** Trigger stagger-in animation on slide content children after transition */
+  private _slidesStaggerIn(): void {
+    const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
+    if (iframe) {
+      // Bridge slides: inject stagger into iframe's document after it loads
+      const applyStagger = () => {
+        try {
+          const iframeDoc = iframe.contentDocument;
+          if (!iframeDoc) return;
+          const body = iframeDoc.querySelector('.slide-body') || iframeDoc.body;
+          if (!body) return;
+          // Inject stagger keyframes if not already present
+          if (!iframeDoc.getElementById('photon-stagger-css')) {
+            const style = iframeDoc.createElement('style');
+            style.id = 'photon-stagger-css';
+            style.textContent = `
+              @keyframes slide-stagger-up {
+                from { opacity: 0; transform: translateY(18px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+              .slide-stagger-item {
+                animation: slide-stagger-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+              }
+              @media (prefers-reduced-motion: reduce) {
+                .slide-stagger-item { animation: none !important; opacity: 1 !important; }
+              }
+            `;
+            iframeDoc.head.appendChild(style);
+          }
+          const children = body.querySelectorAll(
+            ':scope > h1, :scope > h2, :scope > h3, :scope > p, :scope > ul, :scope > ol, :scope > table, :scope > blockquote, :scope > pre, :scope > div:not(.slide-header):not(.slide-footer), :scope > figure, :scope > img, :scope > .slide-content-area'
+          );
+          children.forEach((el, i) => {
+            const htmlEl = el as HTMLElement;
+            htmlEl.classList.remove('slide-stagger-item');
+            void htmlEl.offsetWidth; // force reflow to restart animation
+            htmlEl.classList.add('slide-stagger-item');
+            htmlEl.style.animationDelay = `${i * 60}ms`;
+          });
+        } catch {
+          /* cross-origin iframe — skip stagger */
+        }
+      };
+      // Always wait for load — srcdoc just changed so the iframe is reloading
+      iframe.addEventListener('load', applyStagger, { once: true });
+      return;
+    }
+
+    // Non-bridge slides: target direct children of .slides-content
+    const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
+    if (!content) return;
+    const children = content.querySelectorAll(
+      ':scope > h1, :scope > h2, :scope > h3, :scope > p, :scope > ul, :scope > ol, :scope > table, :scope > blockquote, :scope > pre, :scope > div, :scope > figure, :scope > img'
+    );
+    children.forEach((el, i) => {
+      const htmlEl = el as HTMLElement;
+      htmlEl.classList.add('slide-stagger-item');
+      htmlEl.style.animationDelay = `${i * 60}ms`;
+    });
+  }
+
   private _slidesNavigate(newIndex: number, total: number): void {
-    if (newIndex < 0 || newIndex >= total || newIndex === this._slidesCurrentIndex) return;
+    // Boundary: shake instead of silently ignoring
+    if (newIndex < 0 || newIndex >= total) {
+      this._slidesBoundaryShake();
+      return;
+    }
+    if (newIndex === this._slidesCurrentIndex) return;
 
     this._slidesDirection = newIndex > this._slidesCurrentIndex ? 'forward' : 'backward';
     const transition = this._getSlideTransition(newIndex);
@@ -5793,6 +5987,8 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         // Fall back to normal bind + scale cycle
         this._afterSlideRender();
       }
+      // Stagger-in children after transition completes
+      this._slidesStaggerIn();
     };
 
     // Bridge iframe slides: skip View Transition API.
@@ -6381,14 +6577,10 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
   private _slidesKeydown(e: KeyboardEvent, total: number): void {
     if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
       e.preventDefault();
-      if (this._slidesCurrentIndex < total - 1) {
-        this._slidesNavigate(this._slidesCurrentIndex + 1, total);
-      }
+      this._slidesNavigate(this._slidesCurrentIndex + 1, total);
     } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
       e.preventDefault();
-      if (this._slidesCurrentIndex > 0) {
-        this._slidesNavigate(this._slidesCurrentIndex - 1, total);
-      }
+      this._slidesNavigate(this._slidesCurrentIndex - 1, total);
     } else if (e.key === 'Home') {
       e.preventDefault();
       this._slidesNavigate(0, total);
