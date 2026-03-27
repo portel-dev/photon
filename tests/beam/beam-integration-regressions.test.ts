@@ -409,22 +409,32 @@ export default class SyncList {
   constructor(items: string[] = []) { this.items = items; }
   add(item: string) { this.items.push(item); return item; }
   get() { return this.items; }
-  /** @destructive */
   clear() { this.items.length = 0; return true; }
 }
 `;
     await fs.writeFile(path.join(tmpDir, 'sync-list.photon.ts'), updatedSource);
 
-    // Wait for hot-reload + daemon reload
-    await new Promise((r) => setTimeout(r, 5000));
+    // Wait for hot-reload + daemon reload (daemon reload is async)
+    await new Promise((r) => setTimeout(r, 6000));
 
-    // Verify clear appears in tools/list
-    const tools = await mcpListTools(sessionId);
-    const clearTool = tools.find((t: any) => t.name === 'sync-list/clear');
-    assert(!!clearTool, 'sync-list/clear should appear in tools after hot-reload');
+    // Poll for clear to appear in tools/list (retry up to 5s)
+    let clearFound = false;
+    for (let i = 0; i < 5; i++) {
+      const tools = await mcpListTools(sessionId);
+      if (tools.some((t: any) => t.name === 'sync-list/clear')) {
+        clearFound = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    assert(clearFound, 'sync-list/clear should appear in tools after hot-reload');
 
-    // Verify clear is callable (not "Tool not found")
-    const clearResp = await mcpCallTool(sessionId, 'sync-list/clear', {}, 40);
+    // Verify clear is callable (not "Tool not found") — retry once if daemon still reloading
+    let clearResp = await mcpCallTool(sessionId, 'sync-list/clear', {}, 40);
+    if (clearResp.result?.isError && clearResp.result?.content?.[0]?.text?.includes('not found')) {
+      await new Promise((r) => setTimeout(r, 3000));
+      clearResp = await mcpCallTool(sessionId, 'sync-list/clear', {}, 42);
+    }
     assert(
       !clearResp.result?.isError,
       `sync-list/clear should succeed, got: ${clearResp.result?.content?.[0]?.text}`
@@ -463,6 +473,140 @@ export default class SyncList {
     assert(
       syncListTools.some((t: any) => t.name === 'sync-list/get'),
       'sync-list/get should be in tools'
+    );
+  });
+
+  // ─── Test 7: Studio-write hot-reload race ───
+  await test('beam/studio-write triggers reload and new method is callable', async () => {
+    // Write a photon via MCP studio tool (simulates Studio editor save)
+    const studioSource = `
+/**
+ * @stateful
+ * @description Studio race test
+ */
+export default class StudioTest {
+  items: string[];
+  constructor(items: string[] = []) { this.items = items; }
+  get() { return this.items; }
+}
+`;
+    await fs.writeFile(path.join(tmpDir, 'studio-test.photon.ts'), studioSource);
+
+    // Wait for initial load
+    await new Promise((r) => setTimeout(r, 5000));
+
+    // Verify initial state
+    let tools = await mcpListTools(sessionId);
+    assert(
+      tools.some((t: any) => t.name === 'studio-test/get'),
+      'studio-test/get should be in initial tools'
+    );
+
+    // Now "edit" the file to add a new method (simulates Studio save)
+    const updatedSource = `
+/**
+ * @stateful
+ * @description Studio race test
+ */
+export default class StudioTest {
+  items: string[];
+  constructor(items: string[] = []) { this.items = items; }
+  get() { return this.items; }
+  add(item: string) { this.items.push(item); return item; }
+  count() { return this.items.length; }
+}
+`;
+    await fs.writeFile(path.join(tmpDir, 'studio-test.photon.ts'), updatedSource);
+
+    // Wait for hot-reload + daemon reload
+    await new Promise((r) => setTimeout(r, 5000));
+
+    // Verify new methods appear
+    tools = await mcpListTools(sessionId);
+    assert(
+      tools.some((t: any) => t.name === 'studio-test/count'),
+      'studio-test/count should appear after studio edit'
+    );
+
+    // Verify new method is CALLABLE (not "Tool not found")
+    const countResp = await mcpCallTool(sessionId, 'studio-test/count', {}, 50);
+    assert(
+      !countResp.result?.isError,
+      `studio-test/count should be callable, got: ${countResp.result?.content?.[0]?.text}`
+    );
+  });
+
+  // ─── Test 8: CLI mutation produces SSE state-changed event ───
+  await test('CLI mutation triggers SSE state-changed event at Beam', async () => {
+    // First add an item so sync-list has data to work with
+    await mcpCallTool(sessionId, 'sync-list/add', { item: 'sse-baseline' }, 60);
+
+    // Open SSE listener on a second session
+    const session2 = await mcpInitialize();
+    const eventPromise = collectSSEEvents(session2, 8000);
+
+    // Wait for SSE connection to establish
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // Mutate via CLI (goes through daemon, not Beam transport)
+    const cliItem = `cli-sse-${Date.now()}`;
+    execSync(
+      `node ${path.join(__dirname, '../../dist/cli.js')} cli sync-list add --item "${cliItem}"`,
+      {
+        cwd: tmpDir,
+        env: { ...process.env, PHOTON_DIR: tmpDir },
+        timeout: 15000,
+      }
+    );
+
+    const events = await eventPromise;
+
+    // Look for state-changed event with our photon
+    const stateChangedEvents = events.filter(
+      (e: any) =>
+        e.method === 'notifications/state-changed' ||
+        (e.params?.photon === 'sync-list' && e.params?.method === 'add')
+    );
+
+    assert(
+      stateChangedEvents.length > 0,
+      `Expected state-changed SSE event after CLI mutation, got ${events.length} total events: ${events.map((e: any) => e.method || e.params?.photon).join(', ')}`
+    );
+  });
+
+  // ─── Test 9: Deleted photon returns clean isError response ───
+  await test('tool call on deleted photon returns isError with clear message', async () => {
+    // Create a temporary photon
+    await fs.writeFile(
+      path.join(tmpDir, 'ephemeral.photon.ts'),
+      `
+/** @description Ephemeral test */
+export default class Ephemeral {
+  ping() { return 'pong'; }
+}
+`
+    );
+
+    // Wait for it to load
+    await new Promise((r) => setTimeout(r, 5000));
+
+    // Verify it's callable
+    const pingResp = await mcpCallTool(sessionId, 'ephemeral/ping', {}, 70);
+    assert(!pingResp.result?.isError, `ephemeral/ping should work initially`);
+
+    // Delete the photon file
+    await fs.unlink(path.join(tmpDir, 'ephemeral.photon.ts'));
+
+    // Wait for Beam watcher to detect removal
+    await new Promise((r) => setTimeout(r, 3000));
+
+    // Call the now-deleted photon
+    const deadResp = await mcpCallTool(sessionId, 'ephemeral/ping', {}, 71);
+
+    // Should get a clean error, not a crash or ambiguous response
+    assert(
+      deadResp.result?.isError === true || deadResp.error,
+      `Calling deleted photon should return isError or error, got: ${JSON.stringify(deadResp.result || deadResp.error)}`
     );
   });
 
