@@ -181,7 +181,7 @@ fi
 if [ $? -eq 0 ]; then
   echo "✅ Photon CLI installed successfully" >&2
 else
-  echo "❌ Failed to install Photon CLI. Please run: npm install -g @portel/photon" >&2
+  echo "❌ Failed to install Photon CLI. Please run: npx @portel/photon --help" >&2
   exit 1
 fi
 `;

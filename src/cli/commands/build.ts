@@ -264,7 +264,7 @@ export function registerBuildCommand(program: Command) {
             const indexPath = path.join(distDir, 'auto-ui', 'frontend', 'index.html');
 
             if (!fs.existsSync(bundlePath) || !fs.existsSync(indexPath)) {
-              spinner.fail('Frontend assets not found. Run npm run build:beam first.');
+              spinner.fail('Frontend assets not found. Run the build:beam step first.');
               process.exit(1);
             }
 

@@ -47,11 +47,8 @@ export function registerUpdateCommand(program: Command): void {
           latestVersion = await runTask('Checking for Photon CLI updates', async () => {
             const { execSync } = await import('child_process');
             const pm = detectPM();
-            // bun doesn't have `bun view`, use npm view regardless of pm for registry checks
-            const viewCmd =
-              pm === 'bun'
-                ? 'npm view @portel/photon version'
-                : `${pm} view @portel/photon version`;
+            // bun doesn't have `bun view`, always use npm for registry checks
+            const viewCmd = `npm view @portel/photon version`;
             return execSync(viewCmd, {
               encoding: 'utf-8',
               timeout: 10000,

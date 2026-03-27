@@ -93,7 +93,7 @@ export class WorkerManager {
 
     // Verify the file exists (it should after build)
     if (!fs.existsSync(hostPath)) {
-      throw new Error(`Worker host not found at ${hostPath}. Run npm run build first.`);
+      throw new Error(`Worker host not found at ${hostPath}. Run the build step first.`);
     }
 
     const worker = new Worker(hostPath, {

@@ -168,9 +168,10 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     logger.info('Dry run - skipping deployment');
     logger.info('\nTo deploy manually:');
     logger.info(`  cd ${outputDir}`);
-    logger.info('  npm install');
-    logger.info('  npm run dev      # Local development');
-    logger.info('  npm run deploy   # Deploy to Cloudflare');
+    const pm = detectPM();
+    logger.info(`  ${pm} install`);
+    logger.info(`  ${pm} run dev      # Local development`);
+    logger.info(`  ${pm} run deploy   # Deploy to Cloudflare`);
     return;
   }
 
@@ -181,7 +182,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   } catch (error) {
     logger.error('Failed to install dependencies');
     logger.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-    logger.error('💡 Check your npm installation and network connection');
+    logger.error('💡 Check your package manager installation and network connection');
     throw new Error(
       `Dependency installation failed: ${error instanceof Error ? error.message : String(error)}`
     );
