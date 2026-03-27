@@ -4674,6 +4674,8 @@ export class ResultViewer extends LitElement {
   private _slidesDefaultTransition = 'fade';
   private _slidesBackgrounds: Map<number, string> = new Map(); // per-slide bg (color, url, gradient)
   private _slidesEffects: Map<number, string> = new Map(); // per-slide element effect
+  private _slidesCols: Map<number, number> = new Map(); // per-slide column count
+  private _slidesBuilds: Map<number, boolean> = new Map(); // per-slide build (click-to-reveal)
   private _slidesBoundElements: Set<Element> = new Set();
   private _slidesRefreshTimers: number[] = [];
   private _slidesResizeObserver: ResizeObserver | null = null;
@@ -4736,6 +4738,8 @@ export class ResultViewer extends LitElement {
     this._slidesTransitions.clear();
     this._slidesBackgrounds.clear();
     this._slidesEffects.clear();
+    this._slidesCols.clear();
+    this._slidesBuilds.clear();
     slides.forEach((slide, i) => {
       // <!-- transition: slide -->
       const tMatch = slide.match(/<!--\s*transition:\s*(\w+)\s*-->/);
@@ -4746,6 +4750,11 @@ export class ResultViewer extends LitElement {
       // <!-- effect: fade-up | scale-in | slide-in-left | ... -->
       const fxMatch = slide.match(/<!--\s*effect:\s*(\S+)\s*-->/);
       if (fxMatch) this._slidesEffects.set(i, fxMatch[1].trim());
+      // <!-- cols: 2 --> or <!-- cols: 3 -->
+      const colMatch = slide.match(/<!--\s*cols:\s*(\d+)\s*-->/);
+      if (colMatch) this._slidesCols.set(i, Math.min(Math.max(parseInt(colMatch[1], 10), 2), 4));
+      // <!-- build --> enables click-to-reveal fragments
+      if (/<!--\s*build\s*-->/.test(slide)) this._slidesBuilds.set(i, true);
     });
 
     // Default theme: match Beam's active theme (dark→default, light→uncover)
@@ -4946,11 +4955,33 @@ ${bridge}
     color: var(--color-on-surface-variant, inherit);
     border-top: 1px solid var(--color-outline-variant, rgba(128,128,128,0.1)); flex-shrink: 0; }
   h1, h2, h3 { color: var(--color-primary, var(--accent, #79aef0)); margin-top: 0; }
-  h1 { font-size: 1.6em; margin-bottom: 0.3em; }
-  p { margin: 0.4em 0; }
-  ul, ol { margin: 0.4em 0; padding-left: 1.2em; }
+  h1 { font-size: 2em; margin-bottom: 0.3em; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+  .slide-body.title-slide h1 { font-size: 2.8em; letter-spacing: -0.03em; }
+  .slide-body.title-slide h3 { font-size: 1.1em; font-weight: 400; opacity: 0.7; margin-top: 0.3em; }
+  h2 { font-size: 1.5em; font-weight: 700; letter-spacing: -0.01em; }
+  h3 { font-size: 1.15em; font-weight: 600; }
+  p { margin: 0.4em 0; line-height: 1.65; }
+  ul, ol { margin: 0.5em 0; padding-left: 1.4em; }
+  li { margin: 0.25em 0; line-height: 1.55; }
+  li::marker { color: var(--color-primary, var(--accent, #79aef0)); }
   a { color: var(--color-primary, var(--accent, #79aef0)); }
   strong { color: var(--color-on-surface, var(--text-primary, inherit)); }
+  /* Columns */
+  .slide-cols { display: grid; gap: 24px; height: 100%; align-items: start; }
+  .slide-cols-2 { grid-template-columns: 1fr 1fr; }
+  .slide-cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .slide-cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .slide-col { min-width: 0; }
+  /* Build fragments */
+  .slide-fragment { transition: opacity 0.3s ease; }
+  .slide-fragment:not(.visible) { opacity: 0; pointer-events: none; }
+  .slide-fragment.visible { opacity: 1; }
+  /* Blockquote */
+  blockquote { border-left: 3px solid var(--color-primary, var(--accent, #79aef0)); padding: 4px 16px;
+    margin: 0.6em 0; font-size: 1.05em; font-style: italic;
+    color: var(--color-on-surface-variant, rgba(255,255,255,0.8)); }
+  /* Images */
+  img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
   [data-method] { position: relative; overflow: hidden; }
   [data-method].loading::after {
     content: ''; display: inline-block; width: 14px; height: 14px;
@@ -5092,13 +5123,25 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       }
     }
   })();
+  // Build fragments: parent can call window.advanceFragment() to reveal next
+  window.advanceFragment = function() {
+    var frags = document.querySelectorAll('.slide-fragment:not(.visible)');
+    if (frags.length > 0) { frags[0].classList.add('visible'); return true; }
+    return false;
+  };
+  window.allFragmentsRevealed = function() {
+    return document.querySelectorAll('.slide-fragment:not(.visible)').length === 0;
+  };
 <\/script>
 </body>
 </html>`;
   }
 
   /** Render a single slide's markdown to HTML (shared by live render + pre-render) */
-  private _renderSlideHtml(slideMarkdown: string): {
+  private _renderSlideHtml(
+    slideMarkdown: string,
+    slideIndex?: number
+  ): {
     html: string;
     mermaidBlocks: { id: string; code: string }[];
     codeBlocks: { id: string; code: string; language: string }[];
@@ -5115,10 +5158,43 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         (_, pre, relPath, post) => `${pre}${this._slidesBaseUrl}${relPath}${post}`
       );
     }
-    return this._parseRichMarkdown(md, {
+
+    // Columns: split markdown at ||| separator, render each part, wrap in grid
+    const colCount = slideIndex !== undefined ? this._slidesCols.get(slideIndex) : undefined;
+    if (colCount && md.includes('|||')) {
+      const parts = md.split(/\n\|\|\|\s*\n/);
+      const rendered = parts.map((part) =>
+        this._parseRichMarkdown(part.trim(), { stripFrontMatter: false, includeInlineStyles: true })
+      );
+      const colHtml = rendered.map((r) => `<div class="slide-col">${r.html}</div>`).join('');
+      return {
+        html: `<div class="slide-cols slide-cols-${colCount}">${colHtml}</div>`,
+        mermaidBlocks: rendered.flatMap((r) => r.mermaidBlocks),
+        codeBlocks: rendered.flatMap((r) => r.codeBlocks),
+      };
+    }
+
+    const result = this._parseRichMarkdown(md, {
       stripFrontMatter: false,
       includeInlineStyles: true,
     });
+
+    // Builds: wrap elements after <!-- build --> in .slide-fragment divs
+    const hasBuild = slideIndex !== undefined ? this._slidesBuilds.get(slideIndex) : false;
+    if (hasBuild) {
+      // Split HTML at <!-- build --> markers, wrap each chunk as a fragment
+      const chunks = result.html.split(/<!--\s*build\s*-->/);
+      if (chunks.length > 1) {
+        result.html = chunks
+          .map(
+            (chunk, i) =>
+              `<div class="slide-fragment${i === 0 ? ' visible' : ''}" data-fragment="${i}">${chunk}</div>`
+          )
+          .join('');
+      }
+    }
+
+    return result;
   }
 
   private _renderSlides(data: any): TemplateResult {
@@ -5162,7 +5238,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     this._slidesBaseUrl =
       rawBaseUrl || (this.photonName ? `/api/assets/${encodeURIComponent(this.photonName)}/` : '');
 
-    const { html: slideHtml, mermaidBlocks, codeBlocks } = this._renderSlideHtml(current);
+    const { html: slideHtml, mermaidBlocks, codeBlocks } = this._renderSlideHtml(current, idx);
     this._pendingMermaidBlocks = mermaidBlocks;
     this._pendingCodeBlocks = codeBlocks;
 
@@ -5394,20 +5470,25 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         .slides-content h1 {
           font-size: 2.4em;
           margin: 0 0 0.4em;
-          font-weight: 700;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          line-height: 1.15;
         }
         .slides-content h2 {
           font-size: 1.8em;
           margin: 0 0 0.4em;
-          font-weight: 600;
+          font-weight: 700;
+          letter-spacing: -0.01em;
         }
         .slides-content h3 {
           font-size: 1.3em;
           margin: 0 0 0.3em;
+          font-weight: 600;
         }
         .slides-content p {
           margin: 0.5em 0;
           font-size: 1.15em;
+          line-height: 1.65;
         }
         .slides-content ul,
         .slides-content ol {
@@ -5417,6 +5498,10 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         }
         .slides-content li {
           margin: 0.3em 0;
+          line-height: 1.55;
+        }
+        .slides-content li::marker {
+          color: var(--color-primary, rgba(125, 211, 252, 0.7));
         }
         .slides-content code {
           background: rgba(255, 255, 255, 0.1);
@@ -5437,12 +5522,47 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         .slides-content img {
           max-width: 100%;
           border-radius: 8px;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
         }
         .slides-content blockquote {
-          border-left: 4px solid rgba(255, 255, 255, 0.3);
-          padding-left: 16px;
-          margin: 0.5em 0;
-          opacity: 0.85;
+          border-left: 3px solid var(--color-primary, rgba(125, 211, 252, 0.6));
+          padding: 4px 16px;
+          margin: 0.6em 0;
+          font-style: italic;
+          color: var(--color-on-surface-variant, rgba(255, 255, 255, 0.8));
+        }
+        /* ═══ COLUMNS ═══ */
+        .slides-content .slide-cols {
+          display: grid;
+          gap: 24px;
+          align-items: start;
+        }
+        .slides-content .slide-cols-2 {
+          grid-template-columns: 1fr 1fr;
+        }
+        .slides-content .slide-cols-3 {
+          grid-template-columns: 1fr 1fr 1fr;
+        }
+        .slides-content .slide-cols-4 {
+          grid-template-columns: 1fr 1fr 1fr 1fr;
+        }
+        .slides-content .slide-col {
+          min-width: 0;
+        }
+        /* ═══ BUILD FRAGMENTS ═══ */
+        .slides-content .slide-fragment {
+          transition:
+            opacity 0.3s ease,
+            transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .slides-content .slide-fragment:not(.visible) {
+          opacity: 0;
+          transform: translateY(8px);
+          pointer-events: none;
+        }
+        .slides-content .slide-fragment.visible {
+          opacity: 1;
+          transform: none;
         }
         .slides-content table {
           border-collapse: collapse;
@@ -6067,7 +6187,57 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     if (content) applyToChildren(content);
   }
 
+  /** Advance the next hidden build fragment. Returns true if a fragment was revealed. */
+  private _slidesAdvanceBuild(): boolean {
+    const hasBuild = this._slidesBuilds.get(this._slidesCurrentIndex);
+    if (!hasBuild) return false;
+
+    // Bridge iframe: use injected helper
+    const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
+    if (iframe?.contentWindow) {
+      try {
+        return (iframe.contentWindow as any).advanceFragment?.() === true;
+      } catch {
+        return false;
+      }
+    }
+
+    // Non-bridge: find fragments in shadow DOM
+    const fragments = this.shadowRoot?.querySelectorAll('.slide-fragment:not(.visible)');
+    if (fragments && fragments.length > 0) {
+      fragments[0].classList.add('visible');
+      return true;
+    }
+    return false;
+  }
+
+  /** Check if all build fragments are visible (or no builds exist) */
+  private _slidesAllBuildsRevealed(): boolean {
+    const hasBuild = this._slidesBuilds.get(this._slidesCurrentIndex);
+    if (!hasBuild) return true;
+
+    // Bridge iframe: use injected helper
+    const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
+    if (iframe?.contentWindow) {
+      try {
+        return (iframe.contentWindow as any).allFragmentsRevealed?.() !== false;
+      } catch {
+        return true;
+      }
+    }
+
+    // Non-bridge
+    const hidden = this.shadowRoot?.querySelectorAll('.slide-fragment:not(.visible)');
+    return !hidden || hidden.length === 0;
+  }
+
   private _slidesNavigate(newIndex: number, total: number): void {
+    // Forward navigation: advance build fragments first
+    if (newIndex > this._slidesCurrentIndex && !this._slidesAllBuildsRevealed()) {
+      this._slidesAdvanceBuild();
+      return;
+    }
+
     // Boundary: shake instead of silently ignoring
     if (newIndex < 0 || newIndex >= total) {
       this._slidesBoundaryShake();
@@ -6209,7 +6379,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       if (!viewport) return;
 
       // Render markdown to HTML
-      const { html: slideHtml } = this._renderSlideHtml(markdown);
+      const { html: slideHtml } = this._renderSlideHtml(markdown, target);
 
       // Create hidden container for rendering + measurement
       const container = document.createElement('div');
