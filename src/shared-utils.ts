@@ -6,6 +6,7 @@
  */
 
 import { existsSync } from 'fs';
+import { execSync } from 'child_process';
 import * as path from 'path';
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -74,6 +75,41 @@ export function getBundledPhotonPath(
   }
 
   return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PACKAGE MANAGER DETECTION
+// ════════════════════════════════════════════════════════════════════════════════
+
+let _cachedPM: 'bun' | 'npm' | 'npm.cmd' | null = null;
+
+/**
+ * Detect the available package manager — prefers bun, falls back to npm.
+ * Result is cached for the process lifetime.
+ */
+export function detectPM(): 'bun' | 'npm' | 'npm.cmd' {
+  if (_cachedPM) return _cachedPM;
+  try {
+    execSync('bun --version', { stdio: 'ignore' });
+    _cachedPM = 'bun';
+  } catch {
+    _cachedPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  }
+  return _cachedPM;
+}
+
+/**
+ * Get the package runner command (bunx/npx) matching the detected PM.
+ */
+export function detectRunner(): 'bunx' | 'npx' {
+  return detectPM() === 'bun' ? 'bunx' : 'npx';
+}
+
+/**
+ * Get the install command for a global package.
+ */
+export function globalInstallCmd(pkg: string): string {
+  return detectPM() === 'bun' ? `bun add -g ${pkg}` : `npm install -g ${pkg}`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
