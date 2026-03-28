@@ -642,20 +642,45 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   }
 
   // Discover all photons with namespace metadata (user photons + bundled photons)
-  const userPhotonListDetailed = await listPhotonFilesWithNamespace(workingDir);
+  const scannedPhotonList = await listPhotonFilesWithNamespace(workingDir);
 
-  // Detect name collisions to decide sidebar display names
+  // Deduplicate aliases that resolve to the same underlying file (for example,
+  // a marketplace photon and a local alias/symlink that both point at the same
+  // source). Beam should not show both copies in the sidebar.
+  const userPhotonListDetailed: ListedPhoton[] = [];
+  const seenPhotonKeys = new Set<string>();
+  for (const photon of scannedPhotonList) {
+    let realPath = photon.filePath;
+    try {
+      realPath = realpathSync(photon.filePath);
+    } catch {
+      // Fall back to the discovered path if realpath resolution fails.
+    }
+
+    const dedupeKey = `${photon.name}::${realPath}`;
+    if (seenPhotonKeys.has(dedupeKey)) continue;
+    seenPhotonKeys.add(dedupeKey);
+    userPhotonListDetailed.push(photon);
+  }
+
+  // Detect name collisions and generate friendly duplicate labels. We should
+  // never leak namespace/owner names into the sidebar just because there are
+  // multiple copies of a photon with the same short name.
   const nameOccurrences = new Map<string, number>();
   for (const p of userPhotonListDetailed) {
     nameOccurrences.set(p.name, (nameOccurrences.get(p.name) || 0) + 1);
   }
 
-  // Build photon list: use qualifiedName when collision, short name when unique
-  // Also track resolved paths from namespace scan
+  // Build photon list with short names plus a numeric suffix for duplicates.
+  // Also track resolved paths from namespace scan.
   const namespacePaths = new Map<string, string>(); // displayName → filePath
   const userPhotonList: string[] = [];
+  const duplicateIndex = new Map<string, number>();
   for (const p of userPhotonListDetailed) {
-    const displayName = (nameOccurrences.get(p.name) || 0) > 1 ? p.qualifiedName : p.name;
+    const duplicateCount = nameOccurrences.get(p.name) || 0;
+    const nextIndex = (duplicateIndex.get(p.name) || 0) + 1;
+    duplicateIndex.set(p.name, nextIndex);
+    const displayName = duplicateCount > 1 ? `${p.name} (${nextIndex})` : p.name;
     userPhotonList.push(displayName);
     namespacePaths.set(displayName, p.filePath);
   }

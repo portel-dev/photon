@@ -1370,7 +1370,10 @@ export class PhotonServer {
           description: ui.linkedTool
             ? `UI template for ${ui.linkedTool} tool`
             : `UI template: ${ui.id}`,
-          mimeType: ui.mimeType || this.getUIMimeType(),
+          // Always use MCP Apps mime type for UI resources — photon-core's
+          // getMimeTypeFromPath returns plain text/html which causes Claude
+          // Desktop to skip rendering the app UI
+          mimeType: this.getUIMimeType(),
         });
       }
 
@@ -1439,7 +1442,11 @@ export class PhotonServer {
       throw new Error('MCP not loaded');
     }
 
-    const { uri } = request.params;
+    const { uri: rawUri } = request.params;
+    const uri =
+      typeof rawUri === 'string'
+        ? rawUri.replace(/^ui:\/\/\/([^/]+)\/(.+)$/, 'ui://$1/$2')
+        : rawUri;
 
     const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
     if (uiMatch) {
