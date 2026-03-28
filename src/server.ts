@@ -3003,6 +3003,16 @@ export class PhotonServer {
       content = await fs.readFile(ui.resolvedPath, 'utf-8');
     }
 
+    // Wrap .photon.html fragments in a full HTML document.
+    // These files contain only <style>, markup, and <script> — no <!doctype> or <html>.
+    // Beam wraps them automatically, but MCP clients (Claude Desktop) need a complete document.
+    const isFragment =
+      !content.trimStart().toLowerCase().startsWith('<!doctype') &&
+      !content.trimStart().toLowerCase().startsWith('<html');
+    if (isFragment) {
+      content = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n</head>\n<body>\n${content}\n</body>\n</html>`;
+    }
+
     // Inject MCP Apps bridge script for Claude Desktop compatibility
     const bridgeScript = this.generateMcpAppsBridge();
     content = content.replace('<head>', `<head>\n${bridgeScript}`);
