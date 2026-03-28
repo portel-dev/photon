@@ -1,13 +1,14 @@
 /**
  * Promise Validation Suite
  *
- * Validates Photon platform promises defined in docs/PROMISES.md.
+ * Validates the current release-gate subset of Photon platform promises
+ * defined in docs/PROMISES.md and reports coverage against the full contract.
  * Tests across four targets: CLI, MCP, Beam (visual), and Runtime.
  *
  * Run: npm run test:promises
  *
- * This is the core of intent-driven development: every promise is a testable
- * assertion. If a promise can't be validated, it's just marketing.
+ * This suite is intentionally explicit about scope. It should never imply that
+ * unexercised promises are validated.
  */
 
 import { strict as assert } from 'assert';
@@ -23,6 +24,7 @@ const __dirname = path.dirname(__filename);
 const CLI_PATH = path.join(__dirname, '..', 'dist', 'cli.js');
 const FIXTURES = path.join(__dirname, 'fixtures');
 const PROMISE_PHOTON = path.join(FIXTURES, 'promise-test.photon.ts');
+const PROMISE_DOC = path.join(__dirname, '..', 'docs', 'PROMISES.md');
 
 // ── Test Infrastructure ──────────────────────────────────────
 
@@ -36,10 +38,46 @@ interface TestResult {
   elapsed?: number;
 }
 
+interface PromiseContractSpec {
+  overviewByIntent: Record<string, number>;
+  sectionByIntent: Record<string, number>;
+  totalOverview: number;
+  totalSections: number;
+}
+
 const results: TestResult[] = [];
 let passed = 0;
 let failed = 0;
 let skipped = 0;
+
+function readPromiseContractSpec(): PromiseContractSpec {
+  const text = fs.readFileSync(PROMISE_DOC, 'utf-8');
+
+  const overviewByIntent: Record<string, number> = {};
+  for (const match of text.matchAll(/^\| \[(\d+)\][^\n]*\| (\d+) \| P/gm)) {
+    overviewByIntent[`I${match[1]}`] = Number(match[2]);
+  }
+
+  const sectionByIntent: Record<string, number> = {};
+  let currentIntent: string | null = null;
+  for (const line of text.split('\n')) {
+    const intentMatch = line.match(/^## Intent (\d+):/);
+    if (intentMatch) {
+      currentIntent = `I${intentMatch[1]}`;
+      sectionByIntent[currentIntent] = 0;
+      continue;
+    }
+
+    if (currentIntent && /^\| \d+ \|/.test(line)) {
+      sectionByIntent[currentIntent]++;
+    }
+  }
+
+  const totalOverview = Object.values(overviewByIntent).reduce((sum, count) => sum + count, 0);
+  const totalSections = Object.values(sectionByIntent).reduce((sum, count) => sum + count, 0);
+
+  return { overviewByIntent, sectionByIntent, totalOverview, totalSections };
+}
 
 function cli(args: string, timeoutMs = 30_000): string {
   return execSync(`node ${CLI_PATH} ${args}`, {
@@ -230,9 +268,30 @@ async function lookoutValidate(
 // ── Main Test Suite ──────────────────────────────────────────
 
 async function main() {
+  const contractSpec = readPromiseContractSpec();
+
   console.log('\n📋 Promise Validation Suite\n');
   console.log(`   Fixture: ${path.basename(PROMISE_PHOTON)}`);
   console.log(`   Targets: CLI, MCP, Beam (visual), Runtime\n`);
+
+  await check('DOC', 'SPEC', 'Promise overview counts match detailed tables', 'Docs', async () => {
+    assert.equal(
+      contractSpec.totalOverview,
+      contractSpec.totalSections,
+      `Overview lists ${contractSpec.totalOverview} assertions, detailed tables list ${contractSpec.totalSections}`
+    );
+
+    for (const [intent, sectionCount] of Object.entries(contractSpec.sectionByIntent)) {
+      const overviewCount = contractSpec.overviewByIntent[intent];
+      assert.equal(
+        overviewCount,
+        sectionCount,
+        `${intent} overview lists ${overviewCount}, detailed tables list ${sectionCount}`
+      );
+    }
+  });
+
+  console.log('');
 
   // ═══════════════════════════════════════════════════════════
   // INTENT 1: Single File, Full Stack
@@ -552,6 +611,12 @@ async function main() {
     I2: 'Human + Agent, Same Surface',
     I3: 'Zero Config',
     I4: 'Format-Driven Rendering',
+    I5: 'Stateful by Annotation',
+    I6: 'Composable',
+    I7: 'Portable',
+    I8: 'Resilient by Default',
+    I9: 'Secure by Default',
+    DOC: 'Documentation Integrity',
   };
 
   for (const [intent, tests] of byIntent) {
@@ -565,6 +630,29 @@ async function main() {
   }
 
   console.log(`\n  Total: ${passed} passed, ${failed} failed, ${skipped} skipped`);
+  const coveredResults = results.filter((r) => /^I\d+$/.test(r.intent));
+  const coveredByIntent: Record<string, number> = {};
+  for (const result of coveredResults) {
+    coveredByIntent[result.intent] = (coveredByIntent[result.intent] || 0) + 1;
+  }
+
+  const coveredTotal = coveredResults.length;
+  const coveragePct = contractSpec.totalSections
+    ? ((coveredTotal / contractSpec.totalSections) * 100).toFixed(1)
+    : '0.0';
+
+  console.log(
+    `  Coverage: ${coveredTotal}/${contractSpec.totalSections} documented assertions exercised by this suite (${coveragePct}%)`
+  );
+
+  const uncoveredIntents = Object.entries(contractSpec.sectionByIntent)
+    .filter(([intent]) => !coveredByIntent[intent])
+    .map(([intent]) => intentNames[intent] || intent);
+
+  if (uncoveredIntents.length > 0) {
+    console.log(`  Uncovered intents in this suite: ${uncoveredIntents.join(', ')}`);
+  }
+
   console.log('═══════════════════════════════════════════════════\n');
 
   // Write machine-readable report
@@ -575,6 +663,21 @@ async function main() {
       {
         timestamp: new Date().toISOString(),
         summary: { passed, failed, skipped, total: results.length },
+        coverage: {
+          documentedAssertions: contractSpec.totalSections,
+          suiteAssertions: coveredTotal,
+          coveragePercent: Number(coveragePct),
+          overviewAssertions: contractSpec.totalOverview,
+          byIntent: Object.fromEntries(
+            Object.entries(contractSpec.sectionByIntent).map(([intent, declared]) => [
+              intent,
+              {
+                declared,
+                covered: coveredByIntent[intent] || 0,
+              },
+            ])
+          ),
+        },
         results,
       },
       null,

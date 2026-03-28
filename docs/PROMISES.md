@@ -11,16 +11,16 @@ marketing.
 
 | # | Intent | Promises | Assertions | Priority |
 |---|--------|----------|------------|----------|
-| [1](#intent-1-single-file-full-stack) | Single File, Full Stack | 3 | 11 | P0 — Core |
-| [2](#intent-2-human--agent-same-surface) | Human + Agent, Same Surface | 3 | 10 | P0 — Core |
-| [3](#intent-3-zero-config) | Zero Config | 3 | 11 | P0 — Core |
+| [1](#intent-1-single-file-full-stack) | Single File, Full Stack | 3 | 12 | P0 — Core |
+| [2](#intent-2-human--agent-same-surface) | Human + Agent, Same Surface | 3 | 11 | P0 — Core |
+| [3](#intent-3-zero-config) | Zero Config | 3 | 12 | P0 — Core |
 | [4](#intent-4-format-driven-rendering) | Format-Driven Rendering | 3 | 12 | P1 — Essential |
-| [5](#intent-5-stateful-by-annotation) | Stateful by Annotation | 3 | 10 | P1 — Essential |
+| [5](#intent-5-stateful-by-annotation) | Stateful by Annotation | 3 | 11 | P1 — Essential |
 | [6](#intent-6-composable) | Composable | 2 | 8 | P1 — Essential |
 | [7](#intent-7-portable) | Portable | 2 | 7 | P2 — Important |
 | [8](#intent-8-resilient-by-default) | Resilient by Default | 2 | 9 | P2 — Important |
 | [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P2 — Important |
-| | **Total** | **23** | **85** | |
+| | **Total** | **23** | **89** | |
 
 ## How to Read This
 
@@ -362,7 +362,12 @@ Each assertion maps to one of:
 - **MCP** — HTTP/STDIO request + response validation (MCP targets)
 - **Runtime** — Unit/integration test (Runtime targets)
 
-Run `npm run test:promises` to validate all assertions.
+Every assertion in this document must be backed by automation before it is treated as launch-safe.
+
+`npm run test:promises` validates the current release-gate subset and emits a machine-readable
+coverage report (`promise-report.json`) showing which intents are currently exercised by that
+suite. Assertions outside that subset must be covered by dedicated tests before they should be
+described as validated.
 
 ### Promise Priority
 
