@@ -133,14 +133,14 @@ workerManager.onPublish = (channel, message) => {
 const sessionManagers = new Map<string, SessionManager>();
 const photonPaths = new Map<string, string>(); // compositeKey -> photonPath
 const workingDirs = new Map<string, string>(); // compositeKey -> workingDir
-const fileWatchers = new Map<string, fs.FSWatcher>();
+const fileWatchers = new Map<string, SafeWatcher>();
 const watchDebounce = new Map<string, NodeJS.Timeout>();
-// parentDir -> FSWatcher: one watcher per unique parent directory
-const parentDirWatchers = new Map<string, fs.FSWatcher>();
+// parentDir -> SafeWatcher: one watcher per unique parent directory
+const parentDirWatchers = new Map<string, SafeWatcher>();
 // workingDir -> inode: recorded at watch time for rename-vs-delete detection
 const workingDirInodes = new Map<string, number>();
-// workingDir -> FSWatcher: watches {workingDir}/state/ for photon subdir deletions
-const stateDirWatchers = new Map<string, fs.FSWatcher>();
+// workingDir -> SafeWatcher: watches {workingDir}/state/ for photon subdir deletions
+const stateDirWatchers = new Map<string, SafeWatcher>();
 
 /**
  * Create a composite key from photonName + workingDir for map lookups.
@@ -234,10 +234,16 @@ function bufferEvent(channel: string, message: unknown): number {
 
   buffer.events.push(event);
 
-  // Purge events older than retention window
+  // Purge events older than retention window using findIndex + splice (O(1) amortized)
+  // instead of repeated shift() which is O(n) per call
   const cutoff = now - EVENT_BUFFER_DURATION_MS;
-  while (buffer.events.length > 0 && buffer.events[0].timestamp < cutoff) {
-    buffer.events.shift();
+  if (buffer.events.length > 0 && buffer.events[0].timestamp < cutoff) {
+    const firstValid = buffer.events.findIndex((e) => e.timestamp >= cutoff);
+    if (firstValid === -1) {
+      buffer.events.length = 0;
+    } else if (firstValid > 0) {
+      buffer.events.splice(0, firstValid);
+    }
   }
 
   return now;
@@ -321,7 +327,46 @@ function cleanupExpiredLocks(): void {
   }
 }
 
+/**
+ * Periodic cleanup of in-memory maps that can grow unbounded.
+ * Runs every 60s — lightweight scan, no I/O.
+ */
+function cleanupStaleMaps(): void {
+  const now = Date.now();
+  const cutoff = now - EVENT_BUFFER_DURATION_MS;
+
+  // Remove channel buffers whose events are all expired (channel went quiet)
+  for (const [channel, buffer] of channelEventBuffers.entries()) {
+    if (buffer.events.length === 0 || buffer.events[buffer.events.length - 1].timestamp < cutoff) {
+      channelEventBuffers.delete(channel);
+    }
+  }
+
+  // Remove empty channel subscription sets and prune destroyed sockets
+  for (const [channel, subs] of channelSubscriptions.entries()) {
+    for (const socket of subs) {
+      if (socket.destroyed) subs.delete(socket);
+    }
+    if (subs.size === 0) channelSubscriptions.delete(channel);
+  }
+
+  // Prune socketPromptIds for destroyed sockets (safety net)
+  for (const [socket, ids] of socketPromptIds.entries()) {
+    if (socket.destroyed) {
+      for (const id of ids) {
+        const pending = pendingPrompts.get(id);
+        if (pending) {
+          pending.resolve(null);
+          pendingPrompts.delete(id);
+        }
+      }
+      socketPromptIds.delete(socket);
+    }
+  }
+}
+
 setInterval(cleanupExpiredLocks, 10000);
+setInterval(cleanupStaleMaps, 60000);
 
 // ════════════════════════════════════════════════════════════════════════════════
 // SCHEDULED JOBS
@@ -766,12 +811,28 @@ function startWebhookServer(port: number): void {
 // PUB/SUB
 // ════════════════════════════════════════════════════════════════════════════════
 
+/** Track which socket owns which pending prompts, for cleanup on disconnect */
+const socketPromptIds = new Map<net.Socket, Set<string>>();
+
 function cleanupSocketSubscriptions(socket: net.Socket): void {
   for (const [channel, subs] of channelSubscriptions.entries()) {
     subs.delete(socket);
     if (subs.size === 0) {
       channelSubscriptions.delete(channel);
     }
+  }
+
+  // Reject and clean up any pending prompts owned by this socket
+  const promptIds = socketPromptIds.get(socket);
+  if (promptIds) {
+    for (const id of promptIds) {
+      const pending = pendingPrompts.get(id);
+      if (pending) {
+        pending.resolve(null); // Resolve with null (cancel) rather than reject
+        pendingPrompts.delete(id);
+      }
+    }
+    socketPromptIds.delete(socket);
   }
 }
 
@@ -1232,6 +1293,14 @@ function createSocketPromptHandler(socket: net.Socket, requestId: string): Promp
         reject,
       });
 
+      // Track this prompt against the socket for cleanup on disconnect
+      let ids = socketPromptIds.get(socket);
+      if (!ids) {
+        ids = new Set();
+        socketPromptIds.set(socket, ids);
+      }
+      ids.add(requestId);
+
       const promptResponse: DaemonResponse = {
         type: 'prompt',
         id: requestId,
@@ -1328,6 +1397,14 @@ async function handleRequest(
     const pending = pendingPrompts.get(request.id);
     if (pending) {
       pendingPrompts.delete(request.id);
+      // Clean up socket prompt tracking
+      if (socket) {
+        const ids = socketPromptIds.get(socket);
+        if (ids) {
+          ids.delete(request.id);
+          if (ids.size === 0) socketPromptIds.delete(socket);
+        }
+      }
       pending.resolve(request.promptValue ?? null);
     }
     return null;
@@ -2443,6 +2520,157 @@ async function applyPatchToInstance(
 // FILE WATCHING (Auto Hot-Reload)
 // ════════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Runtime-safe file/directory watcher.
+ *
+ * Bun's fs.watch has critical bugs on macOS (infinite loop with large files,
+ * deadlocks, use-after-free in PathWatcherManager). The daemon is a long-lived
+ * process with many watchers — these bugs cause 100% CPU and fan spin.
+ *
+ * Strategy:
+ *   - Node.js: use fs.watch (kernel-level, zero CPU when idle)
+ *   - Bun:     use fs.watchFile (stat polling, ~0.01% CPU per file at 2s interval)
+ *
+ * For DIRECTORY watches under Bun, we poll with readdirSync snapshots since
+ * fs.watchFile only works on files.
+ */
+const IS_BUN = !!process.versions.bun;
+const POLL_INTERVAL_MS = 2000; // 2s — good balance between latency and CPU
+
+interface SafeWatcher {
+  close(): void;
+}
+
+/** Track active poll timers so they can be cleaned up on shutdown */
+const pollTimers = new Set<NodeJS.Timeout>();
+
+function safeWatchFile(
+  filePath: string,
+  callback: (eventType: 'change' | 'rename') => void
+): SafeWatcher {
+  if (!IS_BUN) {
+    const w = fs.watch(filePath, (eventType) => callback(eventType as 'change' | 'rename'));
+    return w;
+  }
+
+  // Bun fallback: stat polling
+  let prevMtime = 0;
+  let prevIno = 0;
+  try {
+    const stat = fs.statSync(filePath);
+    prevMtime = stat.mtimeMs;
+    prevIno = stat.ino;
+  } catch {
+    // File doesn't exist yet
+  }
+
+  const timer = setInterval(() => {
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.ino !== prevIno) {
+        prevIno = stat.ino;
+        prevMtime = stat.mtimeMs;
+        callback('rename'); // Different inode = file was replaced
+      } else if (stat.mtimeMs !== prevMtime) {
+        prevMtime = stat.mtimeMs;
+        callback('change');
+      }
+    } catch {
+      if (prevIno !== 0) {
+        prevIno = 0;
+        prevMtime = 0;
+        callback('rename'); // File gone
+      }
+    }
+  }, POLL_INTERVAL_MS);
+  timer.unref();
+  pollTimers.add(timer);
+
+  return {
+    close() {
+      clearInterval(timer);
+      pollTimers.delete(timer);
+    },
+  };
+}
+
+function safeWatchDir(
+  dirPath: string,
+  callback: (eventType: 'change' | 'rename', filename: string | null) => void
+): SafeWatcher {
+  if (!IS_BUN) {
+    const w = fs.watch(dirPath, (eventType, filename) =>
+      callback(eventType as 'change' | 'rename', filename)
+    );
+    return w;
+  }
+
+  // Bun fallback: readdir snapshot diffing
+  let prevEntries = new Map<string, number>(); // name -> mtimeMs
+  try {
+    for (const entry of fs.readdirSync(dirPath)) {
+      try {
+        const stat = fs.statSync(path.join(dirPath, entry));
+        prevEntries.set(entry, stat.mtimeMs);
+      } catch {
+        prevEntries.set(entry, 0);
+      }
+    }
+  } catch {
+    // Dir may not exist yet
+  }
+
+  const timer = setInterval(() => {
+    try {
+      const currEntries = new Map<string, number>();
+      for (const entry of fs.readdirSync(dirPath)) {
+        try {
+          const stat = fs.statSync(path.join(dirPath, entry));
+          currEntries.set(entry, stat.mtimeMs);
+        } catch {
+          currEntries.set(entry, 0);
+        }
+      }
+
+      // Detect additions and modifications
+      for (const [name, mtime] of currEntries) {
+        const prev = prevEntries.get(name);
+        if (prev === undefined) {
+          callback('rename', name); // New entry
+        } else if (prev !== mtime) {
+          callback('change', name);
+        }
+      }
+
+      // Detect deletions
+      for (const name of prevEntries.keys()) {
+        if (!currEntries.has(name)) {
+          callback('rename', name); // Removed entry
+        }
+      }
+
+      prevEntries = currEntries;
+    } catch {
+      // Dir deleted or unreadable — treat as rename
+      if (prevEntries.size > 0) {
+        for (const name of prevEntries.keys()) {
+          callback('rename', name);
+        }
+        prevEntries = new Map();
+      }
+    }
+  }, POLL_INTERVAL_MS);
+  timer.unref();
+  pollTimers.add(timer);
+
+  return {
+    close() {
+      clearInterval(timer);
+      pollTimers.delete(timer);
+    },
+  };
+}
+
 function watchPhotonFile(photonName: string, photonPath: string): void {
   // Resolve symlink so fs.watch() fires when the real file changes.
   // On macOS, fs.watch on a symlink only detects changes to the symlink inode itself —
@@ -2458,7 +2686,7 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
   if (fileWatchers.has(watchPath)) return;
 
   try {
-    const watcher = fs.watch(watchPath, (eventType) => {
+    const watcher = safeWatchFile(watchPath, (eventType) => {
       // Debounce: 100ms (same as Beam)
       const existing = watchDebounce.get(watchPath);
       if (existing) clearTimeout(existing);
@@ -2521,10 +2749,12 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
       );
     });
 
-    watcher.on('error', (err) => {
-      logger.warn('File watcher error', { photonName, error: getErrorMessage(err) });
-      unwatchPhotonFile(watchPath);
-    });
+    if ('on' in watcher && typeof (watcher as any).on === 'function') {
+      (watcher as any).on('error', (err: Error) => {
+        logger.warn('File watcher error', { photonName, error: getErrorMessage(err) });
+        unwatchPhotonFile(watchPath);
+      });
+    }
 
     fileWatchers.set(watchPath, watcher);
     logger.info('Watching photon file', { photonName, path: watchPath });
@@ -2616,7 +2846,7 @@ function watchWorkingDir(workingDir: string): void {
   if (parentDirWatchers.has(parentDir)) return;
 
   try {
-    const watcher = fs.watch(parentDir, (eventType, filename) => {
+    const watcher = safeWatchDir(parentDir, (eventType, filename) => {
       if (filename !== dirName) return;
       if (eventType !== 'rename') return;
 
@@ -2685,10 +2915,12 @@ function watchWorkingDir(workingDir: string): void {
       );
     });
 
-    watcher.on('error', (err) => {
-      logger.warn('workingDir parent watcher error', { parentDir, error: getErrorMessage(err) });
-      parentDirWatchers.delete(parentDir);
-    });
+    if ('on' in watcher && typeof (watcher as any).on === 'function') {
+      (watcher as any).on('error', (err: Error) => {
+        logger.warn('workingDir parent watcher error', { parentDir, error: getErrorMessage(err) });
+        parentDirWatchers.delete(parentDir);
+      });
+    }
 
     parentDirWatchers.set(parentDir, watcher);
     logger.info('Watching workingDir parent for changes', { workingDir, parentDir });
@@ -2719,7 +2951,7 @@ function watchStateDir(workingDir: string): void {
   }
 
   try {
-    const watcher = fs.watch(stateDir, (eventType, filename) => {
+    const watcher = safeWatchDir(stateDir, (eventType, filename) => {
       if (!filename || eventType !== 'rename') return;
 
       const debounceKey = `statedir:${workingDir}:${filename}`;
@@ -2750,10 +2982,12 @@ function watchStateDir(workingDir: string): void {
       );
     });
 
-    watcher.on('error', (err) => {
-      logger.warn('State dir watcher error', { stateDir, error: getErrorMessage(err) });
-      stateDirWatchers.delete(workingDir);
-    });
+    if ('on' in watcher && typeof (watcher as any).on === 'function') {
+      (watcher as any).on('error', (err: Error) => {
+        logger.warn('State dir watcher error', { stateDir, error: getErrorMessage(err) });
+        stateDirWatchers.delete(workingDir);
+      });
+    }
 
     stateDirWatchers.set(workingDir, watcher);
     logger.info('Watching state dir for photon subdir changes', { stateDir });
@@ -2960,6 +3194,101 @@ function resetIdleTimer(): void {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// SELF-MONITORING (Health vitals every 15 minutes)
+// ════════════════════════════════════════════════════════════════════════════════
+
+const HEALTH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+let prevCpuUsage: NodeJS.CpuUsage | null = null;
+let prevCpuTime = 0;
+
+interface HealthSnapshot {
+  uptime: number;
+  heapMB: number;
+  rssMB: number;
+  externalMB: number;
+  cpuPercent: number;
+  photonsLoaded: number;
+  sessions: number;
+  fileWatchers: number;
+  channelSubs: number;
+  eventBuffers: number;
+  pendingPrompts: number;
+  pollTimers: number;
+  runtime: string;
+}
+
+function collectHealthSnapshot(): HealthSnapshot {
+  const mem = process.memoryUsage();
+  const now = Date.now();
+
+  // Calculate CPU% since last check
+  const cpuUsage = process.cpuUsage(prevCpuUsage ?? undefined);
+  const elapsedMs = prevCpuTime > 0 ? now - prevCpuTime : HEALTH_INTERVAL_MS;
+  const cpuTotalUs = cpuUsage.user + cpuUsage.system;
+  const cpuPercent = elapsedMs > 0 ? (cpuTotalUs / 1000 / elapsedMs) * 100 : 0;
+
+  prevCpuUsage = process.cpuUsage();
+  prevCpuTime = now;
+
+  let totalSessions = 0;
+  for (const sm of sessionManagers.values()) {
+    totalSessions += sm.getSessions().length;
+  }
+
+  return {
+    uptime: Math.round(process.uptime()),
+    heapMB: Math.round(mem.heapUsed / 1024 / 1024),
+    rssMB: Math.round(mem.rss / 1024 / 1024),
+    externalMB: Math.round((mem.external || 0) / 1024 / 1024),
+    cpuPercent: Math.round(cpuPercent * 10) / 10,
+    photonsLoaded: sessionManagers.size,
+    sessions: totalSessions,
+    fileWatchers: fileWatchers.size,
+    channelSubs: channelSubscriptions.size,
+    eventBuffers: channelEventBuffers.size,
+    pendingPrompts: pendingPrompts.size,
+    pollTimers: pollTimers.size,
+    runtime: process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`,
+  };
+}
+
+function startHealthMonitor(): void {
+  // Log initial state at startup
+  const initial = collectHealthSnapshot();
+  logger.info('Daemon health monitor started', { ...initial });
+
+  const timer = setInterval(() => {
+    const snap = collectHealthSnapshot();
+
+    // Always log vitals
+    logger.info('Health check', { ...snap });
+
+    // Flag anomalies
+    if (snap.cpuPercent > 50) {
+      logger.warn('HIGH CPU detected', {
+        cpuPercent: snap.cpuPercent,
+        hint: 'Possible fs.watch loop or runaway handler',
+      });
+    }
+    if (snap.heapMB > 512) {
+      logger.warn('HIGH MEMORY detected', {
+        heapMB: snap.heapMB,
+        rssMB: snap.rssMB,
+        eventBuffers: snap.eventBuffers,
+        pendingPrompts: snap.pendingPrompts,
+        hint: 'Check event buffers and pending prompts for leaks',
+      });
+    }
+    if (snap.pendingPrompts > 10) {
+      logger.warn('Pending prompts accumulating — possible socket leak', {
+        count: snap.pendingPrompts,
+      });
+    }
+  }, HEALTH_INTERVAL_MS);
+  timer.unref();
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // SERVER
 // ════════════════════════════════════════════════════════════════════════════════
 
@@ -3041,7 +3370,7 @@ function startupWatchPhotons(): void {
 
   // Watch the directory itself for new photon files added after startup
   try {
-    const dirWatcher = fs.watch(photonDir, (eventType, filename) => {
+    const dirWatcher = safeWatchDir(photonDir, (eventType, filename) => {
       if (!filename) return;
       const ext = extensions.find((e) => filename.endsWith(e));
       if (!ext) return;
@@ -3067,7 +3396,9 @@ function startupWatchPhotons(): void {
         logger.info('Photon file removed', { photonName, path: filePath });
       }
     });
-    dirWatcher.on('error', () => {}); // Non-fatal
+    if ('on' in dirWatcher && typeof (dirWatcher as any).on === 'function') {
+      (dirWatcher as any).on('error', () => {}); // Non-fatal
+    }
   } catch {
     logger.warn('Failed to watch photon directory for new files', { dir: photonDir });
   }
@@ -3171,11 +3502,27 @@ function shutdown(): void {
   jobTimers.clear();
   scheduledJobs.clear();
   activeLocks.clear();
+  channelEventBuffers.clear();
+  eventLogSeq.clear();
+  stateKeysCache.clear();
+
+  // Resolve any pending prompts so promises don't hang
+  for (const [id, pending] of pendingPrompts.entries()) {
+    pending.resolve(null);
+  }
+  pendingPrompts.clear();
+  socketPromptIds.clear();
 
   // Close file watchers and debounce timers
   for (const photonPath of fileWatchers.keys()) {
     unwatchPhotonFile(photonPath);
   }
+
+  // Clean up poll-based watchers (bun fallback)
+  for (const timer of pollTimers) {
+    clearInterval(timer);
+  }
+  pollTimers.clear();
 
   // Terminate all worker threads
   void workerManager.terminateAll().catch((err) => {
@@ -3208,4 +3555,5 @@ function shutdown(): void {
   startServer();
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();
+  startHealthMonitor();
 })();
