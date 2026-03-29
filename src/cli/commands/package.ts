@@ -347,6 +347,19 @@ export function registerPackageCommands(program: Command): void {
           }
         }
 
+        // Resolve and install @photon transitive dependencies from same marketplace
+        const transitiveDeps = await manager.installTransitiveDeps(
+          result.content,
+          selectedMarketplace,
+          workingDir
+        );
+        if (transitiveDeps.length > 0) {
+          console.error(`\n📦 Installed @photon dependencies:`);
+          for (const dep of transitiveDeps) {
+            console.error(`   ${dep.startsWith('  ') ? dep : `✅ ${dep}`}`);
+          }
+        }
+
         // Refresh completions cache (best-effort, don't break main flow)
         try {
           const { generateCompletionCache } = await import('../../shell-completions.js');

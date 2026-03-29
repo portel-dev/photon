@@ -1175,7 +1175,156 @@ export class MarketplaceManager {
       );
     }
 
+    // Fallback: if no assets were downloaded from manifest, parse @ui tags from content
+    // and fetch those asset files directly from the repo
+    if (assetsInstalled.length === 0 && result.marketplace.sourceType !== 'local') {
+      const uiAssets = this.extractUIAssetPaths(content, name);
+      if (uiAssets.length > 0) {
+        const fetched = await this.fetchAssets(result.marketplace, uiAssets);
+        const assetPrefix = `${name}/`;
+        for (const [assetPath, assetContent] of fetched) {
+          const safePath = validateAssetPath(assetPath);
+          const relativePath = safePath.startsWith(assetPrefix)
+            ? safePath.slice(assetPrefix.length)
+            : safePath;
+          const assetTarget = path.join(photonDataDir, relativePath);
+          if (!isPathWithin(assetTarget, photonDataDir)) continue;
+          await fs.mkdir(path.dirname(assetTarget), { recursive: true });
+          await fs.writeFile(assetTarget, assetContent, 'utf-8');
+          assetsInstalled.push(assetPath);
+        }
+      }
+    }
+
     return { photonPath, assetsInstalled };
+  }
+
+  /**
+   * Parse @ui tags from photon content and return repo-relative asset paths.
+   * e.g., "@ui dashboard ./ui/dashboard.html" → "claw/ui/dashboard.html"
+   */
+  private extractUIAssetPaths(content: string, photonName: string): string[] {
+    const paths: string[] = [];
+    // Match class-level @ui tags: @ui <id> <path>
+    const uiRegex = /^\s*\*\s*@ui\s+\S+\s+(\.\/.+?)$/gm;
+    let match;
+    while ((match = uiRegex.exec(content)) !== null) {
+      const relativePath = match[1].trim();
+      // Convert ./ui/dashboard.html → claw/ui/dashboard.html
+      const repoPath = `${photonName}/${relativePath.replace(/^\.\//, '')}`;
+      if (!paths.includes(repoPath)) {
+        paths.push(repoPath);
+      }
+    }
+    // Also check for this.assets() calls: this.assets('slides.md', ...)
+    const assetsRegex = /this\.assets\(\s*['"]([^'"]+)['"]/g;
+    while ((match = assetsRegex.exec(content)) !== null) {
+      const assetFile = match[1];
+      const repoPath = `${photonName}/${assetFile}`;
+      if (!paths.includes(repoPath)) {
+        paths.push(repoPath);
+      }
+    }
+    return paths;
+  }
+
+  /**
+   * After installing a photon, resolve and install its @photon dependencies
+   * from the same marketplace. Handles transitive deps with circular guard.
+   */
+  async installTransitiveDeps(
+    content: string,
+    marketplace: Marketplace,
+    workingDir: string,
+    visited: Set<string> = new Set()
+  ): Promise<string[]> {
+    const extractor = new SchemaExtractor();
+    const deps = extractor.extractPhotonDependencies(content);
+    const installed: string[] = [];
+
+    for (const dep of deps) {
+      if (
+        dep.sourceType === 'local' &&
+        (dep.source.startsWith('./') || dep.source.startsWith('../'))
+      ) {
+        const depFileName = path.basename(dep.source);
+        const depName = depFileName.replace(/\.photon\.(ts|js)$/, '');
+
+        if (visited.has(depName)) continue;
+        visited.add(depName);
+
+        // Check if already installed (namespaced or flat)
+        const namespace = this.extractNamespace(marketplace);
+        const installDir = namespace ? path.join(workingDir, namespace) : workingDir;
+        if (existsSync(path.join(installDir, `${depName}.photon.ts`))) continue;
+
+        // Fetch from the same marketplace
+        this.logger.info(`Fetching @photon dependency: ${depName}`);
+        const depResult = await this.fetchMCPFromMarketplace(depName, marketplace);
+        if (!depResult) {
+          this.logger.warn(`@photon dependency '${depName}' not found in ${marketplace.name}`);
+          continue;
+        }
+
+        const { assetsInstalled } = await this.installPhoton(depResult, depName, workingDir);
+        installed.push(depName);
+        if (assetsInstalled.length > 0) {
+          installed.push(...assetsInstalled.map((a) => `  📄 ${a}`));
+        }
+
+        // Recurse into the dependency's own @photon deps
+        const transitive = await this.installTransitiveDeps(
+          depResult.content,
+          marketplace,
+          workingDir,
+          visited
+        );
+        installed.push(...transitive);
+      }
+    }
+
+    return installed;
+  }
+
+  /**
+   * Fetch a specific photon from a specific marketplace (not searching all).
+   */
+  private async fetchMCPFromMarketplace(
+    mcpName: string,
+    marketplace: Marketplace
+  ): Promise<{ content: string; marketplace: Marketplace; metadata?: PhotonMetadata } | null> {
+    try {
+      let content: string | null = null;
+
+      if (marketplace.sourceType === 'local') {
+        const localPath = marketplace.url.replace('file://', '');
+        const mcpPath = path.join(localPath, `${mcpName}.photon.ts`);
+        if (existsSync(mcpPath)) {
+          content = await fs.readFile(mcpPath, 'utf-8');
+        }
+      } else {
+        const url = `${marketplace.url}/${mcpName}.photon.ts`;
+        const response = await ghFetch(url, {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (response.ok) {
+          content = await response.text();
+        }
+      }
+
+      if (!content) return null;
+
+      let manifest = await this.getCachedManifest(marketplace.name);
+      if (!manifest) {
+        const updated = await this.updateMarketplaceCache(marketplace.name);
+        if (updated) manifest = await this.getCachedManifest(marketplace.name);
+      }
+      const metadata = manifest?.photons.find((p) => p.name === mcpName);
+
+      return { content, marketplace, metadata };
+    } catch {
+      return null;
+    }
   }
 
   /**
