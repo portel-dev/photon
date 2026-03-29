@@ -4940,7 +4940,7 @@ ${bridge}
     color: var(--color-on-surface-variant, inherit);
     border-bottom: 1px solid var(--color-outline-variant, rgba(128,128,128,0.1)); flex-shrink: 0; }
   .slide-body { flex: 1; padding: 16px 32px 12px; overflow: hidden;
-    display: flex; flex-direction: column; justify-content: start; }
+    display: flex; flex-direction: column; justify-content: center; }
   /* Title slides: vertically centered when content is minimal */
   .slide-body.title-slide { justify-content: center; align-items: flex-start; }
   /* Content slides: title anchored at top, remaining content distributed below
@@ -4967,7 +4967,7 @@ ${bridge}
   a { color: var(--color-primary, var(--accent, #79aef0)); }
   strong { color: var(--color-on-surface, var(--text-primary, inherit)); }
   /* Columns */
-  .slide-cols { display: grid; gap: 24px; height: 100%; align-items: start; }
+  .slide-cols { display: grid; gap: 24px; height: 100%; align-items: center; }
   .slide-cols-2 { grid-template-columns: 1fr 1fr; }
   .slide-cols-3 { grid-template-columns: 1fr 1fr 1fr; }
   .slide-cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
@@ -4996,9 +4996,10 @@ ${bridge}
   th, td { padding: 8px 12px; border-bottom: 1px solid var(--color-outline-variant, var(--border-muted, rgba(128,128,128,0.2))); text-align: left; }
   th { font-weight: 600; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px;
     color: var(--color-on-surface-variant, var(--text-secondary, #b3b3b3)); }
-  code { font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace); font-size: 0.9em; }
+  code { font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace); font-size: 1em; }
   pre { background: var(--color-surface-container, var(--bg-secondary, rgba(0,0,0,0.3)));
-    padding: 12px; border-radius: var(--radius-md, 8px); overflow-x: auto; position: relative; }
+    padding: 16px; border-radius: var(--radius-md, 8px); overflow-x: auto; position: relative;
+    font-size: 1.05em; line-height: 1.5; }
   .code-block-wrapper { position: relative; margin: 1em 0; }
   .code-block-wrapper pre { margin: 0; }
   .code-block-wrapper .language-label { position: absolute; top: 0; right: 0;
