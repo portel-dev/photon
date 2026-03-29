@@ -349,6 +349,8 @@ export class BeamSidebar extends LitElement {
       .photon-item.active {
         background: linear-gradient(90deg, var(--glow-primary), transparent);
         border-left: 2px solid var(--accent-primary);
+        color: var(--accent-primary);
+        font-weight: 500;
       }
 
       .photon-item.flash-highlight {
@@ -370,12 +372,10 @@ export class BeamSidebar extends LitElement {
 
       @keyframes warmth-fade {
         0% {
-          background: var(--color-warning);
-          opacity: 0.15;
+          background: hsla(38, 100%, 50%, 0.15);
         }
         100% {
-          background: var(--color-warning);
-          opacity: 0;
+          background: transparent;
         }
       }
 
