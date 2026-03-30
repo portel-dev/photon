@@ -5601,16 +5601,18 @@ ${photon.errorMessage || 'Unknown error'}</pre
               ${this._viewMode === 'full'
                 ? html`
                     <div class="form-chrome">
-                      <button
-                        class="btn-secondary"
-                        @click=${() => {
-                          const form: any = this.shadowRoot?.querySelector('invoke-form');
-                          form?.handleCancel();
-                        }}
-                        ?disabled=${opts.executing}
-                      >
-                        Cancel
-                      </button>
+                      ${hasParams
+                        ? html`<button
+                            class="btn-secondary"
+                            @click=${() => {
+                              const form: any = this.shadowRoot?.querySelector('invoke-form');
+                              form?.handleCancel();
+                            }}
+                            ?disabled=${opts.executing}
+                          >
+                            Cancel
+                          </button>`
+                        : ''}
                       <button
                         class="btn-primary"
                         @click=${() => {
