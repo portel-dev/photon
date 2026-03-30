@@ -15,6 +15,7 @@ import { linter, type Diagnostic } from '@codemirror/lint';
 import { basicSetup } from 'codemirror';
 import { mcpClient } from '../services/mcp-client.js';
 import { showToast } from './toast-manager.js';
+import { confirmDialog } from './confirm-dialog.js';
 import {
   createDocblockCompletions,
   photonFormatCompletions,
@@ -1801,9 +1802,15 @@ export class PhotonStudio extends LitElement {
     this._activeOutlineKey = matchingItem ? this._outlineKey(matchingItem) : '';
   }
 
-  private _close() {
+  private async _close() {
     if (this._dirty) {
-      if (!confirm('You have unsaved changes. Close anyway?')) return;
+      if (
+        !(await confirmDialog('You have unsaved changes. Close anyway?', {
+          confirm: 'Close',
+          destructive: true,
+        }))
+      )
+        return;
     }
     this.dispatchEvent(new CustomEvent('studio-close', { bubbles: true, composed: true }));
   }

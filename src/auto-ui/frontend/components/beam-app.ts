@@ -3,6 +3,7 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
+import { confirmDialog } from './confirm-dialog.js';
 import {
   xMark,
   menu,
@@ -3709,7 +3710,7 @@ export class BeamApp extends LitElement {
             this._selectedPhoton &&
             !this._selectedPhoton.isApp
           ) {
-            this._handleBackFromMethod();
+            void this._handleBackFromMethod();
           } else {
             this._toggleSidebar();
           }
@@ -4676,7 +4677,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   progress: this._progress,
                   formParams: this._lastFormParams,
                   onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
-                  onCancel: () => this._handleBackFromMethod(),
+                  onCancel: () => void this._handleBackFromMethod(),
                   appSurface: true,
                 })}
               </div>
@@ -5356,7 +5357,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               progress: this._progress,
               formParams: this._lastFormParams,
               onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
-              onCancel: () => this._handleBackFromMethod(),
+              onCancel: () => void this._handleBackFromMethod(),
               panelLabel: 'Primary',
               instance: this._currentInstance,
               instances: this._instances,
@@ -5404,7 +5405,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       progress: this._progress,
       formParams: this._lastFormParams,
       onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
-      onCancel: () => this._handleBackFromMethod(),
+      onCancel: () => void this._handleBackFromMethod(),
       appSurface: this._viewMode !== 'full',
       panelLabel: 'Primary',
       instance: this._currentInstance,
@@ -6071,10 +6072,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
     void this._handleExecute(new CustomEvent('execute', { detail: { args } }));
   }
 
-  private _handleBackFromMethod() {
+  private async _handleBackFromMethod() {
     // Check for unsaved form changes
     const form = this.shadowRoot?.querySelector('invoke-form');
-    if (form?.isDirty && !confirm('You have unsaved changes. Discard them?')) {
+    if (
+      form?.isDirty &&
+      !(await confirmDialog('You have unsaved changes. Discard them?', {
+        confirm: 'Discard',
+        destructive: true,
+      }))
+    ) {
       return;
     }
     // Close all split panels when navigating back
@@ -6176,7 +6183,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleRemove = async () => {
     this._closeSettingsMenu();
     if (this._selectedPhoton && this._mcpReady) {
-      if (confirm(`Remove ${this._selectedPhoton.name} from this workspace?`)) {
+      if (
+        await confirmDialog(`Remove ${this._selectedPhoton.name} from this workspace?`, {
+          confirm: 'Remove',
+          destructive: true,
+        })
+      ) {
         const result = await mcpClient.removePhoton(this._selectedPhoton.name);
         if (!result.success) {
           showToast(result.error || 'Remove failed', 'error');
@@ -6605,11 +6617,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
   };
 
-  private _handleDeletePhoton = () => {
+  private _handleDeletePhoton = async () => {
     this._closeSettingsMenu();
     if (
-      confirm(
-        `Are you sure you want to delete "${this._selectedPhoton?.name}"? This cannot be undone.`
+      await confirmDialog(
+        `Are you sure you want to delete "${this._selectedPhoton?.name}"? This cannot be undone.`,
+        { confirm: 'Delete', destructive: true }
       )
     ) {
       void this._invokeMakerMethod('delete');
@@ -7642,7 +7655,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         return;
       }
       if (this._view === 'form' && this._selectedMethod) {
-        this._handleBackFromMethod();
+        void this._handleBackFromMethod();
         return;
       }
       if (this._view === 'marketplace') {
@@ -7685,7 +7698,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // h to go back
     if (e.key === 'h') {
       if (this._view === 'form') {
-        this._handleBackFromMethod();
+        void this._handleBackFromMethod();
       } else if (this._view === 'marketplace') {
         this._view = 'list';
         this._updateRoute();
@@ -8202,7 +8215,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const { action } = e.detail;
     switch (action) {
       case 'back':
-        this._handleBackFromMethod();
+        void this._handleBackFromMethod();
         break;
       case 'edit-studio':
         if (this._selectedPhoton) {
@@ -8278,7 +8291,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             void this._handleContribute();
             break;
           case 'delete':
-            this._handleDeletePhoton();
+            void this._handleDeletePhoton();
             break;
           case 'remove':
             void this._handleRemove();

@@ -3,6 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { ifDefined } from 'lit/directives/if-defined.js';
 import { theme, buttons, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
+import { confirmDialog } from './confirm-dialog.js';
 import { formatLabel } from '../utils/format-label.js';
 import { mcpClient } from '../services/mcp-client.js';
 
@@ -2448,8 +2449,14 @@ export class InvokeForm extends LitElement {
   }
 
   /** Cancel with dirty check. Called by parent chrome wrapper. */
-  handleCancel() {
-    if (this.isDirty && !confirm('You have unsaved changes. Discard them?')) {
+  async handleCancel() {
+    if (
+      this.isDirty &&
+      !(await confirmDialog('You have unsaved changes. Discard them?', {
+        confirm: 'Discard',
+        destructive: true,
+      }))
+    ) {
       return;
     }
     this.dispatchEvent(new CustomEvent('cancel'));

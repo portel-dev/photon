@@ -3,6 +3,7 @@ import { customElement, state } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
+import { confirmDialog } from './confirm-dialog.js';
 import { templates } from './studio-templates.js';
 import { sparkle, refresh as refreshIcon, check, xMark, file as fileIcon } from '../icons.js';
 import { trapFocus } from '../utils/focus-trap.js';
@@ -1528,7 +1529,12 @@ export class MarketplaceView extends LitElement {
   }
 
   private async _removeSource(name: string) {
-    if (!confirm(`Remove marketplace "${name}"? This will not uninstall any photons.`)) {
+    if (
+      !(await confirmDialog(`Remove marketplace "${name}"? This will not uninstall any photons.`, {
+        confirm: 'Remove',
+        destructive: true,
+      }))
+    ) {
       return;
     }
 
@@ -1600,7 +1606,13 @@ export class MarketplaceView extends LitElement {
 
   private async _remove(item: MarketplaceItem) {
     // Confirmation dialog for destructive action
-    if (!confirm(`Remove "${item.name}"? This will delete the photon files.`)) return;
+    if (
+      !(await confirmDialog(`Remove "${item.name}"? This will delete the photon files.`, {
+        confirm: 'Remove',
+        destructive: true,
+      }))
+    )
+      return;
     this._removing = item.name;
     try {
       const res = await fetch('/api/marketplace/remove', {
