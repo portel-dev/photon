@@ -36,7 +36,8 @@ type LayoutType =
   | 'columns'
   | 'qr'
   | 'slides'
-  | 'checklist';
+  | 'checklist'
+  | 'article';
 
 interface LayoutHints {
   title?: string;
@@ -774,6 +775,106 @@ export class ResultViewer extends LitElement {
         height: 100%;
         background: var(--accent);
         transition: width 0.4s cubic-bezier(0.2, 0, 0, 1);
+      }
+
+      /* Article Styles (Pretext-powered magazine layout) */
+      .article-container {
+        position: relative;
+        line-height: 1.6;
+        font-size: 15px;
+        color: var(--t-primary);
+        overflow: hidden;
+      }
+
+      .article-container canvas {
+        display: block;
+        width: 100%;
+      }
+
+      .article-image {
+        position: absolute;
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transition: box-shadow 0.2s;
+      }
+
+      .article-image:hover {
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      }
+
+      .article-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .article-image .caption {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 6px 10px;
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+        color: #fff;
+        font-size: 11px;
+        font-style: italic;
+      }
+
+      .article-fallback {
+        column-count: 2;
+        column-gap: 24px;
+        line-height: 1.7;
+        font-size: 15px;
+        color: var(--t-primary);
+      }
+
+      .article-fallback .article-float {
+        break-inside: avoid;
+        margin-bottom: 12px;
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      }
+
+      .article-fallback .article-float.left {
+        float: left;
+        margin-right: 16px;
+        max-width: 45%;
+      }
+
+      .article-fallback .article-float.right {
+        float: right;
+        margin-left: 16px;
+        max-width: 45%;
+      }
+
+      .article-fallback .article-float img {
+        width: 100%;
+        display: block;
+      }
+
+      .article-fallback .article-float .caption {
+        padding: 6px 10px;
+        font-size: 11px;
+        font-style: italic;
+        color: var(--t-muted);
+        background: var(--bg-glass);
+      }
+
+      @keyframes article-fade-in {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .article-container,
+      .article-fallback {
+        animation: article-fade-in 0.3s ease both;
       }
 
       .status-badge {
@@ -3452,6 +3553,7 @@ export class ResultViewer extends LitElement {
           'qr',
           'slides',
           'checklist',
+          'article',
         ].includes(format)
       ) {
         return format as LayoutType;
@@ -3694,6 +3796,8 @@ export class ResultViewer extends LitElement {
         return typeof data === 'string';
       case 'checklist':
         return Array.isArray(data);
+      case 'article':
+        return typeof data === 'object' && data !== null && typeof data.text === 'string';
       default:
         return true; // other formats degrade gracefully
     }
@@ -3764,6 +3868,8 @@ export class ResultViewer extends LitElement {
         return this._renderSlides(filteredData);
       case 'checklist':
         return this._renderChecklist(filteredData);
+      case 'article':
+        return this._renderArticle(filteredData);
       case 'json':
       default:
         return this._renderJson(filteredData);
@@ -7601,6 +7707,176 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
               All ${total} items done
             </div>`
           : ''}
+      </div>
+    `;
+  }
+
+  // ── Article Renderer (Pretext-powered magazine layout) ──
+
+  private _renderArticle(data: any): TemplateResult {
+    if (!data || typeof data.text !== 'string') {
+      return html`<div class="empty-state">No article content</div>`;
+    }
+
+    const text: string = data.text;
+    const images: Array<{
+      url: string;
+      width?: number;
+      height?: number;
+      position?: 'left' | 'right';
+      caption?: string;
+    }> = data.images || [];
+
+    // Try Canvas + Pretext path
+    try {
+      return this._renderArticleCanvas(text, images);
+    } catch {
+      // Fallback to CSS columns + float
+      return this._renderArticleFallback(text, images);
+    }
+  }
+
+  private _renderArticleCanvas(
+    text: string,
+    images: Array<{
+      url: string;
+      width?: number;
+      height?: number;
+      position?: 'left' | 'right';
+      caption?: string;
+    }>
+  ): TemplateResult {
+    // Lazy import check — Pretext is bundled when this code path is used
+    const pretext = (window as any).__pretextModule;
+    if (!pretext) {
+      // Load Pretext dynamically on first use
+      void import('../services/text-layout.js').then((mod) => {
+        (window as any).__pretextModule = mod;
+        this.requestUpdate(); // re-render with Pretext available
+      });
+      return this._renderArticleFallback(text, images);
+    }
+
+    const containerWidth = this.shadowRoot?.querySelector('.content')?.clientWidth ?? 600;
+    const fontSize = 15;
+    const lineHeight = fontSize * 1.6;
+    const font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+    const padding = 12;
+
+    // Build obstacles from images
+    const obstacles: Array<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      padding: number;
+    }> = [];
+    const imagePositions: Array<{
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      url: string;
+      caption?: string;
+    }> = [];
+
+    images.forEach((img, i) => {
+      const imgW = Math.min(img.width || 200, containerWidth * 0.4);
+      const imgH = img.height ? (imgW / (img.width || 200)) * img.height : imgW * 0.75;
+      const side = img.position || (i % 2 === 0 ? 'right' : 'left');
+      const x = side === 'right' ? containerWidth - imgW : 0;
+      const y = i * (imgH + lineHeight * 4) + lineHeight * 2; // stagger vertically
+
+      obstacles.push({ x, y, width: imgW, height: imgH, padding });
+      imagePositions.push({ x, y, w: imgW, h: imgH, url: img.url, caption: img.caption });
+    });
+
+    // Flow text around obstacles
+    const flowLines = pretext.flowTextAroundObstacles(
+      text,
+      font,
+      containerWidth,
+      lineHeight,
+      obstacles
+    );
+
+    // Calculate total height
+    const lastLine = flowLines[flowLines.length - 1];
+    const totalHeight = lastLine ? lastLine.y + lineHeight + padding : lineHeight;
+    const canvasHeight = Math.max(totalHeight, ...imagePositions.map((p) => p.y + p.h + padding));
+
+    // Render to Canvas after Lit update
+    const canvasId = `article-canvas-${Date.now()}`;
+
+    void this.updateComplete.then(() => {
+      const canvas = this.shadowRoot?.querySelector(`#${canvasId}`) as HTMLCanvasElement;
+      if (!canvas) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = containerWidth * dpr;
+      canvas.height = canvasHeight * dpr;
+      canvas.style.height = `${canvasHeight}px`;
+
+      const ctx = canvas.getContext('2d')!;
+      ctx.scale(dpr, dpr);
+
+      // Draw text
+      const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+      ctx.fillStyle = isDark ? '#e0e0e0' : '#1a1a1a';
+      ctx.font = font;
+      ctx.textBaseline = 'top';
+
+      for (const line of flowLines) {
+        ctx.fillText(line.text, line.x, line.y + (lineHeight - fontSize) / 2);
+      }
+    });
+
+    return html`
+      <div class="article-container">
+        <canvas id="${canvasId}" style="width:100%"></canvas>
+        ${imagePositions.map(
+          (img) => html`
+            <div
+              class="article-image"
+              style="left:${img.x}px; top:${img.y}px; width:${img.w}px; height:${img.h}px;"
+            >
+              <img src="${img.url}" alt="" loading="lazy" />
+              ${img.caption ? html`<div class="caption">${img.caption}</div>` : ''}
+            </div>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _renderArticleFallback(
+    text: string,
+    images: Array<{
+      url: string;
+      width?: number;
+      height?: number;
+      position?: 'left' | 'right';
+      caption?: string;
+    }>
+  ): TemplateResult {
+    // CSS columns + float fallback (no Pretext needed)
+    const paragraphs = text.split(/\n\n+/).filter((p) => p.trim());
+    const hasImages = images.length > 0;
+
+    return html`
+      <div class="article-fallback" style="${hasImages ? '' : 'column-count: 2'}">
+        ${images.map(
+          (img, i) => html`
+            <div
+              class="article-float ${img.position || (i % 2 === 0 ? 'right' : 'left')}"
+              style="max-width: ${img.width ? Math.min(img.width, 280) + 'px' : '280px'}"
+            >
+              <img src="${img.url}" alt="" loading="lazy" />
+              ${img.caption ? html`<div class="caption">${img.caption}</div>` : ''}
+            </div>
+          `
+        )}
+        ${paragraphs.map((p) => html`<p style="margin-bottom: 1em;">${p}</p>`)}
       </div>
     `;
   }

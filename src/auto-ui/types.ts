@@ -427,7 +427,8 @@ export type UIHint =
   | 'stack'
   | 'columns'
   | 'qr'
-  | 'checklist';
+  | 'checklist'
+  | 'article';
 
 export type ProgressType = 'spinner' | 'percentage' | 'steps';
 
