@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.17.3](https://github.com/portel-dev/photon/compare/v1.17.2...v1.17.3) (2026-03-30)
+
+### Bug Fixes
+
+* add global install smoke test to pre-release check ([5abf61b](https://github.com/portel-dev/photon/commit/5abf61bd940a9e0c005ae93e7a82b37a77be6617))
+* replace all native confirm() dialogs with themed modal ([c01e70e](https://github.com/portel-dev/photon/commit/c01e70ea844a511c8a61b85b1555390f55bca61a))
+* update photon-core to 2.17.2 (bun dependency install + format whitelist) ([bc51aef](https://github.com/portel-dev/photon/commit/bc51aef92fdb5856b6edb1895d3377ec2a6ef79e))
+
 ## [1.17.2](https://github.com/portel-dev/photon/compare/v1.17.1...v1.17.2) (2026-03-30)
 
 ### Bug Fixes
