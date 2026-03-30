@@ -24,13 +24,7 @@ interface HTMLIFrameElement {
   contentWindow: { postMessage(message: any, targetOrigin: string): void } | null;
 }
 
-import type {
-  HostToUIMessage,
-  UIToHostMessage,
-  EmitEvent,
-  AskEvent,
-  PhotonContext,
-} from './photon-bridge.js';
+import type { HostToUIMessage, EmitEvent, AskEvent, PhotonContext } from './photon-bridge.js';
 import { getThemeTokens } from './design-system/tokens.js';
 import {
   createMcpAppsInitialize,
@@ -68,7 +62,6 @@ export class PhotonHost {
       reject: (error: Error) => void;
     }
   >();
-  private isReady = false;
   private readyPromise: Promise<void>;
   private readyResolve!: () => void;
   private messageHandler: (event: any) => void;
@@ -279,7 +272,6 @@ export class PhotonHost {
     // ─────────────────────────────────────────────────────────────────────────
     if (msg.jsonrpc === '2.0') {
       if (msg.method === 'ui/ready') {
-        this.isReady = true;
         this.readyResolve();
         this.initialize();
       } else if (msg.method === 'tools/call' && this.options.onCallTool) {
@@ -310,7 +302,6 @@ export class PhotonHost {
 
     switch (msg.type) {
       case 'photon:ready':
-        this.isReady = true;
         this.readyResolve();
         // Send init after ready
         this.initialize();

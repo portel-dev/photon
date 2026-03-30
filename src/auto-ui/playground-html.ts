@@ -14,7 +14,7 @@ export interface PlaygroundOptions {
  * Generate playground HTML for interactive testing
  */
 export function generatePlaygroundHTML(options: PlaygroundOptions): string {
-  const { name, port } = options;
+  const { name } = options;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

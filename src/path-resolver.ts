@@ -23,7 +23,7 @@ export {
   type ListedPhoton,
 } from '@portel/photon-core';
 
-import { DEFAULT_PHOTON_DIR, ensurePhotonDir, listPhotonFiles } from '@portel/photon-core';
+import { ensurePhotonDir, listPhotonFiles } from '@portel/photon-core';
 
 // Backward compatibility aliases
 export const ensureWorkingDir = ensurePhotonDir;

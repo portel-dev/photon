@@ -40,11 +40,9 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as os from 'os';
-import { exec, execFile, execSync } from 'child_process';
+import { execFile, execSync } from 'child_process';
 import { promisify } from 'util';
 import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 // Inlined from shared/security.ts — photon files compile to isolated cache dirs
@@ -91,14 +89,12 @@ type WizardStep =
 
 export default class Maker {
   private photonPath: string;
-  private photonName: string;
 
   /**
    * Instance is created with target photon context for per-photon operations
    */
   constructor(photonPath?: string) {
     this.photonPath = photonPath || '';
-    this.photonName = photonPath ? path.basename(photonPath, '.photon.ts') : '';
   }
 
   // ============================================

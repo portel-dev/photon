@@ -9,13 +9,7 @@ import type { PhotonLoader } from '../../loader.js';
 import type { MarketplaceManager } from '../../marketplace-manager.js';
 import type { PhotonContext } from '../../context.js';
 import type { SimpleRateLimiter } from '../../shared/security.js';
-import type {
-  AnyPhotonInfo,
-  PhotonInfo,
-  UnconfiguredPhotonInfo,
-  ExternalMCPInfo,
-  MCPServerConfig,
-} from '../types.js';
+import type { AnyPhotonInfo, ExternalMCPInfo, MCPServerConfig } from '../types.js';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 /** Unified config structure for config.json */

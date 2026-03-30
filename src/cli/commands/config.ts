@@ -23,7 +23,7 @@ export function registerConfigCommands(program: Command): void {
     .description('Switch to a named instance of a stateful photon')
     .action(async (photonName: string, instance?: string) => {
       try {
-        const { printSuccess, printError } = await import('../../cli-formatter.js');
+        const { printSuccess } = await import('../../cli-formatter.js');
         const { CLISessionStore } = await import('../../context-store.js');
 
         // Write to CLI session store only — each client manages its own instance
@@ -53,7 +53,7 @@ export function registerConfigCommands(program: Command): void {
     .description('List all instances of a stateful photon')
     .action(async (photonName: string, _options: unknown, command: Command) => {
       try {
-        const { printInfo, printError, printHeader } = await import('../../cli-formatter.js');
+        const { printInfo, printHeader } = await import('../../cli-formatter.js');
         const workingDir = getDefaultContext().baseDir;
         const { InstanceStore } = await import('../../context-store.js');
         const store = new InstanceStore(workingDir);

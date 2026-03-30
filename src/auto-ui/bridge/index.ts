@@ -7,7 +7,7 @@
  * Key principle: No Beam-specific protocol layer. All features achieved via
  * MCP Apps Extension spec + custom JSON-RPC notifications that any host can implement.
  */
-import type { PhotonBridgeContext, SizeConstraints } from './types.js';
+import type { PhotonBridgeContext } from './types.js';
 import { getThemeTokens } from '../design-system/tokens.js';
 
 // Re-export types (server-safe)

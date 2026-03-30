@@ -17,7 +17,6 @@ import {
   handleError,
 } from '../../shared/error-handler.js';
 import { LoggerOptions, normalizeLogLevel, logger } from '../../shared/logger.js';
-import { createReadline, promptText } from '../../shared/cli-utils.js';
 import { printError, printWarning, printInfo, printSuccess } from '../../cli-formatter.js';
 import { printHeader } from '../../cli-formatter.js';
 import { resolvePhotonPath } from '../../path-resolver.js';

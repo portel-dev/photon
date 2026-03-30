@@ -16,19 +16,6 @@ import { getDefaultContext } from './context.js';
 
 const SENTINEL = '.migrated';
 
-/** Directories that are NOT namespace directories */
-const SKIP_DIRS = new Set([
-  'state',
-  'context',
-  'env',
-  '.cache',
-  '.config',
-  'node_modules',
-  'marketplace',
-  'photons',
-  'templates',
-]);
-
 /**
  * Run the namespace migration if it hasn't been run yet.
  * Safe to call on every startup — returns immediately if already migrated.

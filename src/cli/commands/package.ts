@@ -280,7 +280,6 @@ export function registerPackageCommands(program: Command): void {
 
         // Check if already exists locally
         const filePath = path.join(workingDir, `${name}.photon.ts`);
-        const fileName = `${name}.photon.ts`;
 
         if (existsSync(filePath)) {
           console.error(`⚠️  MCP '${name}' already exists`);
@@ -376,7 +375,7 @@ export function registerPackageCommands(program: Command): void {
 
         // Setup MCP dependencies if present
         if (!options.skipMcpSetup) {
-          const { configured, skipped } = await setupMCPDependencies(result.content, name, {
+          const { skipped } = await setupMCPDependencies(result.content, name, {
             skipPrompts: options.yes,
           });
 
@@ -741,7 +740,7 @@ export function registerPackageCommands(program: Command): void {
     .description('Take ownership of an installed photon (removes marketplace tracking)')
     .action(async (name: string, _options: any, command: Command) => {
       try {
-        const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
+        const { printSuccess, printError } = await import('../../cli-formatter.js');
         const workingDir = getDefaultContext().baseDir;
 
         const { MarketplaceManager } = await import('../../marketplace-manager.js');

@@ -18,7 +18,7 @@ export function registerDaemonCommands(program: Command): void {
     .description('Start the daemon (no-op if already running)')
     .action(async () => {
       try {
-        const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
+        const { printInfo, printSuccess } = await import('../../cli-formatter.js');
         const { ensureDaemon, isGlobalDaemonRunning } = await import('../../daemon/manager.js');
         if (isGlobalDaemonRunning()) {
           printInfo('Daemon is already running.');
@@ -38,7 +38,7 @@ export function registerDaemonCommands(program: Command): void {
     .description('Stop the running daemon')
     .action(async () => {
       try {
-        const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
+        const { printInfo, printSuccess } = await import('../../cli-formatter.js');
         const { stopGlobalDaemon, isGlobalDaemonRunning } = await import('../../daemon/manager.js');
         if (!isGlobalDaemonRunning()) {
           printInfo('Daemon is not running.');
@@ -58,7 +58,7 @@ export function registerDaemonCommands(program: Command): void {
     .description('Restart the daemon')
     .action(async () => {
       try {
-        const { printSuccess, printError } = await import('../../cli-formatter.js');
+        const { printSuccess } = await import('../../cli-formatter.js');
         const { restartGlobalDaemon } = await import('../../daemon/manager.js');
         await restartGlobalDaemon();
         printSuccess('Daemon restarted.');
@@ -74,7 +74,7 @@ export function registerDaemonCommands(program: Command): void {
     .description('Show daemon status and health info')
     .action(async () => {
       try {
-        const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
+        const { printInfo, printSuccess } = await import('../../cli-formatter.js');
         const { isGlobalDaemonRunning, GLOBAL_PID_FILE, GLOBAL_LOG_FILE } =
           await import('../../daemon/manager.js');
         const running = isGlobalDaemonRunning();

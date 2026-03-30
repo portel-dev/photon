@@ -320,8 +320,6 @@ complete -F _photon_complete photon`);
             .map((name) => `function ${name} { photon cli ${name} @Args }`)
             .join('\n');
 
-          const functionNames = photonNames.map((n) => `'${n}'`).join(', ');
-
           console.log(`${marker}
 
 # Functions for installed photons (direct invocation)

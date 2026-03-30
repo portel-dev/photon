@@ -9,12 +9,11 @@ import { realpathSync, existsSync, mkdirSync, symlinkSync, readFileSync, type Di
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
 import { createRequire } from 'module';
 import * as path from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { startToolSpan } from './telemetry/otel.js';
-import { spawn, execSync } from 'child_process';
+import { spawn } from 'child_process';
 import {
-  Photon,
   SchemaExtractor,
   DependencyManager,
   ConstructorParam,
@@ -25,9 +24,6 @@ import {
   StaticInfo,
   // Asset types (MCP Apps support)
   type PhotonAssets,
-  type UIAsset,
-  type PromptAsset,
-  type ResourceAsset,
   // Generator utilities (ask/emit pattern from 1.2.0)
   isAsyncGenerator,
   executeGenerator,
@@ -38,7 +34,6 @@ import {
   type OutputHandler,
   // Implicit stateful execution (auto-detect checkpoint yields)
   maybeStatefulExecute,
-  type MaybeStatefulResult,
   // Elicit for fallback
   prompt as elicitPrompt,
   confirm as elicitConfirm,
@@ -51,9 +46,7 @@ import {
   type MCPDependency,
   type PhotonDependency,
   type CLIDependency,
-  type ResolvedInjection,
   createMCPProxy,
-  MCPClient,
   MCPConfigurationError,
   type MissingMCPInfo,
   type MCPSourceType,
@@ -62,12 +55,10 @@ import {
   type MCPConfig,
   // Photon runtime configuration
   loadPhotonMCPConfig,
-  getMCPServerConfig,
   resolveEnvVars,
   type PhotonMCPConfig,
   type MCPServerConfig,
   type SettingsSchema,
-  type SettingsProperty,
   isClass as sharedIsClass,
   findPhotonClass as sharedFindPhotonClass,
   parseEnvValue as sharedParseEnvValue,
@@ -75,7 +66,6 @@ import {
   parseRuntimeRequirement,
   checkRuntimeCompatibility,
   discoverAssets as sharedDiscoverAssets,
-  autoDiscoverAssets as sharedAutoDiscoverAssets,
   // Execution audit trail
   getAuditTrail,
   // Capability detection for auto-injection
@@ -87,13 +77,10 @@ import {
   type CallerInfo,
   // Lock helper
   withLock as withLockHelper,
-  // Duration parsing for functional tags
-  parseDuration,
   // Middleware system
   builtinRegistry,
   MiddlewareRegistry,
   buildMiddlewareChain,
-  createStateStore,
   type MiddlewareDefinition,
   type MiddlewareState,
   type MiddlewareContext,
@@ -110,13 +97,13 @@ interface DependencySpec {
 }
 
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
-import { PHOTON_VERSION, PHOTON_CORE_VERSION, getResolvedPhotonCoreVersion } from './version.js';
+import { PHOTON_VERSION, getResolvedPhotonCoreVersion } from './version.js';
 
 // Timeout for external fetch requests (marketplace, GitHub)
 const FETCH_TIMEOUT_MS = 30 * 1000;
 import { generateConfigErrorMessage, summarizeConstructorParams } from './shared/config-docs.js';
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
-import { getErrorMessage, wrapError } from './shared/error-handler.js';
+import { getErrorMessage } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
 import { warnIfDangerous } from './shared/security.js';
 import { detectPM } from './shared-utils.js';
@@ -273,8 +260,6 @@ export class PhotonLoader {
   private mcpClients: Map<string, any> = new Map();
   /** In-flight MCP client creation promises — dedup concurrent creates for the same dep */
   private mcpClientPromises: Map<string, Promise<any>> = new Map();
-  /** SDK factory for MCP connections */
-  private sdkFactory?: SDKMCPClientFactory;
   /** Cached MCP config from ~/.photon/config.json */
   private mcpConfig?: PhotonMCPConfig;
   /** Inflight config load promise (dedup concurrent calls) */
@@ -3261,9 +3246,7 @@ Run: photon mcp ${mcpName} --config
         // so we must emit events here where ALL tool executions are guaranteed to pass through
         if (mcp.instance && typeof mcp.instance.emit === 'function') {
           try {
-            // Check if this is a @stateful photon by looking for emit method and @stateful tag
             const photonName = mcp.name;
-            const hasStatefulTag = mcp.tools.some((t: any) => t.name === toolName); // Assume @stateful if loaded
 
             // Attach __meta to result if it's an object and doesn't already have it
             if (result && typeof result === 'object' && !Array.isArray(result) && !result.__meta) {

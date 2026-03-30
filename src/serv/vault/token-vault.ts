@@ -55,7 +55,6 @@ export class LocalTokenVault implements TokenVault {
   private masterKey: Buffer;
   private salt: Buffer;
   private keyCache: Map<string, Buffer> = new Map();
-  private iterations: number;
 
   constructor(config: TokenVaultConfig) {
     if (config.masterKey.length < 32) {
@@ -64,7 +63,6 @@ export class LocalTokenVault implements TokenVault {
 
     this.masterKey = Buffer.from(config.masterKey, 'utf-8');
     this.salt = Buffer.from(config.salt ?? 'serv-token-vault-salt', 'utf-8');
-    this.iterations = config.iterations ?? 100000;
   }
 
   async encrypt(tenantId: string, plaintext: string): Promise<string> {

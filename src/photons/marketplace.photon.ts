@@ -7,14 +7,11 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as os from 'os';
 import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
 
 export default class Marketplace {
-  private workingDir: string;
-
-  constructor(workingDir?: string) {
-    this.workingDir = workingDir || DEFAULT_PHOTON_DIR;
+  constructor(_workingDir?: string) {
+    // workingDir reserved for future per-instance scoping
   }
 
   // ============================================

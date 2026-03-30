@@ -47,7 +47,6 @@ import {
   getTask,
   updateTask,
   listTasks,
-  cleanExpiredTasks,
   registerController,
   unregisterController,
   getController,

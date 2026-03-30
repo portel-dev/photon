@@ -393,7 +393,6 @@ export async function subscribeChannel(
   options?: SubscribeOptions & { workingDir?: string }
 ): Promise<() => void> {
   let cancelled = false;
-  let currentClient: net.Socket | null = null;
   let lastSeenEventId: string | undefined = options?.lastEventId;
 
   const connect = (): Promise<() => void> => {
@@ -402,7 +401,6 @@ export async function subscribeChannel(
 
     return new Promise((resolve, reject) => {
       const client = net.createConnection(socketPath);
-      currentClient = client;
       let subscribed = false;
       let buffer = '';
 

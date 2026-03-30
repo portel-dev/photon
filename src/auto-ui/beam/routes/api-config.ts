@@ -11,8 +11,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { isLocalRequest, readBody } from '../../../shared/security.js';
 import { generateOpenAPISpec } from '../../openapi-generator.js';
-import type { PhotonInfo, UnconfiguredPhotonInfo } from '../../types.js';
-import type { BeamState, RouteHandler } from '../types.js';
+import type { RouteHandler } from '../types.js';
 import { detectRunner } from '../../../shared-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);

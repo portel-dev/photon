@@ -11,7 +11,7 @@ import { readJSONSync, writeJSONSync } from '../shared/io.js';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
-import type { Task, TaskState } from './types.js';
+import type { Task } from './types.js';
 
 const TASKS_DIR = join(homedir(), '.photon', 'tasks');
 

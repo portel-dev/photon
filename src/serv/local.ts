@@ -19,11 +19,7 @@ import { LocalTokenVault } from './vault/token-vault.js';
 import { JwtService } from './auth/jwt.js';
 import { TenantResolver } from './middleware/tenant.js';
 import { AuthMiddleware } from './middleware/auth.js';
-import {
-  handleProtectedResourceRequest,
-  handleAuthServerRequest,
-  generateWwwAuthenticate,
-} from './auth/well-known.js';
+import { handleProtectedResourceRequest, handleAuthServerRequest } from './auth/well-known.js';
 
 // ============================================================================
 // Local User Store (In-Memory)

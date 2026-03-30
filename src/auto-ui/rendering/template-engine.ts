@@ -35,10 +35,6 @@ export interface TemplateConfig {
 export function parseTemplateBindings(html: string): TemplateBinding[] {
   const bindings: TemplateBinding[] = [];
 
-  // Match elements with data-method attribute
-  const methodRegex = /data-method=["']([^"']+)["']/g;
-  const argsRegex = /data-args=["']([^"']+)["']/g;
-
   // Note: This is a simplified parser - actual implementation
   // would use DOM parsing in the browser
 

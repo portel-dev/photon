@@ -6,15 +6,8 @@
  * 2. SERV as client (third-party OAuth for photon access)
  */
 
-import { randomBytes, createHash } from 'crypto';
-import type {
-  OAuthProvider,
-  OAuthToken,
-  ElicitationRequest,
-  PhotonGrant,
-  Session,
-  Tenant,
-} from '../types/index.js';
+import { randomBytes } from 'crypto';
+import type { OAuthToken, ElicitationRequest, PhotonGrant, Session } from '../types/index.js';
 import {
   encodeOAuthState,
   decodeOAuthState,

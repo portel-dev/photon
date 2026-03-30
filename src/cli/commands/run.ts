@@ -9,7 +9,6 @@
  */
 
 import type { Command } from 'commander';
-import * as path from 'path';
 import { getDefaultContext } from '../../context.js';
 
 // ══════════════════════════════════════════════════════════════════════════════

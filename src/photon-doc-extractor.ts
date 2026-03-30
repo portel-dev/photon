@@ -353,7 +353,6 @@ export class PhotonDocExtractor {
     let match;
 
     while ((match = methodRegex.exec(this.content)) !== null) {
-      const isAsync = !!match[1];
       const isGenerator = match[2] === '*';
       const methodName = match[3];
       const methodSignatureParams = match[4] || '';

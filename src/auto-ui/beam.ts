@@ -21,7 +21,6 @@ import {
 } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { setSecurityHeaders, SimpleRateLimiter, escapeHtml } from '../shared/security.js';
@@ -108,7 +107,6 @@ const __dirname = path.dirname(__filename);
 import { withTimeout } from '../async/index.js';
 // WebSocket removed - now using MCP Streamable HTTP (SSE) only
 import {
-  listPhotonMCPs,
   listPhotonFilesWithNamespace,
   resolvePhotonPath,
   type ListedPhoton,
@@ -118,33 +116,18 @@ import { logger, createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
-import { subscribeChannel, pingDaemon, reloadDaemonPhoton } from '../daemon/client.js';
+import { subscribeChannel, reloadDaemonPhoton } from '../daemon/client.js';
 import {
   ensurePhotonEditorDeclaration,
   writePhotonEditorDeclaration,
 } from '../photon-editor-declarations.js';
 import { ensureDaemon } from '../daemon/manager.js';
-import {
-  SchemaExtractor,
-  type PhotonYield,
-  type OutputHandler,
-  type InputProvider,
-  type AskYield,
-  type ConstructorParam,
-  generateSmartRenderingJS,
-  generateSmartRenderingCSS,
-} from '@portel/photon-core';
-import {
-  generateTemplateEngineJS,
-  generateTemplateEngineCSS,
-} from './rendering/template-engine.js';
-import { generateOpenAPISpec } from './openapi-generator.js';
+import { SchemaExtractor, type ConstructorParam } from '@portel/photon-core';
 import { generateServerCard } from '../server-card.js';
 import {
   handleStreamableHTTP,
   broadcastNotification,
   broadcastToBeam,
-  sendToSession,
 } from './streamable-http-transport.js';
 // MCPServer type removed - no longer needed for WebSocket transport
 import type {
@@ -153,12 +136,6 @@ import type {
   AnyPhotonInfo,
   ConfigParam,
   MethodInfo,
-  InvokeRequest,
-  ConfigureRequest,
-  ElicitationResponse,
-  CancelRequest,
-  ReloadRequest,
-  RemoveRequest,
   ExternalMCPInfo,
 } from './types.js';
 import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
@@ -178,7 +155,6 @@ import {
   applyMethodVisibility as applyMethodVisibilityFromModule,
   extractCspFromSource as extractCspFromModule,
   prettifyName as prettifyNameFromModule,
-  prettifyToolName as prettifyToolNameFromModule,
   backfillEnvDefaults as backfillEnvDefaultsFromModule,
 } from './beam/class-metadata.js';
 import { StartupSequencer } from './beam/startup.js';
@@ -189,7 +165,6 @@ import { handleConfigRoutes } from './beam/routes/api-config.js';
 import {
   loadExternalMCPs as loadExternalMCPsFromModule,
   reconnectExternalMCP as reconnectExternalMCPFromModule,
-  generateExternalMCPId,
 } from './beam/external-mcp.js';
 import {
   configurePhotonViaMCP,
@@ -202,56 +177,6 @@ export type { PhotonConfig } from './beam/types.js';
 export type { BeamState } from './beam/types.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
 
-// Note: PhotonInfo, UnconfiguredPhotonInfo, AnyPhotonInfo, ConfigParam, MethodInfo,
-// InvokeRequest, ConfigureRequest, ElicitationResponse, CancelRequest, ReloadRequest,
-// RemoveRequest are imported from ./types.js
-
-interface OAuthCompleteMessage {
-  type: 'oauth_complete';
-  elicitationId: string;
-  success: boolean;
-}
-
-interface UpdateMetadataMessage {
-  type: 'update-metadata';
-  photon: string;
-  metadata: { description?: string; icon?: string };
-}
-
-interface UpdateMethodMetadataMessage {
-  type: 'update-method-metadata';
-  photon: string;
-  method: string;
-  metadata: { description?: string | null; icon?: string | null };
-}
-
-interface GetPromptMessage {
-  type: 'get-prompt';
-  photon: string;
-  promptId: string;
-  arguments?: Record<string, string>;
-}
-
-interface ReadResourceMessage {
-  type: 'read-resource';
-  photon: string;
-  resourceId: string;
-  uri?: string;
-}
-
-type ClientMessage =
-  | InvokeRequest
-  | ConfigureRequest
-  | ElicitationResponse
-  | CancelRequest
-  | ReloadRequest
-  | RemoveRequest
-  | OAuthCompleteMessage
-  | UpdateMetadataMessage
-  | UpdateMethodMetadataMessage
-  | GetPromptMessage
-  | ReadResourceMessage;
-
 // Delegate to extracted module
 const getConfigFilePath = getConfigFilePathFromModule;
 
@@ -262,9 +187,6 @@ type PhotonConfig = import('./beam/types.js').PhotonConfig;
 const externalMCPs: ExternalMCPInfo[] = [];
 const externalMCPClients = new Map<string, any>();
 const externalMCPSDKClients = new Map<string, Client>();
-
-// Delegate to extracted module
-const prettifyToolName = prettifyToolNameFromModule;
 
 // Delegates — external MCP management now in beam/external-mcp.ts
 const externalMCPState = { externalMCPs, externalMCPClients, externalMCPSDKClients };
@@ -719,10 +641,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const errorOnlyLogger = createLogger({ level: 'error' });
   const loader = new PhotonLoader(false, errorOnlyLogger, workingDir);
 
-  // Counts updated after photon loading
-  let configuredCount = 0;
-  let unconfiguredCount = 0;
-
   // Check for placeholder defaults or localhost URLs (which need local services running)
   const isPlaceholderOrLocalDefault = (value: string): boolean => {
     if (value.includes('<') || value.includes('your-')) return true;
@@ -873,8 +791,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // If loader didn't resolve UI assets but source has @ui tags,
       // extract them from source to populate linkedUi for sidebar
       if (uiAssets.length === 0 && schemaSource) {
-        const uiTagRegex = /^\s*\*\s*@ui\s+(\S+)(?:\s+(\S+))?/gm;
-        let uiMatch;
         const classUiMatch = schemaSource.match(/^\s*\*\s*@ui\s+(\S+)\s+(\.\/\S+)/m);
         if (classUiMatch) {
           // Class-level @ui tag with file path: @ui dashboard ./ui/dashboard.html
@@ -2739,22 +2655,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     }
   }
 
-  configuredCount = photons.filter((p) => p.configured).length;
-  unconfiguredCount = photons.filter((p) => !p.configured).length;
-
   // Load external MCPs from config
   const externalMCPList = await loadExternalMCPs(savedConfig);
   externalMCPs.push(...externalMCPList);
-  const connectedMCPs = externalMCPList.filter((m) => m.connected).length;
-  const failedMCPs = externalMCPList.length - connectedMCPs;
-
-  const photonStatus =
-    unconfiguredCount > 0
-      ? `${configuredCount} ready, ${unconfiguredCount} need setup`
-      : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
-  const mcpStatus =
-    externalMCPList.length > 0 ? `, ${connectedMCPs}/${externalMCPList.length} MCPs` : '';
-  const url = `http://localhost:${process.env.BEAM_PORT || port}`;
 
   // Mark startup complete — flushes queued output and restores console
   startup.ready();
@@ -3098,7 +3001,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             logger.info(`🔌 Removed external MCP: ${name}`);
           }
           // Close SDK clients after all Maps are consistent
-          for (const { name, client } of removedSdkClients) {
+          for (const { name: _name, client } of removedSdkClients) {
             try {
               await client.close();
             } catch {

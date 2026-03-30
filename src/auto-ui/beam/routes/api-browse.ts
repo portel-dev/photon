@@ -17,8 +17,7 @@ import { lstatSync, realpathSync } from 'fs';
 import * as path from 'path';
 import { isPathWithin } from '../../../shared/security.js';
 import { logger } from '../../../shared/logger.js';
-import type { PhotonInfo } from '../../types.js';
-import type { BeamState, RouteHandler } from '../types.js';
+import type { RouteHandler } from '../types.js';
 
 export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => {
   // File browser API

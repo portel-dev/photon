@@ -12,6 +12,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "strict": true,
+    "noUnusedLocals": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

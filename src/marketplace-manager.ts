@@ -132,8 +132,6 @@ interface MarketplaceManifest {
 }
 
 const CONFIG_DIR = getDefaultContext().baseDir;
-const CONFIG_FILE = path.join(CONFIG_DIR, 'marketplaces.json');
-const CACHE_DIR = path.join(CONFIG_DIR, '.cache', 'marketplaces');
 const METADATA_FILE = path.join(CONFIG_DIR, '.metadata.json');
 
 // Cache is considered stale after 24 hours
@@ -1138,7 +1136,6 @@ export class MarketplaceManager {
 
     // Create photon data directory and assets subdirectory
     const photonDataDir = path.join(installDir, name);
-    const assetsDir = path.join(photonDataDir, 'assets');
 
     if (result.metadata) {
       // Download and save all declared assets into the photon's assets/ directory

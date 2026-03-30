@@ -13,7 +13,7 @@
  * @see https://www.reidbarber.com/blog/reverse-engineering-claude-artifacts
  */
 
-import { getThemeTokens, type ThemeMode } from './design-system/tokens.js';
+import { getThemeTokens } from './design-system/tokens.js';
 import type { PlatformContext } from '@portel/photon-core';
 
 // Re-export MCP Apps standard types and helpers from core

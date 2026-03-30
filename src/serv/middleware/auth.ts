@@ -4,14 +4,7 @@
  * Validates Bearer tokens and attaches session to request context
  */
 
-import type {
-  Session,
-  SessionToken,
-  User,
-  Membership,
-  RequestContext,
-  Tenant,
-} from '../types/index.js';
+import type { User, Membership, RequestContext, Tenant } from '../types/index.js';
 import type { SessionStore } from '../session/store.js';
 import type { JwtService } from '../auth/jwt.js';
 

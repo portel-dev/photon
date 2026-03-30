@@ -3507,7 +3507,7 @@ function shutdown(): void {
   stateKeysCache.clear();
 
   // Resolve any pending prompts so promises don't hang
-  for (const [id, pending] of pendingPrompts.entries()) {
+  for (const [_id, pending] of pendingPrompts.entries()) {
     pending.resolve(null);
   }
   pendingPrompts.clear();

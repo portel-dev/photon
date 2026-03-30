@@ -16,7 +16,7 @@ import { logger } from '../../shared/logger.js';
 import { requestExternalElicitation } from '../streamable-http-transport.js';
 import { prettifyToolName } from './class-metadata.js';
 import { withTimeout } from '../../async/index.js';
-import type { ExternalMCPInfo, MCPServerConfig, MethodInfo } from '../types.js';
+import type { ExternalMCPInfo, MethodInfo } from '../types.js';
 import type { PhotonConfig } from './types.js';
 
 /** Mutable containers that external MCP functions read/write */

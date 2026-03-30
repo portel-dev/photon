@@ -18,14 +18,13 @@ import {
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import * as fs from 'fs/promises';
 import { readFileSync } from 'node:fs';
 import { readText } from './shared/io.js';
 import * as path from 'node:path';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
-import { PhotonClassExtended, ConstructorParam, generateExecutionId } from '@portel/photon-core';
+import { PhotonClassExtended, generateExecutionId } from '@portel/photon-core';
 import type { ExtractedSchema } from '@portel/photon-core';
 import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';

@@ -5,7 +5,7 @@
  * Enables photons to request OAuth tokens via yield-based elicitation.
  */
 
-import type { Session, PhotonGrant } from '../types/index.js';
+import type { Session } from '../types/index.js';
 import type { TokenVault } from '../vault/token-vault.js';
 import type { OAuthFlowHandler } from '../auth/oauth.js';
 
@@ -134,14 +134,12 @@ export class OAuthContext {
   private photonId: string;
   private tenantId: string;
   private oauthFlow: OAuthFlowHandler;
-  private tokenVault: TokenVault;
 
   constructor(config: OAuthContextConfig) {
     this.session = config.session;
     this.photonId = config.photonId;
     this.tenantId = config.tenantId;
     this.oauthFlow = config.oauthFlow;
-    this.tokenVault = config.tokenVault;
   }
 
   /**

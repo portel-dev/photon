@@ -30,7 +30,7 @@ export class TemplateManager {
   // Current template version - increment when templates are updated
   private static readonly TEMPLATE_VERSION = '2.1.0';
 
-  constructor(private workingDir: string) {
+  constructor(workingDir: string) {
     this.marketplaceDir = path.join(workingDir, '.marketplace');
     this.templateDir = path.join(this.marketplaceDir, '_templates');
     this.hashFile = path.join(this.marketplaceDir, '.template-hashes.json');

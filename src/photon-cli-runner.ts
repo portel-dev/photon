@@ -7,8 +7,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { existsSync, readFileSync } from 'fs';
-import { pathToFileURL } from 'url';
+import { readFileSync } from 'fs';
 import {
   SchemaExtractor,
   setPromptHandler,
@@ -51,7 +50,6 @@ import {
   formatKey,
 } from './cli-formatter.js';
 import { getErrorMessage, exitWithError, ExitCode } from './shared/error-handler.js';
-import { logger } from './shared/logger.js';
 import * as os from 'os';
 
 /**
@@ -208,31 +206,6 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       ...((tool as any).webhook !== undefined ? { webhook: true } : {}),
     };
   });
-}
-
-/**
- * Extract base type from TypeScript type annotation
- * Examples:
- *   "boolean | number" -> "boolean"
- *   "{ mute?: boolean } | boolean" -> "boolean"
- *   "string" -> "string"
- */
-function extractBaseType(typeStr: string): string {
-  // Handle object types: { mute?: boolean } -> look for type inside
-  const objectMatch = typeStr.match(/\{\s*\w+\??\s*:\s*(\w+)/);
-  if (objectMatch) {
-    return objectMatch[1];
-  }
-
-  // Handle unions: boolean | number -> take first primitive type
-  const unionTypes = typeStr.split('|').map((t) => t.trim());
-  for (const type of unionTypes) {
-    if (/^(boolean|number|string)/.test(type)) {
-      return type;
-    }
-  }
-
-  return 'any';
 }
 
 /**
@@ -1661,9 +1634,6 @@ export async function runMethod(
         suggestion: `Install it with: photon add ${photonName}\nIf '${photonName}' is a command, run 'photon --help' for available commands`,
       });
     }
-
-    // Extract MCP name from filename
-    const mcpName = path.basename(resolvedPath).replace(/\.photon\.(ts|js)$/, '');
 
     // Extract methods to validate
     const methods = await extractMethods(resolvedPath);

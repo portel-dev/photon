@@ -8,7 +8,7 @@ import type { Command } from 'commander';
 import { getErrorMessage } from '../../shared/error-handler.js';
 import { runTask } from '../../shared/task-runner.js';
 import { PHOTON_VERSION } from '../../version.js';
-import { detectPM, globalInstallCmd } from '../../shared-utils.js';
+import { globalInstallCmd } from '../../shared-utils.js';
 
 /**
  * Register the hidden `update` command
@@ -46,7 +46,6 @@ export function registerUpdateCommand(program: Command): void {
         try {
           latestVersion = await runTask('Checking for Photon CLI updates', async () => {
             const { execSync } = await import('child_process');
-            const pm = detectPM();
             // bun doesn't have `bun view`, always use npm for registry checks
             const viewCmd = `npm view @portel/photon version`;
             return execSync(viewCmd, {
