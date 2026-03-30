@@ -1089,17 +1089,23 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     if (asset?.resolvedPath) {
       uiPath = asset.resolvedPath;
     } else {
-      // Prefer .photon.html (declarative mode) over .html (full control)
+      // Prefer .photon.html, then .photon.md, fall back to .html
       const photonHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.html`);
+      const photonMdPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.md`);
       try {
         await fs.access(photonHtmlPath);
         uiPath = photonHtmlPath;
       } catch {
-        uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+        try {
+          await fs.access(photonMdPath);
+          uiPath = photonMdPath;
+        } catch {
+          uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+        }
       }
     }
 
-    const isPhotonTemplate = uiPath.endsWith('.photon.html');
+    const isPhotonTemplate = uiPath.endsWith('.photon.html') || uiPath.endsWith('.photon.md');
 
     try {
       const content = await readText(uiPath);

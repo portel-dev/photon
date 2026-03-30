@@ -220,39 +220,59 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     let uiPath: string;
     let isPhotonTemplate = false;
 
+    let isPhotonMarkdown = false;
+
     if (asset && asset.resolvedPath) {
       uiPath = asset.resolvedPath;
       isPhotonTemplate = uiPath.endsWith('.photon.html');
-      // If asset points to .html, check if a .photon.html sibling exists (takes priority)
-      if (!isPhotonTemplate && uiPath.endsWith('.html')) {
+      isPhotonMarkdown = uiPath.endsWith('.photon.md');
+      // If asset points to .html, check if a .photon.html or .photon.md sibling exists
+      if (!isPhotonTemplate && !isPhotonMarkdown && uiPath.endsWith('.html')) {
         const photonSibling = uiPath.replace(/\.html$/, '.photon.html');
+        const mdSibling = uiPath.replace(/\.html$/, '.photon.md');
         try {
           await fs.access(photonSibling);
           uiPath = photonSibling;
           isPhotonTemplate = true;
         } catch {
-          // No .photon.html sibling — use the .html as-is
+          try {
+            await fs.access(mdSibling);
+            uiPath = mdSibling;
+            isPhotonMarkdown = true;
+          } catch {
+            // No sibling — use the .html as-is
+          }
         }
       }
     } else {
-      // Try .photon.html first (declarative), fall back to .html (full control)
+      // Try .photon.html first, then .photon.md, fall back to .html
       const photonHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.html`);
+      const photonMdPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.md`);
       const plainHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
       try {
         await fs.access(photonHtmlPath);
         uiPath = photonHtmlPath;
         isPhotonTemplate = true;
       } catch {
-        uiPath = plainHtmlPath;
+        try {
+          await fs.access(photonMdPath);
+          uiPath = photonMdPath;
+          isPhotonMarkdown = true;
+        } catch {
+          uiPath = plainHtmlPath;
+        }
       }
     }
 
     try {
       const uiContent = await fs.readFile(uiPath, 'utf-8');
-      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Type', isPhotonMarkdown ? 'text/markdown' : 'text/html');
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      if (isPhotonTemplate) {
+      if (isPhotonTemplate || isPhotonMarkdown) {
         res.setHeader('X-Photon-Template', 'true');
+      }
+      if (isPhotonMarkdown) {
+        res.setHeader('X-Photon-Markdown', 'true');
       }
       res.writeHead(200);
       res.end(uiContent);

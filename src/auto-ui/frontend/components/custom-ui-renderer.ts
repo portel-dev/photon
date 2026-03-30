@@ -453,12 +453,18 @@ export class CustomUiRenderer extends LitElement {
       try {
         const resource = await mcpClient.readResource(uri);
         if (resource?.text) {
-          // MCP response — check mimeType parameter or URI for .photon.html
+          // MCP response — check mimeType parameter or URI for .photon.html / .photon.md
+          const isMd =
+            uri.endsWith('.photon.md') ||
+            resource.uri?.endsWith('.photon.md') ||
+            resource.mimeType?.includes('text/markdown');
           const isPT =
+            isMd ||
             resource.mimeType?.includes('photon-template=true') ||
             uri.endsWith('.photon.html') ||
             resource.uri?.endsWith('.photon.html');
-          return { html: resource.text, isPhotonTemplate: !!isPT };
+          const html = isMd ? this._markdownToHtml(resource.text) : resource.text;
+          return { html, isPhotonTemplate: !!isPT };
         }
       } catch (e) {
         console.warn('MCP resources/read failed, falling back to HTTP:', e);
@@ -474,8 +480,22 @@ export class CustomUiRenderer extends LitElement {
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`Failed to load UI: ${res.statusText}`);
     const html = await res.text();
+    const isPhotonMarkdown = res.headers.get('X-Photon-Markdown') === 'true';
     const isPhotonTemplate = res.headers.get('X-Photon-Template') === 'true';
-    return { html, isPhotonTemplate };
+    const finalHtml = isPhotonMarkdown ? this._markdownToHtml(html) : html;
+    return { html: finalHtml, isPhotonTemplate };
+  }
+
+  /** Convert .photon.md content to HTML using marked (already loaded via CDN) */
+  private _markdownToHtml(markdown: string): string {
+    const marked = (window as any).marked;
+    if (!marked) {
+      // Fallback: wrap in <pre> if marked isn't loaded
+      return `<pre style="white-space:pre-wrap">${markdown}</pre>`;
+    }
+    // Parse markdown to HTML — HTML tags in markdown pass through untouched,
+    // so <div data-method="..."> works as-is.
+    return marked.parse(markdown, { breaks: false, gfm: true }) as string;
   }
 
   render() {

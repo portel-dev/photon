@@ -4,6 +4,7 @@
  * A minimal task tracker.
  *
  * @stateful
+ * @ui dashboard ./ui/dashboard.photon.md
  */
 export default class Todo {
   items: { text: string; done: boolean }[] = [];
