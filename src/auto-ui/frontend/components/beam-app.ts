@@ -5665,7 +5665,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 opts.method?.outputFormat !== 'slides' &&
                 !opts.appSurface
                   ? html`<div class="result-chrome">
-                      <span class="result-chrome-title">Result</span>
+                      <span class="result-chrome-title"></span>
                       <div class="result-chrome-actions">
                         <button
                           @click=${() => {
