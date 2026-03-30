@@ -581,25 +581,26 @@ export class ResultViewer extends LitElement {
         flex-shrink: 0;
       }
 
-      /* Checklist Styles */
+      /* ═══ Checklist — commercial-grade UI ═══ */
       .checklist-wrap {
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-md, 8px);
         overflow: hidden;
-        background: var(--border-glass);
+        border: 1px solid var(--border-glass);
       }
 
       .checklist-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 6px var(--space-md);
-        font-size: var(--text-xs);
+        padding: 10px 16px;
+        font-size: 12px;
         color: var(--t-muted);
-        border-bottom: 1px solid var(--border-glass);
+        background: var(--bg-glass);
       }
 
       .checklist-counter {
         font-variant-numeric: tabular-nums;
+        font-weight: 500;
       }
 
       .checklist-hide-label {
@@ -607,7 +608,10 @@ export class ResultViewer extends LitElement {
         user-select: none;
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
         transition: color 0.15s;
       }
 
@@ -615,20 +619,61 @@ export class ResultViewer extends LitElement {
         color: var(--t-primary);
       }
 
+      /* Progress bar */
+      .checklist-progress {
+        height: 2px;
+        background: var(--bg-glass);
+      }
+
+      .checklist-progress-fill {
+        height: 100%;
+        background: var(--accent);
+        transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      /* Section labels */
+      .checklist-section {
+        padding: 6px 16px;
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--t-muted);
+        background: var(--bg-glass);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .checklist-section::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border-glass);
+      }
+
+      /* Items */
       .checklist-item {
         display: flex;
         align-items: center;
-        gap: var(--space-sm);
-        padding: var(--space-xs) var(--space-md);
+        gap: 12px;
+        padding: 10px 16px;
         background: var(--bg-panel);
-        border-bottom: 1px solid var(--border-glass);
         cursor: grab;
         user-select: none;
-        /* FLIP-style: animate position changes smoothly */
         transition:
           transform 0.3s cubic-bezier(0.2, 0, 0, 1),
-          opacity 0.25s ease,
+          opacity 0.3s ease,
           background 0.15s ease;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 50%, transparent);
+      }
+
+      .checklist-item:last-child {
+        border-bottom: none;
+      }
+
+      .checklist-item:hover {
+        background: var(--bg-glass);
       }
 
       .checklist-item:active {
@@ -636,77 +681,102 @@ export class ResultViewer extends LitElement {
       }
 
       .checklist-item.done {
-        opacity: 0.45;
+        opacity: 0.55;
       }
 
-      /* Drag states */
-      .checklist-item.dragging {
-        opacity: 0.3;
-        background: var(--bg-glass);
-        transform: scale(0.98);
-      }
-
-      .checklist-item.drag-over {
-        background: var(--bg-glass);
-        box-shadow: inset 0 -2px 0 var(--accent);
-      }
-
-      .checklist-item .drag-handle {
-        color: var(--t-muted);
-        font-size: 12px;
-        cursor: grab;
+      /* Custom checkbox — no native checkbox */
+      .checklist-cb {
+        width: 20px;
+        height: 20px;
+        border-radius: 6px;
+        border: 2px solid var(--t-muted);
         flex-shrink: 0;
-        opacity: 0.3;
-        transition:
-          opacity 0.15s,
-          transform 0.15s;
-      }
-
-      .checklist-item:hover .drag-handle {
-        opacity: 0.8;
-      }
-
-      .checklist-item:active .drag-handle {
-        transform: scale(1.1);
-      }
-
-      .checklist-item input[type='checkbox'] {
         cursor: pointer;
-        flex-shrink: 0;
-        width: 16px;
-        height: 16px;
-        accent-color: var(--accent);
-        transition: transform 0.15s var(--motion-ease-spring);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        background: transparent;
       }
 
-      .checklist-item input[type='checkbox']:active {
+      .checklist-cb:hover {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 10%, transparent);
+      }
+
+      .checklist-cb:active {
         transform: scale(0.85);
       }
 
-      .checklist-item .checklist-text {
+      .checklist-cb .cb-check {
+        width: 12px;
+        height: 12px;
+        opacity: 0;
+        transform: scale(0);
+        transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      .checklist-item.done .checklist-cb {
+        border-color: var(--accent);
+        background: var(--accent);
+      }
+
+      .checklist-item.done .checklist-cb .cb-check {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      /* Drag handle */
+      .checklist-item .drag-handle {
+        color: var(--t-muted);
+        font-size: 11px;
+        cursor: grab;
+        flex-shrink: 0;
+        opacity: 0;
+        transition: opacity 0.15s;
+      }
+
+      .checklist-item:hover .drag-handle {
+        opacity: 0.5;
+      }
+
+      /* Text */
+      .checklist-text {
         flex: 1;
-        font-size: var(--text-md);
+        font-size: 14px;
         color: var(--t-primary);
+        line-height: 1.4;
         transition:
-          color 0.3s ease,
-          opacity 0.3s ease;
+          color 0.3s,
+          opacity 0.3s;
       }
 
       .checklist-item.done .checklist-text {
         text-decoration: line-through;
+        text-decoration-color: var(--t-muted);
         color: var(--t-muted);
       }
 
-      /* Toggle bounce on the whole item */
+      /* Drag states */
+      .checklist-item.dragging {
+        opacity: 0.25;
+        transform: scale(0.98);
+      }
+
+      .checklist-item.drag-over {
+        box-shadow: inset 0 -2px 0 var(--accent);
+      }
+
+      /* Animations */
       @keyframes checklist-check {
         0% {
           transform: scale(1);
         }
-        40% {
-          transform: scale(1.02) translateX(2px);
+        30% {
+          transform: scale(1.03);
         }
         100% {
-          transform: scale(1) translateX(0);
+          transform: scale(1);
         }
       }
 
@@ -714,11 +784,11 @@ export class ResultViewer extends LitElement {
         0% {
           transform: scale(1);
         }
-        40% {
-          transform: scale(0.98) translateX(-2px);
+        30% {
+          transform: scale(0.97);
         }
         100% {
-          transform: scale(1) translateX(0);
+          transform: scale(1);
         }
       }
 
@@ -730,11 +800,10 @@ export class ResultViewer extends LitElement {
         animation: checklist-uncheck 0.3s var(--motion-ease-spring);
       }
 
-      /* Staggered entrance */
       @keyframes checklist-enter {
         from {
           opacity: 0;
-          transform: translateY(8px);
+          transform: translateY(6px);
         }
         to {
           opacity: 1;
@@ -743,38 +812,39 @@ export class ResultViewer extends LitElement {
       }
 
       .checklist-item.entering {
-        animation: checklist-enter 0.25s var(--motion-ease-out) both;
+        animation: checklist-enter 0.2s var(--motion-ease-out) both;
       }
 
-      /* Fade out when hiding done items */
-      @keyframes checklist-hide {
-        from {
-          opacity: 1;
-          max-height: 48px;
-        }
-        to {
+      /* All-done celebration */
+      .checklist-all-done {
+        padding: 32px 16px;
+        text-align: center;
+        color: var(--t-muted);
+        font-size: 14px;
+      }
+
+      .checklist-all-done .done-icon {
+        font-size: 28px;
+        margin-bottom: 8px;
+        opacity: 0.6;
+      }
+
+      @keyframes checklist-celebrate {
+        0% {
+          transform: scale(0.8);
           opacity: 0;
-          max-height: 0;
-          padding: 0 var(--space-md);
+        }
+        50% {
+          transform: scale(1.05);
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
         }
       }
 
-      .checklist-item.hiding {
-        animation: checklist-hide 0.25s ease forwards;
-        overflow: hidden;
-      }
-
-      /* Progress bar for done count */
-      .checklist-progress {
-        height: 2px;
-        background: var(--border-glass);
-        overflow: hidden;
-      }
-
-      .checklist-progress-fill {
-        height: 100%;
-        background: var(--accent);
-        transition: width 0.4s cubic-bezier(0.2, 0, 0, 1);
+      .checklist-all-done {
+        animation: checklist-celebrate 0.4s var(--motion-ease-spring) both;
       }
 
       /* Article Styles (Pretext-powered magazine layout) */
@@ -7653,13 +7723,57 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     );
   }
 
+  private _renderChecklistItem(item: any, data: any[], renderIdx: number): TemplateResult {
+    const idx = data.indexOf(item);
+    const done = this._checklistIsDone(item);
+    const isToggled = this._checklistToggledIdx === idx;
+    const toggleClass = isToggled
+      ? this._checklistToggledDone
+        ? 'just-checked'
+        : 'just-unchecked'
+      : '';
+
+    const checkSvg = svg`<svg class="cb-check" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6l2.5 2.5 4.5-5"/></svg>`;
+
+    return html`
+      <div
+        class="checklist-item ${done ? 'done' : ''} ${toggleClass} entering"
+        style="animation-delay:${renderIdx * 25}ms"
+        draggable="true"
+        @dragstart=${(e: DragEvent) => this._checklistDragStart(e, idx)}
+        @dragend=${(e: DragEvent) => {
+          (e.currentTarget as HTMLElement).classList.remove('dragging');
+          this._checklistDragIdx = null;
+        }}
+        @dragover=${(e: DragEvent) => {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+          (e.currentTarget as HTMLElement).classList.add('drag-over');
+        }}
+        @dragleave=${(e: DragEvent) => {
+          (e.currentTarget as HTMLElement).classList.remove('drag-over');
+        }}
+        @drop=${(e: DragEvent) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).classList.remove('drag-over');
+          this._checklistDrop(data, idx);
+        }}
+      >
+        <span class="drag-handle">⠿</span>
+        <div class="checklist-cb" @click=${() => this._checklistToggle(item, idx)}>${checkSvg}</div>
+        <span class="checklist-text">${this._checklistTextKey(item)}</span>
+      </div>
+    `;
+  }
+
   private _renderChecklist(data: any[]): TemplateResult {
     if (!Array.isArray(data) || data.length === 0) {
       return html`<div class="empty-state">No items</div>`;
     }
 
-    const sorted = this._checklistSorted(data);
-    const doneCount = data.filter((i) => this._checklistIsDone(i)).length;
+    const undone = data.filter((i) => !this._checklistIsDone(i));
+    const done = data.filter((i) => this._checklistIsDone(i));
+    const doneCount = done.length;
     const total = data.length;
     const pct = total > 0 ? (doneCount / total) * 100 : 0;
 
@@ -7674,63 +7788,34 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
               @change=${(e: Event) => {
                 this._checklistHideDone = (e.target as HTMLInputElement).checked;
               }}
+              style="display:none"
             />
-            <span>Hide done</span>
+            <span>${this._checklistHideDone ? 'Show completed' : 'Hide completed'}</span>
           </label>
         </div>
         <div class="checklist-progress">
           <div class="checklist-progress-fill" style="width:${pct}%"></div>
         </div>
-        ${sorted
-          .filter((item) => !(this._checklistHideDone && this._checklistIsDone(item)))
-          .map((item: any, renderIdx: number) => {
-            const idx = data.indexOf(item);
-            const done = this._checklistIsDone(item);
-            const isToggled = this._checklistToggledIdx === idx;
-            const toggleClass = isToggled
-              ? this._checklistToggledDone
-                ? 'just-checked'
-                : 'just-unchecked'
-              : '';
-            return html`
-              <div
-                class="checklist-item ${done ? 'done' : ''} ${toggleClass} entering"
-                style="animation-delay:${renderIdx * 30}ms"
-                draggable="true"
-                @dragstart=${(e: DragEvent) => this._checklistDragStart(e, idx)}
-                @dragend=${(e: DragEvent) => {
-                  (e.currentTarget as HTMLElement).classList.remove('dragging');
-                  this._checklistDragIdx = null;
-                }}
-                @dragover=${(e: DragEvent) => {
-                  e.preventDefault();
-                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-                  (e.currentTarget as HTMLElement).classList.add('drag-over');
-                }}
-                @dragleave=${(e: DragEvent) => {
-                  (e.currentTarget as HTMLElement).classList.remove('drag-over');
-                }}
-                @drop=${(e: DragEvent) => {
-                  e.preventDefault();
-                  (e.currentTarget as HTMLElement).classList.remove('drag-over');
-                  this._checklistDrop(data, idx);
-                }}
-              >
-                <span class="drag-handle">⠿</span>
-                <input
-                  type="checkbox"
-                  .checked=${done}
-                  @change=${() => this._checklistToggle(item, idx)}
-                />
-                <span class="checklist-text">${this._checklistTextKey(item)}</span>
-              </div>
-            `;
-          })}
+
+        ${undone.length > 0
+          ? undone.map((item: any, i: number) => this._renderChecklistItem(item, data, i))
+          : doneCount < total
+            ? ''
+            : ''}
+        ${doneCount > 0 && !this._checklistHideDone
+          ? html`<div class="checklist-section">
+              Completed${doneCount < total ? ` (${doneCount})` : ''}
+            </div>`
+          : ''}
+        ${!this._checklistHideDone
+          ? done.map((item: any, i: number) =>
+              this._renderChecklistItem(item, data, undone.length + i)
+            )
+          : ''}
         ${this._checklistHideDone && doneCount === total && total > 0
-          ? html`<div
-              style="padding:20px;text-align:center;color:var(--t-muted);font-size:var(--text-md);"
-            >
-              All ${total} items done
+          ? html`<div class="checklist-all-done">
+              <div class="done-icon">&#10003;</div>
+              All ${total} items completed
             </div>`
           : ''}
       </div>
