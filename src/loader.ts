@@ -6,6 +6,7 @@
 
 import * as fs from 'fs/promises';
 import { realpathSync, existsSync, mkdirSync, symlinkSync, readFileSync, type Dirent } from 'fs';
+import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
 import { createRequire } from 'module';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -420,7 +421,7 @@ export class PhotonLoader {
       : crypto.createHash('sha256').update(content).digest('hex').slice(0, 12);
     const safeLabel = this.sanitizeCacheLabel(label);
     const cachePath = path.join(cacheDir, `${safeLabel}.${hash}.photon.ts`);
-    await fs.writeFile(cachePath, content, 'utf-8');
+    await writeText(cachePath, content);
     return cachePath;
   }
 
@@ -477,8 +478,7 @@ export class PhotonLoader {
     cacheKey: string
   ): Promise<{ hash: string; dependencies: DependencySpec[]; photonCoreVersion?: string } | null> {
     try {
-      const data = await fs.readFile(this.getDependencyMetadataPath(cacheKey), 'utf-8');
-      return JSON.parse(data);
+      return await readJSON(this.getDependencyMetadataPath(cacheKey));
     } catch (error) {
       this.logger.debug('Failed to read dependency metadata', { error });
       return null; // cache miss
@@ -518,20 +518,12 @@ export class PhotonLoader {
   ): Promise<void> {
     const metadataPath = this.getDependencyMetadataPath(cacheKey);
     await fs.mkdir(path.dirname(metadataPath), { recursive: true });
-    await fs.writeFile(
-      metadataPath,
-      JSON.stringify(
-        {
-          hash,
-          dependencies,
-          photonPath: photonPath ? path.resolve(photonPath) : undefined,
-          photonCoreVersion,
-        },
-        null,
-        2
-      ),
-      'utf-8'
-    );
+    await writeJSON(metadataPath, {
+      hash,
+      dependencies,
+      photonPath: photonPath ? path.resolve(photonPath) : undefined,
+      photonCoreVersion,
+    });
   }
 
   private async ensureDependenciesWithHash(
@@ -691,7 +683,7 @@ export class PhotonLoader {
       let cacheKey: string | null = null;
 
       if (absolutePath.endsWith('.ts')) {
-        tsContent = await fs.readFile(absolutePath, 'utf-8');
+        tsContent = await readText(absolutePath);
 
         // Check runtime version compatibility
         const requiredRuntime = parseRuntimeRequirement(tsContent);
@@ -1071,7 +1063,7 @@ export class PhotonLoader {
                 const instName = file.replace('.json', '');
                 const statePath = path.join(stateDir, file);
                 try {
-                  const snapshot = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+                  const snapshot = await readJSON(statePath);
                   const stat = await fs.stat(statePath);
                   yield {
                     name: instName,
@@ -1630,7 +1622,7 @@ export class PhotonLoader {
 
     if (absolutePath.endsWith('.ts')) {
       // Clear the compiled cache
-      const tsContent = await fs.readFile(absolutePath, 'utf-8');
+      const tsContent = await readText(absolutePath);
       const hash = crypto.createHash('sha256').update(tsContent).digest('hex').slice(0, 16);
       const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
       const cacheKey = this.getCacheKey(mcpName, absolutePath);
@@ -1795,8 +1787,7 @@ export class PhotonLoader {
       // First, try loading from manual schema override file
       const schemaJsonPath = sourceFilePath.replace(/\.ts$/, '.schema.json');
       try {
-        const schemaContent = await fs.readFile(schemaJsonPath, 'utf-8');
-        const schemas = JSON.parse(schemaContent);
+        const schemas = await readJSON(schemaJsonPath);
 
         // Process tools
         if (schemas.tools) {
@@ -1858,7 +1849,7 @@ export class PhotonLoader {
           (jsonError as NodeJS.ErrnoException).code === 'ENOENT';
         if (isNotFound) {
           const extractor = new SchemaExtractor();
-          const source = sourceContent || (await fs.readFile(sourceFilePath, 'utf-8'));
+          const source = sourceContent || (await readText(sourceFilePath));
           const metadata = extractor.extractAllFromSource(source);
 
           // Filter by method names that exist in the class
@@ -1939,8 +1930,7 @@ export class PhotonLoader {
   ): Promise<Record<string, any>> {
     const settingsPath = this.getSettingsPath(photonName, instanceName);
     try {
-      const data = await fs.readFile(settingsPath, 'utf-8');
-      return JSON.parse(data);
+      return await readJSON(settingsPath);
     } catch {
       return {};
     }
@@ -1957,7 +1947,7 @@ export class PhotonLoader {
     const settingsPath = this.getSettingsPath(photonName, instanceName);
     const dir = path.dirname(settingsPath);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(settingsPath, JSON.stringify(values, null, 2));
+    await writeJSON(settingsPath, values);
   }
 
   /**
@@ -2159,7 +2149,7 @@ export class PhotonLoader {
    */
   async extractConstructorParams(filePath: string): Promise<ConstructorParam[]> {
     try {
-      const source = await fs.readFile(filePath, 'utf-8');
+      const source = await readText(filePath);
       const extractor = new SchemaExtractor();
       return extractor.extractConstructorParams(source);
     } catch (error) {
@@ -2306,7 +2296,7 @@ export class PhotonLoader {
           const stateKey = injection.stateKey!;
           const stateFile = getInstanceStatePath(mcpName, instanceName, this.baseDir, photonPath);
           try {
-            const snapshot = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+            const snapshot = await readJSON(stateFile);
             if (stateKey in snapshot) {
               values.push(snapshot[stateKey]);
               this.log(`  ✅ Restored state: ${stateKey} (from ${stateFile})`);
@@ -2914,11 +2904,7 @@ export class PhotonLoader {
     const packageJsonPath = path.join(cacheDir, 'package.json');
     if (!(await this.pathExists(packageJsonPath))) {
       const pkgName = `photon-npm-${this.sanitizeCacheLabel(packageSpec)}`;
-      await fs.writeFile(
-        packageJsonPath,
-        JSON.stringify({ name: pkgName, version: PHOTON_VERSION }, null, 2),
-        'utf-8'
-      );
+      await writeJSON(packageJsonPath, { name: pkgName, version: PHOTON_VERSION });
     }
 
     const packageRoot = this.getPackageInstallPath(cacheDir, packageName);

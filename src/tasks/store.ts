@@ -6,7 +6,8 @@
  * Consistent with existing photon file-based patterns (audit, runs, state).
  */
 
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync } from 'fs';
+import { mkdirSync, readdirSync, unlinkSync, existsSync } from 'fs';
+import { readJSONSync, writeJSONSync } from '../shared/io.js';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
@@ -50,7 +51,7 @@ export function createTask(photon: string, method: string, params?: Record<strin
     createdAt: now,
     updatedAt: now,
   };
-  writeFileSync(taskPath(task.id), JSON.stringify(task, null, 2));
+  writeJSONSync(taskPath(task.id), task);
   return task;
 }
 
@@ -59,7 +60,7 @@ export function getTask(id: string): Task | null {
   const p = taskPath(id);
   if (!existsSync(p)) return null;
   try {
-    return JSON.parse(readFileSync(p, 'utf-8'));
+    return readJSONSync(p);
   } catch {
     return null;
   }
@@ -72,7 +73,7 @@ export function updateTask(
   const task = getTask(id);
   if (!task) return null;
   Object.assign(task, updates, { updatedAt: new Date().toISOString() });
-  writeFileSync(taskPath(id), JSON.stringify(task, null, 2));
+  writeJSONSync(taskPath(id), task);
   return task;
 }
 
@@ -82,7 +83,7 @@ export function listTasks(photon?: string): Task[] {
   const tasks: Task[] = [];
   for (const file of files) {
     try {
-      const task: Task = JSON.parse(readFileSync(join(TASKS_DIR, file), 'utf-8'));
+      const task: Task = readJSONSync(join(TASKS_DIR, file));
       if (!photon || task.photon === photon) {
         tasks.push(task);
       }
@@ -100,7 +101,7 @@ export function cleanExpiredTasks(maxAgeMs: number): number {
   let cleaned = 0;
   for (const file of files) {
     try {
-      const task: Task = JSON.parse(readFileSync(join(TASKS_DIR, file), 'utf-8'));
+      const task: Task = readJSONSync(join(TASKS_DIR, file));
       const age = now - new Date(task.updatedAt).getTime();
       if (
         age > maxAgeMs &&

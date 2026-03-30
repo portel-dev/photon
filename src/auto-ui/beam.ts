@@ -9,6 +9,7 @@
 import * as http from 'http';
 import * as net from 'net';
 import * as fs from 'fs/promises';
+import { readText, readJSON as readJSONFile, writeText } from '../shared/io.js';
 import {
   existsSync,
   lstatSync,
@@ -752,7 +753,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     let isInternal: boolean | undefined;
 
     try {
-      source = await fs.readFile(photonPath, 'utf-8');
+      source = await readText(photonPath);
       await ensurePhotonEditorDeclaration(photonPath, source, workingDir).catch(() => {});
     } catch {
       // Can't read source
@@ -853,7 +854,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       backfillEnvDefaults(instance, constructorParams);
 
       // Extract schema for UI — reuse source read from above
-      const schemaSource = source || (await fs.readFile(photonPath, 'utf-8'));
+      const schemaSource = source || (await readText(photonPath));
       const metadata = extractor.extractAllFromSource(schemaSource);
       const schemas = metadata.tools;
       const templates = metadata.templates;
@@ -1101,7 +1102,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     const isPhotonTemplate = uiPath.endsWith('.photon.html');
 
     try {
-      const content = await fs.readFile(uiPath, 'utf-8');
+      const content = await readText(uiPath);
       return { content, isPhotonTemplate };
     } catch {
       // Fall through to check custom format renderers
@@ -1119,7 +1120,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         `${formatName}.html`
       );
       try {
-        const content = await fs.readFile(formatPath, 'utf-8');
+        const content = await readText(formatPath);
         return { content, isPhotonTemplate: false };
       } catch {
         // Not found
@@ -1504,7 +1505,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (url.pathname === '/beam.bundle.js') {
         try {
           const bundlePath = path.join(__dirname, '../../dist/beam.bundle.js');
-          const content = await fs.readFile(bundlePath, 'utf-8');
+          const content = await readText(bundlePath);
           res.writeHead(200, {
             'Content-Type': 'text/javascript',
             'Cache-Control': 'no-cache',
@@ -1521,7 +1522,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (url.pathname === '/beam-form.bundle.js') {
         try {
           const formBundlePath = path.join(__dirname, '../../dist/beam-form.bundle.js');
-          const content = await fs.readFile(formBundlePath, 'utf-8');
+          const content = await readText(formBundlePath);
           res.writeHead(200, {
             'Content-Type': 'text/javascript',
             'Cache-Control': 'no-cache',
@@ -1537,7 +1538,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (url.pathname === '/beam-ts-worker.js') {
         try {
           const workerPath = path.join(__dirname, '../../dist/beam-ts-worker.js');
-          const content = await fs.readFile(workerPath, 'utf-8');
+          const content = await readText(workerPath);
           res.writeHead(200, {
             'Content-Type': 'text/javascript',
             'Cache-Control': 'no-cache',
@@ -2024,7 +2025,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           }
 
           const pureViewPath = path.join(__dirname, 'frontend/pure-view.html');
-          let html = await fs.readFile(pureViewPath, 'utf-8');
+          let html = await readText(pureViewPath);
 
           // Replace placeholders
           const argsJson = escapeHtml(JSON.stringify(params));
@@ -2054,7 +2055,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (url.pathname === '/' || !url.pathname.startsWith('/api')) {
         try {
           const indexPath = path.join(__dirname, 'frontend/index.html');
-          let content = await fs.readFile(indexPath, 'utf-8');
+          let content = await readText(indexPath);
           // Inject shell integration flag so frontend can strip CLI prefix
           if (_shellIntegrationInstalled) {
             content = content.replace(
@@ -2264,14 +2265,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             // Auto-scaffold empty photon files with a starter template
             if (isNewPhoton) {
               try {
-                const rawContent = await fs.readFile(photonPath, 'utf-8');
+                const rawContent = await readText(photonPath);
                 if (rawContent.trim().length === 0) {
                   const className = photonName
                     .split(/[-_]/)
                     .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
                     .join('');
                   const scaffold = `/**\n * ${className} Photon\n */\n\nexport default class ${className} {\n  /**\n   * Example tool\n   * @param message Message to echo\n   */\n  async echo(params: { message: string }) {\n    return \`Echo: \${params.message}\`;\n  }\n}\n`;
-                  await fs.writeFile(photonPath, scaffold, 'utf-8');
+                  await writeText(photonPath, scaffold);
                   logger.info(`📝 Scaffolded empty file: ${photonName}.photon.ts`);
                   // The write triggers another watcher event which will load the scaffolded photon
                   return;
@@ -2287,7 +2288,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               let constructorParams: ConfigParam[] = [];
 
               try {
-                const source = await fs.readFile(photonPath, 'utf-8');
+                const source = await readText(photonPath);
                 await writePhotonEditorDeclaration(photonPath, source, workingDir).catch(() => {});
                 const params = extractor.extractConstructorParams(source);
                 constructorParams = params
@@ -2340,7 +2341,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
               // Re-extract schema - use extractAllFromSource to get both tools and templates
               const extractor = new SchemaExtractor();
-              const reloadSource = await fs.readFile(photonPath, 'utf-8');
+              const reloadSource = await readText(photonPath);
               await writePhotonEditorDeclaration(photonPath, reloadSource, workingDir).catch(
                 () => {}
               );
@@ -2536,7 +2537,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 const extractor = new SchemaExtractor();
                 let constructorParams: ConfigParam[] = [];
                 try {
-                  const source = await fs.readFile(photonPath, 'utf-8');
+                  const source = await readText(photonPath);
                   const params = extractor.extractConstructorParams(source);
                   constructorParams = params
                     .filter((p: ConstructorParam) => p.isPrimitive)
@@ -2778,8 +2779,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 const instName = instanceName || 'default';
                 const stateFile = path.join(workingDir, 'state', photonName, `${instName}.json`);
                 try {
-                  const json = await fs.readFile(stateFile, 'utf-8');
-                  const state = JSON.parse(json);
+                  const state = await readJSONFile(stateFile);
                   for (const [key, value] of Object.entries(state)) {
                     const target = mcp.instance[key];
                     if (target && typeof target.splice === 'function' && Array.isArray(value)) {
@@ -3047,8 +3047,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
           let newConfig: PhotonConfig;
           try {
-            const data = await fs.readFile(configFile, 'utf-8');
-            newConfig = migrateConfig(JSON.parse(data));
+            const data = await readJSONFile(configFile);
+            newConfig = migrateConfig(data);
           } catch (err) {
             logger.warn(
               `⚠️ Failed to parse config.json: ${err instanceof Error ? err.message : String(err)}`

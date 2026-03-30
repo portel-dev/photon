@@ -20,6 +20,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs/promises';
 import { readFileSync } from 'node:fs';
+import { readText } from './shared/io.js';
 import * as path from 'node:path';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
@@ -2628,7 +2629,7 @@ export class PhotonServer {
 
           if (ui?.resolvedPath) {
             try {
-              const content = await fs.readFile(ui.resolvedPath, 'utf-8');
+              const content = await readText(ui.resolvedPath);
               res.writeHead(200, {
                 'Content-Type': 'text/html',
                 'Access-Control-Allow-Origin': '*',
@@ -3000,7 +3001,7 @@ export class PhotonServer {
       if (!ui || !ui.resolvedPath) {
         throw new Error(`UI asset not found: ${uri}`);
       }
-      content = await fs.readFile(ui.resolvedPath, 'utf-8');
+      content = await readText(ui.resolvedPath);
     }
 
     // Wrap .photon.html fragments in a full HTML document.
@@ -3419,7 +3420,7 @@ export class PhotonServer {
     }
 
     if (resolvedPath) {
-      let content = await fs.readFile(resolvedPath, 'utf-8');
+      let content = await readText(resolvedPath);
 
       // Inject MCP Apps bridge for UI assets
       if (assetType === 'ui') {

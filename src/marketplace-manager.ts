@@ -6,6 +6,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
+import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
 import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
@@ -159,7 +160,7 @@ function getDefaultMarketplaces(): Marketplace[] {
  * Calculate SHA-256 hash of file content
  */
 export async function calculateFileHash(filePath: string): Promise<string> {
-  const content = await fs.readFile(filePath, 'utf-8');
+  const content = await readText(filePath);
   const hash = crypto.createHash('sha256').update(content).digest('hex');
   return `sha256:${hash}`;
 }
@@ -183,7 +184,7 @@ export async function calculatePhotonHash(
 ): Promise<string> {
   const hasher = crypto.createHash('sha256');
   // Always include the source file
-  hasher.update(await fs.readFile(sourceFilePath, 'utf-8'));
+  hasher.update(await readText(sourceFilePath));
   // Include each asset file in sorted order for determinism
   if (assets && assets.length > 0 && baseDir) {
     for (const asset of [...assets].sort()) {
@@ -204,8 +205,7 @@ export async function calculatePhotonHash(
 export async function readLocalMetadata(): Promise<LocalMetadata> {
   try {
     if (existsSync(METADATA_FILE)) {
-      const data = await fs.readFile(METADATA_FILE, 'utf-8');
-      return JSON.parse(data);
+      return await readJSON(METADATA_FILE);
     }
   } catch (error) {
     const logger = createLogger({ component: 'marketplace-manager', minimal: true });
@@ -236,7 +236,7 @@ export class MarketplaceManager {
     await fs.mkdir(this.cacheDir, { recursive: true });
 
     if (existsSync(this.configFile)) {
-      const data = await fs.readFile(this.configFile, 'utf-8');
+      const data = await readText(this.configFile);
       try {
         this.config = JSON.parse(data);
       } catch (parseError) {
@@ -280,7 +280,7 @@ export class MarketplaceManager {
   }
 
   async save() {
-    await fs.writeFile(this.configFile, JSON.stringify(this.config, null, 2), 'utf-8');
+    await writeJSON(this.configFile, this.config);
   }
 
   /**
@@ -569,8 +569,7 @@ export class MarketplaceManager {
         const manifestPath = path.join(localPath, '.marketplace', 'photons.json');
 
         if (existsSync(manifestPath)) {
-          const data = await fs.readFile(manifestPath, 'utf-8');
-          return JSON.parse(data) as MarketplaceManifest;
+          return await readJSON<MarketplaceManifest>(manifestPath);
         }
       } else if (marketplace.sourceType === 'url') {
         // Direct URL - the source already points to photons.json
@@ -626,7 +625,7 @@ export class MarketplaceManager {
     if (manifest) {
       // Save to cache
       const cacheFile = this.getCacheFile(name);
-      await fs.writeFile(cacheFile, JSON.stringify(manifest, null, 2), 'utf-8');
+      await writeJSON(cacheFile, manifest);
 
       // Update lastUpdated timestamp
       marketplace.lastUpdated = new Date().toISOString();
@@ -664,8 +663,7 @@ export class MarketplaceManager {
     }
 
     try {
-      const data = await fs.readFile(cacheFile, 'utf-8');
-      return JSON.parse(data);
+      return await readJSON(cacheFile);
     } catch (error) {
       // Cache file exists but is corrupted — delete it so it gets re-fetched
       this.logger.warn(
@@ -808,7 +806,7 @@ export class MarketplaceManager {
           const mcpPath = path.join(localPath, `${mcpName}.photon.ts`);
 
           if (existsSync(mcpPath)) {
-            content = await fs.readFile(mcpPath, 'utf-8');
+            content = await readText(mcpPath);
           }
         } else {
           // Remote fetch — ghFetch adds auth for private repos
@@ -892,7 +890,7 @@ export class MarketplaceManager {
           const fullPath = path.join(localPath, assetPath);
 
           if (existsSync(fullPath)) {
-            const content = await fs.readFile(fullPath, 'utf-8');
+            const content = await readText(fullPath);
             results.set(assetPath, content);
           }
         } else {
@@ -958,7 +956,7 @@ export class MarketplaceManager {
         if (!isPathWithin(assetTarget, workingDir)) continue;
         const assetDir = path.dirname(assetTarget);
         await fs.mkdir(assetDir, { recursive: true });
-        await fs.writeFile(assetTarget, content, 'utf-8');
+        await writeText(assetTarget, content);
       }
       if (fetched.size > 0) {
         repaired++;
@@ -987,7 +985,7 @@ export class MarketplaceManager {
           const mcpPath = path.join(localPath, `${mcpName}.photon.ts`);
 
           if (existsSync(mcpPath)) {
-            content = await fs.readFile(mcpPath, 'utf-8');
+            content = await readText(mcpPath);
           }
         } else {
           // Remote fetch — ghFetch adds auth for private repos
@@ -1134,7 +1132,7 @@ export class MarketplaceManager {
     // Write the .photon.ts file
     await fs.mkdir(installDir, { recursive: true });
     const photonPath = path.join(installDir, `${name}.photon.ts`);
-    await fs.writeFile(photonPath, content, 'utf-8');
+    await writeText(photonPath, content);
 
     const assetsInstalled: string[] = [];
 
@@ -1158,7 +1156,7 @@ export class MarketplaceManager {
           const assetTarget = path.join(photonDataDir, relativePath);
           if (!isPathWithin(assetTarget, photonDataDir)) continue;
           await fs.mkdir(path.dirname(assetTarget), { recursive: true });
-          await fs.writeFile(assetTarget, assetContent, 'utf-8');
+          await writeText(assetTarget, assetContent);
           assetsInstalled.push(assetPath);
         }
       }
@@ -1190,7 +1188,7 @@ export class MarketplaceManager {
           const assetTarget = path.join(photonDataDir, relativePath);
           if (!isPathWithin(assetTarget, photonDataDir)) continue;
           await fs.mkdir(path.dirname(assetTarget), { recursive: true });
-          await fs.writeFile(assetTarget, assetContent, 'utf-8');
+          await writeText(assetTarget, assetContent);
           assetsInstalled.push(assetPath);
         }
       }
@@ -1300,7 +1298,7 @@ export class MarketplaceManager {
         const localPath = marketplace.url.replace('file://', '');
         const mcpPath = path.join(localPath, `${mcpName}.photon.ts`);
         if (existsSync(mcpPath)) {
-          content = await fs.readFile(mcpPath, 'utf-8');
+          content = await readText(mcpPath);
         }
       } else {
         const url = `${marketplace.url}/${mcpName}.photon.ts`;
@@ -1379,8 +1377,7 @@ export class MarketplaceManager {
   private async readMetadata(): Promise<LocalMetadata> {
     try {
       if (existsSync(this.metadataFile)) {
-        const data = await fs.readFile(this.metadataFile, 'utf-8');
-        return JSON.parse(data);
+        return await readJSON(this.metadataFile);
       }
     } catch {
       /* corrupted — start fresh */
@@ -1390,7 +1387,7 @@ export class MarketplaceManager {
 
   private async writeMetadata(metadata: LocalMetadata): Promise<void> {
     await fs.mkdir(this.configDir, { recursive: true });
-    await fs.writeFile(this.metadataFile, JSON.stringify(metadata, null, 2), 'utf-8');
+    await writeJSON(this.metadataFile, metadata);
   }
 
   /**
@@ -1405,7 +1402,7 @@ export class MarketplaceManager {
 
     try {
       // Strip @forkedFrom from source (injected during install, not in manifest)
-      const rawContent = await fs.readFile(filePath, 'utf-8');
+      const rawContent = await readText(filePath);
       const strippedContent = rawContent.replace(/\n\s*\*\s*@forkedFrom\s+[^\n]+/, '');
 
       // Write stripped content to temp for hashing, then compute combined hash
@@ -1455,7 +1452,7 @@ export class MarketplaceManager {
           const mcpPath = path.join(localPath, `${mcpName}.photon.ts`);
 
           if (existsSync(mcpPath)) {
-            content = await fs.readFile(mcpPath, 'utf-8');
+            content = await readText(mcpPath);
           }
         } else {
           // Remote fetch — ghFetch adds auth for private repos
@@ -1642,7 +1639,7 @@ export class MarketplaceManager {
     }
 
     // Check @forkedFrom tag
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readText(filePath);
     const hasForkedFrom = content.includes('@forkedFrom');
 
     // Handle target repo push if specified
