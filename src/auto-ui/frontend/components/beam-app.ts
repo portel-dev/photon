@@ -5698,6 +5698,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     ? `${opts.photon.name}/${opts.method.name}`
                     : undefined}
                   @share=${() => this._handleShareResult()}
+                  @checklist-action=${(e: CustomEvent) => this._handleChecklistAction(e)}
                 ></result-viewer>
               `
           : html`

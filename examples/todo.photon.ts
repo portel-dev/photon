@@ -7,7 +7,7 @@
  * @ui dashboard ./ui/dashboard.photon.md
  */
 export default class Todo {
-  items: { text: string; done: boolean }[] = [];
+  constructor(public items: { text: string; done: boolean }[] = []) {}
 
   /**
    * Add a task
