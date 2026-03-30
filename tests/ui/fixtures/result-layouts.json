@@ -159,6 +159,22 @@
         {"name": "Item A", "checked": false}
       ],
       "expectedLayout": "checklist"
+    },
+    {
+      "name": "checklist_not_without_done_field",
+      "input": [
+        {"name": "Item 1", "priority": "high"},
+        {"name": "Item 2", "priority": "low"}
+      ],
+      "expectedLayout": "list"
+    },
+    {
+      "name": "checklist_mixed_fields_not_checklist",
+      "input": [
+        {"text": "A", "done": false},
+        {"name": "B", "status": "active"}
+      ],
+      "expectedLayout": "table"
     }
   ]
 }
