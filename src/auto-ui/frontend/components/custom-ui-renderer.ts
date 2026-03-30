@@ -490,12 +490,32 @@ export class CustomUiRenderer extends LitElement {
   private _markdownToHtml(markdown: string): string {
     const marked = (window as any).marked;
     if (!marked) {
-      // Fallback: wrap in <pre> if marked isn't loaded
       return `<pre style="white-space:pre-wrap">${markdown}</pre>`;
     }
     // Parse markdown to HTML — HTML tags in markdown pass through untouched,
     // so <div data-method="..."> works as-is.
-    return marked.parse(markdown, { breaks: false, gfm: true }) as string;
+    let html = marked.parse(markdown, { breaks: false, gfm: true }) as string;
+
+    // Auto-enhance: add fluid layout styles for .photon.md content.
+    // Standalone data-method divs (not inside grids/cards) get float behavior
+    // so surrounding text flows around them naturally.
+    html += `<style>
+      body { line-height: 1.7; max-width: 100%; }
+      h1, h2, h3 { margin: 1em 0 0.5em; }
+      p { margin: 0.5em 0; }
+      hr { border: none; border-top: 1px solid var(--color-outline-variant, #333); margin: 1.5em 0; }
+      code { background: var(--color-surface-container, #2a2a2a); padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+      pre { background: var(--color-surface-container, #2a2a2a); padding: 12px; border-radius: 6px; overflow-x: auto; }
+      pre code { background: none; padding: 0; }
+      .card, [style*="border-radius"][style*="padding"] {
+        background: var(--color-surface-container, #1e1e1e);
+        border: 1px solid var(--color-outline-variant, #333);
+      }
+      [data-method] { min-height: 40px; margin: 8px 0; }
+      img { max-width: 100%; border-radius: 6px; }
+    </style>`;
+
+    return html;
   }
 
   render() {

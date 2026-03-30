@@ -6867,12 +6867,44 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
     try {
       // Bridge iframe slides use reveal.js-style fixed canvas scaling internally.
-      // The iframe's own scaleSlide() script handles viewport → 960x540 scaling.
-      // No external scaling needed.
       const iframe = content.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
       if (iframe) return;
 
-      // Non-iframe slides: use prerender div measurement (legacy path)
+      const padV = document.fullscreenElement ? 128 : 96;
+      const padH = document.fullscreenElement ? 240 : 128;
+      const viewH = viewport.clientHeight - padV;
+      const viewW = viewport.clientWidth - padH;
+
+      if (viewH <= 0 || viewW <= 0) return;
+
+      // Fast path: use Pretext to estimate text height without DOM reflow.
+      // Works for text-only slides; falls through to DOM measurement for complex slides.
+      const pretext = (window as any).__pretextModule;
+      const hasEmbeds = content.querySelector(
+        'iframe, [data-method], canvas, svg, img, table, pre'
+      );
+      if (pretext && !hasEmbeds) {
+        const textContent = content.textContent || '';
+        if (textContent.trim()) {
+          const fontSize = 18;
+          const font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+          const lineHeight = fontSize * 1.6;
+          const result = pretext.layout(pretext.prepare(textContent, font), viewW, lineHeight);
+          const contentH = result.height + 48; // margin for headings
+          if (contentH > 0) {
+            const zoom = Math.min(viewH / contentH, 1.5);
+            const clampedZoom = Math.max(0.5, Math.min(2.5, zoom));
+            const newZoom = Math.abs(clampedZoom - 1) > 0.02 ? String(clampedZoom) : '';
+            if (newZoom !== this._slidesLastZoom) {
+              this._slidesLastZoom = newZoom;
+              content.style.zoom = newZoom;
+            }
+            return;
+          }
+        }
+      }
+
+      // DOM measurement path: prerender div (for slides with embeds/images/code)
       let prerender = root.querySelector('.slides-prerender') as HTMLElement;
       if (!prerender) {
         prerender = document.createElement('div');
@@ -6888,16 +6920,10 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       });
       prerender.style.zoom = '1';
 
-      const padV = document.fullscreenElement ? 128 : 96;
-      const padH = document.fullscreenElement ? 240 : 128;
-      const viewH = viewport.clientHeight - padV;
-      const viewW = viewport.clientWidth - padH;
       const contentH = prerender.scrollHeight;
       const contentW = prerender.scrollWidth;
 
-      if (contentH <= 0 || viewH <= 0 || contentW <= 0 || viewW <= 0) {
-        return;
-      }
+      if (contentH <= 0 || contentW <= 0) return;
 
       // Scale to fit: zoom up or down so content fills the viewport
       const scaleH = viewH / contentH;
