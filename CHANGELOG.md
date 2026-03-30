@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.17.2](https://github.com/portel-dev/photon/compare/v1.17.1...v1.17.2) (2026-03-30)
+
+### Bug Fixes
+
+* resolve symlinks in CLI launcher for bun global install ([b705a7d](https://github.com/portel-dev/photon/commit/b705a7d79d64350eb9f507e52fba2795bbea9eaa))
+
 ## [1.17.1](https://github.com/portel-dev/photon/compare/v1.17.0...v1.17.1) (2026-03-30)
 
 ### Bug Fixes
