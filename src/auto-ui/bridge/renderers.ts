@@ -502,8 +502,12 @@ export function generateRenderersScript(): string {
       var circleColor = isComplete ? '#34d399' : isCurrent ? colors.accent : colors.border;
       var circleContent = isComplete ? '\\u2713' : String(i + 1);
       var textColor = isComplete || isCurrent ? colors.text : colors.textMuted;
-      // Connector before circle
-      if (i > 0) h += '<div style="flex:1;min-width:20px;max-width:60px;height:2px;background:' + (isComplete ? '#34d399' : colors.border) + ';align-self:center;margin-top:-20px"></div>';
+      // Connector before circle — green if the previous step is complete
+      if (i > 0) {
+        var prevStatus = (items[i - 1].status || 'pending').toLowerCase();
+        var prevComplete = prevStatus === 'complete' || prevStatus === 'completed' || prevStatus === 'done';
+        h += '<div style="flex:1;min-width:20px;max-width:60px;height:2px;background:' + (prevComplete ? '#34d399' : colors.border) + ';align-self:center;margin-top:-20px"></div>';
+      }
       // Step column
       h += '<div style="display:flex;flex-direction:column;align-items:center;min-width:60px;flex-shrink:0">';
       h += '<div style="width:32px;height:32px;border-radius:50%;background:' + circleColor + ';color:' + (isComplete || isCurrent ? '#fff' : colors.textMuted) + ';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0">' + circleContent + '</div>';
