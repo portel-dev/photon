@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.17.0](https://github.com/portel-dev/photon/compare/v1.16.1...v1.17.0) (2026-03-30)
+
+### Features
+
+* .photon.md support — markdown with live data-method embeds ([bc79bab](https://github.com/portel-dev/photon/commit/bc79bab0025691602e96a8565c3f642b8956c5c6))
+* [@format](https://github.com/format) article with Pretext text layout engine integration ([53bce33](https://github.com/portel-dev/photon/commit/53bce331fcc2337533d40f0533a6aac154e2fa16))
+* [@format](https://github.com/format) checklist with interactive UI and motion system enhancements ([1ace2ea](https://github.com/portel-dev/photon/commit/1ace2eab417bc5b3335ca751341f79f752d8ad3b))
+* optimized file I/O with Bun.file() / Bun.write() when available ([066b3ca](https://github.com/portel-dev/photon/commit/066b3cab56fb1139195eefca0059f4b3a6ac0c6c))
+* Pretext-powered slide scaling and .photon.md fluid layout styles ([b31b577](https://github.com/portel-dev/photon/commit/b31b5774bf4ba67b29e1fab261896888e9da9354))
+* runtime-safe file watching, health monitoring, and memory cleanup ([dab5028](https://github.com/portel-dev/photon/commit/dab5028b134d91836e808261982158ec67b0f3bb)), closes [bun#27667](https://github.com/portel-dev/bun/issues/27667)
+* transitive [@photon](https://github.com/photon) dependency install and [@ui](https://github.com/ui) asset download ([c985d98](https://github.com/portel-dev/photon/commit/c985d986cab2113ab808a270e6ff6e31a9f92bec))
+
+### Bug Fixes
+
+* bridge checklist renderer polished to match Lit version ([56d39b9](https://github.com/portel-dev/photon/commit/56d39b917a43fc7885bba65115b5c632f5206afc))
+* checklist and article visual polish from UI audit ([3c80262](https://github.com/portel-dev/photon/commit/3c802629a43f2afe6defbcbf838a4ad35c6118f3))
+* checklist callback persistence and todo photon state ([ff3820f](https://github.com/portel-dev/photon/commit/ff3820f6b33f1a2798cd41fd3ac917707b7bbbb8))
+* design review findings — checklist a11y, editorial columns, article routing ([00034ca](https://github.com/portel-dev/photon/commit/00034ca8b03ec92c1f1c325d34e77ef5f8b93a5e))
+* hide Cancel button on parameterless methods ([568baef](https://github.com/portel-dev/photon/commit/568baefb85f55f654de8b29c78cedad40f43f9a8))
+* improve slides layout for projection readability ([c604d8f](https://github.com/portel-dev/photon/commit/c604d8f3dfdb9b8b4602938d94415e9534be6e4a))
+* polish checklist UI to commercial quality ([7102f6c](https://github.com/portel-dev/photon/commit/7102f6c3e49b7b9dd21d5d831e186da783e96c2d))
+* remove "Result" label noise above format renderers ([bfa3e9b](https://github.com/portel-dev/photon/commit/bfa3e9bcb4a4d6366e036e9875c8fb11d7f8bb68))
+* scope [@stateful](https://github.com/stateful) and [@auth](https://github.com/auth) detection to class-level JSDoc block ([4cbc94a](https://github.com/portel-dev/photon/commit/4cbc94a8a38b6a22ed601a16998d48c779d1651a))
+* sidebar warmth animation was hiding items via opacity: 0 ([ec322d7](https://github.com/portel-dev/photon/commit/ec322d75f97259e4aa141853d1825f97e8f54c8b))
+* steps connector line should be green based on previous step status ([76b5ebb](https://github.com/portel-dev/photon/commit/76b5ebb8589de9d79656f0a71df874330db71a44))
+* steps renderer clipping last step on narrow viewports ([bd7b055](https://github.com/portel-dev/photon/commit/bd7b05522e4b4cabc74f2dc37ad52a16fd58927a))
+
 ## [1.16.0](https://github.com/portel-dev/photon/compare/v1.14.0...v1.16.0) (2026-03-27)
 
 ### Features
