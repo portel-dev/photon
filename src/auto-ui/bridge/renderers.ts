@@ -1264,74 +1264,92 @@ export function generateRenderersScript(): string {
       return undone.concat(done);
     }
 
+    var checkSvg = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6l2.5 2.5 4.5-5"/></svg>';
+    var gripSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="' + colors.textMuted + '"><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>';
+
     function render() {
-      var sorted = sortItems(items);
-      var h = '<div class="photon-checklist" style="font-family:inherit;">';
-
-      // Header with count and hide toggle
-      var doneCount = items.filter(isDone).length;
+      var undone = items.filter(function(i) { return !isDone(i); });
+      var done = items.filter(isDone);
+      var doneCount = done.length;
       var totalCount = items.length;
-      h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;font-size:11px;color:' + colors.textMuted + ';border-bottom:1px solid ' + colors.border + ';">';
-      h += '<span>' + doneCount + ' of ' + totalCount + ' done</span>';
-      h += '<label style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:4px;">';
-      h += '<input type="checkbox" class="checklist-hide-toggle" ' + (hideCompleted ? 'checked' : '') + ' style="cursor:pointer;" />';
-      h += '<span>Hide done</span></label>';
-      h += '</div>';
-      // Progress bar
       var pct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
-      h += '<div style="height:2px;background:' + colors.border + ';overflow:hidden;">';
-      h += '<div style="height:100%;width:' + pct + '%;background:' + colors.accent + ';transition:width 0.4s cubic-bezier(0.2,0,0,1);"></div>';
+
+      var h = '<div style="border-radius:8px;overflow:hidden;border:1px solid ' + colors.border + ';font-family:inherit;">';
+
+      // Header
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;font-size:12px;color:' + colors.textMuted + ';background:rgba(255,255,255,0.03);">';
+      h += '<span style="font-weight:500;font-variant-numeric:tabular-nums;">' + doneCount + ' of ' + totalCount + ' done</span>';
+      h += '<label class="checklist-hide-toggle" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">';
+      h += '<input type="checkbox" ' + (hideCompleted ? 'checked' : '') + ' style="display:none;" />';
+      h += '<span>' + (hideCompleted ? 'Show completed' : 'Hide completed') + '</span></label>';
       h += '</div>';
 
-      for (var i = 0; i < sorted.length; i++) {
-        var item = sorted[i];
-        var done = isDone(item);
-        if (hideCompleted && done) continue;
-        var text = esc(textKey(item));
-        var idx = items.indexOf(item);
+      // Progress bar
+      h += '<div style="height:3px;background:rgba(255,255,255,0.03);"><div style="height:100%;width:' + pct + '%;background:' + colors.accent + ';transition:width 0.5s cubic-bezier(0.16,1,0.3,1);"></div></div>';
 
+      // Undone items
+      function renderItem(item, idx, opacity) {
+        var isD = isDone(item);
         h += '<div class="checklist-item" draggable="true" data-idx="' + idx + '" style="';
-        h += 'display:flex;align-items:center;gap:8px;padding:8px 10px;';
-        h += 'border-bottom:1px solid ' + colors.border + ';';
-        h += 'cursor:grab;user-select:none;';
-        h += 'transition:opacity 0.2s,background 0.2s;';
-        if (done) h += 'opacity:0.5;';
+        h += 'display:flex;align-items:center;gap:12px;padding:12px 16px;';
+        h += 'cursor:grab;user-select:none;transition:opacity 0.3s,background 0.15s;';
+        if (opacity) h += 'opacity:' + opacity + ';';
         h += '">';
-
-        // Drag handle
-        h += '<span style="color:' + colors.textMuted + ';font-size:12px;cursor:grab;flex-shrink:0;">⠿</span>';
-
-        // Checkbox
-        h += '<input type="checkbox" class="checklist-cb" data-idx="' + idx + '" ' + (done ? 'checked' : '') + ' style="cursor:pointer;flex-shrink:0;width:16px;height:16px;accent-color:' + colors.accent + ';" />';
-
+        // Grip
+        h += '<span class="grip" style="opacity:0;transition:opacity 0.15s;">' + gripSvg + '</span>';
+        // Custom checkbox
+        var cbBg = isD ? colors.accent : 'transparent';
+        var cbBorder = isD ? colors.accent : colors.textMuted;
+        h += '<div class="checklist-cb" data-idx="' + idx + '" style="width:20px;height:20px;border-radius:6px;border:2px solid ' + cbBorder + ';background:' + cbBg + ';display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all 0.2s;">';
+        if (isD) h += checkSvg;
+        h += '</div>';
         // Text
-        h += '<span style="flex:1;font-size:13px;color:' + colors.text + ';';
-        if (done) h += 'text-decoration:line-through;';
-        h += '">' + text + '</span>';
-
+        h += '<span style="flex:1;font-size:14px;color:' + (isD ? colors.textMuted : colors.text) + ';';
+        if (isD) h += 'text-decoration:line-through;text-decoration-color:' + colors.textMuted + ';';
+        h += '">' + esc(textKey(item)) + '</span>';
         h += '</div>';
       }
 
+      for (var u = 0; u < undone.length; u++) renderItem(undone[u], items.indexOf(undone[u]), null);
+
+      // Separator
+      if (doneCount > 0 && !hideCompleted) {
+        h += '<div style="padding:8px 16px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:' + colors.textMuted + ';background:rgba(255,255,255,0.03);display:flex;align-items:center;gap:10px;border-top:1px solid ' + colors.border + ';">';
+        h += '<span style="width:4px;height:4px;border-radius:50%;background:' + colors.textMuted + ';opacity:0.5;"></span>';
+        h += 'Completed' + (doneCount < totalCount ? ' (' + doneCount + ')' : '');
+        h += '<span style="flex:1;height:1px;background:' + colors.border + ';"></span></div>';
+      }
+
+      // Done items
+      if (!hideCompleted) {
+        for (var d = 0; d < done.length; d++) renderItem(done[d], items.indexOf(done[d]), '0.7');
+      }
+
+      // All done message
+      if (hideCompleted && doneCount === totalCount && totalCount > 0) {
+        h += '<div style="padding:32px 16px;text-align:center;color:' + colors.textMuted + ';font-size:14px;">';
+        h += '<div style="font-size:28px;margin-bottom:8px;opacity:0.6;">&#10003;</div>';
+        h += 'All ' + totalCount + ' items completed</div>';
+      }
+
       if (items.length === 0) {
-        h += '<div style="padding:24px;text-align:center;color:' + colors.textMuted + ';font-size:13px;">No items</div>';
+        h += '<div style="padding:24px;text-align:center;color:' + colors.textMuted + ';font-size:14px;">No items</div>';
       }
 
       h += '</div>';
       container.innerHTML = h;
 
-      // Bind checkbox toggle
+      // Bind custom checkbox click
       var cbs = container.querySelectorAll('.checklist-cb');
       for (var c = 0; c < cbs.length; c++) {
-        cbs[c].addEventListener('change', function(e) {
-          var idx = parseInt(e.target.getAttribute('data-idx'));
+        cbs[c].addEventListener('click', function(e) {
+          var idx = parseInt(e.currentTarget.getAttribute('data-idx'));
           var item = items[idx];
           if (!item) return;
-          // Toggle done state
           if ('done' in item) item.done = !item.done;
           else if ('completed' in item) item.completed = !item.completed;
           else if ('checked' in item) item.checked = !item.checked;
           else item.done = true;
-          // Callback to photon if available
           if (window.photon && window.photon.callTool) {
             window.photon.callTool('check', { text: textKey(item), done: isDone(item) }).catch(function(){});
           }
@@ -1342,10 +1360,22 @@ export function generateRenderersScript(): string {
       // Bind hide toggle
       var toggle = container.querySelector('.checklist-hide-toggle');
       if (toggle) {
-        toggle.addEventListener('change', function(e) {
-          hideCompleted = e.target.checked;
+        toggle.addEventListener('click', function() {
+          hideCompleted = !hideCompleted;
           render();
         });
+      }
+
+      // Show grip on item hover
+      var allItems = container.querySelectorAll('.checklist-item');
+      for (var g = 0; g < allItems.length; g++) {
+        (function(el) {
+          var grip = el.querySelector('.grip');
+          if (grip) {
+            el.addEventListener('mouseenter', function() { grip.style.opacity = '0.4'; });
+            el.addEventListener('mouseleave', function() { grip.style.opacity = '0'; });
+          }
+        })(allItems[g]);
       }
 
       // Drag-and-drop reorder
