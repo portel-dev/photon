@@ -691,7 +691,7 @@ export class ResultViewer extends LitElement {
       }
 
       .checklist-item.done {
-        opacity: 0.55;
+        opacity: 0.7;
       }
 
       /* Custom checkbox — no native checkbox */
@@ -716,6 +716,11 @@ export class ResultViewer extends LitElement {
 
       .checklist-cb:active {
         transform: scale(0.85);
+      }
+
+      .checklist-cb:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
 
       .checklist-cb .cb-check {
@@ -930,13 +935,13 @@ export class ResultViewer extends LitElement {
 
       .article-fallback .article-float.left {
         float: left;
-        margin-right: 16px;
+        margin: 0 20px 12px 0;
         max-width: 45%;
       }
 
       .article-fallback .article-float.right {
         float: right;
-        margin-left: 16px;
+        margin: 0 0 12px 20px;
         max-width: 45%;
       }
 
@@ -7782,7 +7787,21 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         <span class="drag-handle"
           >${svg`<svg viewBox="0 0 16 16"><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>`}</span
         >
-        <div class="checklist-cb" @click=${() => this._checklistToggle(item, idx)}>${checkSvg}</div>
+        <div
+          class="checklist-cb"
+          tabindex="0"
+          role="checkbox"
+          aria-checked="${done}"
+          @click=${() => this._checklistToggle(item, idx)}
+          @keydown=${(e: KeyboardEvent) => {
+            if (e.key === ' ' || e.key === 'Enter') {
+              e.preventDefault();
+              this._checklistToggle(item, idx);
+            }
+          }}
+        >
+          ${checkSvg}
+        </div>
         <span class="checklist-text">${this._checklistTextKey(item)}</span>
       </div>
     `;
@@ -7812,6 +7831,9 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
               }}
               style="display:none"
             />
+            ${this._checklistHideDone
+              ? svg`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line x1="2" y1="2" x2="22" y2="22"/></svg>`
+              : svg`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`}
             <span>${this._checklistHideDone ? 'Show completed' : 'Hide completed'}</span>
           </label>
         </div>
@@ -7860,13 +7882,16 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       caption?: string;
     }> = data.images || [];
 
-    // Try Canvas + Pretext path
-    try {
-      return this._renderArticleCanvas(text, images);
-    } catch {
-      // Fallback to CSS columns + float
-      return this._renderArticleFallback(text, images);
+    // Text-only articles use CSS two-column layout (better for reading)
+    // Canvas + Pretext path is for articles WITH images (text flow around obstacles)
+    if (images.length > 0) {
+      try {
+        return this._renderArticleCanvas(text, images);
+      } catch {
+        // Canvas failed, fall through
+      }
     }
+    return this._renderArticleFallback(text, images);
   }
 
   private _renderArticleCanvas(
