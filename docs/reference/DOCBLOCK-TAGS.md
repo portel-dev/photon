@@ -911,6 +911,30 @@ async cart(): Promise<{
 
 **Auto-detection:** Data with `price` + `quantity`/`qty` fields is automatically detected as a cart without needing `@format cart`.
 
+### Checklist
+
+```typescript
+/**
+ * @format checklist
+ */
+async list(): Promise<{ text: string; done: boolean }[]>
+```
+
+Interactive checkbox list. Done items sink below a "Completed" separator. Supports drag-and-drop reorder, progress bar, and hide-done toggle. Clicking a checkbox calls `check(text, done)` on the photon.
+
+**Auto-detection:** Arrays where every item has a text-like field (`text`, `title`, `name`, `task`, `label`) AND a boolean done field (`done`, `completed`, `checked`) are automatically detected as checklist.
+
+### Article
+
+```typescript
+/**
+ * @format article
+ */
+async story(): Promise<{ text: string; images?: { url: string; position?: 'left' | 'right'; caption?: string }[] }>
+```
+
+Magazine-style text layout. With images: text flows around positioned images. Without images: automatic two-column layout with column-rule divider and drop cap.
+
 ### Container Layout Hints
 
 Containers accept the `@inner` hint to specify how each value is rendered:
