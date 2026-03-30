@@ -621,7 +621,7 @@ export class ResultViewer extends LitElement {
 
       /* Progress bar */
       .checklist-progress {
-        height: 2px;
+        height: 3px;
         background: var(--bg-glass);
       }
 
@@ -631,18 +631,29 @@ export class ResultViewer extends LitElement {
         transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
       }
 
-      /* Section labels */
+      /* Section separator */
       .checklist-section {
-        padding: 6px 16px;
-        font-size: 10px;
+        padding: 8px 16px;
+        font-size: 11px;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.05em;
         color: var(--t-muted);
         background: var(--bg-glass);
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
+        border-top: 1px solid var(--border-glass);
+        border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 50%, transparent);
+      }
+
+      .checklist-section::before {
+        content: '';
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--t-muted);
+        opacity: 0.5;
       }
 
       .checklist-section::after {
@@ -657,7 +668,7 @@ export class ResultViewer extends LitElement {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 10px 16px;
+        padding: 12px 16px;
         background: var(--bg-panel);
         cursor: grab;
         user-select: none;
@@ -665,11 +676,10 @@ export class ResultViewer extends LitElement {
           transform 0.3s cubic-bezier(0.2, 0, 0, 1),
           opacity 0.3s ease,
           background 0.15s ease;
-        border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 50%, transparent);
       }
 
-      .checklist-item:last-child {
-        border-bottom: none;
+      .checklist-item + .checklist-item {
+        border-top: 1px solid color-mix(in srgb, var(--border-glass) 40%, transparent);
       }
 
       .checklist-item:hover {
@@ -728,16 +738,22 @@ export class ResultViewer extends LitElement {
 
       /* Drag handle */
       .checklist-item .drag-handle {
-        color: var(--t-muted);
-        font-size: 11px;
         cursor: grab;
         flex-shrink: 0;
         opacity: 0;
         transition: opacity 0.15s;
+        display: flex;
+        align-items: center;
+      }
+
+      .checklist-item .drag-handle svg {
+        width: 14px;
+        height: 14px;
+        fill: var(--t-muted);
       }
 
       .checklist-item:hover .drag-handle {
-        opacity: 0.5;
+        opacity: 0.4;
       }
 
       /* Text */
@@ -893,11 +909,15 @@ export class ResultViewer extends LitElement {
       }
 
       .article-fallback {
-        column-count: 2;
-        column-gap: 24px;
         line-height: 1.7;
         font-size: 15px;
         color: var(--t-primary);
+      }
+
+      .article-fallback.two-column {
+        column-count: 2;
+        column-gap: 32px;
+        column-rule: 1px solid color-mix(in srgb, var(--border-glass) 50%, transparent);
       }
 
       .article-fallback .article-float {
@@ -7759,7 +7779,9 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           this._checklistDrop(data, idx);
         }}
       >
-        <span class="drag-handle">⠿</span>
+        <span class="drag-handle"
+          >${svg`<svg viewBox="0 0 16 16"><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>`}</span
+        >
         <div class="checklist-cb" @click=${() => this._checklistToggle(item, idx)}>${checkSvg}</div>
         <span class="checklist-text">${this._checklistTextKey(item)}</span>
       </div>
@@ -7975,7 +7997,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     const hasImages = images.length > 0;
 
     return html`
-      <div class="article-fallback" style="${hasImages ? '' : 'column-count: 2'}">
+      <div class="article-fallback ${!hasImages ? 'two-column' : ''}">
         ${images.map(
           (img, i) => html`
             <div
@@ -7987,7 +8009,19 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
             </div>
           `
         )}
-        ${paragraphs.map((p) => html`<p style="margin-bottom: 1em;">${p}</p>`)}
+        ${paragraphs.map(
+          (p, i) =>
+            html`<p
+              style="margin-bottom: 1em;${i === 0 ? 'font-size: 1.05em; font-weight: 400;' : ''}"
+            >
+              ${i === 0
+                ? html`<span
+                      style="float:left;font-size:3.2em;line-height:0.8;padding-right:8px;padding-top:4px;font-weight:600;color:var(--accent);"
+                      >${p.charAt(0)}</span
+                    >${p.slice(1)}`
+                : p}
+            </p>`
+        )}
       </div>
     `;
   }
