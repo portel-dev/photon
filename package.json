@@ -5,9 +5,10 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "photon": "dist/cli.js"
+    "photon": "bin/photon"
   },
   "files": [
+    "bin",
     "dist",
     "templates"
   ],

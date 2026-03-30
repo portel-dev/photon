@@ -1,0 +1,13 @@
+#!/bin/sh
+# Runtime-agnostic launcher — works with bun, node, or tsx
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+CLI="$SCRIPT_DIR/dist/cli.js"
+
+if command -v bun >/dev/null 2>&1; then
+  exec bun "$CLI" "$@"
+elif command -v node >/dev/null 2>&1; then
+  exec node "$CLI" "$@"
+else
+  echo "Error: Neither bun nor node found in PATH. Install one of them." >&2
+  exit 1
+fi
