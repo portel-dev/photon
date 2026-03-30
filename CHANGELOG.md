@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.17.1](https://github.com/portel-dev/photon/compare/v1.17.0...v1.17.1) (2026-03-30)
+
+### Bug Fixes
+
+* CLI launcher works with bun global install (no node required) ([c49608c](https://github.com/portel-dev/photon/commit/c49608c013931df09f482da150f6e5aa9d6fb105))
+
 ## [1.17.0](https://github.com/portel-dev/photon/compare/v1.16.1...v1.17.0) (2026-03-30)
 
 ### Features
