@@ -177,6 +177,57 @@ echo "  Running promise validation suite..."
 npm run test:promises
 echo "  ✓ Platform promises validated"
 
+# ─── 9. Global install simulation ────
+echo ""
+echo "▶ Step 9: Global install simulation"
+PACK_TGZ=$(npm pack 2>/dev/null | tail -1)
+if [ -f "$PACK_TGZ" ]; then
+  TEST_DIR=$(mktemp -d)
+  trap "rm -rf $TEST_DIR $PACK_TGZ" EXIT
+
+  # Test with bun if available
+  if command -v bun >/dev/null 2>&1; then
+    echo "  Testing bun global install..."
+    cd "$TEST_DIR"
+    bun add -g "$OLDPWD/$PACK_TGZ" 2>/dev/null
+    BUN_OUT=$(photon --version 2>&1)
+    bun remove -g @portel/photon 2>/dev/null
+    cd "$OLDPWD"
+    if echo "$BUN_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+      echo "  ✓ bun global install works ($BUN_OUT)"
+    else
+      echo "  ✗ FAIL: bun global install broken: $BUN_OUT"
+      rm -f "$PACK_TGZ"
+      exit 1
+    fi
+  else
+    echo "  ⏭ bun not available — skipping bun global test"
+  fi
+
+  # Test with npm/node if available
+  if command -v node >/dev/null 2>&1; then
+    echo "  Testing npm global install..."
+    cd "$TEST_DIR"
+    npm install -g "$OLDPWD/$PACK_TGZ" 2>/dev/null
+    NPM_OUT=$(photon --version 2>&1)
+    npm uninstall -g @portel/photon 2>/dev/null
+    cd "$OLDPWD"
+    if echo "$NPM_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+      echo "  ✓ npm global install works ($NPM_OUT)"
+    else
+      echo "  ✗ FAIL: npm global install broken: $NPM_OUT"
+      rm -f "$PACK_TGZ"
+      exit 1
+    fi
+  else
+    echo "  ⏭ node not available — skipping npm global test"
+  fi
+
+  rm -f "$PACK_TGZ"
+else
+  echo "  ⏭ npm pack failed — skipping install test"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════"
 echo "  ✓ All pre-release checks passed"
