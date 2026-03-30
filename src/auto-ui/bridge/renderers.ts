@@ -491,28 +491,24 @@ export function generateRenderersScript(): string {
   // ─── Steps/Stepper ───
   renderers.steps = renderers.stepper = function(container, data) {
     var items = Array.isArray(data) ? data : (data.steps || [data]);
-    var h = '<div style="display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:12px 0">';
+    var h = '<div style="display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:12px 4px">';
     for (var i = 0; i < items.length; i++) {
       var s = items[i];
       var label = s.label || s.title || s.name || ('Step ' + (i + 1));
       var status = (s.status || 'pending').toLowerCase();
       var detail = s.detail || s.description || '';
       var isComplete = status === 'complete' || status === 'completed' || status === 'done';
-      var isCurrent = status === 'current' || status === 'active' || status === 'in-progress';
+      var isCurrent = status === 'current' || status === 'active' || status === 'in-progress' || status === 'running';
       var circleColor = isComplete ? '#34d399' : isCurrent ? colors.accent : colors.border;
       var circleContent = isComplete ? '\\u2713' : String(i + 1);
       var textColor = isComplete || isCurrent ? colors.text : colors.textMuted;
-      // Circle
-      h += '<div style="display:flex;flex-direction:column;align-items:center;min-width:80px;flex:1">';
-      h += '<div style="display:flex;align-items:center;width:100%">';
-      if (i > 0) h += '<div style="flex:1;height:2px;background:' + (isComplete ? '#34d399' : colors.border) + '"></div>';
-      else h += '<div style="flex:1"></div>';
-      h += '<div style="width:28px;height:28px;border-radius:50%;background:' + circleColor + ';color:' + (isComplete || isCurrent ? '#fff' : colors.textMuted) + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0">' + circleContent + '</div>';
-      if (i < items.length - 1) h += '<div style="flex:1;height:2px;background:' + colors.border + '"></div>';
-      else h += '<div style="flex:1"></div>';
-      h += '</div>';
-      h += '<div style="text-align:center;margin-top:6px;font-size:11px;font-weight:500;color:' + textColor + '">' + esc(label) + '</div>';
-      if (detail) h += '<div style="text-align:center;font-size:10px;color:' + colors.textMuted + '">' + esc(detail) + '</div>';
+      // Connector before circle
+      if (i > 0) h += '<div style="flex:1;min-width:20px;max-width:60px;height:2px;background:' + (isComplete ? '#34d399' : colors.border) + ';align-self:center;margin-top:-20px"></div>';
+      // Step column
+      h += '<div style="display:flex;flex-direction:column;align-items:center;min-width:60px;flex-shrink:0">';
+      h += '<div style="width:32px;height:32px;border-radius:50%;background:' + circleColor + ';color:' + (isComplete || isCurrent ? '#fff' : colors.textMuted) + ';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0">' + circleContent + '</div>';
+      h += '<div style="text-align:center;margin-top:6px;font-size:11px;font-weight:500;color:' + textColor + ';white-space:nowrap">' + esc(label) + '</div>';
+      if (detail) h += '<div style="text-align:center;font-size:10px;color:' + colors.textMuted + ';white-space:nowrap">' + esc(detail) + '</div>';
       h += '</div>';
     }
     h += '</div>';
