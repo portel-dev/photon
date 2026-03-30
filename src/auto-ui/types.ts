@@ -426,7 +426,8 @@ export type UIHint =
   | 'accordion'
   | 'stack'
   | 'columns'
-  | 'qr';
+  | 'qr'
+  | 'checklist';
 
 export type ProgressType = 'spinner' | 'percentage' | 'steps';
 

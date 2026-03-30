@@ -296,6 +296,24 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
     }
   }
 
+  // Handle @format checklist — render as ASCII checkbox list
+  if ((hint as string) === 'checklist' && Array.isArray(result)) {
+    const textKey = (i: any) => i.text || i.title || i.name || i.task || i.label || '';
+    const isDone = (i: any) => !!(i.done || i.completed || i.checked);
+    const undone = result.filter((i: any) => !isDone(i));
+    const done = result.filter((i: any) => isDone(i));
+    const sorted = [...undone, ...done];
+    console.log(chalk.dim(`${done.length}/${result.length} done\n`));
+    for (const item of sorted) {
+      if (isDone(item)) {
+        console.log(`  ${chalk.green('✓')} ${chalk.strikethrough.dim(textKey(item))}`);
+      } else {
+        console.log(`  ${chalk.dim('○')} ${textKey(item)}`);
+      }
+    }
+    return true;
+  }
+
   // Handle formats that the base formatter doesn't support in CLI.
   // These fall through silently in @portel/cli's formatDataWithHint switch.
   // We intercept here and render using available primitives.

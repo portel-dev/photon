@@ -136,6 +136,29 @@
       "name": "acronyms",
       "input": {"API": "REST", "AI": "Claude", "URL": "https://example.com"},
       "expectedLayout": "card"
+    },
+    {
+      "name": "checklist_text_done",
+      "input": [
+        {"text": "Buy groceries", "done": false},
+        {"text": "Ship feature", "done": true}
+      ],
+      "expectedLayout": "checklist"
+    },
+    {
+      "name": "checklist_title_completed",
+      "input": [
+        {"title": "Task 1", "completed": false},
+        {"title": "Task 2", "completed": true}
+      ],
+      "expectedLayout": "checklist"
+    },
+    {
+      "name": "checklist_name_checked",
+      "input": [
+        {"name": "Item A", "checked": false}
+      ],
+      "expectedLayout": "checklist"
     }
   ]
 }

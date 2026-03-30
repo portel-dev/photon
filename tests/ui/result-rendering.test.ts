@@ -40,7 +40,8 @@ type LayoutType =
   | 'tabs'
   | 'accordion'
   | 'stack'
-  | 'columns';
+  | 'columns'
+  | 'checklist';
 
 interface Fixture {
   name: string;
@@ -96,6 +97,18 @@ function autoDetectLayout(data: unknown): LayoutType {
     // Array of objects
     if (data.every((item) => typeof item === 'object' && item !== null && !Array.isArray(item))) {
       const first = data[0] as Record<string, unknown>;
+
+      // Checklist detection: text-like + done/completed/checked boolean
+      const textFields = ['text', 'title', 'name', 'task', 'label'];
+      const doneFields = ['done', 'completed', 'checked'];
+      const allChecklist = data.every((item: any) => {
+        const itemKeys = Object.keys(item).map((k) => k.toLowerCase());
+        return (
+          textFields.some((f) => itemKeys.includes(f)) &&
+          doneFields.some((f) => itemKeys.includes(f))
+        );
+      });
+      if (allChecklist) return 'checklist';
 
       // Cart detection
       if ('price' in first && 'quantity' in first) return 'cart';

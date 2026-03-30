@@ -35,7 +35,8 @@ type LayoutType =
   | 'stack'
   | 'columns'
   | 'qr'
-  | 'slides';
+  | 'slides'
+  | 'checklist';
 
 interface LayoutHints {
   title?: string;
@@ -577,6 +578,202 @@ export class ResultViewer extends LitElement {
         align-items: center;
         gap: var(--space-sm);
         flex-shrink: 0;
+      }
+
+      /* Checklist Styles */
+      .checklist-wrap {
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        background: var(--border-glass);
+      }
+
+      .checklist-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px var(--space-md);
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .checklist-counter {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .checklist-hide-label {
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        transition: color 0.15s;
+      }
+
+      .checklist-hide-label:hover {
+        color: var(--t-primary);
+      }
+
+      .checklist-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        padding: var(--space-xs) var(--space-md);
+        background: var(--bg-panel);
+        border-bottom: 1px solid var(--border-glass);
+        cursor: grab;
+        user-select: none;
+        /* FLIP-style: animate position changes smoothly */
+        transition:
+          transform 0.3s cubic-bezier(0.2, 0, 0, 1),
+          opacity 0.25s ease,
+          background 0.15s ease;
+      }
+
+      .checklist-item:active {
+        cursor: grabbing;
+      }
+
+      .checklist-item.done {
+        opacity: 0.45;
+      }
+
+      /* Drag states */
+      .checklist-item.dragging {
+        opacity: 0.3;
+        background: var(--bg-glass);
+        transform: scale(0.98);
+      }
+
+      .checklist-item.drag-over {
+        background: var(--bg-glass);
+        box-shadow: inset 0 -2px 0 var(--accent);
+      }
+
+      .checklist-item .drag-handle {
+        color: var(--t-muted);
+        font-size: 12px;
+        cursor: grab;
+        flex-shrink: 0;
+        opacity: 0.3;
+        transition:
+          opacity 0.15s,
+          transform 0.15s;
+      }
+
+      .checklist-item:hover .drag-handle {
+        opacity: 0.8;
+      }
+
+      .checklist-item:active .drag-handle {
+        transform: scale(1.1);
+      }
+
+      .checklist-item input[type='checkbox'] {
+        cursor: pointer;
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        accent-color: var(--accent);
+        transition: transform 0.15s var(--motion-ease-spring);
+      }
+
+      .checklist-item input[type='checkbox']:active {
+        transform: scale(0.85);
+      }
+
+      .checklist-item .checklist-text {
+        flex: 1;
+        font-size: var(--text-md);
+        color: var(--t-primary);
+        transition:
+          color 0.3s ease,
+          opacity 0.3s ease;
+      }
+
+      .checklist-item.done .checklist-text {
+        text-decoration: line-through;
+        color: var(--t-muted);
+      }
+
+      /* Toggle bounce on the whole item */
+      @keyframes checklist-check {
+        0% {
+          transform: scale(1);
+        }
+        40% {
+          transform: scale(1.02) translateX(2px);
+        }
+        100% {
+          transform: scale(1) translateX(0);
+        }
+      }
+
+      @keyframes checklist-uncheck {
+        0% {
+          transform: scale(1);
+        }
+        40% {
+          transform: scale(0.98) translateX(-2px);
+        }
+        100% {
+          transform: scale(1) translateX(0);
+        }
+      }
+
+      .checklist-item.just-checked {
+        animation: checklist-check 0.3s var(--motion-ease-spring);
+      }
+
+      .checklist-item.just-unchecked {
+        animation: checklist-uncheck 0.3s var(--motion-ease-spring);
+      }
+
+      /* Staggered entrance */
+      @keyframes checklist-enter {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .checklist-item.entering {
+        animation: checklist-enter 0.25s var(--motion-ease-out) both;
+      }
+
+      /* Fade out when hiding done items */
+      @keyframes checklist-hide {
+        from {
+          opacity: 1;
+          max-height: 48px;
+        }
+        to {
+          opacity: 0;
+          max-height: 0;
+          padding: 0 var(--space-md);
+        }
+      }
+
+      .checklist-item.hiding {
+        animation: checklist-hide 0.25s ease forwards;
+        overflow: hidden;
+      }
+
+      /* Progress bar for done count */
+      .checklist-progress {
+        height: 2px;
+        background: var(--border-glass);
+        overflow: hidden;
+      }
+
+      .checklist-progress-fill {
+        height: 100%;
+        background: var(--accent);
+        transition: width 0.4s cubic-bezier(0.2, 0, 0, 1);
       }
 
       .status-badge {
@@ -2094,6 +2291,9 @@ export class ResultViewer extends LitElement {
   @property({ type: String, reflect: true, attribute: 'data-theme' })
   theme: Theme = 'dark';
 
+  @property({ type: Boolean })
+  loading = false;
+
   @state()
   private _filterQuery = '';
 
@@ -2159,6 +2359,16 @@ export class ResultViewer extends LitElement {
 
   // Layout determined by UI type unwrapping in updated() — consumed once by _selectLayout()
   private _unwrappedLayout: LayoutType | null = null;
+
+  // Checklist state
+  @state()
+  private _checklistHideDone = false;
+  @state()
+  private _checklistDragIdx: number | null = null;
+  @state()
+  private _checklistToggledIdx: number | null = null;
+  @state()
+  private _checklistToggledDone = false;
 
   // Bridge old result across null-gap during execute cycles
   private _previousResult: any = null;
@@ -2762,7 +2972,29 @@ export class ResultViewer extends LitElement {
     });
   }
 
+  private _renderSkeleton(): TemplateResult {
+    return html`
+      <div class="container">
+        <div class="content content-structured" data-enter="fade-in">
+          <div class="skeleton-list">
+            ${[90, 70, 80, 55, 65].map(
+              (w, i) => html`
+                <div class="skeleton-list-item" style="animation-delay:${i * 60}ms">
+                  <div class="skeleton skeleton-circle"></div>
+                  <div style="flex:1">
+                    <div class="skeleton skeleton-line" style="width:${w}%"></div>
+                  </div>
+                </div>
+              `
+            )}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   render() {
+    if (this.loading) return this._renderSkeleton();
     if (this.result === null || this.result === undefined) return html``;
 
     const layout = this._selectLayout();
@@ -3219,6 +3451,7 @@ export class ResultViewer extends LitElement {
           'columns',
           'qr',
           'slides',
+          'checklist',
         ].includes(format)
       ) {
         return format as LayoutType;
@@ -3292,6 +3525,9 @@ export class ResultViewer extends LitElement {
       // Array of objects → check for chart/timeline/table/list
       if (data.every((item) => typeof item === 'object' && item !== null)) {
         const sample = data[0];
+
+        // Checklist: items with text-like + done/completed/checked boolean
+        if (this._isChecklistShaped(data)) return 'checklist';
 
         // Cart: items with price + quantity
         if (this._isCartShaped(data)) return 'cart';
@@ -3456,6 +3692,8 @@ export class ResultViewer extends LitElement {
         return typeof data === 'string';
       case 'slides':
         return typeof data === 'string';
+      case 'checklist':
+        return Array.isArray(data);
       default:
         return true; // other formats degrade gracefully
     }
@@ -3524,6 +3762,8 @@ export class ResultViewer extends LitElement {
         return this._renderMermaid(filteredData);
       case 'slides':
         return this._renderSlides(filteredData);
+      case 'checklist':
+        return this._renderChecklist(filteredData);
       case 'json':
       default:
         return this._renderJson(filteredData);
@@ -7154,6 +7394,217 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     </div>`;
   }
 
+  // ── Checklist Renderer ──
+
+  /** FLIP animation: record positions, let Lit re-render, animate from old→new */
+  private _checklistFlip() {
+    const container = this.shadowRoot?.querySelector('.checklist-wrap');
+    if (!container) return;
+
+    // First: record current positions
+    const items = container.querySelectorAll('.checklist-item');
+    const oldRects = new Map<Element, DOMRect>();
+    items.forEach((el) => oldRects.set(el, el.getBoundingClientRect()));
+
+    // Wait for Lit to re-render (microtask)
+    requestAnimationFrame(() => {
+      const newItems = container.querySelectorAll('.checklist-item');
+      newItems.forEach((el) => {
+        const oldRect = oldRects.get(el);
+        if (!oldRect) return; // new item, skip FLIP
+
+        const newRect = el.getBoundingClientRect();
+        const deltaY = oldRect.top - newRect.top;
+
+        if (Math.abs(deltaY) < 1) return; // no movement
+
+        // Invert: move to old position
+        (el as HTMLElement).style.transform = `translateY(${deltaY}px)`;
+        (el as HTMLElement).style.transition = 'none';
+
+        // Play: animate to new position
+        requestAnimationFrame(() => {
+          (el as HTMLElement).style.transition = 'transform 0.3s cubic-bezier(0.2, 0, 0, 1)';
+          (el as HTMLElement).style.transform = '';
+          el.addEventListener(
+            'transitionend',
+            () => {
+              (el as HTMLElement).style.transition = '';
+            },
+            { once: true }
+          );
+        });
+      });
+    });
+  }
+
+  private _checklistTextKey(item: any): string {
+    return item.text || item.title || item.name || item.task || item.label || '';
+  }
+
+  private _checklistIsDone(item: any): boolean {
+    return !!(item.done || item.completed || item.checked);
+  }
+
+  private _checklistSorted(items: any[]): any[] {
+    const undone = items.filter((i) => !this._checklistIsDone(i));
+    const done = items.filter((i) => this._checklistIsDone(i));
+    return [...undone, ...done];
+  }
+
+  private _checklistToggle(item: any, idx: number) {
+    const text = this._checklistTextKey(item);
+    const newDone = !this._checklistIsDone(item);
+
+    // Trigger animation
+    this._checklistToggledIdx = idx;
+    this._checklistToggledDone = newDone;
+
+    // Capture positions for FLIP animation before state change
+    this._checklistFlip();
+
+    // Optimistic local update
+    if ('done' in item) item.done = newDone;
+    else if ('completed' in item) item.completed = newDone;
+    else if ('checked' in item) item.checked = newDone;
+    else item.done = newDone;
+    this.requestUpdate();
+
+    // Clear animation class after it plays
+    setTimeout(() => {
+      this._checklistToggledIdx = null;
+    }, 350);
+
+    // Dispatch event for beam-app to handle (uses the shared MCP session)
+    this.dispatchEvent(
+      new CustomEvent('checklist-action', {
+        bubbles: true,
+        composed: true,
+        detail: { action: 'check', args: { text, done: newDone } },
+      })
+    );
+  }
+
+  private _checklistDragStart(e: DragEvent, idx: number) {
+    this._checklistDragIdx = idx;
+    // Add dragging class to source element
+    const el = e.currentTarget as HTMLElement;
+    requestAnimationFrame(() => el.classList.add('dragging'));
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  }
+
+  private _checklistDrop(items: any[], dropIdx: number) {
+    const dragIdx = this._checklistDragIdx;
+    if (dragIdx === null || dragIdx === dropIdx) {
+      this._checklistDragIdx = null;
+      return;
+    }
+    // Capture positions for FLIP animation before reorder
+    this._checklistFlip();
+
+    // Reorder in place
+    const moved = items.splice(dragIdx, 1)[0];
+    items.splice(dropIdx, 0, moved);
+    this._checklistDragIdx = null;
+    this.requestUpdate();
+
+    // Dispatch event for beam-app to handle (uses the shared MCP session)
+    const order = items.map((i) => this._checklistTextKey(i));
+    this.dispatchEvent(
+      new CustomEvent('checklist-action', {
+        bubbles: true,
+        composed: true,
+        detail: { action: 'reorder', args: { order } },
+      })
+    );
+  }
+
+  private _renderChecklist(data: any[]): TemplateResult {
+    if (!Array.isArray(data) || data.length === 0) {
+      return html`<div class="empty-state">No items</div>`;
+    }
+
+    const sorted = this._checklistSorted(data);
+    const doneCount = data.filter((i) => this._checklistIsDone(i)).length;
+    const total = data.length;
+    const pct = total > 0 ? (doneCount / total) * 100 : 0;
+
+    return html`
+      <div class="checklist-wrap">
+        <div class="checklist-header">
+          <span class="checklist-counter">${doneCount} of ${total} done</span>
+          <label class="checklist-hide-label">
+            <input
+              type="checkbox"
+              .checked=${this._checklistHideDone}
+              @change=${(e: Event) => {
+                this._checklistHideDone = (e.target as HTMLInputElement).checked;
+              }}
+            />
+            <span>Hide done</span>
+          </label>
+        </div>
+        <div class="checklist-progress">
+          <div class="checklist-progress-fill" style="width:${pct}%"></div>
+        </div>
+        ${sorted
+          .filter((item) => !(this._checklistHideDone && this._checklistIsDone(item)))
+          .map((item: any, renderIdx: number) => {
+            const idx = data.indexOf(item);
+            const done = this._checklistIsDone(item);
+            const isToggled = this._checklistToggledIdx === idx;
+            const toggleClass = isToggled
+              ? this._checklistToggledDone
+                ? 'just-checked'
+                : 'just-unchecked'
+              : '';
+            return html`
+              <div
+                class="checklist-item ${done ? 'done' : ''} ${toggleClass} entering"
+                style="animation-delay:${renderIdx * 30}ms"
+                draggable="true"
+                @dragstart=${(e: DragEvent) => this._checklistDragStart(e, idx)}
+                @dragend=${(e: DragEvent) => {
+                  (e.currentTarget as HTMLElement).classList.remove('dragging');
+                  this._checklistDragIdx = null;
+                }}
+                @dragover=${(e: DragEvent) => {
+                  e.preventDefault();
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+                  (e.currentTarget as HTMLElement).classList.add('drag-over');
+                }}
+                @dragleave=${(e: DragEvent) => {
+                  (e.currentTarget as HTMLElement).classList.remove('drag-over');
+                }}
+                @drop=${(e: DragEvent) => {
+                  e.preventDefault();
+                  (e.currentTarget as HTMLElement).classList.remove('drag-over');
+                  this._checklistDrop(data, idx);
+                }}
+              >
+                <span class="drag-handle">⠿</span>
+                <input
+                  type="checkbox"
+                  .checked=${done}
+                  @change=${() => this._checklistToggle(item, idx)}
+                />
+                <span class="checklist-text">${this._checklistTextKey(item)}</span>
+              </div>
+            `;
+          })}
+        ${this._checklistHideDone && doneCount === total && total > 0
+          ? html`<div
+              style="padding:20px;text-align:center;color:var(--t-muted);font-size:var(--text-md);"
+            >
+              All ${total} items done
+            </div>`
+          : ''}
+      </div>
+    `;
+  }
+
   private _renderJson(data: any): TemplateResult {
     const jsonStr = JSON.stringify(data, null, 2);
 
@@ -8358,6 +8809,19 @@ ${str}</pre
   // ═══════════════════════════════════════════════════════════════════════════
   // Cart Detection & Rendering
   // ═══════════════════════════════════════════════════════════════════════════
+
+  private _isChecklistShaped(data: any): boolean {
+    if (!Array.isArray(data) || data.length === 0) return false;
+    const textFields = ['text', 'title', 'name', 'task', 'label'];
+    const doneFields = ['done', 'completed', 'checked'];
+    return data.every((item: any) => {
+      if (!item || typeof item !== 'object') return false;
+      const keys = Object.keys(item).map((k) => k.toLowerCase());
+      const hasText = textFields.some((f) => keys.includes(f));
+      const hasDone = doneFields.some((f) => keys.includes(f));
+      return hasText && hasDone;
+    });
+  }
 
   private _isCartShaped(data: any): boolean {
     if (Array.isArray(data)) {

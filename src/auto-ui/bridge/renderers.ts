@@ -1244,6 +1244,165 @@ export function generateRenderersScript(): string {
     });
   };
 
+  // ── Checklist ──
+
+  renderers.checklist = function(container, data, opts) {
+    opts = opts || {};
+    var items = Array.isArray(data) ? data : [];
+    var hideCompleted = false;
+
+    function textKey(item) {
+      return item.text || item.title || item.name || item.task || item.label || '';
+    }
+    function isDone(item) {
+      return !!(item.done || item.completed || item.checked);
+    }
+
+    // Sort: undone first, done last, preserve relative order within each group
+    function sortItems(arr) {
+      var undone = [], done = [];
+      for (var i = 0; i < arr.length; i++) {
+        if (isDone(arr[i])) done.push(arr[i]);
+        else undone.push(arr[i]);
+      }
+      return undone.concat(done);
+    }
+
+    function render() {
+      var sorted = sortItems(items);
+      var h = '<div class="photon-checklist" style="font-family:inherit;">';
+
+      // Header with count and hide toggle
+      var doneCount = items.filter(isDone).length;
+      var totalCount = items.length;
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;font-size:11px;color:' + colors.textMuted + ';border-bottom:1px solid ' + colors.border + ';">';
+      h += '<span>' + doneCount + ' of ' + totalCount + ' done</span>';
+      h += '<label style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:4px;">';
+      h += '<input type="checkbox" class="checklist-hide-toggle" ' + (hideCompleted ? 'checked' : '') + ' style="cursor:pointer;" />';
+      h += '<span>Hide done</span></label>';
+      h += '</div>';
+      // Progress bar
+      var pct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
+      h += '<div style="height:2px;background:' + colors.border + ';overflow:hidden;">';
+      h += '<div style="height:100%;width:' + pct + '%;background:' + colors.accent + ';transition:width 0.4s cubic-bezier(0.2,0,0,1);"></div>';
+      h += '</div>';
+
+      for (var i = 0; i < sorted.length; i++) {
+        var item = sorted[i];
+        var done = isDone(item);
+        if (hideCompleted && done) continue;
+        var text = esc(textKey(item));
+        var idx = items.indexOf(item);
+
+        h += '<div class="checklist-item" draggable="true" data-idx="' + idx + '" style="';
+        h += 'display:flex;align-items:center;gap:8px;padding:8px 10px;';
+        h += 'border-bottom:1px solid ' + colors.border + ';';
+        h += 'cursor:grab;user-select:none;';
+        h += 'transition:opacity 0.2s,background 0.2s;';
+        if (done) h += 'opacity:0.5;';
+        h += '">';
+
+        // Drag handle
+        h += '<span style="color:' + colors.textMuted + ';font-size:12px;cursor:grab;flex-shrink:0;">⠿</span>';
+
+        // Checkbox
+        h += '<input type="checkbox" class="checklist-cb" data-idx="' + idx + '" ' + (done ? 'checked' : '') + ' style="cursor:pointer;flex-shrink:0;width:16px;height:16px;accent-color:' + colors.accent + ';" />';
+
+        // Text
+        h += '<span style="flex:1;font-size:13px;color:' + colors.text + ';';
+        if (done) h += 'text-decoration:line-through;';
+        h += '">' + text + '</span>';
+
+        h += '</div>';
+      }
+
+      if (items.length === 0) {
+        h += '<div style="padding:24px;text-align:center;color:' + colors.textMuted + ';font-size:13px;">No items</div>';
+      }
+
+      h += '</div>';
+      container.innerHTML = h;
+
+      // Bind checkbox toggle
+      var cbs = container.querySelectorAll('.checklist-cb');
+      for (var c = 0; c < cbs.length; c++) {
+        cbs[c].addEventListener('change', function(e) {
+          var idx = parseInt(e.target.getAttribute('data-idx'));
+          var item = items[idx];
+          if (!item) return;
+          // Toggle done state
+          if ('done' in item) item.done = !item.done;
+          else if ('completed' in item) item.completed = !item.completed;
+          else if ('checked' in item) item.checked = !item.checked;
+          else item.done = true;
+          // Callback to photon if available
+          if (window.photon && window.photon.callTool) {
+            window.photon.callTool('check', { text: textKey(item), done: isDone(item) }).catch(function(){});
+          }
+          render();
+        });
+      }
+
+      // Bind hide toggle
+      var toggle = container.querySelector('.checklist-hide-toggle');
+      if (toggle) {
+        toggle.addEventListener('change', function(e) {
+          hideCompleted = e.target.checked;
+          render();
+        });
+      }
+
+      // Drag-and-drop reorder
+      var dragIdx = null;
+      var itemEls = container.querySelectorAll('.checklist-item');
+      for (var d = 0; d < itemEls.length; d++) {
+        (function(el) {
+          el.addEventListener('dragstart', function(e) {
+            dragIdx = parseInt(el.getAttribute('data-idx'));
+            requestAnimationFrame(function() {
+              el.style.opacity = '0.3';
+              el.style.transform = 'scale(0.98)';
+            });
+            e.dataTransfer.effectAllowed = 'move';
+          });
+          el.addEventListener('dragend', function() {
+            el.style.opacity = isDone(items[parseInt(el.getAttribute('data-idx'))]) ? '0.5' : '1';
+            el.style.transform = '';
+            dragIdx = null;
+          });
+          el.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            el.style.background = colors.bgAlt;
+            el.style.boxShadow = 'inset 0 -2px 0 ' + colors.accent;
+          });
+          el.addEventListener('dragleave', function() {
+            el.style.background = '';
+            el.style.boxShadow = '';
+          });
+          el.addEventListener('drop', function(e) {
+            e.preventDefault();
+            el.style.background = '';
+            el.style.boxShadow = '';
+            var dropIdx = parseInt(el.getAttribute('data-idx'));
+            if (dragIdx !== null && dragIdx !== dropIdx) {
+              var moved = items.splice(dragIdx, 1)[0];
+              items.splice(dropIdx, 0, moved);
+              // Callback to photon if available
+              if (window.photon && window.photon.callTool) {
+                var order = items.map(function(it) { return textKey(it); });
+                window.photon.callTool('reorder', { order: order }).catch(function(){});
+              }
+              render();
+            }
+          });
+        })(itemEls[d]);
+      }
+    }
+
+    render();
+  };
+
   // ── Public API ──
 
   window._photonRenderers = {

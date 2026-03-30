@@ -127,6 +127,48 @@ export class ToastManager extends LitElement {
         background: var(--bg-glass);
         border-color: var(--accent-secondary);
       }
+
+      /* Progress countdown bar */
+      .toast-progress {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 2px;
+        border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+        animation: toast-countdown linear forwards;
+      }
+
+      @keyframes toast-countdown {
+        from {
+          width: 100%;
+        }
+        to {
+          width: 0%;
+        }
+      }
+
+      .toast.success .toast-progress {
+        background: var(--color-success);
+      }
+      .toast.error .toast-progress {
+        background: var(--color-error);
+      }
+      .toast.info .toast-progress {
+        background: var(--accent-secondary);
+      }
+      .toast.warning .toast-progress {
+        background: var(--color-warning);
+      }
+
+      .toast {
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* Pause countdown on hover */
+      .toast:hover .toast-progress {
+        animation-play-state: paused;
+      }
     `,
   ];
 
@@ -219,6 +261,12 @@ export class ToastManager extends LitElement {
                   <path d="M18 6L6 18M6 6l12 12" />
                 </svg>
               </button>
+              ${toast.duration > 0
+                ? html`<div
+                    class="toast-progress"
+                    style="animation-duration:${toast.duration}ms"
+                  ></div>`
+                : ''}
             </div>
           `
         )}

@@ -437,6 +437,91 @@ export const motion = css`
     }
   }
 
+  /* ═══ SKELETON LOADING ═══ */
+
+  @keyframes skeleton-shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--bg-glass, rgba(255, 255, 255, 0.03)) 25%,
+      var(--bg-tertiary, rgba(255, 255, 255, 0.06)) 50%,
+      var(--bg-glass, rgba(255, 255, 255, 0.03)) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.8s ease-in-out infinite;
+    border-radius: var(--radius-sm, 4px);
+  }
+
+  .skeleton-line {
+    height: 14px;
+    margin-bottom: 8px;
+  }
+
+  .skeleton-line.short {
+    width: 40%;
+  }
+  .skeleton-line.medium {
+    width: 65%;
+  }
+  .skeleton-line.long {
+    width: 90%;
+  }
+
+  .skeleton-block {
+    height: 100px;
+    margin-bottom: 12px;
+  }
+
+  .skeleton-circle {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+  }
+
+  /* Pre-built skeleton layouts */
+  .skeleton-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 0;
+  }
+
+  .skeleton-list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .skeleton-list-item .skeleton-line {
+    margin-bottom: 0;
+  }
+
+  .skeleton-table {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .skeleton-table-row {
+    display: flex;
+    gap: 12px;
+    padding: 8px 12px;
+  }
+
+  .skeleton-table-row .skeleton-line {
+    flex: 1;
+    margin-bottom: 0;
+  }
+
   /* ═══ SLIDE TRANSITIONS (for @format slides) ═══ */
 
   .motion-slide-transition-fade {

@@ -59,6 +59,28 @@ export class ElicitationModal extends LitElement {
         display: none;
       }
 
+      @keyframes modal-backdrop-in {
+        from {
+          opacity: 0;
+          backdrop-filter: blur(0);
+        }
+        to {
+          opacity: 1;
+          backdrop-filter: blur(4px);
+        }
+      }
+
+      @keyframes modal-content-in {
+        from {
+          opacity: 0;
+          transform: scale(0.95) translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+
       :host([open]) {
         display: flex;
         position: fixed;
@@ -68,6 +90,7 @@ export class ElicitationModal extends LitElement {
         z-index: 10000;
         align-items: center;
         justify-content: center;
+        animation: modal-backdrop-in 0.2s ease-out both;
       }
 
       .modal-content {
@@ -80,6 +103,8 @@ export class ElicitationModal extends LitElement {
         max-height: 80vh;
         overflow-y: auto;
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        animation: modal-content-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+        animation-delay: 0.05s;
       }
 
       h3 {

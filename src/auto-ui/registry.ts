@@ -10,6 +10,7 @@ import { TreeComponent } from './components/tree';
 import { ListComponent } from './components/list';
 import { CardComponent } from './components/card';
 import { FormComponent } from './components/form';
+import { ChecklistComponent } from './components/checklist';
 
 export class ComponentRegistry {
   private static components = new Map<UIHint, UIComponent>();
@@ -21,6 +22,7 @@ export class ComponentRegistry {
     this.components.set('list', new ListComponent());
     this.components.set('card', new CardComponent());
     this.components.set('form', new FormComponent());
+    this.components.set('checklist', new ChecklistComponent());
   }
 
   static get(hint: UIHint): UIComponent | undefined {

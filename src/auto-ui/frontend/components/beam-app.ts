@@ -427,6 +427,22 @@ export class BeamApp extends LitElement {
         padding: var(--space-lg);
       }
 
+      /* Page transition when switching photons */
+      @keyframes page-enter {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .main-area.page-transitioning {
+        animation: page-enter 0.2s var(--motion-ease-out, ease-out) both;
+      }
+
       .main-toolbar {
         display: flex;
         justify-content: space-between;
@@ -2037,11 +2053,29 @@ export class BeamApp extends LitElement {
   /**
    * Handle clicking a global static method card
    */
+  private _triggerPageTransition() {
+    const mainArea = this.shadowRoot?.querySelector('.main-area') as HTMLElement;
+    if (mainArea) {
+      mainArea.classList.remove('page-transitioning');
+      // Force reflow to restart animation
+      void mainArea.offsetWidth;
+      mainArea.classList.add('page-transitioning');
+      mainArea.addEventListener(
+        'animationend',
+        () => {
+          mainArea.classList.remove('page-transitioning');
+        },
+        { once: true }
+      );
+    }
+  }
+
   private _handleGlobalMethodSelect(photon: any, method: any) {
     this._teardownActiveCustomUI();
     // Clear split view when switching to a different photon
     if (this._selectedPhoton?.name !== photon.name) {
       this._closeSecondPanel();
+      this._triggerPageTransition();
     }
     this._selectedPhoton = photon;
     this._lastFormParams = {};
@@ -5294,11 +5328,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .layoutHints=${this._selectedMethod?.layoutHints}
             .photonName=${this._selectedPhoton?.name}
             .theme=${this._theme}
+            .loading=${this._isExecuting && !this._lastResult}
             .live=${this._currentCollectionName !== null}
             .resultKey=${this._selectedPhoton && this._selectedMethod
               ? `${this._selectedPhoton.name}/${this._selectedMethod.name}`
               : undefined}
             @share=${() => this._handleShareResult()}
+            @checklist-action=${(e: CustomEvent) => this._handleChecklistAction(e)}
           ></result-viewer>
         </div>
       `;
@@ -7269,6 +7305,18 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
     })();
   };
+
+  // ===== Checklist Interactive Actions =====
+  private async _handleChecklistAction(e: CustomEvent) {
+    const { action, args } = e.detail;
+    if (!this._selectedPhoton) return;
+    const toolName = `${this._selectedPhoton.name}/${action}`;
+    try {
+      await mcpClient.callTool(toolName, args);
+    } catch {
+      // Silent — optimistic UI already updated
+    }
+  }
 
   // ===== Share Result Link =====
   private _handleShareResult() {
