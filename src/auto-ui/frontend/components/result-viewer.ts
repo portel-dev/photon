@@ -973,6 +973,18 @@ export class ResultViewer extends LitElement {
         animation: article-fade-in 0.3s ease both;
       }
 
+      /* Magazine: override flex/height constraints so CSS columns work */
+      .container:has(.magazine-layout) {
+        display: block;
+        height: auto;
+        overflow: auto;
+      }
+
+      .container:has(.magazine-layout) > .content {
+        flex: none;
+        overflow: visible;
+      }
+
       /* Magazine Layout — markdown-powered multi-column */
       .magazine-layout {
         line-height: 1.7;
@@ -983,16 +995,20 @@ export class ResultViewer extends LitElement {
         animation: article-fade-in 0.3s ease both;
       }
 
-      .magazine-layout h1,
-      .magazine-layout h2 {
+      .magazine-layout h1 {
         column-span: all;
         margin-top: 0.6em;
         margin-bottom: 0.3em;
       }
 
-      .magazine-layout h1:first-child,
-      .magazine-layout h2:first-child {
+      .magazine-layout h1:first-child {
         margin-top: 0;
+      }
+
+      .magazine-layout h2 {
+        margin-top: 0.8em;
+        margin-bottom: 0.3em;
+        break-after: avoid;
       }
 
       .magazine-layout > p:first-of-type::first-letter {
@@ -8063,8 +8079,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     // Reuse the rich markdown pipeline (mermaid, code blocks, YAML frontmatter)
     const { html: bodyHtml, mermaidBlocks, codeBlocks } = this._parseRichMarkdown(text);
 
-    // Skip multi-column for short content
-    const effectiveCols = text.length < 500 && columnCount > 1 ? 1 : columnCount;
+    const effectiveCols = columnCount;
 
     // Queue mermaid/code rendering for after DOM update
     if (mermaidBlocks.length > 0) {
