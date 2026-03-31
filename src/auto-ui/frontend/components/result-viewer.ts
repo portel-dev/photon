@@ -9231,11 +9231,11 @@ ${str}</pre
           ${value.slice(0, 5).map(
             (item: any) => html`
               <div
-                style="padding: 6px 8px; border-bottom: 1px solid var(--border-glass); display:flex; gap:12px;"
+                style="padding: 5px 8px; border-bottom: 1px solid var(--border-glass); display:flex; gap:6px;"
               >
                 ${Object.entries(item)
                   .slice(0, 4)
-                  .map(([, v]) => html`<span style="white-space:nowrap;">${String(v)}</span>`)}
+                  .map(([, v]) => html`<span style="font-size:12px;">${String(v)}</span>`)}
               </div>
             `
           )}
