@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.17.6](https://github.com/portel-dev/photon/compare/v1.17.5...v1.17.6) (2026-03-31)
+
+### Bug Fixes
+
+* update photon-core to 2.17.5 (bun trust after install) ([fb35511](https://github.com/portel-dev/photon/commit/fb35511915ac27565aaaf5f0ef24539b86739287))
+
 ## [1.17.5](https://github.com/portel-dev/photon/compare/v1.17.4...v1.17.5) (2026-03-31)
 
 ### Bug Fixes
