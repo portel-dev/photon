@@ -1,9 +1,9 @@
 /**
- * MCP Task Store
+ * MCP Task Store (spec v2025-11-25)
  *
  * File-based persistence at ~/.photon/tasks/.
  * Each task is a JSON file: {taskId}.json
- * Consistent with existing photon file-based patterns (audit, runs, state).
+ * EventEmitter for state change notifications.
  */
 
 import { mkdirSync, readdirSync, unlinkSync, existsSync } from 'fs';
@@ -11,7 +11,8 @@ import { readJSONSync, writeJSONSync } from '../shared/io.js';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
-import type { Task } from './types.js';
+import { EventEmitter } from 'events';
+import { type Task, TERMINAL_STATES, DEFAULT_TTL, DEFAULT_POLL_INTERVAL } from './types.js';
 
 const TASKS_DIR = join(homedir(), '.photon', 'tasks');
 
@@ -23,6 +24,10 @@ function ensureDir(): void {
 function taskPath(id: string): string {
   return join(TASKS_DIR, `${id}.json`);
 }
+
+/** Event emitter for task state changes */
+export const taskEvents = new EventEmitter();
+taskEvents.setMaxListeners(50); // Multiple SSE sessions may listen
 
 /** Active task AbortControllers for cancellation */
 const activeControllers = new Map<string, AbortController>();
@@ -39,7 +44,12 @@ export function getController(taskId: string): AbortController | undefined {
   return activeControllers.get(taskId);
 }
 
-export function createTask(photon: string, method: string, params?: Record<string, unknown>): Task {
+export function createTask(
+  photon: string,
+  method: string,
+  params?: Record<string, unknown>,
+  ttl?: number
+): Task {
   ensureDir();
   const now = new Date().toISOString();
   const task: Task = {
@@ -48,10 +58,14 @@ export function createTask(photon: string, method: string, params?: Record<strin
     method,
     params,
     state: 'working',
+    statusMessage: 'The operation is now in progress.',
+    ttl: ttl ?? DEFAULT_TTL,
+    pollInterval: DEFAULT_POLL_INTERVAL,
     createdAt: now,
     updatedAt: now,
   };
   writeJSONSync(taskPath(task.id), task);
+  taskEvents.emit('stateChange', task.id, task.state, task);
   return task;
 }
 
@@ -68,12 +82,22 @@ export function getTask(id: string): Task | null {
 
 export function updateTask(
   id: string,
-  updates: Partial<Pick<Task, 'state' | 'progress' | 'result' | 'error'>>
+  updates: Partial<
+    Pick<Task, 'state' | 'statusMessage' | 'progress' | 'result' | 'error' | 'input'>
+  >
 ): Task | null {
   const task = getTask(id);
   if (!task) return null;
+
+  const oldState = task.state;
   Object.assign(task, updates, { updatedAt: new Date().toISOString() });
   writeJSONSync(taskPath(id), task);
+
+  // Emit on any state transition
+  if (updates.state && updates.state !== oldState) {
+    taskEvents.emit('stateChange', id, task.state, task);
+  }
+
   return task;
 }
 
@@ -94,7 +118,11 @@ export function listTasks(photon?: string): Task[] {
   return tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function cleanExpiredTasks(maxAgeMs: number): number {
+/**
+ * Clean expired tasks — removes terminal tasks past their TTL
+ * and also removes non-terminal tasks that have been alive longer than their TTL
+ */
+export function cleanExpiredTasks(): number {
   ensureDir();
   const files = readdirSync(TASKS_DIR).filter((f) => f.endsWith('.json'));
   const now = Date.now();
@@ -102,13 +130,23 @@ export function cleanExpiredTasks(maxAgeMs: number): number {
   for (const file of files) {
     try {
       const task: Task = readJSONSync(join(TASKS_DIR, file));
-      const age = now - new Date(task.updatedAt).getTime();
-      if (
-        age > maxAgeMs &&
-        (task.state === 'completed' || task.state === 'failed' || task.state === 'cancelled')
-      ) {
-        unlinkSync(join(TASKS_DIR, file));
-        cleaned++;
+      const age = now - new Date(task.createdAt).getTime();
+      const ttl = task.ttl || DEFAULT_TTL;
+
+      if (age > ttl) {
+        // Terminal tasks: always clean
+        // Non-terminal tasks past TTL: force-cancel and clean
+        if (TERMINAL_STATES.includes(task.state)) {
+          unlinkSync(join(TASKS_DIR, file));
+          cleaned++;
+        } else {
+          // Force-cancel stale non-terminal tasks
+          const controller = getController(task.id);
+          if (controller) controller.abort();
+          unregisterController(task.id);
+          unlinkSync(join(TASKS_DIR, file));
+          cleaned++;
+        }
       }
     } catch {
       // Skip corrupt files
@@ -120,4 +158,14 @@ export function cleanExpiredTasks(maxAgeMs: number): number {
 /** Override tasks dir for testing */
 export function _getTasksDir(): string {
   return TASKS_DIR;
+}
+
+// Startup cleanup
+try {
+  const cleaned = cleanExpiredTasks();
+  if (cleaned > 0) {
+    console.error(`🗑️  Cleaned ${cleaned} expired task(s)`);
+  }
+} catch {
+  // Best effort
 }

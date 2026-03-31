@@ -50,7 +50,10 @@ import {
   registerController,
   unregisterController,
   getController,
+  taskEvents,
 } from '../tasks/store.js';
+import { toWireFormat, relatedTaskMeta, TERMINAL_STATES, type Task } from '../tasks/types.js';
+import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from '../tasks/executor.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -521,7 +524,13 @@ const handlers: Record<string, RequestHandler> = {
           tools: { listChanged: true },
           prompts: { listChanged: true },
           resources: { listChanged: true },
-          tasks: {},
+          tasks: {
+            list: {},
+            cancel: {},
+            requests: {
+              tools: { call: {} },
+            },
+          },
           experimental: {
             'ag-ui': {
               version: '0.1.0',
@@ -1612,6 +1621,58 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
+    // ── Task mode: when params.task is present, run async and return immediately ──
+    const taskRequest = (req.params as any)?.task;
+    if (taskRequest) {
+      const ttl = typeof taskRequest.ttl === 'number' ? taskRequest.ttl : undefined;
+      const task = createTask(photonName, methodName, args, ttl);
+      const controller = new AbortController();
+      registerController(task.id, controller);
+
+      // Build execution function that the executor will run
+      const executeFn = async (inputProvider: any, outputHandler: any) => {
+        if (ctx.loader) {
+          return ctx.loader.executeTool(mcp, methodName, args || {}, {
+            outputHandler,
+            inputProvider,
+            caller: ctx.caller,
+          });
+        }
+        // Fallback: direct method call
+        const target = isStatic ? mcp.classConstructor : mcp.instance;
+        return target[methodName](args || {});
+      };
+
+      // Broadcast progress/status from task execution
+      const taskOutputHandler = (yieldValue: any) => {
+        if (!ctx.broadcast) return;
+        if (yieldValue?.emit === 'progress' || yieldValue?.emit === 'status') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'notifications/progress',
+            params: {
+              progressToken: `task_${task.id}`,
+              progress: yieldValue?.emit === 'progress' ? (yieldValue.value ?? 0) : 0,
+              total: 100,
+              message: yieldValue.message || '',
+            },
+          });
+        }
+      };
+
+      runTaskExecution(task.id, executeFn, {
+        signal: controller.signal,
+        caller: ctx.caller,
+        outputHandler: taskOutputHandler,
+      });
+
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: { task: toWireFormat(task) },
+      };
+    }
+
     try {
       // Create outputHandler to capture emits for real-time UI updates
       const outputHandler = (yieldValue: any) => {
@@ -2163,10 +2224,12 @@ const handlers: Record<string, RequestHandler> = {
       photon: photonName,
       method: methodName,
       params,
+      ttl: requestedTtl,
     } = req.params as {
       photon: string;
       method: string;
       params?: Record<string, unknown>;
+      ttl?: number;
     };
 
     if (!photonName || !methodName) {
@@ -2178,7 +2241,7 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     const mcp = ctx.photonMCPs.get(photonName);
-    if (!mcp) {
+    if (!mcp?.instance) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -2186,133 +2249,241 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
-    const task = createTask(photonName, methodName, params);
+    const task = createTask(photonName, methodName, params, requestedTtl);
     const controller = new AbortController();
     registerController(task.id, controller);
 
-    // Run execution in background — don't await
-    const taskId = task.id;
-    void (async () => {
-      try {
-        let result: any;
-        if (ctx.loader) {
-          result = await ctx.loader.executeTool(mcp, methodName, params || {}, {
-            caller: ctx.caller,
-            signal: controller.signal,
-          });
-        } else {
-          const method = mcp.instance?.[methodName];
-          if (typeof method === 'function') {
-            result = await method.call(mcp.instance, params || {});
-          } else {
-            throw new Error(`Method ${methodName} not found on ${photonName}`);
-          }
-        }
-
-        // Handle async generators
-        if (result && typeof result[Symbol.asyncIterator] === 'function') {
-          const chunks: any[] = [];
-          const iterator = result[Symbol.asyncIterator]();
-          while (true) {
-            if (controller.signal.aborted) {
-              updateTask(taskId, { state: 'cancelled' });
-              unregisterController(taskId);
-              return;
-            }
-            const { value, done } = await iterator.next();
-            if (done) {
-              result = value !== undefined ? value : chunks;
-              break;
-            }
-            if (value?.emit === 'progress' && typeof value.percent === 'number') {
-              updateTask(taskId, {
-                progress: { percent: value.percent, message: value.message },
-              });
-            } else if (value?.ask) {
-              updateTask(taskId, { state: 'input_required' });
-            } else {
-              chunks.push(value);
-            }
-          }
-        }
-
-        if (!controller.signal.aborted) {
-          updateTask(taskId, { state: 'completed', result });
-        }
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          const message = err instanceof Error ? err.message : String(err);
-          updateTask(taskId, { state: 'failed', error: message });
-        }
-      } finally {
-        unregisterController(taskId);
+    const executeFn = async (inputProvider: any, outputHandler: any) => {
+      if (ctx.loader) {
+        return ctx.loader.executeTool(mcp, methodName, params || {}, {
+          outputHandler,
+          inputProvider,
+          caller: ctx.caller,
+        });
       }
-    })();
+      const method = mcp.instance?.[methodName];
+      if (typeof method !== 'function') {
+        throw new Error(`Method ${methodName} not found on ${photonName}`);
+      }
+      return method.call(mcp.instance, params || {});
+    };
+
+    runTaskExecution(task.id, executeFn, {
+      signal: controller.signal,
+      caller: ctx.caller,
+    });
 
     return {
       jsonrpc: '2.0',
       id: req.id,
-      result: { task: { id: task.id, state: task.state, createdAt: task.createdAt } },
+      result: { task: toWireFormat(task) },
     };
   },
 
   'tasks/get': async (req, _session, _ctx) => {
-    const { id } = req.params as { id: string };
-    if (!id) {
+    const { taskId } = req.params as { taskId: string };
+    if (!taskId) {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: 'Missing required param: id' },
+        error: { code: -32602, message: 'Missing required param: taskId' },
       };
     }
-    const task = getTask(id);
+    const task = getTask(taskId);
     if (!task) {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: `Task not found: ${id}` },
+        error: { code: -32602, message: `Task not found: ${taskId}` },
       };
     }
-    return { jsonrpc: '2.0', id: req.id, result: { task } };
+    return { jsonrpc: '2.0', id: req.id, result: toWireFormat(task) };
   },
 
   'tasks/list': async (req, _session, _ctx) => {
-    const { photon: photonFilter } = (req.params || {}) as { photon?: string };
-    const tasks = listTasks(photonFilter);
-    return { jsonrpc: '2.0', id: req.id, result: { tasks } };
+    const { cursor } = (req.params || {}) as { cursor?: string };
+    const allTasks = listTasks();
+    // Simple pagination: cursor is the offset index
+    const offset = cursor ? parseInt(cursor, 10) || 0 : 0;
+    const pageSize = 50;
+    const page = allTasks.slice(offset, offset + pageSize);
+    const nextCursor = offset + pageSize < allTasks.length ? String(offset + pageSize) : undefined;
+
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        tasks: page.map(toWireFormat),
+        ...(nextCursor && { nextCursor }),
+      },
+    };
   },
 
   'tasks/cancel': async (req, _session, _ctx) => {
-    const { id } = req.params as { id: string };
-    if (!id) {
+    const { taskId } = req.params as { taskId: string };
+    if (!taskId) {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: 'Missing required param: id' },
+        error: { code: -32602, message: 'Missing required param: taskId' },
       };
     }
-    const task = getTask(id);
+    const task = getTask(taskId);
     if (!task) {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: `Task not found: ${id}` },
+        error: { code: -32602, message: `Task not found: ${taskId}` },
       };
     }
-    if (task.state !== 'working' && task.state !== 'input_required') {
+    if (TERMINAL_STATES.includes(task.state)) {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: `Cannot cancel task in state: ${task.state}` },
+        error: { code: -32602, message: `Cannot cancel task in terminal state: ${task.state}` },
       };
     }
-    const controller = getController(id);
-    if (controller) {
-      controller.abort();
+
+    const controller = getController(taskId);
+    if (controller) controller.abort();
+
+    const updated = updateTask(taskId, {
+      state: 'cancelled',
+      statusMessage: 'The task was cancelled by request.',
+    });
+    unregisterController(taskId);
+
+    return { jsonrpc: '2.0', id: req.id, result: toWireFormat(updated!) };
+  },
+
+  'tasks/result': async (req, session, ctx) => {
+    const { taskId } = req.params as { taskId: string };
+    if (!taskId) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required param: taskId' },
+      };
     }
-    const updated = updateTask(id, { state: 'cancelled' });
-    unregisterController(id);
-    return { jsonrpc: '2.0', id: req.id, result: { task: updated } };
+
+    const task = getTask(taskId);
+    if (!task) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Task not found: ${taskId}` },
+      };
+    }
+
+    // Helper to format terminal task result as CallToolResult
+    const formatResult = (t: Task) => {
+      if (t.state === 'failed') {
+        return {
+          jsonrpc: '2.0' as const,
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: t.error || 'Task failed' }],
+            isError: true,
+            _meta: relatedTaskMeta(taskId),
+          },
+        };
+      }
+      if (t.state === 'cancelled') {
+        return {
+          jsonrpc: '2.0' as const,
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: 'Task was cancelled.' }],
+            isError: false,
+            _meta: relatedTaskMeta(taskId),
+          },
+        };
+      }
+      // Completed — result is already a CallToolResult or raw value
+      if (t.result && typeof t.result === 'object' && 'content' in (t.result as any)) {
+        // Already CallToolResult format
+        return {
+          jsonrpc: '2.0' as const,
+          id: req.id,
+          result: {
+            ...(t.result as any),
+            _meta: relatedTaskMeta(taskId),
+          },
+        };
+      }
+      // Raw result — wrap in CallToolResult
+      const text = typeof t.result === 'string' ? t.result : JSON.stringify(t.result ?? null);
+      return {
+        jsonrpc: '2.0' as const,
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text }],
+          isError: false,
+          _meta: relatedTaskMeta(taskId),
+        },
+      };
+    };
+
+    // Already terminal — return immediately
+    if (TERMINAL_STATES.includes(task.state)) {
+      return formatResult(task);
+    }
+
+    // If input_required right now, handle elicitation before waiting
+    if (task.state === 'input_required' && task.input) {
+      const elicitResult = await requestBeamElicitation(task.input as any);
+      if (elicitResult.action === 'accept') {
+        resolveTaskInput(taskId, elicitResult.content);
+      } else {
+        resolveTaskInput(taskId, null);
+      }
+    }
+
+    // Block until terminal state, handling input_required along the way
+    // Use a timeout based on TTL to avoid infinite blocking
+    const timeoutMs = Math.min(task.ttl, 300000); // Max 5 min block per call
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+
+    try {
+      while (true) {
+        const current = await waitForTerminalOrInput(taskId, abortController.signal);
+
+        if (TERMINAL_STATES.includes(current.state)) {
+          return formatResult(current);
+        }
+
+        if (current.state === 'input_required' && current.input) {
+          // Send elicitation to the client
+          const elicitResult = await requestBeamElicitation(current.input as any);
+          if (elicitResult.action === 'accept') {
+            resolveTaskInput(taskId, elicitResult.content);
+          } else {
+            resolveTaskInput(taskId, null);
+          }
+          // Continue loop — wait for next state change
+        }
+      }
+    } catch {
+      // Timeout or abort — return current state info
+      const current = getTask(taskId);
+      if (current && TERMINAL_STATES.includes(current.state)) {
+        return formatResult(current);
+      }
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [
+            { type: 'text', text: `Task ${taskId} is still running. Poll tasks/get for status.` },
+          ],
+          isError: false,
+          _meta: relatedTaskMeta(taskId),
+        },
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 };
 
@@ -3748,6 +3919,14 @@ export function broadcastNotification(
 export function broadcastToBeam(method: string, params?: Record<string, unknown>): void {
   broadcastNotification(method, params, true);
 }
+
+// ── Task status change notifications (MCP 2025-11-25) ──
+taskEvents.on('stateChange', (_taskId: string, _newState: string, task: any) => {
+  broadcastNotification(
+    'notifications/tasks/status',
+    toWireFormat(task) as unknown as Record<string, unknown>
+  );
+});
 
 /**
  * Get count of active sessions (for debugging)

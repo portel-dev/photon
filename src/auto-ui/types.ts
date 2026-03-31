@@ -97,6 +97,8 @@ export interface MethodInfo {
   contentPriority?: number;
   /** JSON Schema for structured output → Tool.outputSchema */
   outputSchema?: { type: 'object'; properties: Record<string, any>; required?: string[] };
+  /** True if method is a generator that yields { ask } — supports task execution */
+  hasGeneratorAsks?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -546,6 +548,12 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
   // MCP standard icons (image data URIs)
   if (method.icons && method.icons.length > 0) {
     extensions.icons = method.icons;
+  }
+
+  // MCP Tasks: execution.taskSupport (2025-11-25 spec)
+  // @destructive methods and methods with generator asks support async task execution
+  if (method.destructiveHint || method.hasGeneratorAsks) {
+    extensions.execution = { taskSupport: 'optional' };
   }
 
   return extensions;
