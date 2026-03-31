@@ -4635,16 +4635,7 @@ export class ResultViewer extends LitElement {
     const marked = (window as any).marked;
     const activeIdx = Math.min(this._mdTabIndex, items.length - 1);
 
-    // Extract a short title from each markdown item (first link text or first line)
-    const titles = items.map((md, i) => {
-      const linkMatch = md.match(/\[([^\]]{1,40})\]/);
-      if (linkMatch) return linkMatch[1].slice(0, 30);
-      const firstLine = md
-        .split('\n')[0]
-        ?.replace(/[#*_\[\]]/g, '')
-        .trim();
-      return firstLine?.slice(0, 30) || `Result ${i + 1}`;
-    });
+    const titles = items.map((_: string, i: number) => String(i + 1));
 
     const htmlContent = marked
       ? (marked.parse(items[activeIdx] || '', { breaks: false, gfm: true }) as string)
@@ -4653,18 +4644,22 @@ export class ResultViewer extends LitElement {
     return html`
       <div style="display:flex; flex-direction:column; gap:0;">
         <div
-          style="display:flex; gap:2px; overflow-x:auto; padding:0 0 8px; border-bottom:1px solid var(--border-glass); margin-bottom:12px;"
+          style="display:flex; gap:4px; align-items:center; padding:0 0 10px; border-bottom:1px solid var(--border-glass); margin-bottom:16px;"
         >
+          <span style="font-size:12px; color:var(--t-muted); margin-right:4px;"
+            >${items.length} results</span
+          >
           ${titles.map(
             (title, i) => html`
               <button
                 style="
-                  padding:6px 12px; border:none; border-radius:6px 6px 0 0;
-                  font-size:12px; cursor:pointer; white-space:nowrap; font-family:inherit;
+                  width:28px; height:28px; border:none; border-radius:50%;
+                  font-size:12px; cursor:pointer; font-family:inherit;
+                  display:flex; align-items:center; justify-content:center;
                   transition: all 0.15s;
                   ${i === activeIdx
-                  ? 'background:var(--accent); color:#fff; font-weight:500;'
-                  : 'background:transparent; color:var(--t-muted);'}
+                  ? 'background:var(--accent); color:#fff; font-weight:600;'
+                  : 'background:var(--bg-glass); color:var(--t-muted);'}
                 "
                 @click=${() => {
                   this._mdTabIndex = i;
