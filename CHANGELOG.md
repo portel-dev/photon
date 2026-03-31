@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.17.5](https://github.com/portel-dev/photon/compare/v1.17.4...v1.17.5) (2026-03-31)
+
+### Bug Fixes
+
+* update photon-core to 2.17.4 (bun --production/--trust incompatibility) ([1b72504](https://github.com/portel-dev/photon/commit/1b72504df5921cbe5ed2f8d5fda2fc1b3a75c80c))
+
 ## [1.17.4](https://github.com/portel-dev/photon/compare/v1.17.3...v1.17.4) (2026-03-31)
 
 ### Bug Fixes
