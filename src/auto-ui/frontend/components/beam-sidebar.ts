@@ -62,6 +62,8 @@ export class BeamSidebar extends LitElement {
       .sidebar-content {
         flex: 1;
         overflow-y: auto;
+        padding-right: 4px;
+        scrollbar-gutter: stable;
       }
 
       .empty-state {

@@ -107,21 +107,25 @@ export const theme = css`
     border-radius: var(--radius-xs);
   }
 
-  /* Scrollbar */
+  /* Scrollbar — thin, translucent, doesn't crowd content */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--t-muted, #888) 30%, transparent) transparent;
+  }
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
+    margin: 4px 0;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--border-glass);
-    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--t-muted) 30%, transparent);
+    border-radius: var(--radius-full);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--t-muted);
-    opacity: 0.5;
+    background: color-mix(in srgb, var(--t-muted) 60%, transparent);
   }
   /* Toggle Switch */
   .switch {

@@ -426,6 +426,7 @@ export class BeamApp extends LitElement {
         overflow-y: auto;
         overflow-x: hidden;
         padding: var(--space-lg);
+        scrollbar-gutter: stable;
       }
 
       /* Page transition when switching photons */
@@ -5584,7 +5585,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const hasParams =
       !!opts.method?.params?.properties && Object.keys(opts.method.params.properties).length > 0;
     return html`
-      <div style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto;">
+      <div
+        style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;"
+      >
         ${opts.appSurface ? '' : this._renderDescription(opts.method.description)}
         ${opts.appSurface && !hasParams
           ? ''
