@@ -9224,24 +9224,24 @@ ${str}</pre
 
       // Fallback: render as mini-list
       return html`
-        <div
-          class="dash-mini-list"
-          style="max-height: 200px; overflow-y: auto; font-size: 0.85rem;"
-        >
-          ${value.slice(0, 5).map(
-            (item: any) => html`
-              <div
-                style="padding: 5px 8px; border-bottom: 1px solid var(--border-glass); display:flex; gap:6px;"
-              >
-                ${Object.entries(item)
-                  .slice(0, 4)
-                  .map(([, v]) => html`<span style="font-size:12px;">${String(v)}</span>`)}
-              </div>
-            `
-          )}
+        <div class="dash-mini-list" style="max-height: 200px; overflow-y: auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:12px;">
+            ${value.slice(0, 5).map(
+              (item: any) => html`
+                <tr style="border-bottom: 1px solid var(--border-glass);">
+                  ${Object.entries(item)
+                    .slice(0, 5)
+                    .map(
+                      ([, v]) =>
+                        html`<td style="padding:5px 6px; white-space:nowrap;">${String(v)}</td>`
+                    )}
+                </tr>
+              `
+            )}
+          </table>
           ${value.length > 5
             ? html`<div
-                style="padding:6px 8px;color:var(--t-muted);text-align:center;font-style:italic;"
+                style="padding:6px 8px;color:var(--t-muted);text-align:center;font-style:italic;font-size:12px;"
               >
                 +${value.length - 5} more
               </div>`
