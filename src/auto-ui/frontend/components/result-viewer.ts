@@ -2151,6 +2151,8 @@ export class ResultViewer extends LitElement {
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
       }
 
       .dashboard-panel-header {
@@ -2164,11 +2166,25 @@ export class ResultViewer extends LitElement {
       }
 
       .dashboard-panel-content {
-        padding: var(--space-xs);
+        padding: var(--space-sm);
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
         text-align: center;
+        flex: 1;
+        min-height: 120px;
+      }
+
+      /* Metrics center their big number + label */
+      .dashboard-panel-content > .metric-card,
+      .dashboard-panel-content > .gauge-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        flex: 1;
       }
 
       .dashboard-panel .chart-container {
@@ -2179,8 +2195,11 @@ export class ResultViewer extends LitElement {
         align-items: center;
       }
 
-      .dashboard-panel .table-wrapper {
+      /* Tables and lists take full width, left-aligned */
+      .dashboard-panel .table-wrapper,
+      .dashboard-panel .dash-mini-list {
         width: 100%;
+        text-align: left;
       }
 
       .dashboard-panel .chart-container canvas {
@@ -2189,11 +2208,14 @@ export class ResultViewer extends LitElement {
       }
 
       .dashboard-panel .metric-container {
-        padding: var(--space-xs);
+        padding: var(--space-md);
+        flex: 1;
+        justify-content: center;
       }
 
       .dashboard-panel .metric-value {
-        font-size: var(--text-3xl);
+        font-size: 2rem;
+        font-weight: 700;
       }
 
       /* ═══════════════════════════════════════════════════════════════
@@ -9202,21 +9224,18 @@ ${str}</pre
 
       // Fallback: render as mini-list
       return html`
-        <div style="max-height: 200px; overflow-y: auto; font-size: 0.85rem;">
+        <div
+          class="dash-mini-list"
+          style="max-height: 200px; overflow-y: auto; font-size: 0.85rem;"
+        >
           ${value.slice(0, 5).map(
             (item: any) => html`
               <div
-                style="padding: 6px 8px; border-bottom: 1px solid var(--border-glass); display:flex; gap:8px;"
+                style="padding: 6px 8px; border-bottom: 1px solid var(--border-glass); display:flex; gap:12px;"
               >
                 ${Object.entries(item)
-                  .slice(0, 3)
-                  .map(
-                    ([, v]) =>
-                      html`<span
-                        style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
-                        >${String(v)}</span
-                      >`
-                  )}
+                  .slice(0, 4)
+                  .map(([, v]) => html`<span style="white-space:nowrap;">${String(v)}</span>`)}
               </div>
             `
           )}
