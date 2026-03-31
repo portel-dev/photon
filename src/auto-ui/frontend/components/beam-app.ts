@@ -5908,10 +5908,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
         }
         break;
       case 'remember-values':
-        this._rememberFormValues = !this._rememberFormValues;
+        this._toggleRememberValues();
         break;
       case 'verbose-logging':
-        this._verboseLogging = !this._verboseLogging;
+        this._toggleVerboseLogging();
         break;
       case 'run-tests':
         void this._runTests();
