@@ -2597,10 +2597,6 @@ export class ResultViewer extends LitElement {
   @state()
   private _checklistToggledDone = false;
 
-  // Markdown tabs (for string[] results like search)
-  @state()
-  private _mdTabIndex = 0;
-
   // Bridge old result across null-gap during execute cycles
   private _previousResult: any = null;
 
@@ -3967,7 +3963,7 @@ export class ResultViewer extends LitElement {
         return this._renderTree(filteredData);
       case 'markdown': {
         if (Array.isArray(filteredData) && filteredData.length > 1) {
-          return this._renderMarkdownTabs(filteredData);
+          return this._renderMarkdownStack(filteredData);
         }
         const mdData = Array.isArray(filteredData) ? filteredData[0] : filteredData;
         return this._renderMarkdown(mdData);
@@ -4631,47 +4627,32 @@ export class ResultViewer extends LitElement {
     return { body, table: tables.length ? tables.join('\n\n') + '\n\n' : '' };
   }
 
-  private _renderMarkdownTabs(rawItems: string[]): TemplateResult {
+  private _renderMarkdownStack(rawItems: string[]): TemplateResult {
     const items = rawItems.filter((s) => s && s.trim());
     const marked = (window as any).marked;
-    const activeIdx = Math.min(this._mdTabIndex, items.length - 1);
-
-    const htmlContent = marked
-      ? (marked.parse(items[activeIdx] || '', { breaks: false, gfm: true }) as string)
-      : items[activeIdx] || '';
 
     return html`
       <div style="display:flex; flex-direction:column; gap:0;">
-        <div
-          style="display:flex; gap:4px; align-items:center; padding:0 0 10px; border-bottom:1px solid var(--border-glass); margin-bottom:16px;"
+        <span
+          style="font-size:12px; color:var(--t-muted); padding-bottom:12px; border-bottom:1px solid var(--border-glass); margin-bottom:4px;"
         >
-          <span style="font-size:12px; color:var(--t-muted); margin-right:4px;"
-            >${items.length} results</span
-          >
-          ${items.map(
-            (_, i) => html`
-              <button
-                style="
-                  width:28px; height:28px; border:none; border-radius:50%;
-                  font-size:12px; cursor:pointer; font-family:inherit;
-                  display:flex; align-items:center; justify-content:center;
-                  transition: all 0.15s;
-                  ${i === activeIdx
-                  ? 'background:var(--accent); color:#fff; font-weight:600;'
-                  : 'background:var(--bg-glass); color:var(--t-muted);'}
-                "
-                @click=${() => {
-                  this._mdTabIndex = i;
-                }}
-              >
-                ${i + 1}
-              </button>
-            `
-          )}
-        </div>
-        <div class="markdown-content" style="animation:checklist-enter 0.2s ease both;">
-          ${unsafeHTML(htmlContent)}
-        </div>
+          ${items.length} results
+        </span>
+        ${items.map((item, i) => {
+          const htmlContent = marked
+            ? (marked.parse(item, { breaks: false, gfm: true }) as string)
+            : item;
+          return html`
+            <div
+              class="markdown-content"
+              style="padding:12px 0; ${i < items.length - 1
+                ? 'border-bottom:1px solid var(--border-glass);'
+                : ''}"
+            >
+              ${unsafeHTML(htmlContent)}
+            </div>
+          `;
+        })}
       </div>
     `;
   }
@@ -4836,11 +4817,6 @@ export class ResultViewer extends LitElement {
 
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
-
-    // Reset markdown tab index when result changes
-    if (changedProperties.has('result')) {
-      this._mdTabIndex = 0;
-    }
 
     // Unwrap _photonType objects before diff logic — this avoids mutating during render()
     if (
