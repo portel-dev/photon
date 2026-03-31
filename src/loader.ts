@@ -525,22 +525,23 @@ export class PhotonLoader {
       : false;
     const resolvedCoreVersion = getResolvedPhotonCoreVersion();
     const coreVersionChanged = metadata?.photonCoreVersion !== resolvedCoreVersion;
-    const needsClear = Boolean(metadata && (!hashMatches || !depsMatch || coreVersionChanged));
 
-    if (needsClear) {
-      const depDir = this.getDependencyCacheDir(cacheKey);
-      const buildDir = this.getBuildCacheDir(cacheKey);
+    // Only clear dependency cache when deps or core version actually changed.
+    // Source-only changes just need a build cache clear (recompile is fast).
+    const needsDepClear = Boolean(metadata && (!depsMatch || coreVersionChanged));
+    const needsBuildClear = Boolean(metadata && !hashMatches);
+
+    if (needsDepClear) {
       if (coreVersionChanged) {
         this.log(
           `🔄 photon-core version changed (${metadata?.photonCoreVersion} → ${resolvedCoreVersion}), clearing cache for ${mcpName}`
         );
       } else {
-        this.log(`🔄 Dependencies changed for ${mcpName} (${cacheKey}), clearing caches`, {
-          dependencyCache: depDir,
-          buildCache: buildDir,
-        });
+        this.log(`🔄 Dependencies changed for ${mcpName}, reinstalling`);
       }
       await this.clearAllCaches(cacheKey);
+    } else if (needsBuildClear) {
+      await this.clearBuildCache(cacheKey);
     }
 
     let nodeModules: string | null = null;
