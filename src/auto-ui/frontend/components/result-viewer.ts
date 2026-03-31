@@ -4631,11 +4631,10 @@ export class ResultViewer extends LitElement {
     return { body, table: tables.length ? tables.join('\n\n') + '\n\n' : '' };
   }
 
-  private _renderMarkdownTabs(items: string[]): TemplateResult {
+  private _renderMarkdownTabs(rawItems: string[]): TemplateResult {
+    const items = rawItems.filter((s) => s && s.trim());
     const marked = (window as any).marked;
     const activeIdx = Math.min(this._mdTabIndex, items.length - 1);
-
-    const titles = items.map((_: string, i: number) => String(i + 1));
 
     const htmlContent = marked
       ? (marked.parse(items[activeIdx] || '', { breaks: false, gfm: true }) as string)
@@ -4681,8 +4680,9 @@ export class ResultViewer extends LitElement {
     const data = filteredData !== undefined ? filteredData : this.result;
     const marked = (window as any).marked;
 
-    // Array of items: render each as a separate block with filter transitions
-    if (Array.isArray(this.result) && this.result.length > 1 && marked) {
+    // Array of items: route to tabbed view (handled by switch case above)
+    // This path is for non-@format markdown arrays (auto-detected)
+    if (Array.isArray(this.result) && this.result.length > 1 && marked && !this.outputFormat) {
       const query = this._filterQuery?.trim().toLowerCase() || '';
       const allMermaidBlocks: { id: string; code: string }[] = [];
       const allCodeBlocks: { id: string; code: string; language: string }[] = [];

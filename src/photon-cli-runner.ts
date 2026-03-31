@@ -287,6 +287,17 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
     return true;
   }
 
+  // Handle @format markdown with array — render each item numbered
+  if ((hint as string) === 'markdown' && Array.isArray(result)) {
+    const items = result.filter((s: any) => typeof s === 'string' && s.trim());
+    items.forEach((item: string, i: number) => {
+      console.log(chalk.dim(`── Result ${i + 1}/${items.length} ──`));
+      console.log(item.trim());
+      if (i < items.length - 1) console.log('');
+    });
+    return true;
+  }
+
   // Handle formats that the base formatter doesn't support in CLI.
   // These fall through silently in @portel/cli's formatDataWithHint switch.
   // We intercept here and render using available primitives.
