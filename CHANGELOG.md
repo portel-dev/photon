@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.17.4](https://github.com/portel-dev/photon/compare/v1.17.3...v1.17.4) (2026-03-31)
+
+### Bug Fixes
+
+* 6 Beam UI bugs found on bun-only machine testing ([23c7d5d](https://github.com/portel-dev/photon/commit/23c7d5db9f780084c4be14294a8f9bbdeb57dfed))
+* scrollbar spacing — thinner, translucent, doesn't crowd content ([31df543](https://github.com/portel-dev/photon/commit/31df54392f9205b567a64ad0ed9d7b0ab9ab9c9c))
+* update photon-core to 2.17.3 (auto-trust bun postinstall scripts) ([82ac3cd](https://github.com/portel-dev/photon/commit/82ac3cd330807b8771ce9616aee3413570ab82ee))
+
 ## [1.17.3](https://github.com/portel-dev/photon/compare/v1.17.2...v1.17.3) (2026-03-30)
 
 ### Bug Fixes
