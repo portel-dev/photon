@@ -37,7 +37,8 @@ type LayoutType =
   | 'qr'
   | 'slides'
   | 'checklist'
-  | 'article';
+  | 'article'
+  | 'magazine';
 
 interface LayoutHints {
   title?: string;
@@ -970,6 +971,99 @@ export class ResultViewer extends LitElement {
       .article-container,
       .article-fallback {
         animation: article-fade-in 0.3s ease both;
+      }
+
+      /* Magazine Layout — markdown-powered multi-column */
+      .magazine-layout {
+        line-height: 1.7;
+        font-size: 15px;
+        color: var(--t-primary);
+        column-gap: 32px;
+        column-rule: 1px solid color-mix(in srgb, var(--border-glass) 50%, transparent);
+        animation: article-fade-in 0.3s ease both;
+      }
+
+      .magazine-layout h1,
+      .magazine-layout h2 {
+        column-span: all;
+        margin-top: 0.6em;
+        margin-bottom: 0.3em;
+      }
+
+      .magazine-layout h1:first-child,
+      .magazine-layout h2:first-child {
+        margin-top: 0;
+      }
+
+      .magazine-layout > p:first-of-type::first-letter {
+        float: left;
+        font-size: 3.2em;
+        line-height: 0.8;
+        padding-right: 8px;
+        padding-top: 4px;
+        font-weight: 600;
+        color: var(--accent);
+      }
+
+      .magazine-float {
+        break-inside: avoid;
+        margin-bottom: 12px;
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      }
+
+      .magazine-float.left {
+        float: left;
+        margin: 0 20px 12px 0;
+        max-width: 45%;
+        shape-outside: margin-box;
+      }
+
+      .magazine-float.right {
+        float: right;
+        margin: 0 0 12px 20px;
+        max-width: 45%;
+        shape-outside: margin-box;
+      }
+
+      .magazine-float.full {
+        column-span: all;
+        width: 100%;
+        float: none;
+        margin: 1em 0;
+      }
+
+      .magazine-float img {
+        width: 100%;
+        display: block;
+      }
+
+      .magazine-float .caption {
+        padding: 6px 10px;
+        font-size: 11px;
+        font-style: italic;
+        color: var(--t-muted);
+        background: var(--bg-glass);
+      }
+
+      .magazine-layout p,
+      .magazine-layout blockquote,
+      .magazine-layout ul,
+      .magazine-layout ol,
+      .magazine-layout pre {
+        break-inside: avoid;
+      }
+
+      .magazine-layout blockquote {
+        border-left: 3px solid var(--accent);
+        padding-left: 16px;
+        margin: 0.8em 0;
+        color: var(--t-secondary);
+      }
+
+      .magazine-layout pre {
+        column-span: all;
       }
 
       .status-badge {
@@ -3680,6 +3774,7 @@ export class ResultViewer extends LitElement {
           'slides',
           'checklist',
           'article',
+          'magazine',
         ].includes(format)
       ) {
         return format as LayoutType;
@@ -3687,6 +3782,8 @@ export class ResultViewer extends LitElement {
       // Content formats
       if (format === 'md') return 'markdown';
       if (format === 'presentation') return 'slides';
+      // Aliases
+      if (format === 'article') return 'magazine';
     }
 
     // 2. _photonType objects (collection: and UI types) are unwrapped in updated()
@@ -3925,8 +4022,12 @@ export class ResultViewer extends LitElement {
         return typeof data === 'string';
       case 'checklist':
         return Array.isArray(data);
+      case 'magazine':
       case 'article':
-        return typeof data === 'object' && data !== null && typeof data.text === 'string';
+        return (
+          typeof data === 'string' ||
+          (typeof data === 'object' && data !== null && typeof data.text === 'string')
+        );
       default:
         return true; // other formats degrade gracefully
     }
@@ -4002,8 +4103,9 @@ export class ResultViewer extends LitElement {
         return this._renderSlides(filteredData);
       case 'checklist':
         return this._renderChecklist(filteredData);
+      case 'magazine':
       case 'article':
-        return this._renderArticle(filteredData);
+        return this._renderMagazine(filteredData);
       case 'json':
       default:
         return this._renderJson(filteredData);
@@ -7936,7 +8038,65 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     `;
   }
 
-  // ── Article Renderer (Pretext-powered magazine layout) ──
+  // ── Magazine Renderer — markdown-powered multi-column layout ──
+
+  private _renderMagazine(data: any): TemplateResult {
+    // Normalize: accept string or { text, images? }
+    const text: string = typeof data === 'string' ? data : data?.text || '';
+    const images: Array<{
+      url: string;
+      width?: number;
+      height?: number;
+      position?: 'left' | 'right' | 'full';
+      caption?: string;
+    }> = (typeof data === 'object' && !Array.isArray(data) ? data?.images : null) || [];
+
+    if (!text) {
+      return html`<div class="empty-state">No content</div>`;
+    }
+
+    const columnCount = Math.min(4, Math.max(1, parseInt(this.layoutHints?.columns || '2', 10)));
+
+    const marked = (window as any).marked;
+    if (!marked) return this._renderText(text);
+
+    // Reuse the rich markdown pipeline (mermaid, code blocks, YAML frontmatter)
+    const { html: bodyHtml, mermaidBlocks, codeBlocks } = this._parseRichMarkdown(text);
+
+    // Skip multi-column for short content
+    const effectiveCols = text.length < 500 && columnCount > 1 ? 1 : columnCount;
+
+    // Queue mermaid/code rendering for after DOM update
+    if (mermaidBlocks.length > 0) {
+      this._pendingMermaidBlocks = mermaidBlocks;
+    }
+    if (codeBlocks.length > 0) {
+      this._pendingCodeBlocks = codeBlocks;
+    }
+
+    return html`
+      <div class="magazine-layout markdown-content" style="column-count: ${effectiveCols}">
+        ${images.map(
+          (img, i) => html`
+            <div
+              class="magazine-float ${img.position || (i % 2 === 0 ? 'right' : 'left')}"
+              style="max-width: ${img.position === 'full'
+                ? '100%'
+                : img.width
+                  ? Math.min(img.width, 280) + 'px'
+                  : '280px'}"
+            >
+              <img src="${img.url}" alt="" loading="lazy" />
+              ${img.caption ? html`<div class="caption">${img.caption}</div>` : ''}
+            </div>
+          `
+        )}
+        ${unsafeHTML(bodyHtml)}
+      </div>
+    `;
+  }
+
+  // ── Legacy Article Renderer (kept for backward compat, delegates to magazine) ──
 
   private _renderArticle(data: any): TemplateResult {
     if (!data || typeof data.text !== 'string') {
