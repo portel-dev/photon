@@ -190,13 +190,17 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
         return true;
       }
 
-      // Remove the .photon.ts file
-      await fs.unlink(filePath);
+      // Move to trash instead of deleting — ~/.photon/.trash/
+      const trashDir = path.join(state.workingDir, '.trash');
+      await fs.mkdir(trashDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const trashName = `${name}.${timestamp}.photon.ts`;
+      await fs.rename(filePath, path.join(trashDir, trashName));
 
-      // Remove UI assets directory if it exists
+      // Move UI assets directory to trash if it exists
       const assetsDir = path.join(state.workingDir, name);
       if (existsSync(assetsDir) && lstatSync(assetsDir).isDirectory()) {
-        await fs.rm(assetsDir, { recursive: true });
+        await fs.rename(assetsDir, path.join(trashDir, `${name}.${timestamp}`));
       }
 
       // Clear compiled cache
@@ -214,8 +218,9 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
       if (idx !== -1) state.photons.splice(idx, 1);
       state.photonMCPs.delete(name);
 
+      console.error(`🗑️  Moved ${name} to trash (${trashName})`);
       res.writeHead(200);
-      res.end(JSON.stringify({ success: true, name }));
+      res.end(JSON.stringify({ success: true, name, trashedAs: trashName }));
 
       state.actions.broadcastPhotonChange();
     } catch {

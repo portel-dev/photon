@@ -1010,7 +1010,7 @@ const handlers: Record<string, RequestHandler> = {
 
     tools.push({
       name: 'beam/remove',
-      description: 'Remove a photon from the workspace',
+      description: 'Remove a photon from the workspace (moves to trash)',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1021,6 +1021,7 @@ const handlers: Record<string, RequestHandler> = {
         },
         required: ['photon'],
       },
+      annotations: { destructiveHint: true },
     });
 
     tools.push({
@@ -2770,6 +2771,22 @@ async function handleBeamRemove(
       result: {
         content: [{ type: 'text', text: 'Error: Remove not supported in this context' }],
         isError: true,
+      },
+    };
+  }
+
+  // Require explicit confirmation before removing
+  const elicitResult = await requestBeamElicitation({
+    ask: 'confirm',
+    message: `Remove "${photonName}"? The photon and its assets will be moved to trash.`,
+  });
+  if (elicitResult.action !== 'accept' || elicitResult.content === false) {
+    return {
+      jsonrpc: '2.0' as const,
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Remove cancelled` }],
+        isError: false,
       },
     };
   }

@@ -311,6 +311,37 @@ export async function removePhotonViaMCP(
     return { success: false, error: `Photon not found: ${photonName}` };
   }
 
+  // Move photon file to trash instead of deleting
+  const photonInfo = photons[photonIndex];
+  if (photonInfo.path) {
+    try {
+      const trashDir = path.join(workingDir, '.trash');
+      await fs.mkdir(trashDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = path.basename(photonInfo.path);
+      const trashName = `${fileName.replace('.photon.ts', '')}.${timestamp}.photon.ts`;
+      await fs.rename(photonInfo.path, path.join(trashDir, trashName));
+
+      // Move assets directory to trash if it exists
+      const assetsDir = path.join(path.dirname(photonInfo.path), photonName);
+      try {
+        const stat = await fs.lstat(assetsDir);
+        if (stat.isDirectory()) {
+          await fs.rename(assetsDir, path.join(trashDir, `${photonName}.${timestamp}`));
+        }
+      } catch {
+        // No assets dir — fine
+      }
+
+      logger.info(`🗑️ ${photonName} moved to trash (${trashName})`);
+    } catch (err) {
+      logger.warn(
+        `⚠️ Could not move ${photonName} to trash: ${err instanceof Error ? err.message : String(err)}`
+      );
+      // Continue with in-memory removal even if file move fails
+    }
+  }
+
   photons.splice(photonIndex, 1);
   photonMCPs.delete(photonName);
 
@@ -319,7 +350,6 @@ export async function removePhotonViaMCP(
     await saveConfig(savedConfig, workingDir);
   }
 
-  logger.info(`🗑️ ${photonName} removed via MCP`);
   broadcastChange();
 
   return { success: true };
