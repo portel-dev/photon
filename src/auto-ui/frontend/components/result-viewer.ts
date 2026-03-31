@@ -8081,6 +8081,24 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
     const effectiveCols = columnCount;
 
+    // Inject images into the HTML at paragraph boundaries so they float within columns
+    let finalHtml = bodyHtml;
+    if (images.length > 0) {
+      const paragraphs = finalHtml.split(/(?=<(?:p|h[23456]|blockquote)[\s>])/i);
+      // Place each image after every ~2 paragraphs
+      const interval = Math.max(2, Math.floor(paragraphs.length / (images.length + 1)));
+      for (let i = images.length - 1; i >= 0; i--) {
+        const img = images[i];
+        const pos = img.position || (i % 2 === 0 ? 'right' : 'left');
+        const maxW =
+          pos === 'full' ? '100%' : img.width ? Math.min(img.width, 280) + 'px' : '280px';
+        const imgHtml = `<div class="magazine-float ${pos}" style="max-width:${maxW}"><img src="${img.url}" alt="" loading="lazy" />${img.caption ? `<div class="caption">${img.caption}</div>` : ''}</div>`;
+        const insertIdx = Math.min((i + 1) * interval, paragraphs.length - 1);
+        paragraphs.splice(insertIdx, 0, imgHtml);
+      }
+      finalHtml = paragraphs.join('');
+    }
+
     // Queue mermaid/code rendering for after DOM update
     if (mermaidBlocks.length > 0) {
       this._pendingMermaidBlocks = mermaidBlocks;
@@ -8091,22 +8109,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
     return html`
       <div class="magazine-layout markdown-content" style="column-count: ${effectiveCols}">
-        ${images.map(
-          (img, i) => html`
-            <div
-              class="magazine-float ${img.position || (i % 2 === 0 ? 'right' : 'left')}"
-              style="max-width: ${img.position === 'full'
-                ? '100%'
-                : img.width
-                  ? Math.min(img.width, 280) + 'px'
-                  : '280px'}"
-            >
-              <img src="${img.url}" alt="" loading="lazy" />
-              ${img.caption ? html`<div class="caption">${img.caption}</div>` : ''}
-            </div>
-          `
-        )}
-        ${unsafeHTML(bodyHtml)}
+        ${unsafeHTML(finalHtml)}
       </div>
     `;
   }
