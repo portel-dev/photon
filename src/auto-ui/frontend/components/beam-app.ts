@@ -5605,8 +5605,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
                       ${hasParams
                         ? html`<button
                             class="btn-secondary"
-                            @click=${() => {
-                              const form: any = this.shadowRoot?.querySelector('invoke-form');
+                            @click=${(e: Event) => {
+                              const panel = (e.target as HTMLElement).closest('.method-detail');
+                              const form: any = panel?.querySelector('invoke-form');
                               form?.handleCancel();
                             }}
                             ?disabled=${opts.executing}
@@ -5616,8 +5617,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
                         : ''}
                       <button
                         class="btn-primary"
-                        @click=${() => {
-                          const form: any = this.shadowRoot?.querySelector('invoke-form');
+                        @click=${(e: Event) => {
+                          const panel = (e.target as HTMLElement).closest('.method-detail');
+                          const form: any = panel?.querySelector('invoke-form');
                           form?.handleSubmit();
                         }}
                         ?disabled=${opts.executing}

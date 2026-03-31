@@ -2165,13 +2165,22 @@ export class ResultViewer extends LitElement {
 
       .dashboard-panel-content {
         padding: var(--space-xs);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
       }
 
       .dashboard-panel .chart-container {
         max-height: 250px;
+        width: 100%;
         display: flex;
         justify-content: center;
         align-items: center;
+      }
+
+      .dashboard-panel .table-wrapper {
+        width: 100%;
       }
 
       .dashboard-panel .chart-container canvas {
@@ -3886,7 +3895,10 @@ export class ResultViewer extends LitElement {
       case 'mermaid':
         return typeof data === 'string';
       case 'markdown':
-        return typeof data === 'string';
+        return (
+          typeof data === 'string' ||
+          (Array.isArray(data) && data.every((i: any) => typeof i === 'string'))
+        );
       case 'slides':
         return typeof data === 'string';
       case 'checklist':
@@ -3927,8 +3939,12 @@ export class ResultViewer extends LitElement {
         return this._renderChips(filteredData);
       case 'tree':
         return this._renderTree(filteredData);
-      case 'markdown':
-        return this._renderMarkdown(filteredData);
+      case 'markdown': {
+        const mdData = Array.isArray(filteredData)
+          ? filteredData.join('\n\n---\n\n')
+          : filteredData;
+        return this._renderMarkdown(mdData);
+      }
       case 'html':
         return this._renderHtml(filteredData);
       case 'text':

@@ -65,6 +65,7 @@ export const theme = css`
     border: 1px solid var(--border-glass);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-sm);
+    color: inherit;
   }
 
   .text-gradient {

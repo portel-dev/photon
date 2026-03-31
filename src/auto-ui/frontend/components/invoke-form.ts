@@ -914,7 +914,15 @@ export class InvokeForm extends LitElement {
     }
 
     return html`
-      <div class="form-container">
+      <div
+        class="form-container"
+        @keydown=${(e: KeyboardEvent) => {
+          if (e.key === 'Enter' && !e.shiftKey && !(e.target as HTMLElement)?.matches('textarea')) {
+            e.preventDefault();
+            this.handleSubmit();
+          }
+        }}
+      >
         ${this._viewMode === 'form' ? this._renderFields() : this._renderJsonEditor()}
       </div>
     `;
