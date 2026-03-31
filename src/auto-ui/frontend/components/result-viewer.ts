@@ -2597,6 +2597,10 @@ export class ResultViewer extends LitElement {
   @state()
   private _checklistToggledDone = false;
 
+  // Markdown tabs (for string[] results like search)
+  @state()
+  private _mdTabIndex = 0;
+
   // Bridge old result across null-gap during execute cycles
   private _previousResult: any = null;
 
@@ -3962,9 +3966,10 @@ export class ResultViewer extends LitElement {
       case 'tree':
         return this._renderTree(filteredData);
       case 'markdown': {
-        const mdData = Array.isArray(filteredData)
-          ? filteredData.join('\n\n---\n\n')
-          : filteredData;
+        if (Array.isArray(filteredData) && filteredData.length > 1) {
+          return this._renderMarkdownTabs(filteredData);
+        }
+        const mdData = Array.isArray(filteredData) ? filteredData[0] : filteredData;
         return this._renderMarkdown(mdData);
       }
       case 'html':
@@ -4626,6 +4631,57 @@ export class ResultViewer extends LitElement {
     return { body, table: tables.length ? tables.join('\n\n') + '\n\n' : '' };
   }
 
+  private _renderMarkdownTabs(items: string[]): TemplateResult {
+    const marked = (window as any).marked;
+    const activeIdx = Math.min(this._mdTabIndex, items.length - 1);
+
+    // Extract a short title from each markdown item (first link text or first line)
+    const titles = items.map((md, i) => {
+      const linkMatch = md.match(/\[([^\]]{1,40})\]/);
+      if (linkMatch) return linkMatch[1].slice(0, 30);
+      const firstLine = md
+        .split('\n')[0]
+        ?.replace(/[#*_\[\]]/g, '')
+        .trim();
+      return firstLine?.slice(0, 30) || `Result ${i + 1}`;
+    });
+
+    const htmlContent = marked
+      ? (marked.parse(items[activeIdx] || '', { breaks: false, gfm: true }) as string)
+      : items[activeIdx] || '';
+
+    return html`
+      <div style="display:flex; flex-direction:column; gap:0;">
+        <div
+          style="display:flex; gap:2px; overflow-x:auto; padding:0 0 8px; border-bottom:1px solid var(--border-glass); margin-bottom:12px;"
+        >
+          ${titles.map(
+            (title, i) => html`
+              <button
+                style="
+                  padding:6px 12px; border:none; border-radius:6px 6px 0 0;
+                  font-size:12px; cursor:pointer; white-space:nowrap; font-family:inherit;
+                  transition: all 0.15s;
+                  ${i === activeIdx
+                  ? 'background:var(--accent); color:#fff; font-weight:500;'
+                  : 'background:transparent; color:var(--t-muted);'}
+                "
+                @click=${() => {
+                  this._mdTabIndex = i;
+                }}
+              >
+                ${title}
+              </button>
+            `
+          )}
+        </div>
+        <div class="markdown-content" style="animation:checklist-enter 0.2s ease both;">
+          ${unsafeHTML(htmlContent)}
+        </div>
+      </div>
+    `;
+  }
+
   private _renderMarkdown(filteredData?: any): TemplateResult {
     const data = filteredData !== undefined ? filteredData : this.result;
     const marked = (window as any).marked;
@@ -4785,6 +4841,11 @@ export class ResultViewer extends LitElement {
 
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
+
+    // Reset markdown tab index when result changes
+    if (changedProperties.has('result')) {
+      this._mdTabIndex = 0;
+    }
 
     // Unwrap _photonType objects before diff logic — this avoids mutating during render()
     if (
