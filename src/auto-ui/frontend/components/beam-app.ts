@@ -2603,18 +2603,17 @@ export class BeamApp extends LitElement {
         this._log('info', data.message || 'Processing...');
         // Update progress bar state
         if (typeof data.progress === 'number') {
-          // For status events (progress=0 with message), only update if we don't have progress yet
-          // or if it's an actual progress update (progress > 0)
-          if (data.progress > 0 || !this._progress) {
+          if (data.progress > 0) {
+            // Real progress update — show determinate bar
             this._progress = {
               value: data.total ? data.progress / data.total : data.progress,
               message: data.message || 'Processing...',
             };
-          } else if (this._progress && data.message) {
-            // Status event - just update message, keep current progress value
+          } else {
+            // Status-only emit (progress=0) — show indeterminate bar with message
             this._progress = {
-              ...this._progress,
-              message: data.message,
+              value: -1,
+              message: data.message || 'Processing...',
             };
           }
         }

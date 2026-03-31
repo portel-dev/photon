@@ -4648,8 +4648,8 @@ export class ResultViewer extends LitElement {
           <span style="font-size:12px; color:var(--t-muted); margin-right:4px;"
             >${items.length} results</span
           >
-          ${titles.map(
-            (title, i) => html`
+          ${items.map(
+            (_, i) => html`
               <button
                 style="
                   width:28px; height:28px; border:none; border-radius:50%;
@@ -4664,7 +4664,7 @@ export class ResultViewer extends LitElement {
                   this._mdTabIndex = i;
                 }}
               >
-                ${title}
+                ${i + 1}
               </button>
             `
           )}
