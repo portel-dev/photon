@@ -829,9 +829,14 @@ function getGhostColor(): (text: string) => string {
     }
   }
 
-  // Dark bg: 236 (very dark gray) — Light bg: 253 (very light gray)
-  const colorIndex = isLight ? 253 : 236;
-  _ghostColor = (t: string) => chalk.ansi256(colorIndex)(t);
+  // Use chalk.dim + gray — works at all chalk color levels (1, 2, and 3).
+  // chalk.dim renders ANSI faint attribute; chalk.gray adds color.
+  // Together they produce a very subtle text that's near-invisible.
+  if (isLight) {
+    _ghostColor = (t: string) => chalk.gray(t);
+  } else {
+    _ghostColor = (t: string) => chalk.dim.gray(t);
+  }
   return _ghostColor;
 }
 
