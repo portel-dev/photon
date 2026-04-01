@@ -8,10 +8,13 @@ set -o pipefail
 # Detect runtime
 if command -v bun &>/dev/null; then
   RUN="bun"
-  VITEST="bun vitest run"
+  VITEST="bunx vitest run"
+  # bun needs 'bun test' for node:test describe/it, not 'bun file.ts'
+  RUN_TEST="bun test"
 else
   RUN="npx tsx"
   VITEST="npx vitest run"
+  RUN_TEST="npx tsx --test"
 fi
 
 # Build first
@@ -47,7 +50,7 @@ SUITES=(
   "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
   "instance-drift:$RUN tests/instance-drift.test.ts"
   "daemon-watcher:$RUN tests/daemon-watcher.test.ts"
-  "ui-rendering:$RUN --test tests/ui/result-rendering.test.ts"
+  "ui-rendering:$RUN_TEST tests/ui/result-rendering.test.ts"
   "photon-instance-mgr:$VITEST tests/photon-instance-manager.test.ts"
   "viewport-proxy:$VITEST tests/viewport-aware-proxy.test.ts"
   "viewport-manager:$VITEST tests/viewport-manager.test.ts"
