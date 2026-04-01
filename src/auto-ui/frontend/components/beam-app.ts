@@ -6624,12 +6624,21 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleDeletePhoton = async () => {
     this._closeSettingsMenu();
     if (
-      await confirmDialog(
-        `Are you sure you want to delete "${this._selectedPhoton?.name}"? This cannot be undone.`,
-        { confirm: 'Delete', destructive: true }
-      )
+      await confirmDialog(`Remove "${this._selectedPhoton?.name}"? It will be moved to trash.`, {
+        confirm: 'Remove',
+        destructive: true,
+      })
     ) {
-      void this._invokeMakerMethod('delete');
+      const deletedName = this._selectedPhoton?.name;
+      await this._invokeMakerMethod('delete');
+      // Navigate away from deleted photon and refresh sidebar
+      if (deletedName) {
+        this._photons = this._photons.filter((p) => p.name !== deletedName);
+        this._selectedPhoton = this._photons[0] || null;
+        this._selectedMethod = null;
+        this._lastResult = null;
+        this.requestUpdate();
+      }
     }
   };
 
