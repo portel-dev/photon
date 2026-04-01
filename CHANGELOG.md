@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.18.0](https://github.com/portel-dev/photon/compare/v1.17.6...v1.18.0) (2026-04-01)
+
+### Features
+
+* [@format](https://github.com/format) magazine — markdown-powered multi-column layout ([2fb8ce0](https://github.com/portel-dev/photon/commit/2fb8ce08bd753b30b32be21ad5125a1fd453ae85))
+* markdown string[] renders as tabbed results instead of wall of text ([e1624c6](https://github.com/portel-dev/photon/commit/e1624c67d58121f7d42bc2193533fbad9ec0a5f4))
+* MCP Tasks spec compliance (2025-11-25) ([dc7de8c](https://github.com/portel-dev/photon/commit/dc7de8ceb033c669940e80101002ebcfee2fd408))
+* test runner with failure summary ([90539eb](https://github.com/portel-dev/photon/commit/90539eb0e79198df8bfa13bf06db7ccc9cf686d9))
+
+### Bug Fixes
+
+* build script calls eslint directly instead of npm run lint ([b3d14ef](https://github.com/portel-dev/photon/commit/b3d14efec1886a5c4724dc1f48c331dc5dd6ece7))
+* dashboard mini-list table — reduce gap, smaller font, no truncation ([3f13640](https://github.com/portel-dev/photon/commit/3f13640e143bfcf43603f44b1ba97bb1f19d14ae))
+* dashboard mini-list uses proper HTML table for auto column sizing ([aecc81b](https://github.com/portel-dev/photon/commit/aecc81b22533eb8f6c85a46022e87c481ab13c1e))
+* dashboard panel alignment — metrics centered, tables full-width ([6f127fd](https://github.com/portel-dev/photon/commit/6f127fd9eb0b9a21c157f6f1080a2424fcf39257))
+* indeterminate progress bar for status emits and markdown tab rendering ([8d5f4be](https://github.com/portel-dev/photon/commit/8d5f4be8dd811d1eb6d5af47790e70400a3d00f8))
+* magazine images float within column flow instead of stacking above ([1c67dc5](https://github.com/portel-dev/photon/commit/1c67dc5174cc4975d695d550f2b27df2a36fc365))
+* magazine layout column gap caused by h2 column-span ([8b3dad8](https://github.com/portel-dev/photon/commit/8b3dad8cad38a4eaa454890e266cc7ff8f9378ed))
+* markdown array rendering — correct count, full render, CLI support ([43b4071](https://github.com/portel-dev/photon/commit/43b4071e7147bb84135480b5b9e8a5b2a5633c6a))
+* markdown array renders as stacked list instead of tabs ([9c5d588](https://github.com/portel-dev/photon/commit/9c5d5882ca1bd9275e593569a6cf8aff0e7886cf))
+* markdown tabs use simple numbered circles instead of truncated titles ([39ef1a6](https://github.com/portel-dev/photon/commit/39ef1a6ab89bf25d135049bc1f4c44fc8ea39728))
+* only reinstall deps when [@dependencies](https://github.com/dependencies) change, not on every source edit ([6bea517](https://github.com/portel-dev/photon/commit/6bea517612f043256270e323e9a4bd9fc06a3717))
+* persist remember-values and verbose-logging toggles from panel menu ([a06ec8a](https://github.com/portel-dev/photon/commit/a06ec8a08d7c0d4631dd0fd36d6b7740dabda842))
+* photon removal moves to trash instead of permanent deletion ([7ae7d00](https://github.com/portel-dev/photon/commit/7ae7d00d933abf116aa68fbcd0ece82e9663f667))
+* test runner uses bun for faster execution ([ea1610b](https://github.com/portel-dev/photon/commit/ea1610b62708fb17f1b43c5465b373e14ee54d86))
+* test runner uses bunx for vitest and bun test for node:test suites ([3e87a0e](https://github.com/portel-dev/photon/commit/3e87a0e0a426989f3ca8102b0379adb455ccd45b))
+* update photon-core to 2.17.6 (magazine format recognition) ([ae0686a](https://github.com/portel-dev/photon/commit/ae0686ac8b15b86f8e40e729845b0e39c3bcd905))
+
 ## [1.17.6](https://github.com/portel-dev/photon/compare/v1.17.5...v1.17.6) (2026-03-31)
 
 ### Bug Fixes
