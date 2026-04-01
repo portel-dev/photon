@@ -592,7 +592,8 @@ export class PhotonLoader {
     return (
       message.includes('Cannot find package') ||
       message.includes('ERR_MODULE_NOT_FOUND') ||
-      message.includes('Cannot find module')
+      message.includes('Cannot find module') ||
+      message.includes('require is not defined')
     );
   }
 
