@@ -5589,6 +5589,9 @@ ${bridge}
   [data-enter="mood-techy"] { animation: mood-techy 0.3s ease-out both; }
   [data-enter="mood-playful"] { animation: mood-playful 0.4s ease both; }
   [data-enter="mood-calm"] { animation: mood-calm 0.8s ease-in-out both; }
+  /* Hide slide children initially so stagger entrance is visible */
+  .slide-body > :not(.slide-content-area):not([data-enter]) { opacity: 0; }
+  .slide-content-area > :not([data-enter]) { opacity: 0; }
   @media (prefers-reduced-motion: reduce) {
     [data-enter] { animation: none !important; opacity: 1 !important; }
   }
