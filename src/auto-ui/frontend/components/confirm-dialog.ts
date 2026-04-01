@@ -51,8 +51,8 @@ export class ConfirmDialog extends LitElement {
       }
 
       .dialog {
-        background: var(--bg-panel, #1e1e2e);
-        border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.1));
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
         border-radius: var(--radius-md, 12px);
         padding: 24px;
         max-width: 400px;
@@ -65,7 +65,7 @@ export class ConfirmDialog extends LitElement {
       .message {
         font-size: 14px;
         line-height: 1.5;
-        color: var(--t-primary, #e0e0e0);
+        color: var(--t-primary);
         margin-bottom: 20px;
       }
 
@@ -87,17 +87,17 @@ export class ConfirmDialog extends LitElement {
       }
 
       .btn-cancel {
-        background: var(--bg-glass, rgba(255, 255, 255, 0.06));
-        color: var(--t-primary, #e0e0e0);
-        border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.1));
+        background: var(--bg-glass);
+        color: var(--t-primary);
+        border: 1px solid var(--border-glass);
       }
 
       .btn-cancel:hover {
-        background: var(--bg-glass-strong, rgba(255, 255, 255, 0.12));
+        background: var(--bg-glass-strong);
       }
 
       .btn-confirm {
-        background: var(--accent, #6366f1);
+        background: var(--accent);
         color: #fff;
       }
 
@@ -178,11 +178,15 @@ export async function confirmDialog(
   message: string,
   options?: { confirm?: string; cancel?: string; destructive?: boolean }
 ): Promise<boolean> {
-  // Find or create the singleton dialog
-  let dialog = document.querySelector('confirm-dialog') as ConfirmDialog;
+  // Place dialog inside beam-app's shadow root so it inherits theme tokens.
+  // Falls back to document.body if beam-app isn't found.
+  const beamApp = document.querySelector('beam-app');
+  const root = beamApp?.shadowRoot ?? document.body;
+
+  let dialog = root.querySelector('confirm-dialog') as ConfirmDialog;
   if (!dialog) {
     dialog = document.createElement('confirm-dialog') as ConfirmDialog;
-    document.body.appendChild(dialog);
+    root.appendChild(dialog);
   }
   return dialog.show(message, options);
 }
