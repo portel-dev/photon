@@ -18,9 +18,13 @@ import * as readline from 'readline';
 import chalk from 'chalk';
 
 // Bun's TTY detection can cause chalk to default to level 0 (no color).
-// Force basic color support when stdout is a TTY.
-if (chalk.level === 0 && process.stdout.isTTY) {
-  chalk.level = 1;
+// Force basic color support when running interactively.
+if (chalk.level === 0) {
+  // Check multiple TTY indicators — bun may not set process.stdout.isTTY
+  const isTTY = process.stdout.isTTY || process.stderr.isTTY || !!process.env.TERM;
+  if (isTTY) {
+    chalk.level = 1;
+  }
 }
 
 import { highlight } from 'cli-highlight';
