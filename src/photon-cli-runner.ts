@@ -829,10 +829,9 @@ function getGhostColor(): (text: string) => string {
     }
   }
 
-  // chalk.hidden uses ANSI attribute 8 (invisible text).
-  // Text is fully invisible but still selectable/copyable.
-  // Supported by most modern terminals (iTerm2, Terminal.app, Ghostty, etc.)
-  _ghostColor = (t: string) => chalk.hidden(t);
+  // Strip syntax characters entirely for clean visual output.
+  // The raw markdown is still available via --raw or piping.
+  _ghostColor = (_t: string) => '';
   return _ghostColor;
 }
 
