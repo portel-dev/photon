@@ -1,8 +1,18 @@
 #!/bin/bash
 # Test runner with failure summary
 # Runs all test suites and collects failures for a final report.
+# Uses bun for faster execution (falls back to npx tsx if bun unavailable).
 
 set -o pipefail
+
+# Detect runtime
+if command -v bun &>/dev/null; then
+  RUN="bun"
+  VITEST="bun vitest run"
+else
+  RUN="npx tsx"
+  VITEST="npx vitest run"
+fi
 
 # Build first
 echo "━━━ Building ━━━"
@@ -13,39 +23,40 @@ if [ $? -ne 0 ]; then
 fi
 
 # Define test suites (name:command)
+# $RUN and $VITEST are expanded at eval time
 SUITES=(
-  "security:npx tsx tests/security.test.ts"
-  "schema:npx tsx tests/schema-extractor.test.ts"
-  "marketplace:npx tsx tests/marketplace-manager.test.ts"
-  "loader:npx tsx tests/loader.test.ts"
-  "server:npx tsx tests/server.test.ts"
-  "integration:npx tsx tests/integration.test.ts"
-  "ui-resources:npx tsx tests/ui-resources.test.ts"
-  "client-adaptive:npx tsx tests/client-adaptive.test.ts"
-  "zero-config:npx tsx tests/zero-config.test.ts"
-  "mcp-config:npx tsx tests/mcp-configuration.test.ts"
-  "cli:npx tsx tests/cli-runner.test.ts"
-  "logger:npx tsx tests/logger.test.ts"
-  "error-handler:npx tsx tests/error-handler.test.ts"
-  "validation:npx tsx tests/validation.test.ts"
-  "daemon-pubsub:npx tsx tests/daemon-pubsub.test.ts"
-  "daemon-buffer:npx tsx tests/daemon-event-buffer.test.ts"
-  "instance-drift:npx tsx tests/instance-drift.test.ts"
-  "daemon-watcher:npx tsx tests/daemon-watcher.test.ts"
-  "ui-rendering:npx tsx --test tests/ui/result-rendering.test.ts"
-  "photon-instance-mgr:npx vitest run tests/photon-instance-manager.test.ts"
-  "viewport-proxy:npx vitest run tests/viewport-aware-proxy.test.ts"
-  "viewport-manager:npx vitest run tests/viewport-manager.test.ts"
-  "pagination-integration:npx vitest run tests/pagination-integration.test.ts"
-  "pagination-perf:npx vitest run tests/pagination-performance.test.ts"
-  "pagination-phase5:npx tsx tests/pagination-phase5.test.ts"
-  "pagination-phase5c:npx tsx tests/pagination-phase5c.test.ts"
-  "pagination-phase5d:npx tsx tests/pagination-phase5d.test.ts"
-  "phase6a:npx tsx tests/phase6a-service-worker.test.ts"
-  "phase6b:npx tsx tests/phase6b-offline-state.test.ts"
-  "phase6c:npx tsx tests/phase6c-offline-sync.test.ts"
-  "phase6d:npx tsx tests/phase6d-integration.test.ts"
-  "promises:npx tsx tests/promises.test.ts"
+  "security:$RUN tests/security.test.ts"
+  "schema:$RUN tests/schema-extractor.test.ts"
+  "marketplace:$RUN tests/marketplace-manager.test.ts"
+  "loader:$RUN tests/loader.test.ts"
+  "server:$RUN tests/server.test.ts"
+  "integration:$RUN tests/integration.test.ts"
+  "ui-resources:$RUN tests/ui-resources.test.ts"
+  "client-adaptive:$RUN tests/client-adaptive.test.ts"
+  "zero-config:$RUN tests/zero-config.test.ts"
+  "mcp-config:$RUN tests/mcp-configuration.test.ts"
+  "cli:$RUN tests/cli-runner.test.ts"
+  "logger:$RUN tests/logger.test.ts"
+  "error-handler:$RUN tests/error-handler.test.ts"
+  "validation:$RUN tests/validation.test.ts"
+  "daemon-pubsub:$RUN tests/daemon-pubsub.test.ts"
+  "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
+  "instance-drift:$RUN tests/instance-drift.test.ts"
+  "daemon-watcher:$RUN tests/daemon-watcher.test.ts"
+  "ui-rendering:$RUN --test tests/ui/result-rendering.test.ts"
+  "photon-instance-mgr:$VITEST tests/photon-instance-manager.test.ts"
+  "viewport-proxy:$VITEST tests/viewport-aware-proxy.test.ts"
+  "viewport-manager:$VITEST tests/viewport-manager.test.ts"
+  "pagination-integration:$VITEST tests/pagination-integration.test.ts"
+  "pagination-perf:$VITEST tests/pagination-performance.test.ts"
+  "pagination-phase5:$RUN tests/pagination-phase5.test.ts"
+  "pagination-phase5c:$RUN tests/pagination-phase5c.test.ts"
+  "pagination-phase5d:$RUN tests/pagination-phase5d.test.ts"
+  "phase6a:$RUN tests/phase6a-service-worker.test.ts"
+  "phase6b:$RUN tests/phase6b-offline-state.test.ts"
+  "phase6c:$RUN tests/phase6c-offline-sync.test.ts"
+  "phase6d:$RUN tests/phase6d-integration.test.ts"
+  "promises:$RUN tests/promises.test.ts"
   "readme:bash tests/readme-validation.sh"
 )
 
@@ -54,9 +65,10 @@ PASSED=0
 FAILED=0
 FAILURES=()
 LOGDIR=$(mktemp -d)
+START_TIME=$(date +%s)
 
 echo ""
-echo "━━━ Running ${#SUITES[@]} test suites ━━━"
+echo "━━━ Running ${#SUITES[@]} test suites ($RUN) ━━━"
 echo ""
 
 for entry in "${SUITES[@]}"; do
@@ -67,26 +79,31 @@ for entry in "${SUITES[@]}"; do
 
   printf "  %-30s " "$NAME"
 
-  # Run test, capture output
+  SUITE_START=$(date +%s)
   eval "$CMD" > "$LOGFILE" 2>&1
   EXIT=$?
+  SUITE_END=$(date +%s)
+  SUITE_DUR=$((SUITE_END - SUITE_START))
 
   if [ $EXIT -eq 0 ]; then
     PASSED=$((PASSED + 1))
-    echo "✓ pass"
+    echo "✓ pass  ${SUITE_DUR}s"
   else
     FAILED=$((FAILED + 1))
-    echo "✗ FAIL (exit $EXIT)"
+    echo "✗ FAIL  ${SUITE_DUR}s"
     FAILURES+=("$NAME")
   fi
 done
 
+END_TIME=$(date +%s)
+TOTAL_DUR=$((END_TIME - START_TIME))
+
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Total:  $TOTAL"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Total:  $TOTAL   (${TOTAL_DUR}s)"
 echo "  Passed: $PASSED"
 echo "  Failed: $FAILED"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 if [ $FAILED -gt 0 ]; then
   echo ""
@@ -94,7 +111,6 @@ if [ $FAILED -gt 0 ]; then
   echo ""
   for NAME in "${FAILURES[@]}"; do
     echo "  ┌── $NAME ──"
-    # Show last 15 lines of output (usually contains the error)
     tail -15 "$LOGDIR/$NAME.log" | sed 's/^/  │ /'
     echo "  └──────────"
     echo ""
