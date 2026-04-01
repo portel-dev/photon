@@ -18,9 +18,9 @@ import * as readline from 'readline';
 import chalk from 'chalk';
 
 // Bun's TTY detection can cause chalk to default to level 0 (no color).
-// Force truecolor when stdout is a TTY — bun terminals support it.
+// Force basic color support when stdout is a TTY.
 if (chalk.level === 0 && process.stdout.isTTY) {
-  chalk.level = 3;
+  chalk.level = 1;
 }
 
 import { highlight } from 'cli-highlight';
@@ -836,11 +836,9 @@ function getGhostColor(): (text: string) => string {
     }
   }
 
-  // With chalk.level forced to 3 (truecolor), we can use RGB for precise control.
-  // Dark bg: very dark gray near black. Light bg: very light gray near white.
-  _ghostColor = isLight
-    ? (t: string) => chalk.rgb(210, 210, 210)(t)
-    : (t: string) => chalk.rgb(60, 60, 65)(t);
+  // chalk.gray uses basic ANSI dark gray (color 90) — works at all levels.
+  // It's not invisible, but it's dim enough to not distract while reading.
+  _ghostColor = (t: string) => chalk.gray(t);
   return _ghostColor;
 }
 
