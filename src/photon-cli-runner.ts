@@ -836,9 +836,10 @@ function getGhostColor(): (text: string) => string {
     }
   }
 
-  // chalk.gray uses basic ANSI dark gray (color 90) — works at all levels.
-  // It's not invisible, but it's dim enough to not distract while reading.
-  _ghostColor = (t: string) => chalk.gray(t);
+  // Bypass chalk — write raw ANSI escape sequences directly.
+  // Bun's chalk can output ANSI params without the ESC prefix.
+  // \x1b[90m = dark gray, \x1b[0m = reset
+  _ghostColor = (t: string) => `\x1b[90m${t}\x1b[0m`;
   return _ghostColor;
 }
 
