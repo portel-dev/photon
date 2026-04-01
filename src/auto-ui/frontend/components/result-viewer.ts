@@ -5585,6 +5585,10 @@ ${bridge}
   [data-enter="flip-in"] { animation: motion-flip-in 0.5s cubic-bezier(0.16,1,0.3,1) both; }
   [data-enter="fade-in"] { animation: motion-fade-in 0.3s cubic-bezier(0.16,1,0.3,1) both; }
   [data-enter="drop-in"] { animation: motion-drop-in 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+  [data-enter="mood-dramatic"] { animation: mood-dramatic 0.6s ease both; }
+  [data-enter="mood-techy"] { animation: mood-techy 0.3s ease-out both; }
+  [data-enter="mood-playful"] { animation: mood-playful 0.4s ease both; }
+  [data-enter="mood-calm"] { animation: mood-calm 0.8s ease-in-out both; }
   @media (prefers-reduced-motion: reduce) {
     [data-enter] { animation: none !important; opacity: 1 !important; }
   }
@@ -6789,11 +6793,14 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           animation: bgfx-drift 12s ease-in-out infinite alternate;
         }
         @keyframes bgfx-drift {
-          from {
+          0% {
             transform: translate(0, 0) scale(1);
           }
-          to {
-            transform: translate(2%, -2%) scale(1.02);
+          50% {
+            transform: translate(5%, -3%) scale(1.05);
+          }
+          100% {
+            transform: translate(-3%, 4%) scale(1.02);
           }
         }
         .slides-bgfx-noise {
@@ -7199,7 +7206,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     @keyframes mood-techy { 0% { opacity: 0; transform: translateY(8px); filter: blur(4px); } 50% { opacity: 1; filter: blur(0); } 100% { transform: none; } }
     @keyframes mood-playful { 0% { opacity: 0; transform: translateY(20px); } 60% { transform: translateY(-4px); } 80% { transform: translateY(2px); } 100% { opacity: 1; transform: none; } }
     @keyframes mood-calm { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes bgdrift { from { transform: translate(0,0) scale(1); } to { transform: translate(2%,-2%) scale(1.02); } }
+    @keyframes bgdrift { 0% { transform: translate(0,0) scale(1); } 50% { transform: translate(5%,-3%) scale(1.05); } 100% { transform: translate(-3%,4%) scale(1.02); } }
     .slides-theme-neon body::after { content: ''; position: fixed; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,240,255,0.015) 2px, rgba(0,240,255,0.015) 4px); z-index: 100; }
     .slides-theme-neon .slide-body blockquote { border-left: 3px solid #00f0ff; box-shadow: -4px 0 20px rgba(0,240,255,0.15); }
     .slides-theme-neon .slide-body pre { border: 1px solid rgba(0,240,255,0.2); box-shadow: 0 0 15px rgba(0,240,255,0.1); }
