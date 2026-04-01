@@ -6580,7 +6580,8 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         }
 
         /* ═══ EDITORIAL THEME ═══ */
-        .slides-theme-editorial {
+        .slides-theme-editorial,
+        .slides-theme-editorial .slides-viewport {
           background: #faf8f5;
           color: #2c2c2c;
           font-family: Georgia, 'Times New Roman', serif;
@@ -6645,7 +6646,8 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         }
 
         /* ═══ SWISS THEME ═══ */
-        .slides-theme-swiss {
+        .slides-theme-swiss,
+        .slides-theme-swiss .slides-viewport {
           background: #ffffff;
           color: #1a1a1a;
           font-family: 'Helvetica Neue', 'Inter', Arial, sans-serif;
