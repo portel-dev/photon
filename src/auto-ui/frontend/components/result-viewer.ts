@@ -5303,6 +5303,9 @@ export class ResultViewer extends LitElement {
   private _slidesDefaultTransition = 'fade';
   private _slidesBackgrounds: Map<number, string> = new Map(); // per-slide bg (color, url, gradient)
   private _slidesEffects: Map<number, string> = new Map(); // per-slide element effect
+  private _slidesMoods: Map<number, string> = new Map(); // per-slide mood (dramatic, techy, etc.)
+  private _slidesGlobalMood = ''; // frontmatter mood default
+  private _slidesBgEffects: Map<number, string> = new Map(); // per-slide bg effect (gradient-mesh, etc.)
   private _slidesCols: Map<number, number> = new Map(); // per-slide column count
   private _slidesBuilds: Map<number, boolean> = new Map(); // per-slide build (click-to-reveal)
   private _slidesBoundElements: Set<Element> = new Set();
@@ -5367,6 +5370,8 @@ export class ResultViewer extends LitElement {
     this._slidesTransitions.clear();
     this._slidesBackgrounds.clear();
     this._slidesEffects.clear();
+    this._slidesMoods.clear();
+    this._slidesBgEffects.clear();
     this._slidesCols.clear();
     this._slidesBuilds.clear();
     slides.forEach((slide, i) => {
@@ -5379,12 +5384,21 @@ export class ResultViewer extends LitElement {
       // <!-- effect: fade-up | scale-in | slide-in-left | ... -->
       const fxMatch = slide.match(/<!--\s*effect:\s*(\S+)\s*-->/);
       if (fxMatch) this._slidesEffects.set(i, fxMatch[1].trim());
+      // <!-- mood: dramatic | techy | playful | professional | calm -->
+      const moodMatch = slide.match(/<!--\s*mood:\s*(\w+)\s*-->/);
+      if (moodMatch) this._slidesMoods.set(i, moodMatch[1].trim());
+      // <!-- background: gradient-mesh | noise | grid | particles -->
+      const bgFxMatch = slide.match(/<!--\s*background:\s*(\S+)\s*-->/);
+      if (bgFxMatch) this._slidesBgEffects.set(i, bgFxMatch[1].trim());
       // <!-- cols: 2 --> or <!-- cols: 3 -->
       const colMatch = slide.match(/<!--\s*cols:\s*(\d+)\s*-->/);
       if (colMatch) this._slidesCols.set(i, Math.min(Math.max(parseInt(colMatch[1], 10), 2), 4));
       // <!-- build --> enables click-to-reveal fragments
       if (/<!--\s*build\s*-->/.test(slide)) this._slidesBuilds.set(i, true);
     });
+
+    // Global mood from frontmatter
+    this._slidesGlobalMood = config.mood || '';
 
     // Default theme: match Beam's active theme (dark→default, light→uncover)
     const defaultTheme = 'auto';
@@ -5898,6 +5912,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     // Per-slide background (color, image URL, gradient, or video)
     const slideBg = this._slidesBackgrounds.get(idx) || '';
     const slideEffect = this._slidesEffects.get(idx) || '';
+    const slideBgEffect = this._slidesBgEffects.get(idx) || '';
     const slideBgStyle = this._buildSlideBgStyle(slideBg);
     const isVideoBg = /\.(mp4|webm|mov)(\?|$)/i.test(slideBg) || slideBg.startsWith('video:');
 
@@ -5925,6 +5940,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
                 ></video>`
               : html`<div class="slides-bg-layer" style="${slideBgStyle}"></div>`
             : ''}
+          ${slideBgEffect ? html`<div class="slides-bgfx slides-bgfx-${slideBgEffect}"></div>` : ''}
           <div class="slides-content">
             ${this._slidesBridgeScript
               ? html`<iframe
@@ -6036,14 +6052,14 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 48px 64px;
+          padding: clamp(24px, 4vw, 48px) clamp(32px, 5vw, 64px);
           overflow: hidden;
           position: relative;
         }
         .slides-container:fullscreen .slides-viewport {
           flex: 1;
           aspect-ratio: auto;
-          padding: 64px 120px;
+          padding: clamp(32px, 5vh, 64px) clamp(48px, 8vw, 120px);
         }
         .slides-container:fullscreen .slides-viewport:has(.slide-bridge-frame) {
           padding: 0;
@@ -6098,26 +6114,26 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           z-index: -1;
         }
         .slides-content h1 {
-          font-size: 2.4em;
+          font-size: clamp(1.8rem, 5vw, 3.5rem);
           margin: 0 0 0.4em;
           font-weight: 800;
           letter-spacing: -0.02em;
           line-height: 1.15;
         }
         .slides-content h2 {
-          font-size: 1.8em;
+          font-size: clamp(1.4rem, 3.5vw, 2.4rem);
           margin: 0 0 0.4em;
           font-weight: 700;
           letter-spacing: -0.01em;
         }
         .slides-content h3 {
-          font-size: 1.3em;
+          font-size: clamp(1.1rem, 2.5vw, 1.6rem);
           margin: 0 0 0.3em;
           font-weight: 600;
         }
         .slides-content p {
           margin: 0.5em 0;
-          font-size: 1.15em;
+          font-size: clamp(0.95rem, 1.8vw, 1.25rem);
           line-height: 1.65;
         }
         .slides-content ul,
@@ -6420,6 +6436,295 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         }
         .slides-theme-dracula .slides-controls {
           background: #191a21;
+        }
+
+        /* ═══ AUTO THEME — inherits MCP client colors ═══ */
+        .slides-theme-auto {
+          background: var(--bg-panel, #1a1a2e);
+          color: var(--t-primary, #e0e0e0);
+        }
+        .slides-theme-auto .slides-content h1,
+        .slides-theme-auto .slides-content h2 {
+          color: var(--accent, #6366f1);
+        }
+        .slides-theme-auto .slides-controls {
+          background: var(--bg-glass, rgba(0, 0, 0, 0.4));
+        }
+
+        /* ═══ NEON THEME ═══ */
+        .slides-theme-neon {
+          background: #0a0a1a;
+          color: #e0e0ff;
+          font-family: 'JetBrains Mono', var(--font-mono), monospace;
+        }
+        .slides-theme-neon .slides-content h1,
+        .slides-theme-neon .slides-content h2 {
+          color: #00f0ff;
+          text-shadow:
+            0 0 10px rgba(0, 240, 255, 0.5),
+            0 0 40px rgba(0, 240, 255, 0.2);
+        }
+        .slides-theme-neon .slides-content blockquote {
+          border-left: 3px solid #00f0ff;
+          box-shadow: -4px 0 20px rgba(0, 240, 255, 0.15);
+        }
+        .slides-theme-neon .slides-content pre {
+          border: 1px solid rgba(0, 240, 255, 0.2);
+          box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+        }
+        .slides-theme-neon .slides-viewport::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 240, 255, 0.015) 2px,
+            rgba(0, 240, 255, 0.015) 4px
+          );
+          z-index: 2;
+        }
+        .slides-theme-neon .slides-controls {
+          background: #050510;
+        }
+
+        /* ═══ EDITORIAL THEME ═══ */
+        .slides-theme-editorial {
+          background: #faf8f5;
+          color: #2c2c2c;
+          font-family: Georgia, 'Times New Roman', serif;
+        }
+        .slides-theme-editorial .slides-content h1,
+        .slides-theme-editorial .slides-content h2 {
+          font-family: 'Cormorant Garamond', Georgia, serif;
+          color: #1a1a1a;
+          font-weight: 600;
+        }
+        .slides-theme-editorial .slides-content h1 {
+          letter-spacing: -0.03em;
+        }
+        .slides-theme-editorial .slides-content p:first-of-type::first-letter {
+          float: left;
+          font-size: 3.4em;
+          line-height: 0.8;
+          padding-right: 8px;
+          padding-top: 4px;
+          font-weight: 700;
+          color: #c0392b;
+          font-family: 'Cormorant Garamond', Georgia, serif;
+        }
+        .slides-theme-editorial .slides-content blockquote {
+          border-left: 2px solid #c0392b;
+          font-style: italic;
+          font-size: 1.15em;
+          color: #555;
+        }
+        .slides-theme-editorial .slides-content hr {
+          border: none;
+          height: 1px;
+          background: linear-gradient(to right, transparent, #ccc, transparent);
+          margin: 1.5em 0;
+        }
+        .slides-theme-editorial .slides-controls {
+          background: #f0ece6;
+          color: #666;
+        }
+
+        /* ═══ BOLD-SIGNAL THEME ═══ */
+        .slides-theme-bold-signal {
+          background: linear-gradient(135deg, #0f0c29, #1a1a3e, #24243e);
+          color: #e8e8f0;
+          font-family: 'Space Grotesk', var(--font-sans), sans-serif;
+        }
+        .slides-theme-bold-signal .slides-content h1 {
+          color: #ff6b35;
+          font-weight: 700;
+        }
+        .slides-theme-bold-signal .slides-content h2 {
+          color: #ffd166;
+        }
+        .slides-theme-bold-signal .slides-content blockquote {
+          background: rgba(255, 107, 53, 0.1);
+          border-left: 4px solid #ff6b35;
+          border-radius: 0 8px 8px 0;
+          padding: 16px 20px;
+        }
+        .slides-theme-bold-signal .slides-controls {
+          background: #0a0820;
+        }
+
+        /* ═══ SWISS THEME ═══ */
+        .slides-theme-swiss {
+          background: #ffffff;
+          color: #1a1a1a;
+          font-family: 'Helvetica Neue', 'Inter', Arial, sans-serif;
+        }
+        .slides-theme-swiss .slides-viewport::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background-image:
+            linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+          background-size: 40px 40px;
+          z-index: 0;
+        }
+        .slides-theme-swiss .slides-content {
+          position: relative;
+          z-index: 1;
+        }
+        .slides-theme-swiss .slides-content h1 {
+          color: #e63946;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          font-weight: 900;
+        }
+        .slides-theme-swiss .slides-content h2 {
+          color: #1d3557;
+          font-weight: 700;
+        }
+        .slides-theme-swiss .slides-controls {
+          background: #f1f1f1;
+          color: #333;
+        }
+
+        /* ═══ NOTEBOOK THEME ═══ */
+        .slides-theme-notebook {
+          background: #1a1a2e;
+          color: #3c3c3c;
+        }
+        .slides-theme-notebook .slides-viewport {
+          background: #fdf6e3;
+          border-radius: 8px;
+          margin: 12px;
+          box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+          border-left: 5px solid #e74c3c;
+        }
+        .slides-theme-notebook .slides-content h1,
+        .slides-theme-notebook .slides-content h2 {
+          font-family: 'Caveat', cursive, sans-serif;
+          color: #2c3e50;
+        }
+        .slides-theme-notebook .slides-content h1 {
+          font-size: clamp(2rem, 6vw, 4rem);
+        }
+        .slides-theme-notebook .slides-controls {
+          background: #f5edd6;
+          color: #666;
+        }
+
+        /* ═══ MOOD KEYFRAMES ═══ */
+        @keyframes mood-dramatic {
+          from {
+            opacity: 0;
+            transform: scale(0.95) translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: none;
+          }
+        }
+        @keyframes mood-techy {
+          0% {
+            opacity: 0;
+            transform: translateY(8px);
+            filter: blur(4px);
+          }
+          50% {
+            opacity: 1;
+            filter: blur(0);
+          }
+          100% {
+            transform: none;
+          }
+        }
+        @keyframes mood-playful {
+          0% {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          60% {
+            transform: translateY(-4px);
+          }
+          80% {
+            transform: translateY(2px);
+          }
+          100% {
+            opacity: 1;
+            transform: none;
+          }
+        }
+        @keyframes mood-calm {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        /* ═══ BACKGROUND EFFECTS ═══ */
+        .slides-bgfx {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+        }
+        .slides-bgfx-gradient-mesh {
+          background:
+            radial-gradient(ellipse at 20% 50%, rgba(120, 80, 255, 0.15) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 20%, rgba(255, 100, 80, 0.12) 0%, transparent 50%),
+            radial-gradient(ellipse at 50% 80%, rgba(80, 200, 255, 0.1) 0%, transparent 50%);
+          animation: bgfx-drift 12s ease-in-out infinite alternate;
+        }
+        @keyframes bgfx-drift {
+          from {
+            transform: translate(0, 0) scale(1);
+          }
+          to {
+            transform: translate(2%, -2%) scale(1.02);
+          }
+        }
+        .slides-bgfx-noise {
+          opacity: 0.06;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+        .slides-bgfx-grid {
+          background-image:
+            linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+          background-size: 32px 32px;
+        }
+        .slides-bgfx-particles::before,
+        .slides-bgfx-particles::after {
+          content: '';
+          position: absolute;
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.2);
+          box-shadow:
+            40px 80px 0 rgba(255, 255, 255, 0.15),
+            120px 40px 0 rgba(255, 255, 255, 0.1),
+            200px 120px 0 rgba(255, 255, 255, 0.12),
+            300px 60px 0 rgba(255, 255, 255, 0.08),
+            400px 140px 0 rgba(255, 255, 255, 0.15);
+          animation: bgfx-float 8s ease-in-out infinite alternate;
+        }
+        .slides-bgfx-particles::after {
+          animation-delay: -4s;
+          animation-direction: alternate-reverse;
+        }
+        @keyframes bgfx-float {
+          from {
+            transform: translateY(0);
+          }
+          to {
+            transform: translateY(-15px);
+          }
         }
 
         /* ═══ VIEW TRANSITIONS ═══ */
@@ -6776,11 +7081,32 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
   /** Trigger stagger-in animation on slide content children after transition.
    *  Uses the universal data-enter attribute from the motion system. */
+  // Mood → animation config
+  private static readonly _MOOD_CONFIG: Record<
+    string,
+    { enter: string; delayMs: number; durationMs: number }
+  > = {
+    dramatic: { enter: 'mood-dramatic', delayMs: 100, durationMs: 600 },
+    techy: { enter: 'mood-techy', delayMs: 40, durationMs: 300 },
+    playful: { enter: 'mood-playful', delayMs: 80, durationMs: 400 },
+    professional: { enter: 'fade-in', delayMs: 30, durationMs: 200 },
+    calm: { enter: 'mood-calm', delayMs: 120, durationMs: 800 },
+  };
+
   private _slidesStaggerIn(): void {
-    // Resolve effect: per-slide directive → motion data-enter value, default 'slide-up'
-    const slideEffect = this._slidesEffects.get(this._slidesCurrentIndex) || '';
-    const enterValue =
-      ResultViewer._EFFECT_MAP[slideEffect] || (slideEffect ? slideEffect : 'slide-up');
+    const idx = this._slidesCurrentIndex;
+    // Resolve mood → timing config
+    const mood = this._slidesMoods.get(idx) || this._slidesGlobalMood;
+    const moodCfg = ResultViewer._MOOD_CONFIG[mood];
+
+    // Resolve effect: per-slide directive → motion data-enter value
+    const slideEffect = this._slidesEffects.get(idx) || '';
+    const enterValue = moodCfg
+      ? moodCfg.enter
+      : ResultViewer._EFFECT_MAP[slideEffect] || (slideEffect ? slideEffect : 'slide-up');
+    const delayMs = moodCfg?.delayMs ?? 60;
+    const durationMs = moodCfg?.durationMs ?? 300;
+
     const CHILD_SELECTOR =
       ':scope > h1, :scope > h2, :scope > h3, :scope > p, :scope > ul, :scope > ol, :scope > table, :scope > blockquote, :scope > pre, :scope > div:not(.slide-header):not(.slide-footer), :scope > figure, :scope > img, :scope > .slide-content-area';
 
@@ -6791,7 +7117,8 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         htmlEl.removeAttribute('data-enter');
         void htmlEl.offsetWidth; // force reflow to restart animation
         htmlEl.setAttribute('data-enter', enterValue);
-        htmlEl.style.animationDelay = `${i * 60}ms`;
+        htmlEl.style.animationDelay = `${i * delayMs}ms`;
+        htmlEl.style.animationDuration = `${durationMs}ms`;
       });
     };
 
