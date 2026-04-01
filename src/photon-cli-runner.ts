@@ -287,12 +287,12 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
     return true;
   }
 
-  // Handle @format markdown with array — render each item numbered
+  // Handle @format markdown with array — render each item with ghost syntax
   if ((hint as string) === 'markdown' && Array.isArray(result)) {
     const items = result.filter((s: any) => typeof s === 'string' && s.trim());
     items.forEach((item: string, i: number) => {
       console.log(chalk.dim(`── Result ${i + 1}/${items.length} ──`));
-      console.log(item.trim());
+      renderMarkdownNicely(item.trim());
       if (i < items.length - 1) console.log('');
     });
     return true;
