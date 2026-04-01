@@ -16,7 +16,11 @@ fi
 
 # Build first
 echo "━━━ Building ━━━"
-npm run build 2>&1
+if command -v bun &>/dev/null; then
+  bun run build 2>&1
+else
+  npm run build 2>&1
+fi
 if [ $? -ne 0 ]; then
   echo "❌ Build failed — aborting tests"
   exit 1

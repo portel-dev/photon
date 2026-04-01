@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
-    "build": "npm run lint -- --quiet && tsc && cp -r src/photons dist/ && chmod +x dist/cli.js && tsx scripts/build-beam.ts",
+    "build": "eslint src/ --quiet && tsc && cp -r src/photons dist/ && chmod +x dist/cli.js && tsx scripts/build-beam.ts",
     "dev": "tsc --watch",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
