@@ -5468,7 +5468,8 @@ export class ResultViewer extends LitElement {
     footerText?: string,
     pageNum?: string,
     slideBg?: string,
-    slideEffect?: string
+    slideEffect?: string,
+    slideBgEffect?: string
   ): string {
     const bridge = this._slidesBridgeScript || '';
     // Convert data-embed="photon/method" to data-method="method" for bridge binding.
@@ -5734,7 +5735,22 @@ ${bridge}
 </head>
 <body>
 ${this._buildSlideBgHtml(slideBg || '')}
-<div class="slide-canvas"${slideEffect ? ` data-effect="${slideEffect}"` : ''}>
+${
+  slideBgEffect
+    ? `<div style="position:absolute;inset:0;pointer-events:none;z-index:0;${
+        slideBgEffect === 'gradient-mesh'
+          ? 'background:radial-gradient(ellipse at 20% 50%,rgba(120,80,255,0.15) 0%,transparent 50%),radial-gradient(ellipse at 80% 20%,rgba(255,100,80,0.12) 0%,transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(80,200,255,0.1) 0%,transparent 50%);animation:bgdrift 12s ease-in-out infinite alternate;'
+          : slideBgEffect === 'noise'
+            ? 'opacity:0.06;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27200%27 height=%27200%27%3E%3Cfilter id=%27n%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.75%27 numOctaves=%274%27 stitchTiles=%27stitch%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27/%3E%3C/svg%3E&quot;);'
+            : slideBgEffect === 'grid'
+              ? 'background-image:linear-gradient(rgba(255,255,255,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.05) 1px,transparent 1px);background-size:32px 32px;'
+              : slideBgEffect === 'particles'
+                ? 'overflow:hidden;'
+                : ''
+      }"></div>`
+    : ''
+}
+<div class="slide-canvas"${slideEffect ? ` data-effect="${slideEffect}"` : ''} style="position:relative;z-index:1;">
 ${headerText ? `<div class="slide-header">${headerText}</div>` : ''}
 <div class="slide-body">${html}</div>
 ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</span><span>${pageNum || ''}</span></div>` : ''}
@@ -6043,7 +6059,8 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
                     footerText,
                     showPaginate ? `${idx + 1} / ${total}` : '',
                     slideBg,
-                    slideEffect
+                    slideEffect,
+                    slideBgEffect
                   )}
                   sandbox="allow-scripts allow-same-origin allow-popups"
                   frameborder="0"
@@ -7182,6 +7199,14 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     @keyframes mood-techy { 0% { opacity: 0; transform: translateY(8px); filter: blur(4px); } 50% { opacity: 1; filter: blur(0); } 100% { transform: none; } }
     @keyframes mood-playful { 0% { opacity: 0; transform: translateY(20px); } 60% { transform: translateY(-4px); } 80% { transform: translateY(2px); } 100% { opacity: 1; transform: none; } }
     @keyframes mood-calm { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes bgdrift { from { transform: translate(0,0) scale(1); } to { transform: translate(2%,-2%) scale(1.02); } }
+    .slides-theme-neon body::after { content: ''; position: fixed; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,240,255,0.015) 2px, rgba(0,240,255,0.015) 4px); z-index: 100; }
+    .slides-theme-neon .slide-body blockquote { border-left: 3px solid #00f0ff; box-shadow: -4px 0 20px rgba(0,240,255,0.15); }
+    .slides-theme-neon .slide-body pre { border: 1px solid rgba(0,240,255,0.2); box-shadow: 0 0 15px rgba(0,240,255,0.1); }
+    .slides-theme-editorial .slide-body p:first-of-type::first-letter { float: left; font-size: 3.4em; line-height: 0.8; padding-right: 8px; padding-top: 4px; font-weight: 700; color: #c0392b; font-family: 'Cormorant Garamond', Georgia, serif; }
+    .slides-theme-editorial .slide-body blockquote { border-left: 2px solid #c0392b; font-style: italic; color: #555; }
+    .slides-theme-bold-signal .slide-body blockquote { background: rgba(255,107,53,0.1); border-left: 4px solid #ff6b35; border-radius: 0 8px 8px 0; padding: 16px 20px; }
+    .slides-theme-swiss body::before { content: ''; position: fixed; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px); background-size: 40px 40px; z-index: 0; }
   `;
 
   // Google Fonts per theme
