@@ -17,14 +17,10 @@ import {
 import * as readline from 'readline';
 import chalk from 'chalk';
 
-// Bun's TTY detection can cause chalk to default to level 0 (no color).
-// Force basic color support when running interactively.
+// Bun sets chalk.level = 0 even on interactive terminals.
+// The CLI runner is always user-facing — force color support.
 if (chalk.level === 0) {
-  // Check multiple TTY indicators — bun may not set process.stdout.isTTY
-  const isTTY = process.stdout.isTTY || process.stderr.isTTY || !!process.env.TERM;
-  if (isTTY) {
-    chalk.level = 1;
-  }
+  chalk.level = 1;
 }
 
 import { highlight } from 'cli-highlight';
@@ -807,6 +803,7 @@ function visibleLength(text: string): number {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function ghost(text: string): string {
+  if (chalk.level === 0) chalk.level = 1;
   return chalk.gray(text);
 }
 
