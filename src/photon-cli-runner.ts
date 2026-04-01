@@ -797,55 +797,13 @@ function visibleLength(text: string): number {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// GHOST TEXT — markdown syntax characters rendered near-invisible
-// Detects terminal background color and picks a foreground ~15% away from it.
+// ══════════════════════════════════════════════════════════════════════════════
+// GHOST TEXT — markdown syntax characters rendered in dark gray
+// chalk.gray (ANSI color 90) works after chalk.level is forced to 1 at import.
 // ══════════════════════════════════════════════════════════════════════════════
 
-let _ghostColor: ((text: string) => string) | null = null;
-
-/**
- * Ghost color — near-invisible markdown syntax markers.
- * Uses ANSI 256 grayscale for broad terminal compatibility.
- * (chalk.rgb needs truecolor which not all terminals support)
- *
- * ANSI 256 grayscale: 232=black → 255=white (24 shades)
- */
-function getGhostColor(): (text: string) => string {
-  if (_ghostColor) return _ghostColor;
-
-  let isLight = false;
-
-  // Check COLORFGBG env (set by some terminals)
-  const colorfgbg = process.env.COLORFGBG;
-  if (colorfgbg) {
-    const bg = parseInt(colorfgbg.split(';').pop() || '', 10);
-    if (!isNaN(bg) && bg >= 8) isLight = true;
-  }
-
-  // macOS: check system appearance
-  if (!isLight && process.platform === 'darwin') {
-    try {
-      const { execSync } = require('child_process');
-      const result = execSync('defaults read -g AppleInterfaceStyle 2>/dev/null', {
-        encoding: 'utf-8',
-        timeout: 500,
-      }).trim();
-      if (result.toLowerCase() !== 'dark') isLight = true;
-    } catch {
-      // Key missing = light mode default, but most dev terminals are dark
-    }
-  }
-
-  // Write ANSI dark gray directly. ESC char via String.fromCharCode
-  // to avoid any build-time or runtime stripping.
-  const ESC = String.fromCharCode(27);
-  _ghostColor = (t: string) => `${ESC}[90m${t}${ESC}[39m`;
-  return _ghostColor;
-}
-
-/** Render text as ghost — near-invisible syntax markers */
 function ghost(text: string): string {
-  return getGhostColor()(text);
+  return chalk.gray(text);
 }
 
 function renderMarkdownNicely(content: string): void {
