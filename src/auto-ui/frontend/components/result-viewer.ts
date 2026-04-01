@@ -5514,11 +5514,19 @@ export class ResultViewer extends LitElement {
     }
 
     const themeClass = this._slidesThemeClass || 'slides-theme-default';
+    // Load Google Fonts for themes that need them
+    const themeName = themeClass.replace('slides-theme-', '');
+    const fontSpec = ResultViewer._THEME_FONTS[themeName];
+    const fontLink = fontSpec
+      ? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=${fontSpec}&display=swap">`
+      : '';
+
     return `<!doctype html>
 <html lang="en" class="${themeClass}">
 <head>
 <meta charset="UTF-8">
 <meta name="photon-template" content="true">
+${fontLink}
 ${bridge}
 <style>
   /* reveal.js-style scaling: fixed design canvas + transform:scale() */
@@ -5706,6 +5714,8 @@ ${bridge}
   /* Full-bleed image */
   .hero { width: 100%; border-radius: var(--radius-lg, 14px);
     box-shadow: var(--shadow-lg, 0 24px 60px rgba(0,0,0,0.28)); }
+  /* Theme presets (shared with outer shadow DOM) */
+  ${ResultViewer._BRIDGE_THEME_CSS}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"><\/script>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"><\/script>
@@ -5897,6 +5907,19 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     const themeClass = `slides-theme-${resolvedTheme}`;
     this._slidesThemeClass = themeClass;
 
+    // Load Google Fonts for themes that need them (non-bridge path)
+    const fontSpec = ResultViewer._THEME_FONTS[resolvedTheme];
+    if (fontSpec) {
+      const linkId = `photon-font-${resolvedTheme}`;
+      if (!document.getElementById(linkId)) {
+        const link = document.createElement('link');
+        link.id = linkId;
+        link.rel = 'stylesheet';
+        link.href = `https://fonts.googleapis.com/css2?family=${fontSpec}&display=swap`;
+        document.head.appendChild(link);
+      }
+    }
+
     // Frontmatter-driven inline overrides
     const bgOverride = config.backgroundColor ? `background:${config.backgroundColor};` : '';
     const colorOverride = config.color ? `color:${config.color};` : '';
@@ -6036,8 +6059,6 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           position: relative;
           border-radius: var(--radius-md, 8px);
           outline: none;
-          background: #1a1a2e;
-          color: #e5e5e5;
           font-family:
             system-ui,
             -apple-system,
@@ -7060,6 +7081,46 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
   }
 
   // Map slide effect directives to universal motion data-enter values
+  // Shared theme CSS injected into both shadow DOM styles and bridge srcdoc
+  private static readonly _BRIDGE_THEME_CSS = `
+    .slides-theme-default { background: #1a1a2e; color: #e6e6e6; }
+    .slides-theme-default h1, .slides-theme-default h2 { color: #a5b4fc; }
+    .slides-theme-uncover { background: #f8f8f8; color: #333; }
+    .slides-theme-uncover h1, .slides-theme-uncover h2 { color: #1a1a1a; }
+    .slides-theme-gaia { background: #1a472a; color: #e0f0e0; }
+    .slides-theme-gaia h1, .slides-theme-gaia h2 { color: #66bb6a; }
+    .slides-theme-rose { background: #2d1b2e; color: #f0e0e8; }
+    .slides-theme-rose h1, .slides-theme-rose h2 { color: #f48fb1; }
+    .slides-theme-dracula { background: #282a36; color: #f8f8f2; }
+    .slides-theme-dracula h1, .slides-theme-dracula h2 { color: #bd93f9; }
+    .slides-theme-auto { background: var(--bg-panel, #1a1a2e); color: var(--t-primary, #e0e0e0); }
+    .slides-theme-auto h1, .slides-theme-auto h2 { color: var(--accent, #6366f1); }
+    .slides-theme-neon { background: #0a0a1a; color: #e0e0ff; font-family: 'JetBrains Mono', monospace; }
+    .slides-theme-neon h1, .slides-theme-neon h2 { color: #00f0ff; text-shadow: 0 0 10px rgba(0,240,255,0.5), 0 0 40px rgba(0,240,255,0.2); }
+    .slides-theme-editorial { background: #faf8f5; color: #2c2c2c; font-family: Georgia, 'Times New Roman', serif; }
+    .slides-theme-editorial h1, .slides-theme-editorial h2 { font-family: 'Cormorant Garamond', Georgia, serif; color: #1a1a1a; }
+    .slides-theme-bold-signal { background: linear-gradient(135deg, #0f0c29, #1a1a3e, #24243e); color: #e8e8f0; font-family: 'Space Grotesk', sans-serif; }
+    .slides-theme-bold-signal h1 { color: #ff6b35; }
+    .slides-theme-bold-signal h2 { color: #ffd166; }
+    .slides-theme-swiss { background: #ffffff; color: #1a1a1a; font-family: 'Helvetica Neue', 'Inter', Arial, sans-serif; }
+    .slides-theme-swiss h1 { color: #e63946; text-transform: uppercase; letter-spacing: 0.05em; }
+    .slides-theme-swiss h2 { color: #1d3557; }
+    .slides-theme-notebook { background: #1a1a2e; color: #3c3c3c; }
+    .slides-theme-notebook .slide-canvas { background: #fdf6e3; border-left: 5px solid #e74c3c; border-radius: 8px; }
+    .slides-theme-notebook h1, .slides-theme-notebook h2 { font-family: 'Caveat', cursive; color: #2c3e50; }
+    @keyframes mood-dramatic { from { opacity: 0; transform: scale(0.95) translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes mood-techy { 0% { opacity: 0; transform: translateY(8px); filter: blur(4px); } 50% { opacity: 1; filter: blur(0); } 100% { transform: none; } }
+    @keyframes mood-playful { 0% { opacity: 0; transform: translateY(20px); } 60% { transform: translateY(-4px); } 80% { transform: translateY(2px); } 100% { opacity: 1; transform: none; } }
+    @keyframes mood-calm { from { opacity: 0; } to { opacity: 1; } }
+  `;
+
+  // Google Fonts per theme
+  private static readonly _THEME_FONTS: Record<string, string> = {
+    editorial: 'Cormorant+Garamond:wght@400;600;700',
+    'bold-signal': 'Space+Grotesk:wght@500;700',
+    notebook: 'Caveat:wght@400;700',
+  };
+
   private static readonly _EFFECT_MAP: Record<string, string> = {
     'fade-up': 'slide-up',
     'fade-down': 'slide-down',
@@ -7142,6 +7203,111 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     // Non-bridge slides: target .slides-content children
     const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
     if (content) applyToChildren(content);
+  }
+
+  // Pretext-powered text effects: typing, scramble, wave, fly-in
+  private static readonly _PRETEXT_EFFECTS = new Set(['typing', 'scramble', 'wave', 'fly-in']);
+
+  private _slidesApplyTextEffect(): void {
+    const effect = this._slidesEffects.get(this._slidesCurrentIndex) || '';
+    if (!ResultViewer._PRETEXT_EFFECTS.has(effect)) return;
+
+    const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
+    if (!content) return;
+
+    // Target the main heading for text effects
+    const heading = content.querySelector('h1, h2') as HTMLElement;
+    if (!heading) return;
+
+    const text = heading.textContent || '';
+    if (!text) return;
+
+    switch (effect) {
+      case 'typing': {
+        heading.textContent = '';
+        heading.style.borderRight = '2px solid currentColor';
+        let i = 0;
+        const type = () => {
+          if (i < text.length) {
+            heading.textContent += text[i];
+            i++;
+            requestAnimationFrame(() => setTimeout(type, 40 + Math.random() * 30));
+          } else {
+            // Blink cursor then remove
+            setTimeout(() => {
+              heading.style.borderRight = 'none';
+            }, 800);
+          }
+        };
+        setTimeout(type, 200);
+        break;
+      }
+      case 'scramble': {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&';
+        const revealed = new Array(text.length).fill(false);
+        let iterations = 0;
+        const scramble = () => {
+          let display = '';
+          for (let j = 0; j < text.length; j++) {
+            if (revealed[j] || text[j] === ' ') {
+              display += text[j];
+            } else {
+              display += chars[Math.floor(Math.random() * chars.length)];
+            }
+          }
+          heading.textContent = display;
+          // Reveal 1-2 chars per frame
+          if (iterations > 5) {
+            const unrevealed = revealed
+              .map((r, idx) => (!r && text[idx] !== ' ' ? idx : -1))
+              .filter((x) => x >= 0);
+            if (unrevealed.length > 0) {
+              const pick = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+              revealed[pick] = true;
+            }
+          }
+          iterations++;
+          if (revealed.some((r) => !r) && revealed.filter((r) => r).length < text.length) {
+            requestAnimationFrame(scramble);
+          } else {
+            heading.textContent = text;
+          }
+        };
+        setTimeout(scramble, 200);
+        break;
+      }
+      case 'wave': {
+        heading.innerHTML = '';
+        const chars = text.split('');
+        chars.forEach((char, i) => {
+          const span = document.createElement('span');
+          span.textContent = char === ' ' ? '\u00A0' : char;
+          span.style.display = 'inline-block';
+          span.style.animation = `mood-playful 0.5s ease ${i * 30}ms both`;
+          heading.appendChild(span);
+        });
+        break;
+      }
+      case 'fly-in': {
+        heading.innerHTML = '';
+        const words = text.split(' ');
+        words.forEach((word, i) => {
+          const span = document.createElement('span');
+          span.textContent = word + ' ';
+          span.style.display = 'inline-block';
+          span.style.opacity = '0';
+          span.style.transform = `translate(${(Math.random() - 0.5) * 200}px, ${(Math.random() - 0.5) * 100}px)`;
+          span.style.transition = `all 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 80}ms`;
+          heading.appendChild(span);
+          // Trigger transition
+          requestAnimationFrame(() => {
+            span.style.opacity = '1';
+            span.style.transform = 'none';
+          });
+        });
+        break;
+      }
+    }
   }
 
   /** Advance the next hidden build fragment. Returns true if a fragment was revealed. */
@@ -7232,6 +7398,8 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       }
       // Stagger-in children after transition completes
       this._slidesStaggerIn();
+      // Apply text effects (typing, scramble, wave, fly-in) if specified
+      this._slidesApplyTextEffect();
     };
 
     // Bridge iframe slides: skip View Transition API.
