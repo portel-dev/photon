@@ -16,6 +16,13 @@ import {
 } from '@portel/photon-core';
 import * as readline from 'readline';
 import chalk from 'chalk';
+
+// Bun's TTY detection can cause chalk to default to level 0 (no color).
+// Force truecolor when stdout is a TTY — bun terminals support it.
+if (chalk.level === 0 && process.stdout.isTTY) {
+  chalk.level = 3;
+}
+
 import { highlight } from 'cli-highlight';
 import { resolvePhotonPath } from './path-resolver.js';
 import { PhotonLoader, clearRenderZone } from './loader.js';
@@ -829,9 +836,11 @@ function getGhostColor(): (text: string) => string {
     }
   }
 
-  // Strip syntax characters entirely for clean visual output.
-  // The raw markdown is still available via --raw or piping.
-  _ghostColor = (_t: string) => '';
+  // With chalk.level forced to 3 (truecolor), we can use RGB for precise control.
+  // Dark bg: very dark gray near black. Light bg: very light gray near white.
+  _ghostColor = isLight
+    ? (t: string) => chalk.rgb(210, 210, 210)(t)
+    : (t: string) => chalk.rgb(60, 60, 65)(t);
   return _ghostColor;
 }
 
