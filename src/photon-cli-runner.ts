@@ -797,59 +797,41 @@ function visibleLength(text: string): number {
 let _ghostColor: ((text: string) => string) | null = null;
 
 /**
- * Detect terminal background via env hints and compute a ghost color.
- * Falls back to chalk.dim if detection fails.
+ * Ghost color — near-invisible markdown syntax markers.
+ * Uses ANSI 256 grayscale for broad terminal compatibility.
+ * (chalk.rgb needs truecolor which not all terminals support)
+ *
+ * ANSI 256 grayscale: 232=black → 255=white (24 shades)
  */
 function getGhostColor(): (text: string) => string {
   if (_ghostColor) return _ghostColor;
 
-  // Try COLORFGBG (format: "fg;bg" where 0=black, 15=white)
+  let isLight = false;
+
+  // Check COLORFGBG env (set by some terminals)
   const colorfgbg = process.env.COLORFGBG;
   if (colorfgbg) {
-    const parts = colorfgbg.split(';');
-    const bg = parseInt(parts[parts.length - 1], 10);
-    if (!isNaN(bg)) {
-      // bg <= 6 = dark background, bg >= 8 = light background
-      _ghostColor =
-        bg <= 6
-          ? (t: string) => chalk.rgb(50, 50, 55)(t) // dark bg: very dark gray
-          : (t: string) => chalk.rgb(220, 220, 215)(t); // light bg: very light gray
-      return _ghostColor;
+    const bg = parseInt(colorfgbg.split(';').pop() || '', 10);
+    if (!isNaN(bg) && bg >= 8) isLight = true;
+  }
+
+  // macOS: check system appearance
+  if (!isLight && process.platform === 'darwin') {
+    try {
+      const { execSync } = require('child_process');
+      const result = execSync('defaults read -g AppleInterfaceStyle 2>/dev/null', {
+        encoding: 'utf-8',
+        timeout: 500,
+      }).trim();
+      if (result.toLowerCase() !== 'dark') isLight = true;
+    } catch {
+      // Key missing = light mode default, but most dev terminals are dark
     }
   }
 
-  // Try TERM_PROGRAM + appearance hints
-  const termProgram = process.env.TERM_PROGRAM || '';
-  const isDarkHint =
-    process.env.DARKMODE === '1' ||
-    process.env.TERM_PROGRAM_VERSION?.includes('dark') ||
-    // macOS: check AppleInterfaceStyle
-    (process.platform === 'darwin' &&
-      (() => {
-        try {
-          const { execSync } = require('child_process');
-          const result = execSync('defaults read -g AppleInterfaceStyle 2>/dev/null', {
-            encoding: 'utf-8',
-            timeout: 500,
-          }).trim();
-          return result.toLowerCase() === 'dark';
-        } catch {
-          return false; // Light mode (default when key doesn't exist)
-        }
-      })());
-
-  const isLightHint =
-    process.env.LIGHTMODE === '1' || (termProgram === 'Apple_Terminal' && !isDarkHint);
-
-  if (isDarkHint) {
-    _ghostColor = (t: string) => chalk.rgb(50, 50, 55)(t);
-  } else if (isLightHint) {
-    _ghostColor = (t: string) => chalk.rgb(220, 220, 215)(t);
-  } else {
-    // Default: assume dark terminal (most developer setups)
-    _ghostColor = (t: string) => chalk.rgb(55, 55, 60)(t);
-  }
-
+  // Dark bg: 236 (very dark gray) — Light bg: 253 (very light gray)
+  const colorIndex = isLight ? 253 : 236;
+  _ghostColor = (t: string) => chalk.ansi256(colorIndex)(t);
   return _ghostColor;
 }
 
