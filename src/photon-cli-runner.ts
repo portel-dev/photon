@@ -836,10 +836,10 @@ function getGhostColor(): (text: string) => string {
     }
   }
 
-  // Bypass chalk — write raw ANSI escape sequences directly.
-  // Bun's chalk can output ANSI params without the ESC prefix.
-  // \x1b[90m = dark gray, \x1b[0m = reset
-  _ghostColor = (t: string) => `\x1b[90m${t}\x1b[0m`;
+  // Write ANSI dark gray directly. ESC char via String.fromCharCode
+  // to avoid any build-time or runtime stripping.
+  const ESC = String.fromCharCode(27);
+  _ghostColor = (t: string) => `${ESC}[90m${t}${ESC}[39m`;
   return _ghostColor;
 }
 
