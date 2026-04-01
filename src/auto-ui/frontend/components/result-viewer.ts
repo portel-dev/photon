@@ -5787,6 +5787,74 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     return document.querySelectorAll('.slide-fragment:not(.visible)').length === 0;
   };
 <\/script>
+<script>
+  // Text effects for bridge slides
+  (function() {
+    var canvas = document.querySelector('.slide-canvas');
+    var effect = canvas ? canvas.getAttribute('data-effect') : '';
+    if (!effect) return;
+    var heading = document.querySelector('.slide-body h1, .slide-body h2');
+    if (!heading) return;
+    var text = heading.textContent || '';
+    if (!text) return;
+
+    if (effect === 'typing') {
+      heading.textContent = '';
+      heading.style.borderRight = '2px solid currentColor';
+      var i = 0;
+      function typeChar() {
+        if (i < text.length) {
+          heading.textContent += text[i]; i++;
+          requestAnimationFrame(function() { setTimeout(typeChar, 40 + Math.random() * 30); });
+        } else { setTimeout(function() { heading.style.borderRight = 'none'; }, 800); }
+      }
+      setTimeout(typeChar, 300);
+    } else if (effect === 'scramble') {
+      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      var revealed = new Array(text.length).fill(false);
+      var iter = 0;
+      function scrambleStep() {
+        var d = '';
+        for (var j = 0; j < text.length; j++) {
+          d += (revealed[j] || text[j] === ' ') ? text[j] : chars[Math.floor(Math.random() * chars.length)];
+        }
+        heading.textContent = d;
+        if (iter > 5) {
+          var ur = []; for (var k = 0; k < revealed.length; k++) { if (!revealed[k] && text[k] !== ' ') ur.push(k); }
+          if (ur.length > 0) revealed[ur[Math.floor(Math.random() * ur.length)]] = true;
+        }
+        iter++;
+        if (ur && ur.length > 0) requestAnimationFrame(scrambleStep);
+        else heading.textContent = text;
+      }
+      setTimeout(scrambleStep, 300);
+    } else if (effect === 'wave') {
+      heading.innerHTML = '';
+      text.split('').forEach(function(ch, idx) {
+        var s = document.createElement('span');
+        s.textContent = ch === ' ' ? '\\u00A0' : ch;
+        s.style.display = 'inline-block';
+        s.style.opacity = '0';
+        s.style.transform = 'translateY(20px)';
+        s.style.transition = 'all 0.4s ease ' + (idx * 30) + 'ms';
+        heading.appendChild(s);
+        requestAnimationFrame(function() { s.style.opacity = '1'; s.style.transform = 'none'; });
+      });
+    } else if (effect === 'fly-in') {
+      heading.innerHTML = '';
+      text.split(' ').forEach(function(word, idx) {
+        var s = document.createElement('span');
+        s.textContent = word + ' ';
+        s.style.display = 'inline-block';
+        s.style.opacity = '0';
+        s.style.transform = 'translate(' + ((Math.random()-0.5)*200) + 'px,' + ((Math.random()-0.5)*100) + 'px)';
+        s.style.transition = 'all 0.6s cubic-bezier(0.16,1,0.3,1) ' + (idx * 80) + 'ms';
+        heading.appendChild(s);
+        requestAnimationFrame(function() { s.style.opacity = '1'; s.style.transform = 'none'; });
+      });
+    }
+  })();
+<\/script>
 </body>
 </html>`;
   }
