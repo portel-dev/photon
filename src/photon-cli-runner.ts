@@ -931,33 +931,52 @@ function renderMarkdownNicely(content: string): void {
     });
   });
 
+  // Order matters: compound patterns first, then individual markers.
+
+  // 1. Bold+link combo: **[title](url)** — very common in search results
+  rendered = rendered.replace(
+    /\*\*\[([^\]]+)\]\(([^)]+)\)\*\*/g,
+    (_m, text, url) => ghost('**[') + chalk.bold.blueBright(text) + ghost('](' + url + ')**')
+  );
+
+  // 2. Bold wrapping other content: **text**
+  rendered = rendered.replace(
+    /\*\*([^*]+)\*\*/g,
+    (_m, text) => ghost('**') + chalk.bold(text) + ghost('**')
+  );
+
+  // 3. Links (not already handled by bold+link): [text](url)
   rendered = rendered.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
     (_m, text, url) => ghost('[') + chalk.blueBright(text) + ghost('](' + url + ')')
   );
 
+  // 4. Headings
   rendered = rendered.replace(/^(#{1,6})\s+(.+)$/gm, (_m, hashes, text) => {
     const level = hashes.length;
     const colorFn = level === 1 ? chalk.magenta.bold : level === 2 ? chalk.yellow.bold : chalk.cyan;
     return ghost(hashes + ' ') + colorFn(text.trim());
   });
 
+  // 5. Block-level markers
   rendered = rendered.replace(/^> (.+)$/gm, (_m, quote) => ghost('> ') + chalk.italic(quote));
   rendered = rendered.replace(/^---+$/gm, ghost('---'));
   rendered = rendered.replace(/^- /gm, ghost('- '));
   rendered = rendered.replace(/^(\d+)\. /gm, (_m, num) => ghost(`${num}. `));
+
+  // 6. Italic: *text* (but not ** which is already handled)
   rendered = rendered.replace(
-    /\*\*(.+?)\*\*/g,
-    (_m, text) => ghost('**') + chalk.bold(text) + ghost('**')
-  );
-  rendered = rendered.replace(
-    /\*(.+?)\*/g,
+    /(?<!\*)\*([^*]+)\*(?!\*)/g,
     (_m, text) => ghost('*') + chalk.italic(text) + ghost('*')
   );
+
+  // 7. Underscore italic: _text_
   rendered = rendered.replace(
-    /_(.+?)_/g,
+    /(?<!\w)_([^_]+)_(?!\w)/g,
     (_m, text) => ghost('_') + chalk.italic(text) + ghost('_')
   );
+
+  // 8. Inline code: `code`
   rendered = rendered.replace(
     /`([^`]+)`/g,
     (_m, code) => ghost('`') + chalk.cyan(code) + ghost('`')
