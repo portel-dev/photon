@@ -789,6 +789,75 @@ function visibleLength(text: string): number {
   return text.replace(stripAnsiRegex, '').length;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// GHOST TEXT — markdown syntax characters rendered near-invisible
+// Detects terminal background color and picks a foreground ~15% away from it.
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _ghostColor: ((text: string) => string) | null = null;
+
+/**
+ * Detect terminal background via env hints and compute a ghost color.
+ * Falls back to chalk.dim if detection fails.
+ */
+function getGhostColor(): (text: string) => string {
+  if (_ghostColor) return _ghostColor;
+
+  // Try COLORFGBG (format: "fg;bg" where 0=black, 15=white)
+  const colorfgbg = process.env.COLORFGBG;
+  if (colorfgbg) {
+    const parts = colorfgbg.split(';');
+    const bg = parseInt(parts[parts.length - 1], 10);
+    if (!isNaN(bg)) {
+      // bg <= 6 = dark background, bg >= 8 = light background
+      _ghostColor =
+        bg <= 6
+          ? (t: string) => chalk.rgb(50, 50, 55)(t) // dark bg: very dark gray
+          : (t: string) => chalk.rgb(220, 220, 215)(t); // light bg: very light gray
+      return _ghostColor;
+    }
+  }
+
+  // Try TERM_PROGRAM + appearance hints
+  const termProgram = process.env.TERM_PROGRAM || '';
+  const isDarkHint =
+    process.env.DARKMODE === '1' ||
+    process.env.TERM_PROGRAM_VERSION?.includes('dark') ||
+    // macOS: check AppleInterfaceStyle
+    (process.platform === 'darwin' &&
+      (() => {
+        try {
+          const { execSync } = require('child_process');
+          const result = execSync('defaults read -g AppleInterfaceStyle 2>/dev/null', {
+            encoding: 'utf-8',
+            timeout: 500,
+          }).trim();
+          return result.toLowerCase() === 'dark';
+        } catch {
+          return false; // Light mode (default when key doesn't exist)
+        }
+      })());
+
+  const isLightHint =
+    process.env.LIGHTMODE === '1' || (termProgram === 'Apple_Terminal' && !isDarkHint);
+
+  if (isDarkHint) {
+    _ghostColor = (t: string) => chalk.rgb(50, 50, 55)(t);
+  } else if (isLightHint) {
+    _ghostColor = (t: string) => chalk.rgb(220, 220, 215)(t);
+  } else {
+    // Default: assume dark terminal (most developer setups)
+    _ghostColor = (t: string) => chalk.rgb(55, 55, 60)(t);
+  }
+
+  return _ghostColor;
+}
+
+/** Render text as ghost — near-invisible syntax markers */
+function ghost(text: string): string {
+  return getGhostColor()(text);
+}
+
 function renderMarkdownNicely(content: string): void {
   const termWidth = process.stdout.columns || 80;
   let rendered = content.replace(/\r/g, '');
@@ -864,34 +933,34 @@ function renderMarkdownNicely(content: string): void {
 
   rendered = rendered.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
-    (_m, text, url) => '[' + chalk.blueBright(text) + ']' + chalk.dim('(' + url + ')')
+    (_m, text, url) => ghost('[') + chalk.blueBright(text) + ghost('](' + url + ')')
   );
 
   rendered = rendered.replace(/^(#{1,6})\s+(.+)$/gm, (_m, hashes, text) => {
     const level = hashes.length;
     const colorFn = level === 1 ? chalk.magenta.bold : level === 2 ? chalk.yellow.bold : chalk.cyan;
-    return chalk.dim(hashes + ' ') + colorFn(text.trim());
+    return ghost(hashes + ' ') + colorFn(text.trim());
   });
 
-  rendered = rendered.replace(/^> (.+)$/gm, (_m, quote) => chalk.dim('> ') + chalk.italic(quote));
-  rendered = rendered.replace(/^---+$/gm, chalk.dim('---'));
-  rendered = rendered.replace(/^- /gm, chalk.dim('- '));
-  rendered = rendered.replace(/^(\d+)\. /gm, (_m, num) => chalk.dim(`${num}. `));
+  rendered = rendered.replace(/^> (.+)$/gm, (_m, quote) => ghost('> ') + chalk.italic(quote));
+  rendered = rendered.replace(/^---+$/gm, ghost('---'));
+  rendered = rendered.replace(/^- /gm, ghost('- '));
+  rendered = rendered.replace(/^(\d+)\. /gm, (_m, num) => ghost(`${num}. `));
   rendered = rendered.replace(
     /\*\*(.+?)\*\*/g,
-    (_m, text) => chalk.dim('**') + chalk.bold(text) + chalk.dim('**')
+    (_m, text) => ghost('**') + chalk.bold(text) + ghost('**')
   );
   rendered = rendered.replace(
     /\*(.+?)\*/g,
-    (_m, text) => chalk.dim('*') + chalk.italic(text) + chalk.dim('*')
+    (_m, text) => ghost('*') + chalk.italic(text) + ghost('*')
   );
   rendered = rendered.replace(
     /_(.+?)_/g,
-    (_m, text) => chalk.dim('_') + chalk.italic(text) + chalk.dim('_')
+    (_m, text) => ghost('_') + chalk.italic(text) + ghost('_')
   );
   rendered = rendered.replace(
     /`([^`]+)`/g,
-    (_m, code) => chalk.dim('`') + chalk.cyan(code) + chalk.dim('`')
+    (_m, code) => ghost('`') + chalk.cyan(code) + ghost('`')
   );
 
   rendered = rendered
