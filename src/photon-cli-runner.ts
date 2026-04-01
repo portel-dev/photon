@@ -829,14 +829,10 @@ function getGhostColor(): (text: string) => string {
     }
   }
 
-  // Use chalk.dim + gray — works at all chalk color levels (1, 2, and 3).
-  // chalk.dim renders ANSI faint attribute; chalk.gray adds color.
-  // Together they produce a very subtle text that's near-invisible.
-  if (isLight) {
-    _ghostColor = (t: string) => chalk.gray(t);
-  } else {
-    _ghostColor = (t: string) => chalk.dim.gray(t);
-  }
+  // chalk.hidden uses ANSI attribute 8 (invisible text).
+  // Text is fully invisible but still selectable/copyable.
+  // Supported by most modern terminals (iTerm2, Terminal.app, Ghostty, etc.)
+  _ghostColor = (t: string) => chalk.hidden(t);
   return _ghostColor;
 }
 
