@@ -1191,6 +1191,16 @@ export class MarketplaceManager {
       }
     }
 
+    // Install @photon transitive dependencies from the same marketplace
+    const transitiveDeps = await this.installTransitiveDeps(
+      content,
+      result.marketplace,
+      workingDir
+    );
+    if (transitiveDeps.length > 0) {
+      assetsInstalled.push(...transitiveDeps.map((d) => `@photon ${d}`));
+    }
+
     return { photonPath, assetsInstalled };
   }
 
@@ -1238,13 +1248,22 @@ export class MarketplaceManager {
     const installed: string[] = [];
 
     for (const dep of deps) {
+      // Resolve dependency name from source
+      let depName: string;
       if (
         dep.sourceType === 'local' &&
         (dep.source.startsWith('./') || dep.source.startsWith('../'))
       ) {
-        const depFileName = path.basename(dep.source);
-        const depName = depFileName.replace(/\.photon\.(ts|js)$/, '');
+        // Relative path: ./chat.photon.ts → chat
+        depName = path.basename(dep.source).replace(/\.photon\.(ts|js)$/, '');
+      } else if (dep.sourceType === 'marketplace' || !dep.source.startsWith('/')) {
+        // Marketplace name: whatsapp, agent-router, courier
+        depName = dep.source;
+      } else {
+        continue; // Absolute paths — skip
+      }
 
+      {
         if (visited.has(depName)) continue;
         visited.add(depName);
 
@@ -1252,6 +1271,8 @@ export class MarketplaceManager {
         const namespace = this.extractNamespace(marketplace);
         const installDir = namespace ? path.join(workingDir, namespace) : workingDir;
         if (existsSync(path.join(installDir, `${depName}.photon.ts`))) continue;
+        // Also check flat in workingDir
+        if (existsSync(path.join(workingDir, `${depName}.photon.ts`))) continue;
 
         // Fetch from the same marketplace
         this.logger.info(`Fetching @photon dependency: ${depName}`);
