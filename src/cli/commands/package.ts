@@ -215,6 +215,24 @@ export function registerPackageCommands(program: Command): void {
         const manager = new MarketplaceManager();
         await manager.initialize();
 
+        // Qualified name: owner/repo/photon → install from GitHub directly
+        const slashCount = (name.match(/\//g) || []).length;
+        if (slashCount >= 2) {
+          console.error(`Adding ${name} from GitHub...`);
+          await manager.fetchAndInstallFromRef(name, workingDir);
+          const photonName = name.split('/').pop() || name;
+          console.log(`✅ Added ${photonName} from ${name}`);
+          console.log(`\nRun with: photon mcp ${photonName}`);
+          return;
+        }
+
+        // Marketplace-qualified: marketplace/photon → extract marketplace hint
+        if (slashCount === 1 && !options.marketplace) {
+          const [marketplaceName, photonName] = name.split('/');
+          options.marketplace = marketplaceName;
+          name = photonName;
+        }
+
         // Check for conflicts
         let conflict = await manager.checkConflict(name, options.marketplace);
 
