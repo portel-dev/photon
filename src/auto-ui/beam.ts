@@ -2102,11 +2102,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     }
 
     // Detect asset file changes for local (non-symlinked) photons.
-    // Asset folders live at <workingDir>/<photonName>/ for local photons.
-    // NOTE: Do NOT match runtime data directories (state/, media/, auth/) — only
-    // photon asset directories are relevant here, identified by the loaded photons list.
+    // Asset folders live at <workingDir>/<photonName>/ui/ for local photons.
+    // Skip runtime data directories — only UI asset changes should trigger reload.
+    const DATA_SUBDIRS = ['auth', 'state', 'media', 'data', '.state', '.data', 'logs', 'runs'];
     for (const p of photons) {
       if (relativePath.startsWith(p.name + path.sep)) {
+        // Check if the changed file is inside a data subdirectory
+        const subpath = relativePath.slice(p.name.length + 1);
+        const firstDir = subpath.split(path.sep)[0];
+        if (DATA_SUBDIRS.includes(firstDir)) return null;
         return p.name;
       }
     }
