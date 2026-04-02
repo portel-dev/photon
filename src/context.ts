@@ -61,18 +61,20 @@ function isPhotonDirectory(dir: string): boolean {
 
 /**
  * Get the default PhotonContext.
- * Priority: PHOTON_DIR env var > cwd (if it contains .photon.ts files) > ~/.photon.
+ * Priority: cwd (if it contains .photon.ts files) > PHOTON_DIR env var > ~/.photon.
  *
  * Not cached — env var may change between calls (e.g. tests).
  */
 export function getDefaultContext(): PhotonContext {
-  const dirOverride = process.env.PHOTON_DIR;
+  const cwd = process.cwd();
   let baseDir: string;
 
-  if (dirOverride) {
-    baseDir = path.resolve(dirOverride);
-  } else if (isPhotonDirectory(process.cwd())) {
-    baseDir = process.cwd();
+  if (isPhotonDirectory(cwd)) {
+    // cwd is a marketplace or photon workspace — use it and update env for downstream
+    baseDir = cwd;
+    process.env.PHOTON_DIR = cwd;
+  } else if (process.env.PHOTON_DIR) {
+    baseDir = path.resolve(process.env.PHOTON_DIR);
   } else {
     baseDir = HOME_PHOTON_DIR;
   }
