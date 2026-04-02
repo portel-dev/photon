@@ -9,12 +9,16 @@
 import { mkdirSync, readdirSync, unlinkSync, existsSync } from 'fs';
 import { readJSONSync, writeJSONSync } from '../shared/io.js';
 import { join } from 'path';
-import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import { type Task, TERMINAL_STATES, DEFAULT_TTL, DEFAULT_POLL_INTERVAL } from './types.js';
+import { getTasksDir, getLegacyTasksDir } from '@portel/photon-core';
 
-const TASKS_DIR = join(homedir(), '.photon', 'tasks');
+// Tasks are ephemeral/global — use .data/tasks/
+// Check legacy path for existing tasks during migration
+const newDir = getTasksDir();
+const legacyDir = getLegacyTasksDir();
+const TASKS_DIR = existsSync(newDir) ? newDir : existsSync(legacyDir) ? legacyDir : newDir;
 
 /** Ensure tasks directory exists (idempotent) */
 function ensureDir(): void {

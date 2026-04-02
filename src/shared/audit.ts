@@ -7,11 +7,11 @@
  */
 
 import { appendFileSync, mkdirSync, statSync, renameSync, unlinkSync, existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { join, dirname } from 'path';
+import { getAuditPath } from '@portel/photon-core';
 
-const AUDIT_DIR = join(homedir(), '.photon');
-const AUDIT_FILE = join(AUDIT_DIR, 'audit.jsonl');
+const AUDIT_FILE = getAuditPath();
+const AUDIT_DIR = dirname(AUDIT_FILE);
 
 /** Rotate when file exceeds this size (5MB) */
 const MAX_FILE_SIZE = 5 * 1024 * 1024;

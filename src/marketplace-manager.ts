@@ -12,6 +12,7 @@ import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { verifyContentHash, validateAssetPath, isPathWithin } from './shared/security.js';
 import { getDefaultContext } from './context.js';
+import { getMetadataPath } from '@portel/photon-core';
 import { SchemaExtractor } from '@portel/photon-core';
 
 // Timeout for marketplace fetch requests
@@ -132,7 +133,7 @@ interface MarketplaceManifest {
 }
 
 const CONFIG_DIR = getDefaultContext().baseDir;
-const METADATA_FILE = path.join(CONFIG_DIR, '.metadata.json');
+const METADATA_FILE = getMetadataPath();
 
 // Cache is considered stale after 24 hours
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -225,8 +226,8 @@ export class MarketplaceManager {
     const dir = baseDir || CONFIG_DIR;
     this.configDir = dir;
     this.configFile = path.join(dir, 'marketplaces.json');
-    this.cacheDir = path.join(dir, '.cache', 'marketplaces');
-    this.metadataFile = path.join(dir, '.metadata.json');
+    this.cacheDir = path.join(getDefaultContext().cacheDir, 'marketplaces');
+    this.metadataFile = getMetadataPath(dir);
   }
 
   async initialize() {
