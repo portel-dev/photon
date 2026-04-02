@@ -4037,6 +4037,7 @@ export class ResultViewer extends LitElement {
       case 'slides':
         return typeof data === 'string';
       case 'checklist':
+      case 'guide':
         return Array.isArray(data);
       case 'magazine':
       case 'article':
@@ -4119,6 +4120,8 @@ export class ResultViewer extends LitElement {
         return this._renderSlides(filteredData);
       case 'checklist':
         return this._renderChecklist(filteredData);
+      case 'guide':
+        return this._renderGuide(filteredData);
       case 'magazine':
       case 'article':
         return this._renderMagazine(filteredData);
@@ -8657,6 +8660,105 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
               All ${total} items completed
             </div>`
           : ''}
+      </div>
+    `;
+  }
+
+  // ── Guide Renderer — horizontal stepper for multi-step flows ──
+
+  private _renderGuide(data: any): TemplateResult {
+    // Accepts array of { label, status: 'done'|'active'|'pending', detail? }
+    const steps: Array<{ label: string; status?: string; detail?: string }> = Array.isArray(data)
+      ? data
+      : [];
+    if (steps.length === 0) {
+      return html`<div class="empty-state">No steps</div>`;
+    }
+
+    return html`
+      <div
+        style="display: flex; align-items: flex-start; gap: 0; padding: 16px 8px; overflow-x: auto;"
+      >
+        ${steps.map((step, i) => {
+          const status = step.status || 'pending';
+          const isDone = status === 'done';
+          const isActive = status === 'active';
+
+          // Colors
+          const circleColor = isDone
+            ? 'var(--accent-primary, #3b82f6)'
+            : isActive
+              ? 'var(--accent-primary, #3b82f6)'
+              : 'var(--bg-tertiary, #374151)';
+          const circleBorder = isActive ? '2px solid var(--accent-primary, #3b82f6)' : 'none';
+          const circleText = isDone
+            ? '#fff'
+            : isActive
+              ? 'var(--accent-primary, #3b82f6)'
+              : 'var(--t-muted, #9ca3af)';
+          const circleBg = isDone ? circleColor : isActive ? 'transparent' : circleColor;
+          const labelColor =
+            isDone || isActive ? 'var(--t-primary, #f5f5f5)' : 'var(--t-muted, #9ca3af)';
+          const lineColor = isDone
+            ? 'var(--accent-primary, #3b82f6)'
+            : 'var(--bg-tertiary, #374151)';
+
+          return html`
+            <div style="display: flex; align-items: flex-start; flex: 1; min-width: 0;">
+              <div
+                style="display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 100%;"
+              >
+                <div
+                  style="
+                  width: 28px; height: 28px; border-radius: 50%;
+                  background: ${circleBg}; border: ${circleBorder};
+                  display: flex; align-items: center; justify-content: center;
+                  font-size: 12px; font-weight: 600; color: ${circleText};
+                  transition: all 0.2s ease;
+                "
+                >
+                  ${isDone
+                    ? html`<svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                      >
+                        <path d="M2.5 6l2.5 2.5 4.5-5" />
+                      </svg>`
+                    : i + 1}
+                </div>
+                <div
+                  style="margin-top: 6px; font-size: 12px; font-weight: ${isActive
+                    ? '600'
+                    : '500'}; color: ${labelColor}; text-align: center; line-height: 1.3; padding: 0 4px;"
+                >
+                  ${step.label}
+                </div>
+                ${step.detail
+                  ? html`<div
+                      style="margin-top: 2px; font-size: 11px; color: var(--t-muted, #9ca3af); text-align: center; padding: 0 4px;"
+                    >
+                      ${step.detail}
+                    </div>`
+                  : ''}
+              </div>
+              ${i < steps.length - 1
+                ? html`<div
+                    style="
+                    position: relative; top: 14px;
+                    flex: 1; height: 2px; min-width: 20px;
+                    background: ${lineColor};
+                    transition: background 0.2s ease;
+                  "
+                  ></div>`
+                : ''}
+            </div>
+          `;
+        })}
       </div>
     `;
   }

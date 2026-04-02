@@ -2705,6 +2705,7 @@ export class BeamApp extends LitElement {
               'stack',
               'columns',
               'qr',
+              'guide',
               'slides',
               'presentation',
             ]);

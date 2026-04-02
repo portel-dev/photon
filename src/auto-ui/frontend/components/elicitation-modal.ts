@@ -4,7 +4,7 @@ import { theme, buttons, forms } from '../styles/index.js';
 import { trapFocus } from '../utils/focus-trap.js';
 
 export interface ElicitationData {
-  ask: 'text' | 'password' | 'select' | 'confirm' | 'number' | 'oauth' | 'form';
+  ask: 'text' | 'password' | 'select' | 'confirm' | 'number' | 'oauth' | 'url' | 'form';
   message?: string;
   placeholder?: string;
   default?: any;
@@ -658,6 +658,7 @@ export class ElicitationModal extends LitElement {
       case 'confirm':
         return this._renderConfirm();
       case 'oauth':
+      case 'url':
         return this._renderOAuth();
       case 'form':
         return this._renderForm();
@@ -862,18 +863,20 @@ export class ElicitationModal extends LitElement {
     };
     const provider = this.data?.provider || 'OAuth';
     const icon = providerIcons[provider.toLowerCase()] || providerIcons.default;
-    const scopes = (this.data?.scopes || []).join(', ') || 'basic access';
+    const scopes = (this.data?.scopes || []).join(', ');
+    const customMessage = this.data?.message;
+    const buttonLabel = customMessage ? 'Open' : `Authorize ${provider}`;
 
     return html`
       <div class="oauth-content">
         <div class="oauth-icon">${icon}</div>
-        <p class="oauth-message">Authorization is required to access ${provider}.</p>
-        <p class="oauth-scopes">Requested permissions: ${scopes}</p>
+        <p class="oauth-message">
+          ${customMessage || `Authorization is required to access ${provider}.`}
+        </p>
+        ${scopes ? html`<p class="oauth-scopes">Requested permissions: ${scopes}</p>` : ''}
         <div class="actions" style="justify-content: center;">
           <button class="btn-secondary" @click=${() => this._cancel()}>Cancel</button>
-          <button class="btn-primary" @click=${() => this._startOAuth()}>
-            Authorize ${provider}
-          </button>
+          <button class="btn-primary" @click=${() => this._startOAuth()}>${buttonLabel}</button>
         </div>
       </div>
     `;
