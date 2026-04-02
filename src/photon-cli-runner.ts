@@ -49,7 +49,7 @@ async function resolvePhotonPathWithBundled(name: string): Promise<string | null
   return resolvePhotonPath(name, getDefaultContext().baseDir);
 }
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
-import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
+import { isGlobalDaemonRunning, ensureDaemon } from './daemon/manager.js';
 import { sendCommand, pingDaemon } from './daemon/client.js';
 import {
   formatOutput as baseFormatOutput,
@@ -1844,10 +1844,10 @@ export async function runMethod(
 
     if (metadata.stateful) {
       // STATEFUL PATH: Use daemon
-      // Check if daemon is running
-      if (!isGlobalDaemonRunning()) {
-        await startGlobalDaemon(true);
+      // Ensure daemon is running (auto-restarts if binary is stale)
+      await ensureDaemon();
 
+      if (!isGlobalDaemonRunning()) {
         // Wait for daemon to be ready
         let ready = false;
         for (let i = 0; i < 10; i++) {
