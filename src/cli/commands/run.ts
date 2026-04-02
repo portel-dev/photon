@@ -38,6 +38,7 @@ export const RESERVED_COMMANDS = [
   'upgrade',
   'up',
   'update',
+  'changelog',
   'doctor',
   'audit',
   'clear-cache',

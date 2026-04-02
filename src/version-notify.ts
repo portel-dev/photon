@@ -14,7 +14,6 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import { getDataRoot } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
-import { globalInstallCmd } from './shared-utils.js';
 
 interface VersionCache {
   latest: string;
@@ -133,12 +132,11 @@ export function showUpdateNotice(): void {
 
   const current = PHOTON_VERSION;
   const latest = cache.latest;
-  const cmd = globalInstallCmd('@portel/photon');
 
   const lines: string[] = [];
   lines.push(`  Update available: ${current} → ${latest}`);
-  lines.push(`  Run: ${cmd}`);
-  lines.push(`  Changelog: photon update --changelog`);
+  lines.push(`  Update:    photon update`);
+  lines.push(`  What's new: photon changelog`);
 
   const width = Math.max(...lines.map((l) => l.length)) + 2;
   const pad = (s: string) => s + ' '.repeat(Math.max(0, width - s.length));

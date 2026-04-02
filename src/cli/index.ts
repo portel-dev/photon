@@ -12,6 +12,7 @@ import { getDefaultContext } from '../context.js';
 
 // Command registrations (all lazy-loaded inside their actions)
 import { registerUpdateCommand } from './commands/update.js';
+import { registerChangelogCommand } from './commands/changelog.js';
 import { registerMCPCommand } from './commands/mcp.js';
 import { registerSSECommand, registerBeamCommand } from './commands/beam.js';
 import { registerServeCommand } from './commands/serve.js';
@@ -74,7 +75,8 @@ Package Management:
   info [name]             Show installed photons and details
 
 Maintenance:
-  update                  Refresh marketplace indexes & check CLI version
+  update                  Update Photon CLI to the latest version
+  changelog [version]     Show what's new in the current or latest version
   doctor [name]           Diagnose environment and installations
   audit                   View persistent tool execution audit log
 
@@ -94,6 +96,7 @@ Run 'photon <command> --help' for detailed usage.
 
   // Register all command modules
   registerUpdateCommand(program);
+  registerChangelogCommand(program);
   registerMCPCommand(program);
   registerSSECommand(program);
   registerBeamCommand(program);
