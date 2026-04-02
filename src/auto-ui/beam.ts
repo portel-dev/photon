@@ -2101,16 +2101,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       return relativePath.slice(0, -'.photon.ts'.length);
     }
 
-    // Detect asset file changes for local (non-symlinked) photons.
-    // Asset folders live at <workingDir>/<photonName>/ui/ for local photons.
-    // Skip runtime data directories — only UI asset changes should trigger reload.
-    const DATA_SUBDIRS = ['auth', 'state', 'media', 'data', '.state', '.data', 'logs', 'runs'];
+    // Detect UI asset changes for local (non-symlinked) photons.
+    // Only trigger reload for ui/ subdirectory changes (HTML, CSS, JS assets).
+    // All other subdirectories (auth/, media/, state/, etc.) are runtime data.
     for (const p of photons) {
-      if (relativePath.startsWith(p.name + path.sep)) {
-        // Check if the changed file is inside a data subdirectory
-        const subpath = relativePath.slice(p.name.length + 1);
-        const firstDir = subpath.split(path.sep)[0];
-        if (DATA_SUBDIRS.includes(firstDir)) return null;
+      if (relativePath.startsWith(p.name + path.sep + 'ui' + path.sep)) {
         return p.name;
       }
     }
@@ -2530,6 +2525,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   try {
     const watcher = watch(workingDir, { recursive: true }, (eventType, filename) => {
       if (!filename) return;
+      // Skip all runtime data — .data/ is never source code
+      if (filename.startsWith('.data' + path.sep) || filename === '.data') return;
       const fullPath = path.join(workingDir, filename);
       logger.debug(`📂 File event: ${eventType} ${filename}`);
       const photonName = getPhotonForPath(fullPath);
