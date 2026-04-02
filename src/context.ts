@@ -13,6 +13,7 @@
 
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
 import {
   getDataRoot,
   getCacheDir,
@@ -47,14 +48,34 @@ export interface PhotonContext {
 const HOME_PHOTON_DIR = path.join(os.homedir(), '.photon');
 
 /**
+ * Check if a directory contains .photon.ts files (is a marketplace or photon workspace).
+ */
+function isPhotonDirectory(dir: string): boolean {
+  try {
+    const entries = fs.readdirSync(dir);
+    return entries.some((e) => e.endsWith('.photon.ts'));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get the default PhotonContext.
- * Respects PHOTON_DIR env var; falls back to ~/.photon.
+ * Priority: PHOTON_DIR env var > cwd (if it contains .photon.ts files) > ~/.photon.
  *
  * Not cached — env var may change between calls (e.g. tests).
  */
 export function getDefaultContext(): PhotonContext {
   const dirOverride = process.env.PHOTON_DIR;
-  const baseDir = dirOverride ? path.resolve(dirOverride) : HOME_PHOTON_DIR;
+  let baseDir: string;
+
+  if (dirOverride) {
+    baseDir = path.resolve(dirOverride);
+  } else if (isPhotonDirectory(process.cwd())) {
+    baseDir = process.cwd();
+  } else {
+    baseDir = HOME_PHOTON_DIR;
+  }
 
   return Object.freeze({
     baseDir,
