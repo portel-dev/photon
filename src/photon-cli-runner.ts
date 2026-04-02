@@ -25,6 +25,7 @@ if (chalk.level === 0) {
 
 import { highlight } from 'cli-highlight';
 import { resolvePhotonPath } from './path-resolver.js';
+import { getDefaultContext } from './context.js';
 import { PhotonLoader, clearRenderZone } from './loader.js';
 import { fileURLToPath } from 'url';
 import { getBundledPhotonPath } from './shared-utils.js';
@@ -44,8 +45,8 @@ async function resolvePhotonPathWithBundled(name: string): Promise<string | null
     return bundledPath;
   }
 
-  // Fall back to user photons
-  return resolvePhotonPath(name);
+  // Fall back to user photons (respects PHOTON_DIR)
+  return resolvePhotonPath(name, getDefaultContext().baseDir);
 }
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
@@ -1552,7 +1553,7 @@ export async function listMethods(photonName: string): Promise<void> {
     if (!resolvedPath) {
       exitWithError(`Photon '${photonName}' not found`, {
         exitCode: ExitCode.NOT_FOUND,
-        searchedIn: '~/.photon/',
+        searchedIn: getDefaultContext().baseDir,
         suggestion: `Install it with: photon add ${photonName}\nIf '${photonName}' is a command, run 'photon --help' for available commands`,
       });
     }
@@ -1637,7 +1638,7 @@ export async function listMethods(photonName: string): Promise<void> {
     }
   } catch (error) {
     exitWithError(`Cannot list methods for ${photonName}: ${getErrorMessage(error)}`, {
-      suggestion: `Verify the photon file is valid: ~/.photon/${photonName}.photon.ts`,
+      suggestion: `Verify the photon file is valid: ${getDefaultContext().baseDir}/${photonName}.photon.ts`,
     });
   }
 }
@@ -1678,7 +1679,7 @@ export async function runMethod(
     if (!resolvedPath) {
       exitWithError(`Photon '${photonName}' not found`, {
         exitCode: ExitCode.NOT_FOUND,
-        searchedIn: '~/.photon/',
+        searchedIn: getDefaultContext().baseDir,
         suggestion: `Install it with: photon add ${photonName}\nIf '${photonName}' is a command, run 'photon --help' for available commands`,
       });
     }
@@ -1859,7 +1860,7 @@ export async function runMethod(
 
         if (!ready) {
           exitWithError(`Failed to start daemon for ${photonName}`, {
-            suggestion: `Check logs: cat ~/.photon/daemons/${photonName}/daemon.log\nOr try: photon daemon restart ${photonName}`,
+            suggestion: `Check logs: cat ${getDefaultContext().baseDir}/.data/daemon.log\nOr try: photon daemon restart ${photonName}`,
           });
         }
       }

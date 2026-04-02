@@ -146,7 +146,9 @@ async function setupMCPDependencies(
       await setMCPServerConfig(dep.name, serverConfig);
       configured.push(dep.name);
     }
-    console.error(`\n✓ Auto-configured ${configured.length} MCP(s) in ~/.photon/config.json`);
+    console.error(
+      `\n✓ Auto-configured ${configured.length} MCP(s) in ${getDefaultContext().configFile}`
+    );
     return { configured, skipped };
   }
 
@@ -178,7 +180,7 @@ async function setupMCPDependencies(
   }
 
   if (configured.length > 0) {
-    console.error(`\n✓ Saved ${configured.length} MCP(s) to ~/.photon/config.json`);
+    console.error(`\n✓ Saved ${configured.length} MCP(s) to ${getDefaultContext().configFile}`);
   }
 
   if (skipped.length > 0) {

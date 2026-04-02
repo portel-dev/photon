@@ -257,7 +257,7 @@ echo -e "\${BLUE}Fetching available photons...\${NC}"
 PHOTONS=$(photon get 2>/dev/null | grep "📦" | awk '{print $2}' | sort)
 
 if [ -z "$PHOTONS" ]; then
-  echo -e "\${YELLOW}No photons found in ~/.photon/\${NC}"
+  echo -e "\${YELLOW}No photons found\${NC}"
   echo -e "Install photons from the marketplace first:"
   echo -e "  photon add <name>"
   exit 0

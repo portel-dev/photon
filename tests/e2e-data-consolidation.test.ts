@@ -252,6 +252,11 @@ await test('photon list finds calc in PHOTON_DIR', () => {
   assert.ok(output.includes('calc'), `list should include calc, got: ${output.trim()}`);
 });
 
+await test('photon cli can call calc.add via PHOTON_DIR', () => {
+  const output = photon('cli calc add --a 10 --b 20', scenario1Dir);
+  assert.ok(output.includes('30'), `add result should include 30, got: ${output.trim()}`);
+});
+
 // ══════════════════════════════════════════════════════════════════════════════
 // SCENARIO 2: Marketplace repo with git remote
 // ══════════════════════════════════════════════════════════════════════════════
@@ -326,6 +331,11 @@ await test('.gitignore auto-generated with .data/', () => {
 await test('photon list finds greeter in marketplace repo', () => {
   const output = photon('list', scenario2Dir);
   assert.ok(output.includes('greeter'), `list should include greeter, got: ${output.trim()}`);
+});
+
+await test('photon cli can call greeter.hello via PHOTON_DIR', () => {
+  const output = photon('cli greeter hello --name World', scenario2Dir);
+  assert.ok(output.includes('Hello, World!'), `should greet, got: ${output.trim()}`);
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

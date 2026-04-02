@@ -408,6 +408,14 @@ export function registerMCPCommand(program: Command): void {
         const { PhotonServer } = await import('../../server.js');
         const { FileWatcher } = await import('../../watcher.js');
 
+        // Run data migration (fast no-op if already done)
+        try {
+          const { runDataMigration } = await import('../../data-migration.js');
+          await runDataMigration();
+        } catch {
+          // Non-critical
+        }
+
         // Start MCP server
         const server = new PhotonServer({
           filePath: filePath || '', // empty when unresolved — server handles it

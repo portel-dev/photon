@@ -540,6 +540,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const workingDir = path.resolve(rawWorkingDir);
   const { PHOTON_VERSION } = await import('../version.js');
 
+  // Run data migration on first startup (fast no-op if already done)
+  try {
+    const { runDataMigration } = await import('../data-migration.js');
+    await runDataMigration();
+  } catch {
+    // Non-critical
+  }
+
   // StartupSequencer manages ordered output during startup
   const startup = new StartupSequencer(PHOTON_VERSION, workingDir);
   const isTTY = process.stderr.isTTY;

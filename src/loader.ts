@@ -2415,7 +2415,7 @@ export class PhotonLoader {
       // If configured but failed, provide more specific error
       throw new Error(
         `MCP "${dep.name}" is configured but failed to connect: ${errorMsg}\n` +
-          `Check your ~/.photon/config.json configuration and ensure:\n` +
+          `Check your config.json configuration and ensure:\n` +
           `  • The command/URL is correct\n` +
           `  • Required environment variables are set\n` +
           `  • The MCP server is accessible`

@@ -26,7 +26,7 @@ const PATH_SEPARATOR = IS_WINDOWS ? ';' : ':';
 export async function createAlias(photonName: string, aliasName?: string): Promise<void> {
   try {
     // Verify photon exists
-    const photonPath = await resolvePhotonPath(photonName);
+    const photonPath = await resolvePhotonPath(photonName, getDefaultContext().baseDir);
     if (!photonPath) {
       logger.error(`Photon '${photonName}' not found`);
       logger.info(`Install it first with: photon add ${photonName}`);
