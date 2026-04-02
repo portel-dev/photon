@@ -20,11 +20,9 @@ interface VersionCache {
   latest: string;
   checkedAt: string;
   notifiedVersion?: string;
-  changelog?: string[];
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const CHANGELOG_URL = 'https://raw.githubusercontent.com/portel-dev/photon/main/CHANGELOG.md';
 
 function getCachePath(): string {
   return path.join(getDataRoot(), '.version-check.json');
@@ -80,7 +78,6 @@ export function refreshUpdateCache(): void {
 
   const cachePath = getCachePath();
   const script = `
-    const https = require('https');
     const fs = require('fs');
     const { execSync } = require('child_process');
 
@@ -94,51 +91,19 @@ export function refreshUpdateCache(): void {
 
     if (!latest) process.exit(0);
 
-    // Fetch changelog
-    const url = ${JSON.stringify(CHANGELOG_URL)};
-    https.get(url, { timeout: 10000 }, (res) => {
-      if (res.statusCode !== 200) { writeAndExit(latest, []); return; }
-      let body = '';
-      res.on('data', d => body += d);
-      res.on('end', () => {
-        const bullets = [];
-        let inVersion = false;
-        for (const line of body.split('\\n')) {
-          if (line.startsWith('## ')) {
-            if (inVersion) break;
-            if (line.includes(latest)) inVersion = true;
-            continue;
-          }
-          if (!inVersion) continue;
-          if (line.startsWith('* ')) {
-            let b = line.slice(2)
-              .replace(/\\s*\\(\\[[a-f0-9]+\\]\\([^)]+\\)\\)\\s*$/, '')
-              .replace(/\\[([^\\]]+)\\]\\([^)]+\\)/g, '$1')
-              .trim();
-            if (b) { bullets.push(b); if (bullets.length >= 5) break; }
-          }
-        }
-        writeAndExit(latest, bullets);
-      });
-    }).on('error', () => writeAndExit(latest, []));
-
-    function writeAndExit(ver, changelog) {
-      const existing = (() => {
-        try { return JSON.parse(fs.readFileSync(${JSON.stringify(cachePath)}, 'utf-8')); }
-        catch { return {}; }
-      })();
-      const data = {
-        latest: ver,
-        checkedAt: new Date().toISOString(),
-        changelog,
-        notifiedVersion: existing.notifiedVersion || undefined,
-      };
-      try {
-        fs.mkdirSync(require('path').dirname(${JSON.stringify(cachePath)}), { recursive: true });
-        fs.writeFileSync(${JSON.stringify(cachePath)}, JSON.stringify(data, null, 2));
-      } catch {}
-      process.exit(0);
-    }
+    const existing = (() => {
+      try { return JSON.parse(fs.readFileSync(${JSON.stringify(cachePath)}, 'utf-8')); }
+      catch { return {}; }
+    })();
+    const data = {
+      latest,
+      checkedAt: new Date().toISOString(),
+      notifiedVersion: existing.notifiedVersion || undefined,
+    };
+    try {
+      fs.mkdirSync(require('path').dirname(${JSON.stringify(cachePath)}), { recursive: true });
+      fs.writeFileSync(${JSON.stringify(cachePath)}, JSON.stringify(data, null, 2));
+    } catch {}
   `;
 
   // Spawn detached — parent doesn't wait
@@ -172,19 +137,8 @@ export function showUpdateNotice(): void {
 
   const lines: string[] = [];
   lines.push(`  Update available: ${current} → ${latest}`);
-
-  if (cache.changelog && cache.changelog.length > 0) {
-    lines.push('');
-    for (const bullet of cache.changelog.slice(0, 3)) {
-      lines.push(`  · ${bullet}`);
-    }
-    if (cache.changelog.length > 3) {
-      lines.push(`  · ... and ${cache.changelog.length - 3} more`);
-    }
-  }
-
-  lines.push('');
   lines.push(`  Run: ${cmd}`);
+  lines.push(`  Changelog: photon update --changelog`);
 
   const width = Math.max(...lines.map((l) => l.length)) + 2;
   const pad = (s: string) => s + ' '.repeat(Math.max(0, width - s.length));

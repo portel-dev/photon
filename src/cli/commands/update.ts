@@ -1,7 +1,7 @@
 /**
  * Update CLI Command
  *
- * Refresh marketplace indexes and check for CLI updates
+ * Refresh marketplace indexes, check for CLI updates, and show changelog.
  */
 
 import type { Command } from 'commander';
@@ -10,6 +10,77 @@ import { runTask } from '../../shared/task-runner.js';
 import { PHOTON_VERSION } from '../../version.js';
 import { globalInstallCmd } from '../../shared-utils.js';
 
+const CHANGELOG_URL = 'https://raw.githubusercontent.com/portel-dev/photon/main/CHANGELOG.md';
+
+/**
+ * Fetch and display changelog for a specific version (or latest).
+ */
+async function showChangelog(version?: string): Promise<void> {
+  const { printHeader, printInfo, printWarning } = await import('../../cli-formatter.js');
+  const https = await import('https');
+
+  const content = await new Promise<string>((resolve, reject) => {
+    https
+      .get(CHANGELOG_URL, { timeout: 10000 }, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        let body = '';
+        res.on('data', (d: Buffer) => (body += d.toString()));
+        res.on('end', () => resolve(body));
+      })
+      .on('error', reject);
+  });
+
+  const lines = content.split('\n');
+  const targetVersion = version || undefined;
+  let inVersion = false;
+  let versionHeader = '';
+  const entries: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      if (inVersion) break; // Hit next version — done
+      if (!targetVersion || line.includes(targetVersion)) {
+        inVersion = true;
+        // Extract version from header
+        const match = line.match(/\[?(\d+\.\d+\.\d+)\]?/);
+        versionHeader = match ? match[1] : line.replace('## ', '');
+      }
+      continue;
+    }
+    if (!inVersion) continue;
+    entries.push(line);
+  }
+
+  if (!inVersion) {
+    printWarning(`No changelog found for version ${targetVersion || 'latest'}`);
+    return;
+  }
+
+  printHeader(`Changelog — ${versionHeader}`);
+  console.log('');
+
+  for (const line of entries) {
+    if (line.startsWith('### ')) {
+      // Section header (Features, Bug Fixes)
+      printInfo(line.replace('### ', ''));
+    } else if (line.startsWith('* ')) {
+      // Bullet — clean up commit links
+      const clean = line
+        .slice(2)
+        .replace(/\s*\(\[[a-f0-9]+\]\([^)]+\)\)\s*$/g, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .trim();
+      console.log(`  · ${clean}`);
+    } else if (line.trim()) {
+      console.log(`  ${line.trim()}`);
+    }
+  }
+  console.log('');
+}
+
 /**
  * Register the hidden `update` command
  */
@@ -17,8 +88,16 @@ export function registerUpdateCommand(program: Command): void {
   program
     .command('update', { hidden: true })
     .description('Update marketplace indexes and check for CLI updates')
-    .action(async () => {
+    .option('--changelog [version]', 'Show changelog for a version (default: latest)')
+    .action(async (options: { changelog?: string | boolean }) => {
       try {
+        // If --changelog flag, show changelog and exit
+        if (options.changelog !== undefined) {
+          const version = typeof options.changelog === 'string' ? options.changelog : undefined;
+          await showChangelog(version);
+          return;
+        }
+
         const { printInfo, printSuccess, printWarning, printHeader } =
           await import('../../cli-formatter.js');
         const { MarketplaceManager } = await import('../../marketplace-manager.js');
@@ -46,7 +125,6 @@ export function registerUpdateCommand(program: Command): void {
         try {
           latestVersion = await runTask('Checking for Photon CLI updates', async () => {
             const { execSync } = await import('child_process');
-            // bun doesn't have `bun view`, always use npm for registry checks
             const viewCmd = `npm view @portel/photon version`;
             return execSync(viewCmd, {
               encoding: 'utf-8',
@@ -65,6 +143,7 @@ export function registerUpdateCommand(program: Command): void {
             printWarning(`Current: ${version}`);
             printInfo(`Latest:  ${latestVersion}`);
             printInfo(`Update with: ${globalInstallCmd('@portel/photon')}`);
+            printInfo(`Changelog: photon update --changelog ${latestVersion}`);
           } else {
             printSuccess(`Photon CLI is up to date (${version})`);
           }
