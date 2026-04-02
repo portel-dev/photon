@@ -601,10 +601,16 @@ export class PhotonLoader {
 
   private static parseDependenciesFromSource(source: string): DependencySpec[] {
     const deps: DependencySpec[] = [];
+
+    // Only match @dependencies inside JSDoc blocks (/** ... */)
+    const jsdocBlocks = source.match(/\/\*\*[\s\S]*?\*\//g) || [];
+    const jsdocText = jsdocBlocks.join('\n');
+
     const regex = /@dependencies\s+([^\r\n]+)/g;
     let match;
-    while ((match = regex.exec(source)) !== null) {
+    while ((match = regex.exec(jsdocText)) !== null) {
       const entries = match[1]
+        .replace(/\*\/$/, '') // strip trailing */ if on same line
         .split(',')
         .map((entry) => entry.trim())
         .filter(Boolean);
@@ -619,6 +625,10 @@ export class PhotonLoader {
         } else {
           name = entry.slice(0, atIndex).trim();
           version = entry.slice(atIndex + 1).trim();
+        }
+        // Validate: npm package names are lowercase, may have @scope/, no spaces
+        if (name.includes(' ') || !/^(@[a-z0-9-]+\/)?[a-z0-9._-]+$/.test(name)) {
+          continue;
         }
         // Trailing ? marks the dependency as optional (e.g. sharp@^0.33.0?)
         const optional = version.endsWith('?');
