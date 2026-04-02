@@ -86,6 +86,7 @@ import {
   type MiddlewareContext,
   type MiddlewareDeclaration,
   type MiddlewareHandler,
+  detectNamespace,
 } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
 import * as os from 'os';
@@ -795,8 +796,9 @@ export class PhotonLoader {
         this.logger.warn(String(configError));
       }
 
-      // Set photon name for event source identification
+      // Set photon name and namespace for event source identification and data paths
       instance._photonName = name;
+      instance._photonNamespace = this.resolveNamespace(absolutePath);
 
       // Inject instance name for named instances (runtime concept, not code)
       instance.instanceName = options?.instanceName ?? '';
@@ -911,7 +913,7 @@ export class PhotonLoader {
           Object.defineProperty(instance, 'memory', {
             get() {
               if (!this._memory) {
-                this._memory = new MemoryProvider(name, this._sessionId);
+                this._memory = new MemoryProvider(name, this._sessionId, this._photonNamespace);
               }
               return this._memory;
             },
@@ -1327,6 +1329,7 @@ export class PhotonLoader {
     }
 
     instance._photonName = name;
+    instance._photonNamespace = this.resolveNamespace(absolutePath);
     instance.instanceName = options?.instanceName ?? '';
 
     // Inject file path for storage()/assets() resolution.
@@ -1425,7 +1428,7 @@ export class PhotonLoader {
         Object.defineProperty(instance, 'memory', {
           get() {
             if (!this._memory) {
-              this._memory = new MemoryProvider(name, this._sessionId);
+              this._memory = new MemoryProvider(name, this._sessionId, this._photonNamespace);
             }
             return this._memory;
           },
@@ -3968,6 +3971,28 @@ Run: photon mcp ${mcpName} --config
       check.on('close', (code) => resolve(code === 0));
       check.on('error', () => resolve(false));
     });
+  }
+
+  /**
+   * Resolve the namespace for a photon based on its file path.
+   * Extracts the directory name between baseDir and the photon file.
+   *
+   * Examples:
+   *   ~/.photon/portel-dev/todo.photon.ts → 'portel-dev'
+   *   ~/.photon/local/todo.photon.ts      → 'local'
+   *   ~/.photon/todo.photon.ts            → detected from git or 'local'
+   */
+  private resolveNamespace(absolutePath: string): string {
+    const rel = path.relative(this.baseDir, absolutePath);
+    const parts = rel.split(path.sep);
+
+    // If file is in a subdirectory (namespace/photon.ts), use that as namespace
+    if (parts.length >= 2) {
+      return parts[0];
+    }
+
+    // Flat file at root — detect from git remote or default to 'local'
+    return detectNamespace(this.baseDir);
   }
 
   /**
