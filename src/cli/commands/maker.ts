@@ -386,6 +386,28 @@ echo "whenever you commit changes to .photon.ts files."
   await fs.mkdir(marketplaceDir, { recursive: true });
   console.error('✅ Created .marketplace directory');
 
+  // Ensure .data/ is in .gitignore (runtime data should never be committed)
+  const gitignorePath = path.join(absolutePath, '.gitignore');
+  let gitignore = '';
+  try {
+    gitignore = await fs.readFile(gitignorePath, 'utf-8');
+  } catch {
+    /* doesn't exist */
+  }
+  const patterns = ['.data/', 'node_modules/', '.DS_Store'];
+  const missing = patterns.filter(
+    (p) =>
+      !gitignore
+        .split('\n')
+        .map((l) => l.trim())
+        .includes(p)
+  );
+  if (missing.length > 0) {
+    const append = (gitignore && !gitignore.endsWith('\n') ? '\n' : '') + missing.join('\n') + '\n';
+    await fs.appendFile(gitignorePath, append);
+    console.error('✅ Added .data/ to .gitignore');
+  }
+
   // Run initial sync (don't filter installed for marketplace repos)
   console.error('\n🔄 Running initial marketplace sync...\n');
   await performMarketplaceSync(absolutePath, options);
@@ -393,8 +415,10 @@ echo "whenever you commit changes to .photon.ts files."
   console.error('\n✅ Marketplace initialized successfully!');
   console.error('\nNext steps:');
   console.error('1. Add your .photon.ts files to this directory');
-  console.error('2. Commit your changes (hooks will auto-sync)');
-  console.error('3. Push to GitHub to share your marketplace');
+  console.error('2. Run `photon beam` from here to develop and test');
+  console.error('   Runtime data is stored in .data/ (gitignored automatically)');
+  console.error('3. Commit your changes (hooks will auto-sync the manifest)');
+  console.error('4. Push to GitHub to share your marketplace');
   console.error('\nContributors can setup hooks with:');
   console.error('  bash .githooks/setup.sh');
 }
