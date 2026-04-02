@@ -28,10 +28,16 @@ export class ReadmeSyncer {
       return false;
     }
 
-    // README exists - preserve user content
+    // README exists — check if markers are present
     const existing = await fs.readFile(this.readmePath, 'utf-8');
-    const updated = this.replaceMarkedSection(existing, generatedContent);
 
+    if (!existing.includes(MARKER_START) && !existing.includes(MARKER_END)) {
+      // User has a custom README without markers — don't inject.
+      // They've deliberately removed or never had the auto-generated section.
+      return true;
+    }
+
+    const updated = this.replaceMarkedSection(existing, generatedContent);
     await fs.writeFile(this.readmePath, updated, 'utf-8');
     return true;
   }
