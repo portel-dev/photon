@@ -609,11 +609,16 @@ export class PhotonLoader {
         .filter(Boolean);
       for (const entry of entries) {
         const atIndex = entry.lastIndexOf('@');
+        let name: string;
+        let version: string;
         if (atIndex <= 0) {
-          continue;
+          // No version specified (e.g., "sharp") — default to latest
+          name = entry.trim();
+          version = '*';
+        } else {
+          name = entry.slice(0, atIndex).trim();
+          version = entry.slice(atIndex + 1).trim();
         }
-        const name = entry.slice(0, atIndex).trim();
-        let version = entry.slice(atIndex + 1).trim();
         // Trailing ? marks the dependency as optional (e.g. sharp@^0.33.0?)
         const optional = version.endsWith('?');
         if (optional) {
