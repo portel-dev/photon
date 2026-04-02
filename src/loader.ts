@@ -87,6 +87,7 @@ import {
   type MiddlewareDeclaration,
   type MiddlewareHandler,
   detectNamespace,
+  getCacheDir,
 } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
 import * as os from 'os';
@@ -432,7 +433,7 @@ export class PhotonLoader {
    * Directory where MCP-specific dependencies are cached
    */
   private getDependencyCacheDir(cacheKey: string): string {
-    return path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', cacheKey);
+    return path.join(getCacheDir(), 'dependencies', cacheKey);
   }
 
   private getBuildCacheDir(cacheKey: string): string {
