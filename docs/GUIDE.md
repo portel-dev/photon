@@ -1862,7 +1862,7 @@ export default class Calculator {
 
 **Tool:** esbuild (fast TypeScript compiler)
 
-**Cache:** `~/.cache/photon-mcp/compiled/{hash}.js`
+**Cache:** `~/.photon/.data/.cache/compiled/{hash}.js`
 
 **2. Constructor Parameter Extraction:**
 ```typescript
@@ -1991,7 +1991,7 @@ In `--dev` mode:
 
 Photon caches compiled artifacts and installed dependencies so repeated startups are fast. Here is where things live and what happens when they go stale.
 
-**Dependency cache**: `~/.cache/photon-mcp/dependencies/{cacheKey}/`
+**Dependency cache**: `~/.photon/.data/.cache/dependencies/{cacheKey}/`
 
 Each photon's `@dependencies` get their own isolated `node_modules`. The cache key is derived from the dependency list, so changing your `@dependencies` tag naturally creates a fresh cache.
 

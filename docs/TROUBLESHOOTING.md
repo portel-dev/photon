@@ -75,7 +75,7 @@ ls ~/.photon/*.photon.ts
 ls ~/.photon/<name>/ui/
 
 # Check marketplace cache
-ls ~/.photon/.cache/
+ls ~/.photon/.data/.cache/
 
 # Run Beam diagnostics (in browser)
 # Start Beam, then click the 🔍 Status button in the bottom-left
@@ -285,13 +285,13 @@ export default class MyMCP {
 photon clear-cache
 
 # Or clear specific MCP
-rm -rf ~/.cache/photon-mcp/dependencies/<mcp-name>
+rm -rf ~/.photon/.data/.cache/dependencies/<mcp-name>
 
 # Check npm configuration
 npm config list
 
 # Try manual install to see error
-cd ~/.cache/photon-mcp/dependencies/<mcp-name>
+cd ~/.photon/.data/.cache/dependencies/<mcp-name>
 npm install
 ```
 
@@ -484,7 +484,7 @@ photon conflicts
 **Diagnosis**:
 ```bash
 # Check dependency size
-du -sh ~/.cache/photon-mcp/dependencies/<mcp-name>/node_modules
+du -sh ~/.photon/.data/.cache/dependencies/<mcp-name>/node_modules
 
 # Profile startup
 time photon mcp <name>
@@ -761,11 +761,11 @@ npm run test:integration
 
 ```bash
 # Clear everything
-rm -rf ~/.cache/photon-mcp
+rm -rf ~/.photon/.data/.cache
 rm -rf ~/.photon/.cache
 
 # Clear specific MCP
-rm -rf ~/.cache/photon-mcp/dependencies/<mcp-name>
+rm -rf ~/.photon/.data/.cache/dependencies/<mcp-name>
 ```
 
 ---

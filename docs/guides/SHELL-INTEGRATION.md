@@ -74,7 +74,7 @@ Running `photon init cli` on an unsupported shell (e.g., fish, nushell) shows th
 
 ### Completion Cache
 
-Tab completion reads from `~/.photon/cache/completions.cache` — a grep-friendly text file (or parsed via `Get-Content` on PowerShell). No Node.js process is spawned during tab completion, so it's fast (< 10ms).
+Tab completion reads from `~/.photon/.data/.cache/completions.cache` — a grep-friendly text file (or parsed via `Get-Content` on PowerShell). No Node.js process is spawned during tab completion, so it's fast (< 10ms).
 
 The cache contains:
 - Photon names and descriptions

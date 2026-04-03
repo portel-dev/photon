@@ -192,7 +192,7 @@ Photon comes **batteries included** with a daemon that provides infrastructure f
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         DAEMON                                  │
-│                  ~/.photon/daemon.sock                          │
+│              ~/.photon/.data/daemon.sock                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────┐│
@@ -271,7 +271,7 @@ Photons marked with `@stateful` have their state persisted to disk and shared ac
 
 ```
                         State on Disk
-                    ~/.photon/state/{name}.json
+                ~/.photon/.data/{name}/state/{instance}/state.json
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
@@ -436,7 +436,7 @@ All clients use the same daemon session ID (`shared-{photonName}`) for stateful 
 | Path | Protocol | Implementation |
 |------|----------|----------------|
 | Browser ↔ Beam | MCP Streamable HTTP | `POST /mcp` + SSE responses |
-| Cross-process sync | Daemon Unix Socket | `~/.photon/daemon.sock` |
+| Cross-process sync | Daemon Unix Socket | `~/.photon/.data/daemon.sock` |
 | Photon ↔ External MCP | stdio / SSE / HTTP | `@mcp` directive |
 | CLI ↔ Photon (stateless) | Direct method call | In-process |
 | CLI ↔ Photon (`@stateful`) | Daemon Unix Socket | Shared session via daemon |
@@ -692,7 +692,7 @@ Durable human-in-the-loop that survives navigation and restart:
 
 ```
 yield { ask: 'confirm', persistent: true, expires: '24h' }
-→ written to ~/.photon/state/{photon}/approvals.json
+→ written to ~/.photon/.data/{photon}/state/{instance}/approvals.json
 → exposed as approval:// MCP resources
 → resolved via beam/approval-response
 ```
@@ -711,7 +711,7 @@ tasks/get { taskId: "task_xxx" }
 
 **Task states:** `working` → `completed` | `failed` | `cancelled`. Generator yields update progress; `yield { ask: ... }` sets `input_required`.
 
-**Storage:** `~/.photon/tasks/{taskId}.json`
+**Storage:** `~/.photon/.data/tasks/{taskId}.json`
 
 **Files:** `src/tasks/types.ts`, `src/tasks/store.ts`, handlers in `streamable-http-transport.ts`
 

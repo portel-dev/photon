@@ -300,7 +300,7 @@ async generate({ quarter }: { quarter: string }) {
 - Batch operations across large datasets
 - Any operation where the client shouldn't block waiting
 
-**How results are stored:** The execution audit trail (`~/.photon/logs/{photonId}/executions.jsonl`) records the full result, timing, and any errors once the background task completes.
+**How results are stored:** The execution audit trail (`~/.photon/.data/{photonId}/logs/executions.jsonl`) records the full result, timing, and any errors once the background task completes.
 
 ## Daemon Feature Tags
 
@@ -1275,9 +1275,9 @@ Every photon that extends `PhotonMCP` gets a built-in `this.memory` provider —
 
 | Scope | Storage | Use Case |
 |-------|---------|----------|
-| `photon` (default) | `~/.photon/data/{photonId}/` | Private state for this photon |
-| `session` | `~/.photon/sessions/{sessionId}/{photonId}/` | Per-user session data |
-| `global` | `~/.photon/data/_global/` | Shared across all photons |
+| `photon` (default) | `~/.photon/.data/{photonId}/memory/` | Private state for this photon |
+| `session` | `~/.photon/.data/_sessions/{sessionId}/{photonId}/` | Per-user session data |
+| `global` | `~/.photon/.data/_global/` | Shared across all photons |
 
 ### Example: Bookmark Manager
 

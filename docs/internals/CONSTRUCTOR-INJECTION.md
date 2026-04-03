@@ -23,11 +23,11 @@ export default class Dashboard {
 
 | # | Type | Trigger | Managed by | Source |
 |---|------|---------|------------|--------|
-| 1 | **Environment** | Primitive, no default | `photon set` | `~/.photon/env/` or `process.env` |
-| 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/context/` |
+| 1 | **Environment** | Primitive, no default | `photon set` | `~/.photon/.data/{photon}/env.json` or `process.env` |
+| 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/.data/{photon}/context.json` |
 | 3 | **MCP client** | Name matches `@mcp` declaration | Runtime | Proxy to running MCP server |
 | 4 | **Photon instance** | Name matches `@photon` declaration | Runtime | Loaded photon class instance |
-| 5 | **Persisted state** | Non-primitive with default, on `@stateful` photon | Runtime | `~/.photon/state/` |
+| 5 | **Persisted state** | Non-primitive with default, on `@stateful` photon | Runtime | `~/.photon/.data/{photon}/state/` |
 
 > **See [CONSTRUCTOR-CONTEXT.md](CONSTRUCTOR-CONTEXT.md)** for full details on `photon use` and `photon set` commands, including context-based state partitioning for `@stateful` photons.
 
@@ -37,8 +37,8 @@ For each constructor parameter, the runtime resolves in this order:
 
 1. **Matches `@mcp` tag?** → Create/reuse MCP client proxy
 2. **Matches `@photon` tag?** → Load/reuse photon instance
-3. **Primitive, no default?** → Environment variable (`~/.photon/env/` then `process.env`)
-4. **Primitive, has default?** → Context value (`~/.photon/context/`, falls back to default)
+3. **Primitive, no default?** → Environment variable (`~/.photon/.data/{photon}/env.json` then `process.env`)
+4. **Primitive, has default?** → Context value (`~/.photon/.data/{photon}/context.json`, falls back to default)
 5. **Non-primitive with default on `@stateful`?** → Restore from state snapshot
 6. **Fallback** → `undefined` (constructor default applies)
 
@@ -188,10 +188,10 @@ export default class List {
 **First run:**
 1. No snapshot exists → `new List()` → default `items = []` applies
 2. User calls `add("apples")` → reactive array detects `.push()`
-3. Runtime persists `{ "items": ["apples"] }` to `~/.photon/state/list.json`
+3. Runtime persists `{ "items": ["apples"] }` to `~/.photon/.data/list/state/default/state.json`
 
 **Daemon restarts:**
-1. Runtime reads `~/.photon/state/list.json` → `{ "items": ["apples"] }`
+1. Runtime reads `~/.photon/.data/list/state/default/state.json` → `{ "items": ["apples"] }`
 2. Instantiates `new List(["apples"])` — constructor default overridden
 3. State is fully restored, user sees their data
 

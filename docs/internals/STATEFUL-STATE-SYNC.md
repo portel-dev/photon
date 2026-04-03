@@ -140,7 +140,7 @@ Every method call flows through this pipeline:
 ```typescript
 export default class TodoList extends Photon {
   // This array is THE source of truth
-  // - Backed by disk (persisted to ~/.photon/state/...)
+  // - Backed by disk (persisted to ~/.photon/.data/{photon}/state/...)
   // - Only modified via public methods
   // - All clients sync to this version
   items: Task[] = [];
@@ -159,12 +159,12 @@ The runtime automatically persists state:
 
 **Where:**
 ```
-~/.photon/state/{photon-name}/{instance-name}.json
+~/.photon/.data/{photon-name}/state/{instance-name}/state.json
 ```
 
 **Example:**
 ```
-~/.photon/state/todo/default.json
+~/.photon/.data/todo/state/default/state.json
 ```
 
 **Format:**

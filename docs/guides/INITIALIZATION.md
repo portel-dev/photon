@@ -47,7 +47,7 @@ photon init cli
 This command:
 1. **Detects your shell** — zsh, bash, or PowerShell (auto-detection via `$SHELL` or Windows platform)
 2. **Adds shell hook** — Appends a single eval/invoke line to your rc file
-3. **Generates completion cache** — Creates `~/.photon/cache/completions.cache` with all photon metadata
+3. **Generates completion cache** — Creates `~/.photon/.data/.cache/completions.cache` with all photon metadata
 4. **Creates shell functions** — Generates one function per installed photon (e.g., `list()`, `kanban()`)
 5. **Sets up fallback handler** — New photons work immediately without shell restart
 
@@ -96,7 +96,7 @@ git-box() { photon cli git-box "$@"; }
 
 **2. Tab Completion** (reads from cache)
 ```bash
-# Tab completion cache at ~/.photon/cache/completions.cache
+# Tab completion cache at ~/.photon/.data/.cache/completions.cache
 # Contains: photon names, methods, parameters, instances
 # Updated when `photon init cli` runs or when you add new photons
 ```
@@ -267,7 +267,7 @@ Step 2/2: Daemon auto-start
 
 ## `photon init completions` — Completion Cache Management
 
-Manages the shell completion cache at `~/.photon/cache/completions.cache`.
+Manages the shell completion cache at `~/.photon/.data/.cache/completions.cache`.
 
 ### Show Cache Status
 
@@ -344,7 +344,7 @@ exec $SHELL    # zsh/bash
 
 Removes only the integration line — doesn't delete:
 - `~/.photon/` directory
-- `~/.photon/cache/completions.cache`
+- `~/.photon/.data/.cache/completions.cache`
 - Any photon data or state
 
 ---
@@ -407,7 +407,7 @@ photon init cli
     └─ $PROFILE  (PowerShell)
     ↓
 [Generate Completion Cache]
-    └─ ~/.photon/cache/completions.cache
+    └─ ~/.photon/.data/.cache/completions.cache
        (Contains: photons, methods, params, instances)
     ↓
 User runs: source ~/.zshrc
@@ -484,7 +484,7 @@ declare -f list  # should show function definition
 **Fixes:**
 ```bash
 # 1. Check cache file exists
-ls -la ~/.photon/cache/completions.cache
+ls -la ~/.photon/.data/.cache/completions.cache
 
 # 2. Regenerate cache
 photon init completions --generate
@@ -538,7 +538,7 @@ SHELL=/bin/zsh photon init cli
 After running `photon init all`:
 
 - [ ] Shell hook installed in rc file (`~/.zshrc`, `~/.bashrc`, or `$PROFILE`)
-- [ ] Completion cache created at `~/.photon/cache/completions.cache`
+- [ ] Completion cache created at `~/.photon/.data/.cache/completions.cache`
 - [ ] Shell restarted or sourced (eval line activated)
 - [ ] Photon name works directly without `photon cli` prefix (e.g., `list add`)
 - [ ] Tab completion works (try: `list ⇥`)

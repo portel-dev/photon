@@ -21,8 +21,8 @@ export default class Tracker {
 
 | # | Type | Trigger | Managed by | Storage |
 |---|------|---------|------------|---------|
-| 1 | **Environment** | Primitive, no default | `photon set` | `~/.photon/env/{photon}.json` |
-| 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/context/{photon}.json` |
+| 1 | **Environment** | Primitive, no default | `photon set` | `~/.photon/.data/{photon}/env.json` |
+| 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/.data/{photon}/context.json` |
 | 3 | **Dependency** | Non-primitive (or matches `@mcp`/`@photon`) | Runtime | MCP client / photon instance / state snapshot |
 
 ### Resolution Order (updated)
@@ -31,8 +31,8 @@ For each constructor parameter, the runtime resolves:
 
 1. **Matches `@mcp` tag?** → MCP client proxy
 2. **Matches `@photon` tag?** → Photon instance
-3. **Primitive, no default?** → Environment variable (`~/.photon/env/{photon}.json` or `process.env`)
-4. **Primitive, has default?** → Context value (`~/.photon/context/{photon}.json`, falls back to default)
+3. **Primitive, no default?** → Environment variable (`~/.photon/.data/{photon}/env.json` or `process.env`)
+4. **Primitive, has default?** → Context value (`~/.photon/.data/{photon}/context.json`, falls back to default)
 5. **Non-primitive with default on `@stateful`?** → Persisted state snapshot
 6. **Fallback** → `undefined` (constructor default applies)
 
@@ -79,13 +79,13 @@ Values without a param name are mapped positionally to constructor parameter ord
 ### Storage
 
 ```
-~/.photon/env/tracker.json
+~/.photon/.data/tracker/env.json
 {
   "apiKey": "sk-new-key-789"
 }
 ```
 
-The loader reads from this file first, falls back to `process.env.TRACKER_API_KEY`. This means `photon set` values take precedence over shell environment variables.
+The loader reads from this file first, falls back to `process.env.TRACKER_API_KEY`. This means `photon set` values take precedence over shell environment variables. (Legacy path `~/.photon/env/tracker.json` is also checked as a fallback for migration.)
 
 ---
 
@@ -152,7 +152,7 @@ Detection logic:
 ### Storage
 
 ```
-~/.photon/context/tracker.json
+~/.photon/.data/tracker/context.json
 {
   "region": "eu-west",
   "tier": "premium"
@@ -184,16 +184,18 @@ export default class TodoList {
 ### State Directory Structure
 
 ```
-~/.photon/state/
-  todo-list/              # default partition
-    snapshot.json         # { "items": [...] }
-  todo-list--work/        # "work" partition
-    snapshot.json         # { "items": [...] }
-  todo-list--family/      # "family" partition
-    snapshot.json         # { "items": [...] }
+~/.photon/.data/
+  todo-list/
+    state/
+      default/            # default partition
+        state.json        # { "items": [...] }
+      work/               # "work" partition
+        state.json        # { "items": [...] }
+      family/             # "family" partition
+        state.json        # { "items": [...] }
 ```
 
-The partition suffix is derived from context param values: `{photon}--{value}`. Multiple context params are joined: `{photon}--{val1}--{val2}`.
+Each partition gets its own subdirectory under `state/`: `.data/{photon}/state/{value}/state.json`. Multiple context params are joined: `.data/{photon}/state/{val1}--{val2}/state.json`.
 
 ### Workflow
 
@@ -202,7 +204,7 @@ $ photon use todo-list workouts
 ✓ Context: name=workouts
 
 $ photon cli todo-list add "Push-ups"
-# → loads state from ~/.photon/state/todo-list--workouts/snapshot.json
+# → loads state from ~/.photon/.data/todo-list/state/workouts/state.json
 # → runs add("Push-ups")
 # → persists updated state
 
@@ -210,7 +212,7 @@ $ photon use todo-list groceries
 ✓ Context: name=groceries
 
 $ photon cli todo-list add "Milk"
-# → loads state from ~/.photon/state/todo-list--groceries/snapshot.json
+# → loads state from ~/.photon/.data/todo-list/state/groceries/state.json
 # → completely separate list
 ```
 
