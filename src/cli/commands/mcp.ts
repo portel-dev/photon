@@ -426,7 +426,24 @@ export function registerMCPCommand(program: Command): void {
             const metadata = await extractor.extractFullMetadata();
             if (metadata.channel) {
               channelMode = true;
-              channelInstructions = metadata.description;
+              // Extract class-level JSDoc description for channel instructions
+              // (metadata.description may pick up the first JSDoc in the file, not the class one)
+              const source = await fs.readFile(filePath, 'utf-8');
+              // Extract the JSDoc block immediately before the class declaration
+              const allDocs = [...source.matchAll(/\/\*\*([\s\S]*?)\*\//g)];
+              const classIdx = source.search(/(?:export\s+)?(?:default\s+)?class\s/);
+              // Find the last JSDoc that ends before the class keyword
+              const classDoc = allDocs
+                .reverse()
+                .find((m) => m.index !== undefined && m.index + m[0].length <= classIdx);
+              if (classDoc) {
+                const lines = classDoc[1]
+                  .split('\n')
+                  .map((l: string) => l.replace(/^\s*\*\s?/, '').trim())
+                  .filter((l: string) => l && !l.startsWith('@') && !l.startsWith('#'));
+                channelInstructions = lines.join(' ');
+              }
+              if (!channelInstructions) channelInstructions = metadata.description;
             }
           } catch {
             // Non-critical — proceed without channel mode
