@@ -124,4 +124,7 @@ async function runUIResourceTests() {
 }
 
 // Run if executed directly
-runUIResourceTests().catch(console.error);
+runUIResourceTests().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

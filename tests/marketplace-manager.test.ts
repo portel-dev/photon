@@ -21,7 +21,11 @@ async function runTests() {
     assert.equal(result.sourceType, 'github', 'Should be github type');
     assert.equal(result.name, 'repo', 'Name should be repo');
     assert.equal(result.repo, 'username/repo', 'Repo should be username/repo');
-    assert.equal(result.url, 'https://raw.githubusercontent.com/username/repo/main', 'URL should be raw GitHub');
+    assert.equal(
+      result.url,
+      'https://raw.githubusercontent.com/username/repo/main',
+      'URL should be raw GitHub'
+    );
     console.log('✅ GitHub shorthand parsing');
   }
 
@@ -50,7 +54,11 @@ async function runTests() {
     assert.equal(result.sourceType, 'git-ssh', 'Should be git-ssh type');
     assert.equal(result.name, 'repo', 'Name should be repo');
     assert.equal(result.repo, 'username/repo', 'Repo should be username/repo');
-    assert.equal(result.url, 'https://raw.githubusercontent.com/username/repo/main', 'Should convert to HTTPS URL');
+    assert.equal(
+      result.url,
+      'https://raw.githubusercontent.com/username/repo/main',
+      'Should convert to HTTPS URL'
+    );
     console.log('✅ GitHub SSH parsing');
   }
 
@@ -90,7 +98,11 @@ async function runTests() {
     assert.ok(result, 'Should parse local absolute path');
     assert.equal(result.sourceType, 'local', 'Should be local type');
     assert.equal(result.name, 'mcps', 'Name should be mcps');
-    assert.equal(result.url, 'file:///absolute/path/to/mcps', 'URL should be file:// with absolute path');
+    assert.equal(
+      result.url,
+      'file:///absolute/path/to/mcps',
+      'URL should be file:// with absolute path'
+    );
     console.log('✅ Local absolute path parsing');
   }
 
@@ -117,7 +129,10 @@ async function runTests() {
   } else {
     // On non-Windows, just verify the regex matches Windows paths
     const windowsPathRegex = /^[A-Za-z]:[\\/]/;
-    assert.ok(windowsPathRegex.test('C:\\Program Files\\Microsoft\\Caller'), 'Should detect Windows path pattern');
+    assert.ok(
+      windowsPathRegex.test('C:\\Program Files\\Microsoft\\Caller'),
+      'Should detect Windows path pattern'
+    );
     console.log('✅ Windows absolute path pattern detection (cross-platform)');
   }
 
@@ -131,7 +146,10 @@ async function runTests() {
     console.log('✅ Windows forward slash path parsing');
   } else {
     const windowsPathRegex = /^[A-Za-z]:[\\/]/;
-    assert.ok(windowsPathRegex.test('D:/Users/Documents/photons'), 'Should detect Windows path with forward slashes');
+    assert.ok(
+      windowsPathRegex.test('D:/Users/Documents/photons'),
+      'Should detect Windows path with forward slashes'
+    );
     console.log('✅ Windows forward slash path pattern detection (cross-platform)');
   }
 
@@ -215,7 +233,11 @@ async function runTests() {
 
     assert.equal(isTemplate('api://docs'), false, 'Static URI should not be template');
     assert.equal(isTemplate('readme://{projectType}'), true, 'URI with {param} should be template');
-    assert.equal(isTemplate('github://repos/{owner}/{repo}'), true, 'URI with multiple {params} should be template');
+    assert.equal(
+      isTemplate('github://repos/{owner}/{repo}'),
+      true,
+      'URI with multiple {params} should be template'
+    );
     console.log('✅ URI template regex detection');
   }
 
@@ -224,5 +246,8 @@ async function runTests() {
 
 // Run if executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runTests().catch(console.error);
+  runTests().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
 }

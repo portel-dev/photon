@@ -43,7 +43,10 @@ test('Smart rendering detects status field as badge', async () => {
     const resultHtml = await beam.page.locator('#result-content').innerHTML();
     // Status should be rendered as badge
     assert.ok(resultHtml.includes('list-item-badge'), 'Should have badge class');
-    assert.ok(resultHtml.includes('active') || resultHtml.includes('inactive'), 'Should display status');
+    assert.ok(
+      resultHtml.includes('active') || resultHtml.includes('inactive'),
+      'Should display status'
+    );
   }, opts);
 });
 
@@ -115,7 +118,10 @@ test('Nested object renders as tree', async () => {
     await beam.selectMethod('demo', 'getNestedData');
     const content = await beam.getResultContent();
     // Should show nested structure (user.profile.name)
-    assert.ok(content.includes('Test User') || content.includes('user'), 'Should render nested data');
+    assert.ok(
+      content.includes('Test User') || content.includes('user'),
+      'Should render nested data'
+    );
   }, opts);
 });
 
@@ -155,7 +161,10 @@ test('Empty array shows appropriate message', async () => {
     const content = await beam.getResultContent();
     // Should show empty state or empty array representation
     assert.ok(
-      content.includes('empty') || content.includes('[]') || content.includes('No') || content.length < 50,
+      content.includes('empty') ||
+        content.includes('[]') ||
+        content.includes('No') ||
+        content.length < 50,
       'Should handle empty array gracefully'
     );
   }, opts);
@@ -191,7 +200,10 @@ test('Card has key-value structure', async () => {
     await beam.selectMethod('demo', 'getConfig');
     const resultHtml = await beam.page.locator('#result-content').innerHTML();
     // Should have key-value pairs
-    assert.ok(resultHtml.includes('Environment') || resultHtml.includes('environment'), 'Should show environment key');
+    assert.ok(
+      resultHtml.includes('Environment') || resultHtml.includes('environment'),
+      'Should show environment key'
+    );
     assert.ok(resultHtml.includes('test'), 'Should show test value');
   }, opts);
 });
@@ -200,4 +212,7 @@ test('Card has key-value structure', async () => {
 // Run Tests
 // ============================================================================
 
-runTests().catch(console.error);
+runTests().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

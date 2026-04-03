@@ -244,4 +244,7 @@ test('Player template has correct structure', async () => {
 // Run Tests
 // ============================================================================
 
-runTests().catch(console.error);
+runTests().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

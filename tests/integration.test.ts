@@ -168,5 +168,8 @@ async function runIntegrationTests() {
 
 // Run if executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runIntegrationTests().catch(console.error);
+  runIntegrationTests().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
 }

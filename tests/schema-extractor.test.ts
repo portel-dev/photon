@@ -123,7 +123,11 @@ async function runTests() {
     assert.equal(result.tools.length, 1, 'Should have 1 tool');
     const schema = result.tools[0].inputSchema;
     assert.equal(schema.properties.action.type, 'string', 'Should have string type');
-    assert.deepEqual(schema.properties.action.enum, ['create', 'update', 'delete'], 'Should have enum array');
+    assert.deepEqual(
+      schema.properties.action.enum,
+      ['create', 'update', 'delete'],
+      'Should have enum array'
+    );
     assert.equal(schema.properties.action.anyOf, undefined, 'Should not have anyOf');
     console.log('✅ String literal union to enum');
   }
@@ -159,8 +163,16 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.notEqual(schema.properties.value.anyOf, undefined, 'Should have anyOf for non-literal union');
-    assert.equal(schema.properties.value.enum, undefined, 'Should not have enum for non-literal union');
+    assert.notEqual(
+      schema.properties.value.anyOf,
+      undefined,
+      'Should have anyOf for non-literal union'
+    );
+    assert.equal(
+      schema.properties.value.enum,
+      undefined,
+      'Should not have enum for non-literal union'
+    );
     console.log('✅ Non-literal unions use anyOf');
   }
 
@@ -178,16 +190,28 @@ async function runTests() {
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
     assert.notEqual(schema.properties.level.anyOf, undefined, 'Should have anyOf for mixed union');
-    assert.equal(schema.properties.level.anyOf.length, 2, 'Should have 2 anyOf entries (number + string enum)');
+    assert.equal(
+      schema.properties.level.anyOf.length,
+      2,
+      'Should have 2 anyOf entries (number + string enum)'
+    );
 
     // Check that we have a number type
-    const hasNumberType = schema.properties.level.anyOf.some((s: any) => s.type === 'number' && !s.enum);
+    const hasNumberType = schema.properties.level.anyOf.some(
+      (s: any) => s.type === 'number' && !s.enum
+    );
     assert.equal(hasNumberType, true, 'Should have plain number type');
 
     // Check that string literals are grouped into one enum
-    const stringEnums = schema.properties.level.anyOf.filter((s: any) => s.type === 'string' && s.enum);
+    const stringEnums = schema.properties.level.anyOf.filter(
+      (s: any) => s.type === 'string' && s.enum
+    );
     assert.equal(stringEnums.length, 1, 'Should have exactly one string enum entry');
-    assert.deepEqual(stringEnums[0].enum, ['+1', '-1', '+2', '-2'], 'String literals should be grouped');
+    assert.deepEqual(
+      stringEnums[0].enum,
+      ['+1', '-1', '+2', '-2'],
+      'String literals should be grouped'
+    );
 
     console.log('✅ Mixed unions generate optimized anyOf');
   }
@@ -208,7 +232,11 @@ async function runTests() {
     assert.equal(schema.properties.level.type, 'number', 'Should be number type');
     assert.equal(schema.properties.level.minimum, 0, 'Should have minimum constraint');
     assert.equal(schema.properties.level.maximum, 100, 'Should have maximum constraint');
-    assert.equal(schema.properties.level.description, 'Volume percentage', 'Constraint tags should be removed from description');
+    assert.equal(
+      schema.properties.level.description,
+      'Volume percentage',
+      'Constraint tags should be removed from description'
+    );
     console.log('✅ JSDoc constraints with {@min} {@max}');
   }
 
@@ -228,7 +256,9 @@ async function runTests() {
     assert.notEqual(schema.properties.level.anyOf, undefined, 'Should have anyOf');
 
     // Find the number schema in anyOf
-    const numberSchema = schema.properties.level.anyOf.find((s: any) => s.type === 'number' && !s.enum);
+    const numberSchema = schema.properties.level.anyOf.find(
+      (s: any) => s.type === 'number' && !s.enum
+    );
     assert.notEqual(numberSchema, undefined, 'Should have number type in anyOf');
     assert.equal(numberSchema.minimum, 0, 'Number type should have minimum');
     assert.equal(numberSchema.maximum, 100, 'Number type should have maximum');
@@ -350,7 +380,11 @@ async function runTests() {
     // Username - multiple string constraints
     assert.equal(schema.properties.username.minLength, 3, 'Username should have minLength');
     assert.equal(schema.properties.username.maxLength, 20, 'Username should have maxLength');
-    assert.equal(schema.properties.username.pattern, '^[a-zA-Z0-9_]+$', 'Username should have pattern');
+    assert.equal(
+      schema.properties.username.pattern,
+      '^[a-zA-Z0-9_]+$',
+      'Username should have pattern'
+    );
 
     // Email - format only
     assert.equal(schema.properties.email.format, 'email', 'Email should have format');
@@ -378,10 +412,26 @@ async function runTests() {
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
     assert.equal(schema.properties.tags.type, 'array', 'Should be array type');
-    assert.equal(schema.properties.tags.uniqueItems, true, 'Should have uniqueItems with {@unique}');
-    assert.equal(schema.properties.ids.uniqueItems, true, 'Should have uniqueItems with {@uniqueItems}');
-    assert.equal(schema.properties.tags.description, 'Unique tags', 'Should remove {@unique} from description');
-    assert.equal(schema.properties.ids.description, 'Unique IDs', 'Should remove {@uniqueItems} from description');
+    assert.equal(
+      schema.properties.tags.uniqueItems,
+      true,
+      'Should have uniqueItems with {@unique}'
+    );
+    assert.equal(
+      schema.properties.ids.uniqueItems,
+      true,
+      'Should have uniqueItems with {@uniqueItems}'
+    );
+    assert.equal(
+      schema.properties.tags.description,
+      'Unique tags',
+      'Should remove {@unique} from description'
+    );
+    assert.equal(
+      schema.properties.ids.description,
+      'Unique IDs',
+      'Should remove {@uniqueItems} from description'
+    );
     console.log('✅ Array uniqueItems constraint');
   }
 
@@ -421,7 +471,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.deepEqual(schema.properties.query.examples, ['john doe', 'jane smith'], 'Should have multiple string examples');
+    assert.deepEqual(
+      schema.properties.query.examples,
+      ['john doe', 'jane smith'],
+      'Should have multiple string examples'
+    );
     assert.deepEqual(schema.properties.limit.examples, [20], 'Should have numeric example');
     assert.deepEqual(schema.properties.active.examples, [true], 'Should have boolean example');
     console.log('✅ Example values');
@@ -462,7 +516,11 @@ async function runTests() {
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
     assert.equal(schema.properties.userId.deprecated, true, 'Should have deprecated=true');
-    assert.equal(schema.properties.username.deprecated, 'Use updateUserV2 instead', 'Should have deprecated message');
+    assert.equal(
+      schema.properties.username.deprecated,
+      'Use updateUserV2 instead',
+      'Should have deprecated message'
+    );
     console.log('✅ deprecated constraint');
   }
 
@@ -525,8 +583,16 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.equal(schema.properties.id.readOnly, true, 'Should extract readOnly from TS readonly modifier');
-    assert.equal(schema.properties.name.readOnly, undefined, 'Should not have readOnly on non-readonly property');
+    assert.equal(
+      schema.properties.id.readOnly,
+      true,
+      'Should extract readOnly from TS readonly modifier'
+    );
+    assert.equal(
+      schema.properties.name.readOnly,
+      undefined,
+      'Should not have readOnly on non-readonly property'
+    );
     console.log('✅ Extract readonly from TypeScript');
   }
 
@@ -546,7 +612,11 @@ async function runTests() {
     const schema = result.tools[0].inputSchema;
     // JSDoc writeOnly should override TS readonly
     assert.equal(schema.properties.id.writeOnly, true, 'JSDoc writeOnly should be set');
-    assert.equal(schema.properties.id.readOnly, undefined, 'TS readonly should be overridden by JSDoc writeOnly');
+    assert.equal(
+      schema.properties.id.readOnly,
+      undefined,
+      'TS readonly should be overridden by JSDoc writeOnly'
+    );
     // JSDoc readOnly should be set even without TS readonly
     assert.equal(schema.properties.name.readOnly, true, 'JSDoc readOnly should be set');
     console.log('✅ JSDoc overrides TypeScript readonly');
@@ -565,7 +635,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.equal(schema.properties.id.readOnly, true, 'Should preserve TS readonly when no JSDoc override');
+    assert.equal(
+      schema.properties.id.readOnly,
+      true,
+      'Should preserve TS readonly when no JSDoc override'
+    );
     console.log('✅ TypeScript readonly without JSDoc override');
   }
 
@@ -588,10 +662,26 @@ async function runTests() {
     const schema = result.tools[0].inputSchema;
     assert.equal(schema.properties.name.type, 'string', 'Should have name as string');
     assert.equal(schema.properties.address.type, 'object', 'Should have address as object');
-    assert.notEqual(schema.properties.address.properties, undefined, 'Nested object should have properties');
-    assert.equal(schema.properties.address.properties.street.type, 'string', 'Nested street should be string');
-    assert.equal(schema.properties.address.properties.city.type, 'string', 'Nested city should be string');
-    assert.equal(schema.properties.address.properties.zip.type, 'number', 'Nested zip should be number');
+    assert.notEqual(
+      schema.properties.address.properties,
+      undefined,
+      'Nested object should have properties'
+    );
+    assert.equal(
+      schema.properties.address.properties.street.type,
+      'string',
+      'Nested street should be string'
+    );
+    assert.equal(
+      schema.properties.address.properties.city.type,
+      'string',
+      'Nested city should be string'
+    );
+    assert.equal(
+      schema.properties.address.properties.zip.type,
+      'number',
+      'Nested zip should be number'
+    );
     console.log('✅ Nested objects');
   }
 
@@ -629,11 +719,23 @@ async function runTests() {
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
     // Last one wins: writeOnly should win for field1
-    assert.equal(schema.properties.field1.writeOnly, true, 'Last constraint should win (writeOnly)');
-    assert.equal(schema.properties.field1.readOnly, undefined, 'Should not have readOnly when writeOnly is set');
+    assert.equal(
+      schema.properties.field1.writeOnly,
+      true,
+      'Last constraint should win (writeOnly)'
+    );
+    assert.equal(
+      schema.properties.field1.readOnly,
+      undefined,
+      'Should not have readOnly when writeOnly is set'
+    );
     // Last one wins: readOnly should win for field2
     assert.equal(schema.properties.field2.readOnly, true, 'Last constraint should win (readOnly)');
-    assert.equal(schema.properties.field2.writeOnly, undefined, 'Should not have writeOnly when readOnly is set');
+    assert.equal(
+      schema.properties.field2.writeOnly,
+      undefined,
+      'Should not have writeOnly when readOnly is set'
+    );
     console.log('✅ Conflicting constraints (last wins)');
   }
 
@@ -669,7 +771,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.deepEqual(schema.properties.query.examples, ['john', 'jane', 'bob', 'alice'], 'Should support multiple examples');
+    assert.deepEqual(
+      schema.properties.query.examples,
+      ['john', 'jane', 'bob', 'alice'],
+      'Should support multiple examples'
+    );
     console.log('✅ Multiple examples (4)');
   }
 
@@ -686,7 +792,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.equal(schema.properties.phone.pattern, '^\\d{3}-\\d{4}$', 'Should preserve escaped characters');
+    assert.equal(
+      schema.properties.phone.pattern,
+      '^\\d{3}-\\d{4}$',
+      'Should preserve escaped characters'
+    );
     console.log('✅ Escaped characters in pattern');
   }
 
@@ -728,7 +838,10 @@ async function runTests() {
 
   // Test 36: Very long enum list
   {
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(l => `'${l}'`).join(' | ');
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+      .split('')
+      .map((l) => `'${l}'`)
+      .join(' | ');
     const source = `
       async selectLetter(params: { letter: ${letters} }) {
         return letter;
@@ -754,7 +867,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.equal(schema.properties.value.default, 'not-json-123', 'Should use invalid JSON as string');
+    assert.equal(
+      schema.properties.value.default,
+      'not-json-123',
+      'Should use invalid JSON as string'
+    );
     console.log('✅ Invalid JSON in default (fallback to string)');
   }
 
@@ -792,7 +909,11 @@ async function runTests() {
     const assets = extractor.extractAssets(source);
     assert.equal(assets.ui.length, 2, 'Should detect 2 UI assets');
     assert.equal(assets.ui[0].id, 'settings', 'First UI id should be settings');
-    assert.equal(assets.ui[0].path, './ui/settings.html', 'First UI path should be ./ui/settings.html');
+    assert.equal(
+      assets.ui[0].path,
+      './ui/settings.html',
+      'First UI path should be ./ui/settings.html'
+    );
     assert.equal(assets.ui[1].id, 'theme-preview', 'Second UI id should be theme-preview');
     console.log('✅ UI asset extraction');
   }
@@ -827,8 +948,16 @@ async function runTests() {
     const assets = extractor.extractAssets(source);
     assert.equal(assets.resources.length, 2, 'Should detect 2 resource assets');
     assert.equal(assets.resources[0].id, 'defaults', 'First resource id should be defaults');
-    assert.equal(assets.resources[0].path, './resources/defaults.json', 'Should have relative path');
-    assert.equal(assets.resources[1].path, '/absolute/path/schema.json', 'Should have absolute path');
+    assert.equal(
+      assets.resources[0].path,
+      './resources/defaults.json',
+      'Should have relative path'
+    );
+    assert.equal(
+      assets.resources[1].path,
+      '/absolute/path/schema.json',
+      'Should have absolute path'
+    );
     console.log('✅ Resource asset extraction');
   }
 
@@ -915,8 +1044,16 @@ async function runTests() {
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
     assert.equal(schema.properties.a.title, 'First Number', 'First param should have custom label');
-    assert.equal(schema.properties.b.title, 'Second Number', 'Second param should have custom label');
-    assert.equal(schema.properties.a.description, 'First value to add', 'Label tag should be removed from description');
+    assert.equal(
+      schema.properties.b.title,
+      'Second Number',
+      'Second param should have custom label'
+    );
+    assert.equal(
+      schema.properties.a.description,
+      'First value to add',
+      'Label tag should be removed from description'
+    );
     console.log('✅ Custom parameter labels with {@label}');
   }
 
@@ -955,7 +1092,11 @@ async function runTests() {
     assert.equal(schema.properties.level.title, 'Volume Level', 'Should have custom label');
     assert.equal(schema.properties.level.minimum, 0, 'Should have minimum constraint');
     assert.equal(schema.properties.level.maximum, 100, 'Should have maximum constraint');
-    assert.equal(schema.properties.level.description, 'Volume percentage', 'Should have clean description');
+    assert.equal(
+      schema.properties.level.description,
+      'Volume percentage',
+      'Should have clean description'
+    );
     console.log('✅ Label combined with other constraints');
   }
 
@@ -972,8 +1113,16 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.equal(schema.properties.value.title, undefined, 'Should not have title without {@label}');
-    assert.equal((result.tools[0] as any).buttonLabel, undefined, 'Should not have buttonLabel without {@label}');
+    assert.equal(
+      schema.properties.value.title,
+      undefined,
+      'Should not have title without {@label}'
+    );
+    assert.equal(
+      (result.tools[0] as any).buttonLabel,
+      undefined,
+      'Should not have buttonLabel without {@label}'
+    );
     console.log('✅ No title without {@label} tag');
   }
 
@@ -1008,8 +1157,16 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.equal(schema.properties.query.placeholder, 'Type to search...', 'Should have custom placeholder');
-    assert.equal(schema.properties.query.description, 'Search query', 'Placeholder tag should be removed from description');
+    assert.equal(
+      schema.properties.query.placeholder,
+      'Type to search...',
+      'Should have custom placeholder'
+    );
+    assert.equal(
+      schema.properties.query.description,
+      'Search query',
+      'Placeholder tag should be removed from description'
+    );
     console.log('✅ Placeholder tag extraction');
   }
 
@@ -1026,8 +1183,16 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.equal(schema.properties.name.hint, 'This will be displayed publicly', 'Should have custom hint');
-    assert.equal(schema.properties.name.description, 'User name', 'Hint tag should be removed from description');
+    assert.equal(
+      schema.properties.name.hint,
+      'This will be displayed publicly',
+      'Should have custom hint'
+    );
+    assert.equal(
+      schema.properties.name.description,
+      'User name',
+      'Hint tag should be removed from description'
+    );
     console.log('✅ Hint tag extraction');
   }
 
@@ -1063,9 +1228,21 @@ async function runTests() {
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
     assert.equal(schema.properties.recipient.title, 'To', 'Should have custom label');
-    assert.equal(schema.properties.recipient.placeholder, 'name@example.com', 'Should have placeholder');
-    assert.equal(schema.properties.recipient.hint, 'The email address of the recipient', 'Should have hint');
-    assert.equal(schema.properties.recipient.description, 'Email address', 'Tags should be removed from description');
+    assert.equal(
+      schema.properties.recipient.placeholder,
+      'name@example.com',
+      'Should have placeholder'
+    );
+    assert.equal(
+      schema.properties.recipient.hint,
+      'The email address of the recipient',
+      'Should have hint'
+    );
+    assert.equal(
+      schema.properties.recipient.description,
+      'Email address',
+      'Tags should be removed from description'
+    );
     console.log('✅ Combined placeholder, hint, and label');
   }
 
@@ -1135,7 +1312,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const tool = result.tools[0];
-    assert.equal((tool as any).webhook, undefined, 'Regular method should not have webhook property');
+    assert.equal(
+      (tool as any).webhook,
+      undefined,
+      'Regular method should not have webhook property'
+    );
     console.log('✅ Regular method has no webhook property');
   }
 
@@ -1152,7 +1333,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const tool = result.tools[0];
-    assert.equal((tool as any).scheduled, '0 0 * * *', 'Should have cron expression from @scheduled');
+    assert.equal(
+      (tool as any).scheduled,
+      '0 0 * * *',
+      'Should have cron expression from @scheduled'
+    );
     console.log('✅ @scheduled tag with inline cron expression');
   }
 
@@ -1203,7 +1388,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const tool = result.tools[0];
-    assert.equal((tool as any).scheduled, '0,15,30,45 9-17 * * 1-5', 'Should parse cron with ranges and lists');
+    assert.equal(
+      (tool as any).scheduled,
+      '0,15,30,45 9-17 * * 1-5',
+      'Should parse cron with ranges and lists'
+    );
     console.log('✅ Cron with ranges and lists');
   }
 
@@ -1219,7 +1408,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const tool = result.tools[0];
-    assert.equal((tool as any).scheduled, undefined, 'scheduled* prefix without @cron should have no scheduled property');
+    assert.equal(
+      (tool as any).scheduled,
+      undefined,
+      'scheduled* prefix without @cron should have no scheduled property'
+    );
     console.log('✅ scheduled* prefix without @cron has no scheduled property');
   }
 
@@ -1235,7 +1428,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const tool = result.tools[0];
-    assert.equal((tool as any).scheduled, undefined, 'Regular method should not have scheduled property');
+    assert.equal(
+      (tool as any).scheduled,
+      undefined,
+      'Regular method should not have scheduled property'
+    );
     console.log('✅ Regular method has no scheduled property');
   }
 
@@ -1364,7 +1561,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const tool = result.tools[0];
-    assert.equal((tool as any).webhook, 'custom/path', '@webhook should provide path even with handle* prefix');
+    assert.equal(
+      (tool as any).webhook,
+      'custom/path',
+      '@webhook should provide path even with handle* prefix'
+    );
     console.log('✅ @webhook takes precedence over handle* prefix');
   }
 
@@ -1382,7 +1583,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const tool = result.tools[0];
-    assert.equal((tool as any).scheduled, '0 0 * * 0', 'Should have cron expression for @internal method');
+    assert.equal(
+      (tool as any).scheduled,
+      '0 0 * * 0',
+      'Should have cron expression for @internal method'
+    );
     console.log('✅ @internal combined with daemon features');
   }
 
@@ -1399,7 +1604,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const tool = result.tools[0];
-    assert.equal((tool as any).scheduled, '0,10,20,30,40,50 9-17 * * *', 'Should parse step value cron');
+    assert.equal(
+      (tool as any).scheduled,
+      '0,10,20,30,40,50 9-17 * * *',
+      'Should parse step value cron'
+    );
     console.log('✅ Cron with step and range values');
   }
 
@@ -1439,7 +1648,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.deepEqual(schema.properties.status.enum, ['active', 'inactive', 'pending'], 'Should generate enum from {@choice}');
+    assert.deepEqual(
+      schema.properties.status.enum,
+      ['active', 'inactive', 'pending'],
+      'Should generate enum from {@choice}'
+    );
     assert.equal(schema.properties.status.type, 'string', 'Should be string type');
     console.log('✅ {@choice} tag generates enum');
   }
@@ -1457,7 +1670,11 @@ async function runTests() {
     `;
     const result = extractor.extractAllFromSource(source);
     const schema = result.tools[0].inputSchema;
-    assert.deepEqual(schema.properties.priority.enum, ['low', 'medium', 'high'], 'Should trim spaces from choices');
+    assert.deepEqual(
+      schema.properties.priority.enum,
+      ['low', 'medium', 'high'],
+      'Should trim spaces from choices'
+    );
     console.log('✅ {@choice} with spaces around values');
   }
 
@@ -1511,7 +1728,11 @@ async function runTests() {
     const schema = result.tools[0].inputSchema;
     assert.equal(schema.properties.theme.title, 'Theme Mode', 'Should have custom label');
     assert.deepEqual(schema.properties.theme.enum, ['light', 'dark', 'auto'], 'Should have enum');
-    assert.equal(schema.properties.theme.description, 'Select theme', 'Tags should be removed from description');
+    assert.equal(
+      schema.properties.theme.description,
+      'Select theme',
+      'Tags should be removed from description'
+    );
     console.log('✅ {@choice} combined with {@label}');
   }
 
@@ -1576,5 +1797,8 @@ async function runTests() {
 
 // Run if executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runTests().catch(console.error);
+  runTests().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
 }
