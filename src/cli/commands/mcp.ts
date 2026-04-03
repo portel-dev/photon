@@ -416,6 +416,23 @@ export function registerMCPCommand(program: Command): void {
           // Non-critical
         }
 
+        // Check for @channel tag — enables Claude Code channel capabilities
+        let channelMode = false;
+        let channelInstructions: string | undefined;
+        if (filePath) {
+          try {
+            const { PhotonDocExtractor } = await import('../../photon-doc-extractor.js');
+            const extractor = new PhotonDocExtractor(filePath);
+            const metadata = await extractor.extractFullMetadata();
+            if (metadata.channel) {
+              channelMode = true;
+              channelInstructions = metadata.description;
+            }
+          } catch {
+            // Non-critical — proceed without channel mode
+          }
+        }
+
         // Start MCP server
         const server = new PhotonServer({
           filePath: filePath || '', // empty when unresolved — server handles it
@@ -425,6 +442,13 @@ export function registerMCPCommand(program: Command): void {
           logOptions: { ...logOptions, scope: transport },
           unresolvedPhoton,
           workingDir,
+          ...(channelMode
+            ? {
+                channelMode: true,
+                channelName: name,
+                channelInstructions,
+              }
+            : {}),
         });
 
         // Handle shutdown signals

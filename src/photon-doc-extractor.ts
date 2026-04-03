@@ -64,6 +64,7 @@ export interface PhotonMetadata {
   dependencies?: string;
   runtime?: string;
   stateful?: boolean;
+  channel?: boolean;
   idleTimeout?: number;
   assets?: string[]; // Relative paths to asset files
   forkedFrom?: string; // Origin reference: marketplace/repo#photon-name
@@ -99,6 +100,7 @@ export class PhotonDocExtractor {
     this.content = this.embeddedSource || (await fs.readFile(this.filePath, 'utf-8'));
 
     const statefulTag = this.extractTag('stateful');
+    const channelTag = this.extractTag('channel');
     const idleTimeoutTag = this.extractTag('idleTimeout');
     const internalTag = this.extractTag('internal');
     const tools = await this.extractTools();
@@ -124,6 +126,7 @@ export class PhotonDocExtractor {
       dependencies: this.extractTag('dependencies'),
       runtime: this.extractTag('runtime'),
       stateful: statefulTag !== undefined,
+      channel: channelTag !== undefined,
       idleTimeout: idleTimeoutTag ? parseInt(idleTimeoutTag, 10) : undefined,
       assets: await this.extractAssets(),
       forkedFrom: this.extractTag('forkedFrom'),

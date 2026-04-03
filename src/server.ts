@@ -107,6 +107,12 @@ export interface PhotonServerOptions {
   embeddedAssets?: { indexHtml: string; bundleJs: string };
   /** Embedded @ui HTML templates: photonName → { assetId → html content } */
   embeddedUITemplates?: Record<string, Record<string, string>>;
+  /** Claude Code channel mode — declares claude/channel capability */
+  channelMode?: boolean;
+  /** Channel name — becomes the MCP server name and <channel source="name"> */
+  channelName?: string;
+  /** Channel instructions — goes into Claude's system prompt */
+  channelInstructions?: string;
 }
 
 // SSE session record for managing multiple clients
@@ -463,9 +469,13 @@ export class PhotonServer {
     );
 
     // Create MCP server instance
+    // When channelMode is set, declare claude/channel capability and use photon name as server name
+    const serverName =
+      options.channelMode && options.channelName ? options.channelName : 'photon-mcp';
+
     this.server = new Server(
       {
-        name: 'photon-mcp',
+        name: serverName,
         version: PHOTON_VERSION,
       },
       {
@@ -489,7 +499,19 @@ export class PhotonServer {
           },
           // Note: Server doesn't declare elicitation capability - that's a client capability
           // The server uses elicitInput() when the client has elicitation support
+          ...(options.channelMode
+            ? {
+                experimental: {
+                  'claude/channel': {},
+                },
+              }
+            : {}),
         },
+        ...(options.channelMode && options.channelInstructions
+          ? {
+              instructions: options.channelInstructions,
+            }
+          : {}),
       }
     );
 
@@ -2270,6 +2292,25 @@ export class PhotonServer {
           this.log('info', `Loading ${this.options.filePath}...`);
           this.mcp = await this.loader.loadFile(this.options.filePath);
         }
+      }
+
+      // Inject channel push handler for @channel photons
+      if (this.options.channelMode && this.mcp?.instance) {
+        const serverRef = this.server;
+        const sseSessionsRef = this.sseSessions;
+        this.mcp.instance._channelPushHandler = (
+          content: string,
+          meta?: Record<string, string>
+        ) => {
+          const notification = {
+            method: 'notifications/claude/channel' as const,
+            params: { content, meta: meta || {} },
+          };
+          void serverRef.notification(notification as any);
+          for (const session of sseSessionsRef.values()) {
+            void session.server.notification(notification as any);
+          }
+        };
       }
 
       // Subscribe to daemon channels for cross-process notifications

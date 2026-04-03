@@ -922,6 +922,13 @@ export class PhotonLoader {
               (instance.emit as (data: any) => void)({ emit: 'render', format, value });
             }
           };
+
+          // Inject push() — Claude Code channel notification
+          // The actual handler is injected by PhotonServer when running in channel mode
+          // No-ops silently when not in channel mode
+          instance.push = (content: string, meta?: Record<string, string>) => {
+            (instance as any)._channelPushHandler?.(content, meta);
+          };
         }
 
         if (caps.has('memory')) {

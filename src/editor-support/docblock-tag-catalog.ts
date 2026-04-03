@@ -92,6 +92,12 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
       type: 'keyword',
     },
     {
+      label: '@channel',
+      detail: 'Claude Code channel — pushes events into a running session',
+      apply: '@channel',
+      type: 'keyword',
+    },
+    {
       label: '@idleTimeout',
       detail: 'Idle timeout in ms',
       snippetTmpl: '@idleTimeout ${1:300000}',
