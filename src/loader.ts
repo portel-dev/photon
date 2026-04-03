@@ -925,11 +925,17 @@ export class PhotonLoader {
         }
 
         if (caps.has('memory')) {
-          // Inject lazy memory provider
+          // Inject lazy memory provider — capture baseDir from loader context
+          const memoryBaseDir = this.baseDir;
           Object.defineProperty(instance, 'memory', {
             get() {
               if (!this._memory) {
-                this._memory = new MemoryProvider(name, this._sessionId, this._photonNamespace);
+                this._memory = new MemoryProvider(
+                  name,
+                  this._sessionId,
+                  this._photonNamespace,
+                  memoryBaseDir
+                );
               }
               return this._memory;
             },
@@ -1441,10 +1447,16 @@ export class PhotonLoader {
       }
 
       if (caps.has('memory')) {
+        const memoryBaseDir = this.baseDir;
         Object.defineProperty(instance, 'memory', {
           get() {
             if (!this._memory) {
-              this._memory = new MemoryProvider(name, this._sessionId, this._photonNamespace);
+              this._memory = new MemoryProvider(
+                name,
+                this._sessionId,
+                this._photonNamespace,
+                memoryBaseDir
+              );
             }
             return this._memory;
           },
