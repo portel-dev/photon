@@ -2352,21 +2352,45 @@ export class PhotonServer {
           }
         };
 
-        // Activate polling so inbound messages flow through _handleUpdate → push()
-        if (
-          instance._connected &&
-          !instance._polling &&
-          typeof instance._activatePolling === 'function'
-        ) {
-          instance._activatePolling();
-          this.log('info', 'Channel mode: activated polling on local instance');
+        // Wait for auto-connect to complete (onInitialize fires async during loadFile)
+        // then activate polling so inbound messages flow through _handleUpdate → push()
+        const activatePolling = () => {
+          if (
+            instance._connected &&
+            !instance._polling &&
+            typeof instance._activatePolling === 'function'
+          ) {
+            instance._activatePolling();
+            this.log('info', 'Channel mode: polling activated on local instance');
+          }
+        };
+
+        if (instance._connected) {
+          activatePolling();
+        } else {
+          // Poll until connected (auto-connect is async, typically < 2s)
+          let attempts = 0;
+          const waitForConnect = setInterval(() => {
+            attempts++;
+            if (instance._connected) {
+              clearInterval(waitForConnect);
+              activatePolling();
+            } else if (attempts > 20) {
+              // 10s max wait
+              clearInterval(waitForConnect);
+              this.log(
+                'warn',
+                'Channel mode: auto-connect did not complete, polling not activated'
+              );
+            }
+          }, 500);
         }
       }
 
       // Subscribe to daemon channels for cross-process notifications
-      // In channel mode, channel-push events are intercepted and translated
-      // to notifications/claude/channel by handleChannelMessage()
-      await this.subscribeToChannels();
+      if (!this.options.channelMode) {
+        await this.subscribeToChannels();
+      }
 
       // Start with the appropriate transport
       const transport = this.options.transport || 'stdio';
