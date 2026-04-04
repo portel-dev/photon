@@ -929,10 +929,15 @@ export class PhotonLoader {
           };
 
           // Inject push() — Claude Code channel notification
-          // The actual handler is injected by PhotonServer when running in channel mode
-          // No-ops silently when not in channel mode
+          // Emits on the 'channel-push' daemon channel, which the MCP server
+          // intercepts and translates to notifications/claude/channel.
+          // This works across process boundaries (daemon ↔ MCP server).
           instance.push = (content: string, meta?: Record<string, string>) => {
-            (instance as any)._channelPushHandler?.(content, meta);
+            (instance.emit as (data: any) => void)({
+              channel: 'channel-push',
+              content,
+              meta,
+            });
           };
         }
 

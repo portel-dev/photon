@@ -2294,26 +2294,9 @@ export class PhotonServer {
         }
       }
 
-      // Inject channel push handler for @channel photons
-      if (this.options.channelMode && this.mcp?.instance) {
-        const serverRef = this.server;
-        const sseSessionsRef = this.sseSessions;
-        this.mcp.instance._channelPushHandler = (
-          content: string,
-          meta?: Record<string, string>
-        ) => {
-          const notification = {
-            method: 'notifications/claude/channel' as const,
-            params: { content, meta: meta || {} },
-          };
-          void serverRef.notification(notification as any);
-          for (const session of sseSessionsRef.values()) {
-            void session.server.notification(notification as any);
-          }
-        };
-      }
-
       // Subscribe to daemon channels for cross-process notifications
+      // In channel mode, channel-push events are intercepted and translated
+      // to notifications/claude/channel by handleChannelMessage()
       await this.subscribeToChannels();
 
       // Start with the appropriate transport
@@ -2383,6 +2366,27 @@ export class PhotonServer {
       console.error(
         `[PHOTON-SERVER] Received daemon message on ${String(msg.channel)}: event=${String(msg.event)}`
       );
+    }
+
+    // Channel push events — translate to Claude Code channel notifications
+    if (this.options.channelMode && String(msg.channel).endsWith(':channel-push')) {
+      const pushData = msg.data as Record<string, unknown> | undefined;
+      const notification = {
+        method: 'notifications/claude/channel' as const,
+        params: {
+          content: typeof pushData?.content === 'string' ? pushData.content : '',
+          meta: (pushData?.meta as Record<string, string>) || {},
+        },
+      };
+      try {
+        await this.server.notification(notification as any);
+        for (const session of Array.from(this.sseSessions.values())) {
+          await session.server.notification(notification as any);
+        }
+      } catch (e) {
+        this.log('debug', 'Channel push notification failed', { error: getErrorMessage(e) });
+      }
+      return; // Don't also forward as a regular photon event
     }
 
     // Use STANDARD notification with embedded photon data
