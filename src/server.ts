@@ -406,6 +406,8 @@ export class PhotonServer {
    * Key: Server instance → Value: raw capabilities object from initialize request
    */
   private rawClientCapabilities = new WeakMap<Server, Record<string, any>>();
+  /** Client name from initialize (e.g., "claude-ai", "chatgpt") — used for channel routing */
+  private clientName: string | undefined;
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -499,10 +501,15 @@ export class PhotonServer {
           },
           // Note: Server doesn't declare elicitation capability - that's a client capability
           // The server uses elicitInput() when the client has elicitation support
+          //
+          // Channel capabilities — declare all known client channel protocols.
+          // Each client recognizes its own key and ignores the rest.
+          // When new clients add channel support, add their key here.
           ...(options.channelMode
             ? {
                 experimental: {
-                  'claude/channel': {},
+                  'claude/channel': {}, // Claude Code (claude-ai)
+                  // Future: 'chatgpt/channel': {}, 'cursor/channel': {}, etc.
                 },
               }
             : {}),
@@ -665,6 +672,36 @@ export class PhotonServer {
     if (clientInfo?.name === 'beam') return true;
 
     return false;
+  }
+
+  /**
+   * Get the channel notification method for the connected client.
+   * Each client uses its own notification namespace under the MCP experimental extension point.
+   * Returns undefined if the client is unknown or doesn't support channels.
+   */
+  private getChannelNotificationMethod(): string | undefined {
+    // Map client names to their channel notification methods.
+    // When new clients add channel support, add them here.
+    const channelMethods: Record<string, string> = {
+      'claude-ai': 'notifications/claude/channel',
+      'claude-code': 'notifications/claude/channel', // alias
+      // Future:
+      // 'chatgpt': 'notifications/chatgpt/channel',
+      // 'cursor': 'notifications/cursor/channel',
+    };
+
+    if (this.clientName && channelMethods[this.clientName]) {
+      return channelMethods[this.clientName];
+    }
+
+    // Fallback: check if client declared any channel capability we recognize
+    const capabilities = this.server.getClientCapabilities() as Record<string, any>;
+    if (capabilities?.experimental?.['claude/channel'] !== undefined) {
+      return 'notifications/claude/channel';
+    }
+
+    // Default to Claude for now (most likely client in channel mode)
+    return 'notifications/claude/channel';
   }
 
   /**
@@ -2368,11 +2405,15 @@ export class PhotonServer {
       );
     }
 
-    // Channel push events — translate to Claude Code channel notifications
+    // Channel push events — translate to client-specific channel notifications.
+    // The notification method is determined by the connected client's name.
+    // Claude Code uses notifications/claude/channel; future clients will have their own.
     if (this.options.channelMode && String(msg.channel).endsWith(':channel-push')) {
       const pushData = msg.data as Record<string, unknown> | undefined;
+      const notificationMethod = this.getChannelNotificationMethod();
+      if (!notificationMethod) return; // Client doesn't support channels
       const notification = {
-        method: 'notifications/claude/channel' as const,
+        method: notificationMethod,
         params: {
           content: typeof pushData?.content === 'string' ? pushData.content : '',
           meta: (pushData?.meta as Record<string, string>) || {},
@@ -2442,9 +2483,14 @@ export class PhotonServer {
   ) {
     const origOnMessage = transport.onmessage;
     transport.onmessage = (message: any, extra?: any) => {
-      // Capture raw capabilities from initialize request
-      if (message?.method === 'initialize' && message?.params?.capabilities) {
-        this.rawClientCapabilities.set(targetServer, message.params.capabilities);
+      // Capture raw capabilities and client name from initialize request
+      if (message?.method === 'initialize' && message?.params) {
+        if (message.params.capabilities) {
+          this.rawClientCapabilities.set(targetServer, message.params.capabilities);
+        }
+        if (message.params.clientInfo?.name) {
+          this.clientName = message.params.clientInfo.name;
+        }
       }
       origOnMessage?.(message, extra);
     };
