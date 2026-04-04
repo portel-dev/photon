@@ -1182,14 +1182,40 @@ export class PhotonLoader {
       // subclasses and plain classes. Emits on '{photonName}:channel-push' daemon
       // channel which the MCP server intercepts and translates to the client's
       // notification method (e.g. notifications/claude/channel).
+      //
+      // this.channel(content, meta) — send a message to the client
+      // this.channel.respond(id, behavior) — respond to permission requests
+      // this.channel.onPermission(handler) — register permission request handler
       if (typeof instance.emit === 'function') {
-        instance.channel = (content: string, meta?: Record<string, string>) => {
-          (instance.emit as (data: any) => void)({
-            channel: `${name}:channel-push`,
-            event: 'channel',
-            data: { content, meta },
-          });
-        };
+        const emitFn = instance.emit as (data: any) => void;
+        // Permission handler stored locally — wired by server after load
+        let permissionHandler: ((request: any) => void) | undefined;
+        const channelFn = Object.assign(
+          (content: string, meta?: Record<string, string>) => {
+            emitFn({
+              channel: `${name}:channel-push`,
+              event: 'channel',
+              data: { content, meta },
+            });
+          },
+          {
+            respond: (requestId: string, behavior: 'allow' | 'deny') => {
+              emitFn({
+                channel: `${name}:channel-permission-response`,
+                event: 'permission-response',
+                data: { request_id: requestId, behavior },
+              });
+            },
+            onPermission: (handler: (request: any) => void) => {
+              permissionHandler = handler;
+            },
+            // Internal: called by the server when a permission request arrives
+            _dispatchPermission: (request: any) => {
+              permissionHandler?.(request);
+            },
+          }
+        );
+        instance.channel = channelFn;
       }
 
       // Check @cli dependencies (required system CLI tools)

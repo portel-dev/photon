@@ -117,6 +117,20 @@ export interface PhotonServerOptions {
   channelInstructions?: string;
 }
 
+/** Permission request from the client (e.g. Claude Code asking to approve a tool call) */
+export type ChannelPermissionRequest = {
+  request_id: string;
+  tool_name: string;
+  description: string;
+  input_preview: string;
+};
+
+/** Permission response from the photon back to the client */
+export type ChannelPermissionResponse = {
+  request_id: string;
+  behavior: 'allow' | 'deny';
+};
+
 // SSE session record for managing multiple clients
 type SSESession = {
   server: Server;
@@ -503,12 +517,14 @@ export class PhotonServer {
           // The server uses elicitInput() when the client has elicitation support
           //
           // Channel capabilities — declare only the protocols specified by @channel tag.
-          // e.g. @channel claude → { 'claude/channel': {} }
-          // e.g. @channel claude chatgpt → { 'claude/channel': {}, 'chatgpt/channel': {} }
+          // e.g. @channel claude → { 'claude/channel': {}, 'claude/channel/permission': {} }
           ...(options.channelMode && options.channelTargets?.length
             ? {
                 experimental: Object.fromEntries(
-                  options.channelTargets.map((t) => [`${t}/channel`, {}])
+                  options.channelTargets.flatMap((t) => [
+                    [`${t}/channel`, {}],
+                    [`${t}/channel/permission`, {}],
+                  ])
                 ),
               }
             : {}),
@@ -686,6 +702,49 @@ export class PhotonServer {
     const targets = this.options.channelTargets || [];
     // Each target's notification method follows the pattern: notifications/{target}/channel
     return targets.map((t) => `notifications/${t}/channel`);
+  }
+
+  /**
+   * Handle permission request from the client (e.g. Claude Code asking "Allow tool X?").
+   * Forwards to the photon instance via channel._dispatchPermission().
+   */
+  private handlePermissionRequest(params: any) {
+    if (!params?.request_id || !params?.tool_name) return;
+    const request: ChannelPermissionRequest = {
+      request_id: params.request_id,
+      tool_name: params.tool_name,
+      description: params.description || '',
+      input_preview: params.input_preview || '',
+    };
+    this.log('info', `Permission request: ${request.tool_name} (${request.request_id})`);
+    // Dispatch to the photon instance's permission handler
+    const instance = this.mcp as any;
+    if (instance?.channel?._dispatchPermission) {
+      instance.channel._dispatchPermission(request);
+    }
+  }
+
+  /**
+   * Send a permission response back to the client.
+   * Called by the photon instance (via this.channel.respond) when the user approves/denies.
+   */
+  public respondToPermission(response: ChannelPermissionResponse) {
+    const targets = this.options.channelTargets || [];
+    for (const target of targets) {
+      const notification = {
+        method: `notifications/${target}/channel/permission`,
+        params: {
+          request_id: response.request_id,
+          behavior: response.behavior,
+        },
+      };
+      this.server.notification(notification as any).catch((e) => {
+        this.log('debug', 'Permission response failed', { error: getErrorMessage(e) });
+      });
+      for (const session of Array.from(this.sseSessions.values())) {
+        session.server.notification(notification as any).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -2391,6 +2450,18 @@ export class PhotonServer {
       );
     }
 
+    // Channel permission responses — photon called this.channel.respond()
+    if (this.options.channelMode && String(msg.channel).endsWith(':channel-permission-response')) {
+      const data = msg.data as Record<string, unknown> | undefined;
+      if (data?.request_id && data?.behavior) {
+        this.respondToPermission({
+          request_id: data.request_id as string,
+          behavior: data.behavior as 'allow' | 'deny',
+        });
+      }
+      return;
+    }
+
     // Channel events — translate to client-specific channel notifications.
     // Each declared target (e.g. 'claude') gets its own notification method.
     if (this.options.channelMode && String(msg.channel).endsWith(':channel-push')) {
@@ -2471,7 +2542,10 @@ export class PhotonServer {
         if (message.params.capabilities) {
           this.rawClientCapabilities.set(targetServer, message.params.capabilities);
         }
-        // clientInfo.name available for future use (e.g. client-specific behavior)
+      }
+      // Intercept channel permission requests from the client
+      if (this.options.channelMode && message?.method?.endsWith('/channel/permission_request')) {
+        this.handlePermissionRequest(message.params);
       }
       origOnMessage?.(message, extra);
     };
