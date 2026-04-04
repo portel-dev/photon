@@ -928,15 +928,17 @@ export class PhotonLoader {
             }
           };
 
-          // Inject push() — Claude Code channel notification
-          // Emits on the 'channel-push' daemon channel, which the MCP server
-          // intercepts and translates to notifications/claude/channel.
-          // This works across process boundaries (daemon ↔ MCP server).
+          // Inject push() — Claude Code channel notification.
+          // Publishes to the daemon's 'channel-push' channel via emit().
+          // The daemon's outputHandler (during tool execution) or InProcessBroker
+          // (during background operations like polling) forwards to socket subscribers.
+          // The MCP server intercepts and translates to notifications/claude/channel.
           instance.push = (content: string, meta?: Record<string, string>) => {
+            // Use emit with channel for daemon routing
             (instance.emit as (data: any) => void)({
               channel: 'channel-push',
-              content,
-              meta,
+              event: 'push',
+              data: { content, meta },
             });
           };
         }

@@ -68,11 +68,14 @@ class InProcessBroker implements ChannelBroker {
 
   async publish(message: ChannelMessage): Promise<void> {
     const channel = message.channel;
+
+    // Always forward to daemon socket subscribers (MCP servers, Beam SSE, etc.)
+    // This ensures events emitted outside of tool execution context (e.g., from
+    // polling loops, timers, event handlers) still reach cross-process subscribers.
+    publishToChannel(channel, message);
+
     const handlers = this.handlers.get(channel);
     if (!handlers || handlers.size === 0) return;
-
-    // Also buffer for external subscribers (Beam SSE, etc.)
-    bufferEvent(channel, message);
 
     for (const handler of handlers) {
       try {
