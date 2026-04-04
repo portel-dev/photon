@@ -1187,7 +1187,7 @@ export class PhotonLoader {
       // this.channel.respond(id, behavior) — respond to permission requests
       // this.channel.onPermission(handler) — register permission request handler
       if (typeof instance.emit === 'function') {
-        const emitFn = instance.emit as (data: any) => void;
+        const emitFn = (instance.emit as (data: any) => void).bind(instance);
         // Permission handler stored locally — wired by server after load
         let permissionHandler: ((request: any) => void) | undefined;
         const channelFn = Object.assign(
