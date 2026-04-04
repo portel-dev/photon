@@ -2291,9 +2291,9 @@ export class PhotonServer {
         const isStateful = metadata.stateful;
 
         // Start daemon for stateful photons (enables cross-client communication)
-        // Skip daemon for channel mode — the MCP server handles everything in-process
-        // to avoid conflicting getUpdates/poll calls from two instances
-        if (isStateful && !this.options.channelMode) {
+        // Channel mode also uses the daemon — the singleton instance holds the
+        // bot connection, and multiple MCP clients subscribe to its events
+        if (isStateful) {
           const photonName = metadata.name;
           this.daemonName = photonName; // Store for subscription
           this.log('info', `Stateful photon detected: ${photonName}`);
@@ -2333,64 +2333,10 @@ export class PhotonServer {
         }
       }
 
-      // In channel mode, wire push handler directly on the local instance
-      // (no daemon involved — everything runs in-process to avoid poll conflicts)
-      if (this.options.channelMode && this.mcp?.instance) {
-        const serverRef = this.server;
-        const sseSessionsRef = this.sseSessions;
-        const getMethod = () => this.getChannelNotificationMethod();
-        const instance = this.mcp.instance;
-
-        // Inject push handler that emits notifications/claude/channel directly
-        instance._channelPushHandler = (content: string, meta?: Record<string, string>) => {
-          const method = getMethod();
-          if (!method) return;
-          const notification = { method, params: { content, meta: meta || {} } };
-          void serverRef.notification(notification as any);
-          for (const session of sseSessionsRef.values()) {
-            void session.server.notification(notification as any);
-          }
-        };
-
-        // Wait for auto-connect to complete (onInitialize fires async during loadFile)
-        // then activate polling so inbound messages flow through _handleUpdate → push()
-        const activatePolling = () => {
-          if (
-            instance._connected &&
-            !instance._polling &&
-            typeof instance._activatePolling === 'function'
-          ) {
-            instance._activatePolling();
-            this.log('info', 'Channel mode: polling activated on local instance');
-          }
-        };
-
-        if (instance._connected) {
-          activatePolling();
-        } else {
-          // Poll until connected (auto-connect is async, typically < 2s)
-          let attempts = 0;
-          const waitForConnect = setInterval(() => {
-            attempts++;
-            if (instance._connected) {
-              clearInterval(waitForConnect);
-              activatePolling();
-            } else if (attempts > 20) {
-              // 10s max wait
-              clearInterval(waitForConnect);
-              this.log(
-                'warn',
-                'Channel mode: auto-connect did not complete, polling not activated'
-              );
-            }
-          }, 500);
-        }
-      }
-
-      // Subscribe to daemon channels for cross-process notifications
-      if (!this.options.channelMode) {
-        await this.subscribeToChannels();
-      }
+      // Subscribe to daemon channels for cross-process notifications.
+      // In channel mode, handleChannelMessage intercepts 'channel-push' events
+      // and translates them to notifications/claude/channel for the connected client.
+      await this.subscribeToChannels();
 
       // Start with the appropriate transport
       const transport = this.options.transport || 'stdio';

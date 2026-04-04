@@ -927,22 +927,6 @@ export class PhotonLoader {
               (instance.emit as (data: any) => void)({ emit: 'render', format, value });
             }
           };
-
-          // Inject push() — Claude Code channel notification.
-          // Uses _channelPushHandler (injected by PhotonServer in channel mode)
-          // for direct in-process notification, or falls back to daemon channel emit.
-          instance.push = (content: string, meta?: Record<string, string>) => {
-            if ((instance as any)._channelPushHandler) {
-              (instance as any)._channelPushHandler(content, meta);
-            } else {
-              // Fallback: emit to daemon channel for cross-process routing
-              (instance.emit as (data: any) => void)({
-                channel: 'channel-push',
-                event: 'push',
-                data: { content, meta },
-              });
-            }
-          };
         }
 
         if (caps.has('memory')) {
@@ -1192,6 +1176,19 @@ export class PhotonLoader {
         }
 
         this.log(`🔌 Injected channel event infrastructure into ${name}`);
+      }
+
+      // Inject push() for channel notifications — works for both Photon subclasses
+      // and plain classes. Emits on 'channel-push' daemon channel which the MCP
+      // server intercepts and translates to the client's notification method.
+      if (typeof instance.emit === 'function') {
+        instance.push = (content: string, meta?: Record<string, string>) => {
+          (instance.emit as (data: any) => void)({
+            channel: 'channel-push',
+            event: 'push',
+            data: { content, meta },
+          });
+        };
       }
 
       // Check @cli dependencies (required system CLI tools)
@@ -3766,10 +3763,17 @@ Run: photon mcp ${mcpName} --config
     }
 
     // Get all public method names from the instance
+    // Skip runtime-injected methods (emit, render, push, ask) — these are
+    // capability methods injected by the loader, not user-defined tools
+    const RUNTIME_METHODS = new Set(['emit', 'render', 'push', 'ask', 'call']);
     const proto = Object.getPrototypeOf(instance);
     const methodNames = Object.getOwnPropertyNames(proto).filter((name) => {
       // Skip constructor and private/protected methods
       if (name === 'constructor' || name.startsWith('_')) {
+        return false;
+      }
+      // Skip runtime-injected capability methods
+      if (RUNTIME_METHODS.has(name)) {
         return false;
       }
 
