@@ -137,7 +137,7 @@ export function registerSSECommand(program: Command): void {
         const port = await findAvailablePort(startPort);
 
         if (port !== startPort) {
-          console.error(`⚠️  Port ${startPort} is in use, using ${port} instead\n`);
+          console.error(`⚠️  Port ${startPort} is in use, using ${port} instead`);
         }
 
         const { PhotonServer } = await import('../../server.js');
@@ -149,7 +149,14 @@ export function registerSSECommand(program: Command): void {
           devMode: options.dev,
           transport: 'sse',
           port,
-          logOptions: { ...logOptions, scope: 'sse' },
+          logOptions: {
+            ...logOptions,
+            level:
+              command.parent?.getOptionValueSource?.('logLevel') === 'cli'
+                ? logOptions.level
+                : 'warn',
+            scope: 'sse',
+          },
           workingDir,
         });
 

@@ -245,7 +245,8 @@ class BeamCompatTransport implements Transport {
     }
     // Otherwise push to SSE stream if connected
     if (this.sseResponse && !this.sseResponse.writableEnded) {
-      this.sseResponse.write(`data: ${JSON.stringify(message)}\n\n`);
+      const id = message.id ?? crypto.randomUUID();
+      this.sseResponse.write(`event: message\nid: ${id}\ndata: ${JSON.stringify(message)}\n\n`);
     }
   }
 
@@ -351,7 +352,10 @@ class BeamCompatTransport implements Transport {
       // Notifications have no id — fire-and-forget
       if (parsed.id === undefined) {
         this.onmessage?.(parsed, { sessionId: this.sessionId });
-        res.writeHead(202);
+        res.writeHead(202, {
+          'Access-Control-Allow-Origin': '*',
+          'Mcp-Session-Id': this.sessionId,
+        });
         res.end();
         return;
       }
@@ -374,12 +378,12 @@ class BeamCompatTransport implements Transport {
 
     // DELETE — session termination (spec compliance)
     if (req.method === 'DELETE') {
-      res.writeHead(200);
+      res.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
       res.end();
       return;
     }
 
-    res.writeHead(405);
+    res.writeHead(405, { 'Access-Control-Allow-Origin': '*' });
     res.end('Method not allowed');
   }
 }
@@ -478,8 +482,11 @@ export class PhotonServer {
     }
     this.logger = createLogger(baseLoggerOptions);
 
+    const loaderVerbose =
+      (baseLoggerOptions.level ?? 'info') !== 'warn' &&
+      (baseLoggerOptions.level ?? 'info') !== 'error';
     this.loader = new PhotonLoader(
-      true,
+      loaderVerbose,
       this.logger.child({ component: 'photon-loader', scope: 'loader' }),
       options.workingDir
     );
@@ -2566,16 +2573,17 @@ export class PhotonServer {
    */
   private async startSSE() {
     const port = this.options.port || 3000;
-    const useStreamableHTTP = !!this.options.embeddedAssets;
     const ssePath = '/mcp';
     const messagesPath = '/mcp/messages';
 
-    // For compiled binaries with Beam UI, use a minimal Streamable HTTP transport
-    // that matches what the Beam frontend sends:
-    //   POST /mcp  — JSON-RPC request, Accept: application/json → JSON response
-    //   GET  /mcp?sessionId=X — EventSource for server-to-client notifications
+    // Always use Streamable HTTP transport for SSE mode.
+    // The legacy SSE transport (endpoint event + /mcp/messages?sessionId=) is deprecated
+    // in the MCP spec and not supported by modern clients (e.g. llama.cpp).
+    // Streamable HTTP uses the standard protocol:
+    //   POST /mcp  — JSON-RPC request → JSON response
+    //   GET  /mcp  — SSE stream for server-to-client notifications
     let beamTransport: BeamCompatTransport | null = null;
-    if (useStreamableHTTP) {
+    {
       const photonName = this.mcp?.name || 'photon';
       beamTransport = new BeamCompatTransport(photonName, {
         description: this.mcp?.description,
@@ -2653,7 +2661,8 @@ export class PhotonServer {
           res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Accept, Mcp-Session-Id',
+            'Access-Control-Allow-Headers':
+              'Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version',
             'Access-Control-Expose-Headers': 'Mcp-Session-Id',
           });
           res.end();
@@ -3069,17 +3078,7 @@ export class PhotonServer {
 
     await new Promise<void>((resolve) => {
       this.httpServer!.listen(port, () => {
-        this.log('info', `${this.mcp!.name} MCP server listening`, {
-          transport: 'sse',
-          port,
-          devMode: this.devMode,
-        });
-        this.log('debug', 'SSE endpoints ready', {
-          baseUrl: `http://localhost:${port}`,
-          ssePath,
-          messagesPath,
-          playground: this.devMode ? `http://localhost:${port}/playground` : undefined,
-        });
+        process.stdout.write(`⚡ ${this.mcp!.name} → http://localhost:${port}${ssePath}\n`);
         resolve();
       });
     });
