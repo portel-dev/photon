@@ -416,16 +416,18 @@ export function registerMCPCommand(program: Command): void {
           // Non-critical
         }
 
-        // Check for @channel tag — enables Claude Code channel capabilities
+        // Check for @channel tag — enables channel capabilities (e.g. @channel claude)
         let channelMode = false;
+        let channelTargets: string[] = [];
         let channelInstructions: string | undefined;
         if (filePath) {
           try {
             const { PhotonDocExtractor } = await import('../../photon-doc-extractor.js');
             const extractor = new PhotonDocExtractor(filePath);
             const metadata = await extractor.extractFullMetadata();
-            if (metadata.channel) {
+            if (metadata.channel && metadata.channel.length > 0) {
               channelMode = true;
+              channelTargets = metadata.channel;
               // Extract class-level JSDoc description for channel instructions
               // (metadata.description may pick up the first JSDoc in the file, not the class one)
               const source = await fs.readFile(filePath, 'utf-8');
@@ -463,6 +465,7 @@ export function registerMCPCommand(program: Command): void {
             ? {
                 channelMode: true,
                 channelName: path.basename(name).replace(/\.photon\.ts$/, ''),
+                channelTargets,
                 channelInstructions,
               }
             : {}),

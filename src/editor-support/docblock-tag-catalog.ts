@@ -93,8 +93,8 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
     },
     {
       label: '@channel',
-      detail: 'Claude Code channel — pushes events into a running session',
-      apply: '@channel',
+      detail: 'Channel support — sends messages into client conversations (e.g. @channel claude)',
+      apply: '@channel claude',
       type: 'keyword',
     },
     {

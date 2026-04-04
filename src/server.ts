@@ -107,10 +107,12 @@ export interface PhotonServerOptions {
   embeddedAssets?: { indexHtml: string; bundleJs: string };
   /** Embedded @ui HTML templates: photonName → { assetId → html content } */
   embeddedUITemplates?: Record<string, Record<string, string>>;
-  /** Claude Code channel mode — declares claude/channel capability */
+  /** Channel mode — declares channel capabilities for target clients */
   channelMode?: boolean;
   /** Channel name — becomes the MCP server name and <channel source="name"> */
   channelName?: string;
+  /** Target channel protocols, e.g. ['claude']. Determines which capabilities to declare. */
+  channelTargets?: string[];
   /** Channel instructions — goes into Claude's system prompt */
   channelInstructions?: string;
 }
@@ -406,8 +408,6 @@ export class PhotonServer {
    * Key: Server instance → Value: raw capabilities object from initialize request
    */
   private rawClientCapabilities = new WeakMap<Server, Record<string, any>>();
-  /** Client name from initialize (e.g., "claude-ai", "chatgpt") — used for channel routing */
-  private clientName: string | undefined;
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -502,15 +502,14 @@ export class PhotonServer {
           // Note: Server doesn't declare elicitation capability - that's a client capability
           // The server uses elicitInput() when the client has elicitation support
           //
-          // Channel capabilities — declare all known client channel protocols.
-          // Each client recognizes its own key and ignores the rest.
-          // When new clients add channel support, add their key here.
-          ...(options.channelMode
+          // Channel capabilities — declare only the protocols specified by @channel tag.
+          // e.g. @channel claude → { 'claude/channel': {} }
+          // e.g. @channel claude chatgpt → { 'claude/channel': {}, 'chatgpt/channel': {} }
+          ...(options.channelMode && options.channelTargets?.length
             ? {
-                experimental: {
-                  'claude/channel': {}, // Claude Code (claude-ai)
-                  // Future: 'chatgpt/channel': {}, 'cursor/channel': {}, etc.
-                },
+                experimental: Object.fromEntries(
+                  options.channelTargets.map((t) => [`${t}/channel`, {}])
+                ),
               }
             : {}),
         },
@@ -679,29 +678,14 @@ export class PhotonServer {
    * Each client uses its own notification namespace under the MCP experimental extension point.
    * Returns undefined if the client is unknown or doesn't support channels.
    */
-  private getChannelNotificationMethod(): string | undefined {
-    // Map client names to their channel notification methods.
-    // When new clients add channel support, add them here.
-    const channelMethods: Record<string, string> = {
-      'claude-ai': 'notifications/claude/channel',
-      'claude-code': 'notifications/claude/channel', // alias
-      // Future:
-      // 'chatgpt': 'notifications/chatgpt/channel',
-      // 'cursor': 'notifications/cursor/channel',
-    };
-
-    if (this.clientName && channelMethods[this.clientName]) {
-      return channelMethods[this.clientName];
-    }
-
-    // Fallback: check if client declared any channel capability we recognize
-    const capabilities = this.server.getClientCapabilities() as Record<string, any>;
-    if (capabilities?.experimental?.['claude/channel'] !== undefined) {
-      return 'notifications/claude/channel';
-    }
-
-    // Default to Claude for now (most likely client in channel mode)
-    return 'notifications/claude/channel';
+  /**
+   * Get the notification methods for all declared channel targets.
+   * Each target (e.g. 'claude') maps to its notification method.
+   */
+  private getChannelNotificationMethods(): string[] {
+    const targets = this.options.channelTargets || [];
+    // Each target's notification method follows the pattern: notifications/{target}/channel
+    return targets.map((t) => `notifications/${t}/channel`);
   }
 
   /**
@@ -2407,27 +2391,24 @@ export class PhotonServer {
       );
     }
 
-    // Channel push events — translate to client-specific channel notifications.
-    // The notification method is determined by the connected client's name.
-    // Claude Code uses notifications/claude/channel; future clients will have their own.
+    // Channel events — translate to client-specific channel notifications.
+    // Each declared target (e.g. 'claude') gets its own notification method.
     if (this.options.channelMode && String(msg.channel).endsWith(':channel-push')) {
       const pushData = msg.data as Record<string, unknown> | undefined;
-      const notificationMethod = this.getChannelNotificationMethod();
-      if (!notificationMethod) return; // Client doesn't support channels
-      const notification = {
-        method: notificationMethod,
-        params: {
-          content: typeof pushData?.content === 'string' ? pushData.content : '',
-          meta: (pushData?.meta as Record<string, string>) || {},
-        },
-      };
+      const methods = this.getChannelNotificationMethods();
+      if (methods.length === 0) return;
+      const content = typeof pushData?.content === 'string' ? pushData.content : '';
+      const meta = (pushData?.meta as Record<string, string>) || {};
       try {
-        await this.server.notification(notification as any);
-        for (const session of Array.from(this.sseSessions.values())) {
-          await session.server.notification(notification as any);
+        for (const method of methods) {
+          const notification = { method, params: { content, meta } };
+          await this.server.notification(notification as any);
+          for (const session of Array.from(this.sseSessions.values())) {
+            await session.server.notification(notification as any);
+          }
         }
       } catch (e) {
-        this.log('debug', 'Channel push notification failed', { error: getErrorMessage(e) });
+        this.log('debug', 'Channel notification failed', { error: getErrorMessage(e) });
       }
       return; // Don't also forward as a regular photon event
     }
@@ -2490,9 +2471,7 @@ export class PhotonServer {
         if (message.params.capabilities) {
           this.rawClientCapabilities.set(targetServer, message.params.capabilities);
         }
-        if (message.params.clientInfo?.name) {
-          this.clientName = message.params.clientInfo.name;
-        }
+        // clientInfo.name available for future use (e.g. client-specific behavior)
       }
       origOnMessage?.(message, extra);
     };

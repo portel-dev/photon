@@ -64,7 +64,7 @@ export interface PhotonMetadata {
   dependencies?: string;
   runtime?: string;
   stateful?: boolean;
-  channel?: boolean;
+  channel?: string[]; // Target protocols, e.g. ['claude']. Empty array = not a channel.
   idleTimeout?: number;
   assets?: string[]; // Relative paths to asset files
   forkedFrom?: string; // Origin reference: marketplace/repo#photon-name
@@ -126,7 +126,12 @@ export class PhotonDocExtractor {
       dependencies: this.extractTag('dependencies'),
       runtime: this.extractTag('runtime'),
       stateful: statefulTag !== undefined,
-      channel: channelTag !== undefined,
+      channel:
+        channelTag !== undefined
+          ? channelTag.trim()
+            ? channelTag.trim().split(/\s+/)
+            : ['claude']
+          : [],
       idleTimeout: idleTimeoutTag ? parseInt(idleTimeoutTag, 10) : undefined,
       assets: await this.extractAssets(),
       forkedFrom: this.extractTag('forkedFrom'),

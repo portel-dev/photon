@@ -1178,14 +1178,15 @@ export class PhotonLoader {
         this.log(`🔌 Injected channel event infrastructure into ${name}`);
       }
 
-      // Inject push() for channel notifications — works for both Photon subclasses
-      // and plain classes. Emits on '{photonName}:channel-push' daemon channel which
-      // the MCP server intercepts and translates to the client's notification method.
+      // Inject this.channel() for channel notifications — works for both Photon
+      // subclasses and plain classes. Emits on '{photonName}:channel-push' daemon
+      // channel which the MCP server intercepts and translates to the client's
+      // notification method (e.g. notifications/claude/channel).
       if (typeof instance.emit === 'function') {
-        instance.push = (content: string, meta?: Record<string, string>) => {
+        instance.channel = (content: string, meta?: Record<string, string>) => {
           (instance.emit as (data: any) => void)({
             channel: `${name}:channel-push`,
-            event: 'push',
+            event: 'channel',
             data: { content, meta },
           });
         };
@@ -3765,7 +3766,7 @@ Run: photon mcp ${mcpName} --config
     // Get all public method names from the instance
     // Skip runtime-injected methods (emit, render, push, ask) — these are
     // capability methods injected by the loader, not user-defined tools
-    const RUNTIME_METHODS = new Set(['emit', 'render', 'push', 'ask', 'call']);
+    const RUNTIME_METHODS = new Set(['emit', 'render', 'channel', 'ask', 'call']);
     const proto = Object.getPrototypeOf(instance);
     const methodNames = Object.getOwnPropertyNames(proto).filter((name) => {
       // Skip constructor and private/protected methods
