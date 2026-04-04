@@ -462,7 +462,7 @@ export function registerMCPCommand(program: Command): void {
           ...(channelMode
             ? {
                 channelMode: true,
-                channelName: name,
+                channelName: path.basename(name).replace(/\.photon\.ts$/, ''),
                 channelInstructions,
               }
             : {}),
