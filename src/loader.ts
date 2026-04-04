@@ -1179,12 +1179,12 @@ export class PhotonLoader {
       }
 
       // Inject push() for channel notifications — works for both Photon subclasses
-      // and plain classes. Emits on 'channel-push' daemon channel which the MCP
-      // server intercepts and translates to the client's notification method.
+      // and plain classes. Emits on '{photonName}:channel-push' daemon channel which
+      // the MCP server intercepts and translates to the client's notification method.
       if (typeof instance.emit === 'function') {
         instance.push = (content: string, meta?: Record<string, string>) => {
           (instance.emit as (data: any) => void)({
-            channel: 'channel-push',
+            channel: `${name}:channel-push`,
             event: 'push',
             data: { content, meta },
           });
