@@ -2291,7 +2291,9 @@ export class PhotonServer {
         const isStateful = metadata.stateful;
 
         // Start daemon for stateful photons (enables cross-client communication)
-        if (isStateful) {
+        // Skip daemon for channel mode — the MCP server handles everything in-process
+        // to avoid conflicting getUpdates/poll calls from two instances
+        if (isStateful && !this.options.channelMode) {
           const photonName = metadata.name;
           this.daemonName = photonName; // Store for subscription
           this.log('info', `Stateful photon detected: ${photonName}`);
@@ -2328,6 +2330,36 @@ export class PhotonServer {
         } else {
           this.log('info', `Loading ${this.options.filePath}...`);
           this.mcp = await this.loader.loadFile(this.options.filePath);
+        }
+      }
+
+      // In channel mode, wire push handler directly on the local instance
+      // (no daemon involved — everything runs in-process to avoid poll conflicts)
+      if (this.options.channelMode && this.mcp?.instance) {
+        const serverRef = this.server;
+        const sseSessionsRef = this.sseSessions;
+        const getMethod = () => this.getChannelNotificationMethod();
+        const instance = this.mcp.instance;
+
+        // Inject push handler that emits notifications/claude/channel directly
+        instance._channelPushHandler = (content: string, meta?: Record<string, string>) => {
+          const method = getMethod();
+          if (!method) return;
+          const notification = { method, params: { content, meta: meta || {} } };
+          void serverRef.notification(notification as any);
+          for (const session of sseSessionsRef.values()) {
+            void session.server.notification(notification as any);
+          }
+        };
+
+        // Activate polling so inbound messages flow through _handleUpdate → push()
+        if (
+          instance._connected &&
+          !instance._polling &&
+          typeof instance._activatePolling === 'function'
+        ) {
+          instance._activatePolling();
+          this.log('info', 'Channel mode: activated polling on local instance');
         }
       }
 
