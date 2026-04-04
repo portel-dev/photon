@@ -526,7 +526,12 @@ export class PhotonLoader {
       ? this.dependenciesEqual(metadata.dependencies, dependencies)
       : false;
     const resolvedCoreVersion = getResolvedPhotonCoreVersion();
-    const coreVersionChanged = metadata?.photonCoreVersion !== resolvedCoreVersion;
+    // Compare versions tolerantly: "2.17.6" matches "^2.17.6" and vice versa
+    // This prevents unnecessary cache clears when createRequire fallback returns a range
+    const storedVersion = metadata?.photonCoreVersion || '';
+    const coreVersionChanged =
+      storedVersion !== resolvedCoreVersion &&
+      storedVersion.replace(/^[\^~]/, '') !== resolvedCoreVersion.replace(/^[\^~]/, '');
 
     // Only clear dependency cache when deps or core version actually changed.
     // Source-only changes just need a build cache clear (recompile is fast).
