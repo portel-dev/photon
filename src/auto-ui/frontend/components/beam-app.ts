@@ -2160,6 +2160,8 @@ export class BeamApp extends LitElement {
   @state() private _methodPickerOpen = false;
   @state() private _methodPickerPanelId: string | null = null;
   private _nextPanelId = 0;
+  // Maps progressToken → panelId so progress events route to the correct split pane
+  private _panelProgressTokens = new Map<string | number, string>();
 
   private get _splitViewEnabled() {
     return this._splitPanels.length > 0;
@@ -2601,21 +2603,29 @@ export class BeamApp extends LitElement {
 
       mcpClient.on('progress', (data: any) => {
         this._log('info', data.message || 'Processing...');
-        // Update progress bar state
-        if (typeof data.progress === 'number') {
-          if (data.progress > 0) {
-            // Real progress update — show determinate bar
-            this._progress = {
-              value: data.total ? data.progress / data.total : data.progress,
-              message: data.message || 'Processing...',
-            };
-          } else {
-            // Status-only emit (progress=0) — show indeterminate bar with message
-            this._progress = {
-              value: -1,
-              message: data.message || 'Processing...',
-            };
-          }
+
+        // Route progress to the correct split panel if progressToken matches
+        const panelId =
+          data.progressToken != null
+            ? this._panelProgressTokens.get(data.progressToken)
+            : undefined;
+
+        const progressValue =
+          typeof data.progress === 'number'
+            ? data.progress > 0
+              ? {
+                  value: data.total ? data.progress / data.total : data.progress,
+                  message: data.message || 'Processing...',
+                }
+              : { value: -1, message: data.message || 'Processing...' }
+            : null;
+
+        if (panelId && progressValue) {
+          // Route to the specific split panel
+          this._updatePanel(panelId, { progress: progressValue });
+        } else if (progressValue) {
+          // No panel match — update global progress bar
+          this._progress = progressValue;
         }
       });
 
@@ -4785,7 +4795,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 ${this._splitPanels.map(
                   (panel) => html`
                     <div
-                      style="flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
+                      style="flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-panel);"
                     >
                       ${panel.type === 'method'
                         ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
@@ -4886,7 +4896,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               ${this._splitPanels.map(
                 (panel) => html`
                   <div
-                    style="flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
+                    style="flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-panel);"
                   >
                     ${panel.type === 'method'
                       ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
@@ -5385,7 +5395,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           ${this._splitPanels.map(
             (panel) => html`
               <div
-                style="flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
+                style="flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-panel);"
               >
                 ${panel.type === 'method'
                   ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
@@ -5778,17 +5788,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     this._updatePanel(panelId, { executing: true, result: null, progress: null, formParams: args });
 
+    // Generate a unique progressToken so progress events route to this panel
+    const progressToken = `panel_${panelId}_${Date.now()}`;
+    this._panelProgressTokens.set(progressToken, panelId);
+
     try {
       const toolName = `${this._selectedPhoton.name}/${panel.method.name}`;
-      const result = await mcpClient.callTool(
-        toolName,
-        args,
-        undefined,
-        panel.instance || this._currentInstance,
-        (progress: any) => {
-          this._updatePanel(panelId, { progress });
-        }
-      );
+      const result = await mcpClient.callTool(toolName, args, progressToken);
 
       this._updatePanel(panelId, {
         result: mcpClient.parseToolResult(result),
@@ -5802,6 +5808,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
         executing: false,
         progress: null,
       });
+    } finally {
+      this._panelProgressTokens.delete(progressToken);
     }
   }
 
