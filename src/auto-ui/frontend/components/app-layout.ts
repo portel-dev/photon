@@ -38,7 +38,7 @@ export class AppLayout extends LitElement {
       :host([hide-below]) .app-content {
         flex: 1;
         min-height: 0;
-        overflow: hidden;
+        overflow: auto;
       }
 
       :host([hide-below]) .scroll-divider,

@@ -4131,8 +4131,8 @@ export class BeamApp extends LitElement {
             ? html`<activity-log
                 .items=${this._activityLog}
                 .filter=${this._selectedPhoton?.name}
+                .fullscreen=${true}
                 @clear=${() => (this._activityLog = [])}
-                style="margin-top: 0; border-top: none; padding-top: 0; flex: 1;"
               ></activity-log>`
             : this._mainTab === 'methods' &&
                 (this._selectedPhoton?.isApp ||
@@ -5012,7 +5012,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         // iframe from loading data independently while an elicitation is pending
         const appFillStyle =
           this._mainTab === 'app' && isAppMain
-            ? 'flex: 1; height: 100%;'
+            ? 'flex: 1; min-height: 0; display: block; width: 100%;'
             : 'height: calc(100vh - 140px);';
         const appRenderer = this._isExecuting
           ? html`

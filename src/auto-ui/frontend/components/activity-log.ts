@@ -111,6 +111,22 @@ export class ActivityLog extends LitElement {
         overflow-y: auto;
       }
 
+      :host([fullscreen]) {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        margin-top: 0;
+        border-top: none;
+        padding-top: 0;
+      }
+
+      :host([fullscreen]) .log-list {
+        max-height: none;
+        flex: 1;
+        min-height: 0;
+      }
+
       .log-item {
         padding: var(--space-sm) var(--space-md);
         border-radius: var(--radius-sm);
@@ -249,6 +265,10 @@ export class ActivityLog extends LitElement {
   /** When set, shows a filter toggle button to scope the log to this photon name. */
   @property({ type: String })
   filter: string | undefined;
+
+  /** When true, the log expands to fill available flex space (used in the Log tab). */
+  @property({ type: Boolean, reflect: true })
+  fullscreen = false;
 
   @state() private _filterActive = false;
   @state() private _collapsed = false;
