@@ -150,7 +150,9 @@ else
   exit 1
 fi
 
-# Clean up (trap handles this)
+# Clean up fresh install dir — restore normal PHOTON_DIR
+rm -rf "$FRESH_DIR"
+unset PHOTON_DIR
 
 # ─── 7. Visual tests (optional — requires lookout + MLX) ────
 echo ""
