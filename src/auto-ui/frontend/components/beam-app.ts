@@ -3198,6 +3198,12 @@ export class BeamApp extends LitElement {
               }
               this._selectedMethod = method;
               this._view = 'form';
+              // Set app tab when loading app entry via URL
+              if (photon.isApp && photon.appEntry?.name === method.name) {
+                this._mainTab = 'app';
+              } else if (!photon.isApp) {
+                this._mainTab = 'methods';
+              }
               // Auto-invoke for URL-based routing (same as click-based method select)
               this._maybeAutoInvoke(method);
 
