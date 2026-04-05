@@ -107,6 +107,8 @@ export class ActivityLog extends LitElement {
         list-style: none;
         margin: 0;
         padding: 0;
+        max-height: 180px;
+        overflow-y: auto;
       }
 
       .log-item {

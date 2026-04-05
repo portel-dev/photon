@@ -3996,7 +3996,6 @@ export class BeamApp extends LitElement {
           ${this._renderContent()}
         </div>
         <activity-log
-          style="flex-shrink: 0;"
           .items=${this._activityLog}
           .filter=${this._selectedPhoton?.name}
           @clear=${() => (this._activityLog = [])}
