@@ -507,7 +507,7 @@ export class BeamApp extends LitElement {
 
       .cards-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(280px, min(100%, 380px)));
         gap: var(--space-md);
         align-items: stretch;
       }
