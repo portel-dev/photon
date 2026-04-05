@@ -423,6 +423,14 @@ export class BeamApp extends LitElement {
         flex: 1;
         min-width: 0;
         position: relative;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .main-content-scroll {
+        flex: 1;
+        min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
         padding: var(--space-lg);
@@ -3801,13 +3809,7 @@ export class BeamApp extends LitElement {
         ></beam-sidebar>
       </nav>
 
-      <main
-        class="main-area"
-        id="main-content"
-        tabindex="-1"
-        aria-label="Main content"
-        style="${this._splitViewEnabled ? 'overflow: hidden !important;' : ''}"
-      >
+      <main class="main-area" id="main-content" tabindex="-1" aria-label="Main content">
         ${this._focusMode && this._selectedPhoton
           ? html`<div class="focus-toolbar">
               ${this._selectedMethod && !this._selectedPhoton.isApp
@@ -3930,8 +3932,14 @@ export class BeamApp extends LitElement {
               </div>
             </div>`
           : ''}
-        ${this._renderContent()}
+        <div
+          class="main-content-scroll"
+          style="${this._splitViewEnabled ? 'overflow: hidden !important; padding: 0;' : ''}"
+        >
+          ${this._renderContent()}
+        </div>
         <activity-log
+          style="flex-shrink: 0;"
           .items=${this._activityLog}
           .filter=${this._selectedPhoton?.name}
           @clear=${() => (this._activityLog = [])}
@@ -5597,9 +5605,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const hasParams =
       !!opts.method?.params?.properties && Object.keys(opts.method.params.properties).length > 0;
     return html`
-      <div
-        style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;"
-      >
+      <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
         ${opts.appSurface ? '' : this._renderDescription(opts.method.description)}
         ${opts.appSurface && !hasParams
           ? ''
