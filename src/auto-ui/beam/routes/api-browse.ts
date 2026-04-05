@@ -221,7 +221,19 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
 
     let isPhotonMarkdown = false;
 
-    if (asset && asset.resolvedPath) {
+    // Verify resolvedPath actually exists before trusting it.
+    // asset-discovery resolves @ui paths relative to the asset folder, but photon
+    // authors sometimes write paths relative to the photon file directory, yielding
+    // a doubled segment (e.g. chat/chat/ui/chat.html). Fall through to auto-discovery
+    // when the pre-resolved path is missing.
+    const resolvedPathValid = asset?.resolvedPath
+      ? await fs
+          .access(asset.resolvedPath)
+          .then(() => true)
+          .catch(() => false)
+      : false;
+
+    if (asset && asset.resolvedPath && resolvedPathValid) {
       uiPath = asset.resolvedPath;
       isPhotonTemplate = uiPath.endsWith('.photon.html');
       isPhotonMarkdown = uiPath.endsWith('.photon.md');
