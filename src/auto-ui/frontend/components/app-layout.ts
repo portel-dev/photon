@@ -37,6 +37,9 @@ export class AppLayout extends LitElement {
         height: 100%;
         display: flex;
         flex-direction: column;
+        /* Remove rounded corners and clipping — we fill the full viewport */
+        border-radius: 0;
+        overflow: visible;
       }
 
       :host([hide-below]) .app-content {
