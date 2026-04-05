@@ -171,6 +171,8 @@ echo "▶ Step 8: Promise validation"
 echo "  Running promise validation suite..."
 npm run test:promises
 echo "  ✓ Platform promises validated"
+# Restore test fixture data files
+git checkout -- tests/fixtures/.data/ 2>/dev/null || true
 
 # ─── 9. Global install simulation ────
 echo ""
