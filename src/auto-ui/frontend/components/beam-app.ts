@@ -559,7 +559,7 @@ export class BeamApp extends LitElement {
       .anchor-nav {
         display: flex;
         gap: var(--space-md);
-        margin: var(--space-md) 0 var(--space-lg);
+        margin: 0 0 var(--space-md);
       }
 
       .anchor-link {
@@ -605,7 +605,7 @@ export class BeamApp extends LitElement {
         display: flex;
         align-items: flex-start;
         gap: var(--space-lg);
-        margin-bottom: var(--space-xl);
+        margin-bottom: var(--space-md);
       }
 
       .photon-icon-large {
