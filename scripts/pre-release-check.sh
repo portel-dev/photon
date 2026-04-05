@@ -176,22 +176,19 @@ echo "  ✓ Platform promises validated"
 echo ""
 echo "▶ Step 9: Global install simulation"
 PACK_TGZ=$(npm pack 2>/dev/null | tail -1)
-if [ -f "$PACK_TGZ" ]; then
-  TEST_DIR=$(mktemp -d)
-
+PACK_ABS="$(pwd)/$PACK_TGZ"
+if [ -f "$PACK_ABS" ]; then
   # Test with bun if available
   if command -v bun >/dev/null 2>&1; then
     echo "  Testing bun global install..."
-    cd "$TEST_DIR"
-    bun add -g "$OLDPWD/$PACK_TGZ" 2>/dev/null || true
+    bun add -g "$PACK_ABS" 2>/dev/null || true
     BUN_OUT=$(photon --version 2>&1) || true
     bun remove -g @portel/photon 2>/dev/null || true
-    cd "$OLDPWD"
     if echo "$BUN_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
       echo "  ✓ bun global install works ($BUN_OUT)"
     else
       echo "  ✗ FAIL: bun global install broken: $BUN_OUT"
-      rm -f "$PACK_TGZ"
+      rm -f "$PACK_ABS"
       exit 1
     fi
   else
@@ -201,23 +198,21 @@ if [ -f "$PACK_TGZ" ]; then
   # Test with npm/node if available
   if command -v node >/dev/null 2>&1; then
     echo "  Testing npm global install..."
-    cd "$TEST_DIR"
-    npm install -g "$OLDPWD/$PACK_TGZ" 2>/dev/null || true
+    npm install -g "$PACK_ABS" 2>/dev/null || true
     NPM_OUT=$(photon --version 2>&1) || true
     npm uninstall -g @portel/photon 2>/dev/null || true
-    cd "$OLDPWD"
     if echo "$NPM_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
       echo "  ✓ npm global install works ($NPM_OUT)"
     else
       echo "  ✗ FAIL: npm global install broken: $NPM_OUT"
-      rm -f "$PACK_TGZ"
+      rm -f "$PACK_ABS"
       exit 1
     fi
   else
     echo "  ⏭ node not available — skipping npm global test"
   fi
 
-  rm -rf "$TEST_DIR" "$PACK_TGZ"
+  rm -f "$PACK_ABS"
 else
   echo "  ⏭ npm pack failed — skipping install test"
 fi
