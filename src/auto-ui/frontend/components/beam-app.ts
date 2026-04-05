@@ -476,9 +476,9 @@ export class BeamApp extends LitElement {
 
       .main-toolbar {
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        margin-bottom: 4px;
+        gap: var(--space-sm);
+        margin-bottom: 8px;
         flex-shrink: 0;
       }
 
@@ -3980,6 +3980,15 @@ export class BeamApp extends LitElement {
                       </button>`
                     : ''}
                 </div>
+                <div
+                  style="flex: 1; min-width: 0; ${this._mainTab === 'app' ? 'display: none;' : ''}"
+                >
+                  ${this._renderPhotonToolbar(
+                    this._view === 'source'
+                      ? { showConfigure: false, showCopyConfig: false }
+                      : undefined
+                  )}
+                </div>
                 <div style="display: flex; gap: 4px; align-items: center;">
                   <!-- Tab switcher: App / Methods / Log -->
                   ${this._selectedPhoton.isApp ||
@@ -4205,7 +4214,7 @@ export class BeamApp extends LitElement {
     const hasPrompts = methods.some((m: any) => m.isTemplate);
     const title = hasTools && hasPrompts ? 'Methods & Prompts' : hasPrompts ? 'Prompts' : 'Methods';
     return html`
-      ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+      ${this._renderAnchorNav()}
       <div id="photon-methods" class="bento-methods">
         <h3 class="bento-section-title">${title}</h3>
         <div class="cards-grid">
@@ -4880,7 +4889,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
         ${this._mainTab !== 'app'
           ? html`
-              ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+              ${this._renderAnchorNav()}
               <div id="photon-methods" class="bento-methods">
                 <h3 class="bento-section-title">
                   ${(() => {
@@ -4965,7 +4974,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             ${appTabActive
               ? html`<div slot="below-fold"></div>`
               : html`<div slot="below-fold">
-                  ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+                  ${this._renderAnchorNav()}
                   ${otherMethods.length > 0
                     ? html`
                         <div id="photon-methods" class="bento-methods">
@@ -5105,7 +5114,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               ${appTabActive2
                 ? html`<div slot="below-fold"></div>`
                 : html`<div slot="below-fold">
-                    ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+                    ${this._renderAnchorNav()}
                     ${otherMethods.length > 0
                       ? html`
                           <div id="photon-methods" class="bento-methods">
@@ -5231,8 +5240,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     // For external MCPs, hide photon-specific toolbar actions in list view
     return html`
-      ${this._renderPhotonToolbar()} ${this._editingIcon ? this._renderEmojiPicker() : ''}
-      ${this._renderAnchorNav()}
+      ${this._editingIcon ? this._renderEmojiPicker() : ''} ${this._renderAnchorNav()}
 
       <div id="photon-methods" class="bento-methods">
         <h3 class="bento-section-title">
@@ -9506,7 +9514,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _renderSourceView() {
     if (!this._sourceData) {
       return html`
-        ${this._renderPhotonToolbar({ showConfigure: false, showCopyConfig: false })}
         <div
           class="glass-panel"
           style="padding: var(--space-xl); text-align: center; color: var(--t-muted);"
@@ -9544,7 +9551,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
 
     return html`
-      ${this._renderPhotonToolbar({ showConfigure: false, showCopyConfig: false })}
       <div
         class="glass-panel"
         style="margin-top: var(--space-md); display: flex; flex-direction: column; max-height: calc(100vh - 120px);"
