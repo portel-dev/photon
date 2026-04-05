@@ -193,11 +193,30 @@ export class BeamApp extends LitElement {
       }
 
       .sidebar-area {
-        width: 300px;
+        width: var(--sidebar-width, 300px);
         flex-shrink: 0;
         z-index: 10;
         display: flex;
         flex-direction: column;
+        position: relative;
+      }
+
+      .sidebar-resize-handle {
+        position: absolute;
+        right: -3px;
+        top: 0;
+        bottom: 0;
+        width: 6px;
+        cursor: col-resize;
+        z-index: 20;
+        background: transparent;
+        transition: background 0.15s;
+      }
+
+      .sidebar-resize-handle:hover,
+      .sidebar-resize-handle.dragging {
+        background: var(--accent-primary);
+        opacity: 0.5;
       }
 
       :host(.focus-mode) .sidebar-area {
@@ -1977,6 +1996,10 @@ export class BeamApp extends LitElement {
   @state() private _reconnectAttempt = 0;
   private _connectRetries = 0;
   @state() private _sidebarVisible = false;
+  @state() private _sidebarWidth = parseInt(
+    localStorage.getItem('beam-sidebar-width') || '300',
+    10
+  );
   @state() private _focusMode = false;
   @state() private _viewMode: 'full' | 'form' | 'result' = 'full';
   @state() private _photons: any[] = [];
@@ -3767,7 +3790,8 @@ export class BeamApp extends LitElement {
 
       <nav
         class="sidebar-area glass-panel ${this._sidebarVisible ? 'visible' : ''}"
-        style="margin: var(--space-sm); border-radius: var(--radius-md);"
+        style="margin: var(--space-sm); border-radius: var(--radius-md); --sidebar-width: ${this
+          ._sidebarWidth}px;"
         aria-label="Photon navigation"
       >
         <beam-sidebar
@@ -3807,6 +3831,10 @@ export class BeamApp extends LitElement {
             }
           }}
         ></beam-sidebar>
+        <div
+          class="sidebar-resize-handle"
+          @pointerdown=${(e: PointerEvent) => this._handleSidebarResizeStart(e)}
+        ></div>
       </nav>
 
       <main class="main-area" id="main-content" tabindex="-1" aria-label="Main content">
@@ -5039,6 +5067,30 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   private _closeSidebar() {
     this._sidebarVisible = false;
+  }
+
+  private _handleSidebarResizeStart(e: PointerEvent) {
+    e.preventDefault();
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    const startX = e.clientX;
+    const startWidth = this._sidebarWidth;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const newWidth = Math.min(500, Math.max(200, startWidth + moveEvent.clientX - startX));
+      this._sidebarWidth = newWidth;
+    };
+
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      localStorage.setItem('beam-sidebar-width', String(this._sidebarWidth));
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+    };
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
   }
 
   private _handlePhotonSelectMobile(e: CustomEvent) {
