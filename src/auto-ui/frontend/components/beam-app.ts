@@ -457,7 +457,7 @@ export class BeamApp extends LitElement {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin: calc(-1 * var(--space-lg) + 4px) calc(-1 * var(--space-lg) + 4px) 4px;
+        margin-bottom: 4px;
         flex-shrink: 0;
       }
 
@@ -3810,58 +3810,15 @@ export class BeamApp extends LitElement {
       </nav>
 
       <main class="main-area" id="main-content" tabindex="-1" aria-label="Main content">
-        ${this._focusMode && this._selectedPhoton
-          ? html`<div class="focus-toolbar">
-              ${this._selectedMethod && !this._selectedPhoton.isApp
-                ? html`<button
-                    class="focus-toolbar-back"
-                    @click=${() => this._handleBackFromMethod()}
-                    @mouseenter=${(e: MouseEvent) => {
-                      (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                      (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-                    }}
-                    @mouseleave=${(e: MouseEvent) => {
-                      (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                      (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                    }}
-                    title="Back to ${this._selectedPhoton.name}"
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="m15 18-6-6 6-6" />
-                    </svg>
-                  </button>`
-                : ''}
-              <button
-                @click=${this._toggleFocusMode}
-                @mouseenter=${(e: MouseEvent) => {
-                  (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                  (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-                }}
-                @mouseleave=${(e: MouseEvent) => {
-                  (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                  (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                }}
-                title="Exit focus mode"
-              >
-                ${collapse}
-              </button>
-            </div>`
-          : ''}
-        ${this._selectedPhoton
-          ? html`<div class="main-toolbar">
-              <div>
+        <div
+          class="main-content-scroll"
+          style="${this._splitViewEnabled ? 'overflow: hidden !important; padding: 0;' : ''}"
+        >
+          ${this._focusMode && this._selectedPhoton
+            ? html`<div class="focus-toolbar">
                 ${this._selectedMethod && !this._selectedPhoton.isApp
                   ? html`<button
-                      class="beam-back-btn"
+                      class="focus-toolbar-back"
                       @click=${() => this._handleBackFromMethod()}
                       @mouseenter=${(e: MouseEvent) => {
                         (e.target as HTMLElement).style.color = 'var(--t-primary)';
@@ -3887,35 +3844,7 @@ export class BeamApp extends LitElement {
                       </svg>
                     </button>`
                   : ''}
-              </div>
-              <div style="display: flex; gap: 4px; align-items: center;">
-                ${this._selectedPhoton.isApp
-                  ? html`<div style="position: relative;">
-                      <button
-                        class="beam-fullscreen-btn"
-                        @click=${() => {
-                          this._methodPickerOpen = !this._methodPickerOpen;
-                          this._methodPickerPanelId = null;
-                        }}
-                        @mouseenter=${(e: MouseEvent) => {
-                          (e.target as HTMLElement).style.color = 'var(--accent-secondary)';
-                          (e.target as HTMLElement).style.borderColor = 'var(--accent-secondary)';
-                        }}
-                        @mouseleave=${(e: MouseEvent) => {
-                          (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                          (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                        }}
-                        title="Add panel"
-                      >
-                        +
-                      </button>
-                      ${this._methodPickerOpen && this._methodPickerPanelId === null
-                        ? this._renderMethodPickerPopover()
-                        : ''}
-                    </div>`
-                  : ''}
                 <button
-                  class="beam-fullscreen-btn"
                   @click=${this._toggleFocusMode}
                   @mouseenter=${(e: MouseEvent) => {
                     (e.target as HTMLElement).style.color = 'var(--t-primary)';
@@ -3925,17 +3854,88 @@ export class BeamApp extends LitElement {
                     (e.target as HTMLElement).style.color = 'var(--t-muted)';
                     (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
                   }}
-                  title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
+                  title="Exit focus mode"
                 >
-                  ${this._focusMode ? collapse : expand}
+                  ${collapse}
                 </button>
-              </div>
-            </div>`
-          : ''}
-        <div
-          class="main-content-scroll"
-          style="${this._splitViewEnabled ? 'overflow: hidden !important; padding: 0;' : ''}"
-        >
+              </div>`
+            : ''}
+          ${this._selectedPhoton
+            ? html`<div class="main-toolbar">
+                <div>
+                  ${this._selectedMethod && !this._selectedPhoton.isApp
+                    ? html`<button
+                        class="beam-back-btn"
+                        @click=${() => this._handleBackFromMethod()}
+                        @mouseenter=${(e: MouseEvent) => {
+                          (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                          (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                        }}
+                        @mouseleave=${(e: MouseEvent) => {
+                          (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                          (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                        }}
+                        title="Back to ${this._selectedPhoton.name}"
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="m15 18-6-6 6-6" />
+                        </svg>
+                      </button>`
+                    : ''}
+                </div>
+                <div style="display: flex; gap: 4px; align-items: center;">
+                  ${this._selectedPhoton.isApp
+                    ? html`<div style="position: relative;">
+                        <button
+                          class="beam-fullscreen-btn"
+                          @click=${() => {
+                            this._methodPickerOpen = !this._methodPickerOpen;
+                            this._methodPickerPanelId = null;
+                          }}
+                          @mouseenter=${(e: MouseEvent) => {
+                            (e.target as HTMLElement).style.color = 'var(--accent-secondary)';
+                            (e.target as HTMLElement).style.borderColor = 'var(--accent-secondary)';
+                          }}
+                          @mouseleave=${(e: MouseEvent) => {
+                            (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                            (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                          }}
+                          title="Add panel"
+                        >
+                          +
+                        </button>
+                        ${this._methodPickerOpen && this._methodPickerPanelId === null
+                          ? this._renderMethodPickerPopover()
+                          : ''}
+                      </div>`
+                    : ''}
+                  <button
+                    class="beam-fullscreen-btn"
+                    @click=${this._toggleFocusMode}
+                    @mouseenter=${(e: MouseEvent) => {
+                      (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                      (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                    }}
+                    @mouseleave=${(e: MouseEvent) => {
+                      (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                      (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                    }}
+                    title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
+                  >
+                    ${this._focusMode ? collapse : expand}
+                  </button>
+                </div>
+              </div>`
+            : ''}
           ${this._renderContent()}
         </div>
         <activity-log
