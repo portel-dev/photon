@@ -3785,7 +3785,7 @@ export class BeamApp extends LitElement {
           }}
           @open-studio=${(e: CustomEvent) => {
             const photon = this._photons.find((p: any) => p.name === e.detail.photonName);
-            if (photon) {
+            if (photon?.editable && !photon?.isExternalMCP) {
               this._selectedPhoton = photon;
               this._view = 'studio';
             }
@@ -9300,7 +9300,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               </div>
             </div>
             <div style="display: flex; gap: var(--space-sm);">
-              ${this._selectedPhoton?.path && !this._selectedPhoton?.isExternalMCP
+              ${this._selectedPhoton?.editable && !this._selectedPhoton?.isExternalMCP
                 ? html`
                     <button
                       class="toolbar-btn"
