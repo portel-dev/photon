@@ -454,6 +454,8 @@ export class BeamApp extends LitElement {
         overflow-x: hidden;
         padding: var(--space-lg);
         scrollbar-gutter: stable;
+        display: flex;
+        flex-direction: column;
       }
 
       /* Page transition when switching photons */
@@ -503,6 +505,19 @@ export class BeamApp extends LitElement {
 
       .beam-fullscreen-btn {
         margin-left: auto;
+      }
+
+      .beam-tab-btn.active {
+        color: var(--accent-secondary);
+        border-color: var(--accent-secondary);
+      }
+
+      .tab-group-divider {
+        width: 1px;
+        height: 16px;
+        background: var(--border-glass);
+        margin: 0 2px;
+        align-self: center;
       }
 
       .cards-grid {
@@ -2219,6 +2234,7 @@ export class BeamApp extends LitElement {
   @state() private _methodPickerOpen = false;
   @state() private _methodPickerPanelId: string | null = null;
   @state() private _splitPrimaryWidth: number | null = null; // null = equal flex split
+  @state() private _mainTab: 'app' | 'methods' | 'log' = 'methods';
   private _nextPanelId = 0;
   // Maps progressToken → panelId so progress events route to the correct split pane
   private _panelProgressTokens = new Map<string | number, string>();
@@ -3163,6 +3179,7 @@ export class BeamApp extends LitElement {
           if (photon.isExternalMCP && photon.hasMcpApp) {
             this._selectedMethod = null;
             this._view = 'mcp-app';
+            this._mainTab = 'app';
             return;
           }
 
@@ -3221,11 +3238,13 @@ export class BeamApp extends LitElement {
             }
             this._selectedMethod = photon.appEntry;
             this._view = 'form';
+            this._mainTab = 'app';
             // Auto-invoke app entry if it has no required params
             this._maybeAutoInvoke(photon.appEntry);
           } else {
             this._selectedMethod = null;
             this._view = 'list';
+            this._mainTab = 'methods';
           }
         }
       }
@@ -3950,6 +3969,115 @@ export class BeamApp extends LitElement {
                     : ''}
                 </div>
                 <div style="display: flex; gap: 4px; align-items: center;">
+                  <!-- Tab switcher: App / Methods / Log -->
+                  ${this._selectedPhoton.isApp ||
+                  (this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp)
+                    ? html`<button
+                        class="beam-fullscreen-btn beam-tab-btn ${this._mainTab === 'app'
+                          ? 'active'
+                          : ''}"
+                        @click=${() => {
+                          this._mainTab = 'app';
+                          if (
+                            this._selectedPhoton.isExternalMCP &&
+                            this._selectedPhoton.hasMcpApp
+                          ) {
+                            this._view = 'mcp-app';
+                          }
+                        }}
+                        @mouseenter=${(e: MouseEvent) => {
+                          if (this._mainTab !== 'app')
+                            (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                        }}
+                        @mouseleave=${(e: MouseEvent) => {
+                          if (this._mainTab !== 'app')
+                            (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                        }}
+                        title="App"
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2" />
+                          <path d="M3 9h18" />
+                          <path d="M9 21V9" />
+                        </svg>
+                      </button>`
+                    : ''}
+                  <button
+                    class="beam-fullscreen-btn beam-tab-btn ${this._mainTab === 'methods'
+                      ? 'active'
+                      : ''}"
+                    @click=${() => {
+                      this._mainTab = 'methods';
+                    }}
+                    @mouseenter=${(e: MouseEvent) => {
+                      if (this._mainTab !== 'methods')
+                        (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                    }}
+                    @mouseleave=${(e: MouseEvent) => {
+                      if (this._mainTab !== 'methods')
+                        (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                    }}
+                    title="Methods"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <rect x="3" y="3" width="7" height="7" />
+                      <rect x="14" y="3" width="7" height="7" />
+                      <rect x="3" y="14" width="7" height="7" />
+                      <rect x="14" y="14" width="7" height="7" />
+                    </svg>
+                  </button>
+                  <button
+                    class="beam-fullscreen-btn beam-tab-btn ${this._mainTab === 'log'
+                      ? 'active'
+                      : ''}"
+                    @click=${() => {
+                      this._mainTab = 'log';
+                    }}
+                    @mouseenter=${(e: MouseEvent) => {
+                      if (this._mainTab !== 'log')
+                        (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                    }}
+                    @mouseleave=${(e: MouseEvent) => {
+                      if (this._mainTab !== 'log')
+                        (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                    }}
+                    title="Activity Log"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M9 6h11M9 12h11M9 18h11" />
+                      <circle cx="5" cy="6" r="1" fill="currentColor" />
+                      <circle cx="5" cy="12" r="1" fill="currentColor" />
+                      <circle cx="5" cy="18" r="1" fill="currentColor" />
+                    </svg>
+                  </button>
+                  <div class="tab-group-divider"></div>
                   ${this._selectedPhoton.isApp
                     ? html`<div style="position: relative;">
                         <button
@@ -3993,13 +4121,19 @@ export class BeamApp extends LitElement {
                 </div>
               </div>`
             : ''}
-          ${this._renderContent()}
+          ${this._mainTab === 'log'
+            ? html`<activity-log
+                .items=${this._activityLog}
+                .filter=${this._selectedPhoton?.name}
+                @clear=${() => (this._activityLog = [])}
+                style="margin-top: 0; border-top: none; padding-top: 0; flex: 1;"
+              ></activity-log>`
+            : this._mainTab === 'methods' &&
+                (this._selectedPhoton?.isApp ||
+                  (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
+              ? this._renderMethodsBentoOnly()
+              : this._renderContent()}
         </div>
-        <activity-log
-          .items=${this._activityLog}
-          .filter=${this._selectedPhoton?.name}
-          @clear=${() => (this._activityLog = [])}
-        ></activity-log>
       </main>
 
       <toast-manager></toast-manager>
@@ -4045,6 +4179,44 @@ export class BeamApp extends LitElement {
         @cancel=${this._handleElicitationCancel}
         @oauth-complete=${this._handleOAuthComplete}
       ></elicitation-modal>
+    `;
+  }
+
+  private _renderMethodsBentoOnly() {
+    if (!this._selectedPhoton) return html``;
+    const methods = this._getVisibleMethods();
+    if (methods.length === 0)
+      return html`<p style="color: var(--t-muted); padding: var(--space-md);">
+        No methods available.
+      </p>`;
+    const hasTools = methods.some((m: any) => !m.isTemplate);
+    const hasPrompts = methods.some((m: any) => m.isTemplate);
+    const title = hasTools && hasPrompts ? 'Methods & Prompts' : hasPrompts ? 'Prompts' : 'Methods';
+    return html`
+      ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+      <div id="photon-methods" class="bento-methods">
+        <h3 class="bento-section-title">${title}</h3>
+        <div class="cards-grid">
+          ${methods.map(
+            (method: any) => html`
+              <method-card
+                .method=${method}
+                .photonName=${this._selectedPhoton.name}
+                .selected=${this._selectedMethod?.name === method.name}
+                @select=${(e: CustomEvent) => {
+                  this._selectedMethod = e.detail.method;
+                  this._view = 'form';
+                  this._mainTab = 'methods';
+                  this._updateRoute();
+                }}
+              ></method-card>
+            `
+          )}
+        </div>
+      </div>
+      <div id="photon-prompts" class="bento-bottom-grid">
+        ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+      </div>
     `;
   }
 
@@ -4677,7 +4849,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
           : ''}
         <div
           class="glass-panel"
-          style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); position: relative; ${hasMultipleUIs
+          style="padding: 0; overflow: hidden; ${this._mainTab === 'app'
+            ? 'flex: 1; display: flex; flex-direction: column;'
+            : 'min-height: calc(100vh - 80px);'} position: relative; ${hasMultipleUIs
             ? 'border-radius: 0 0 var(--radius-md) var(--radius-md);'
             : ''}"
         >
@@ -4686,48 +4860,54 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .appUri=${currentUri}
             .linkedTool=${linkedMethod?.name || ''}
             .theme=${this._theme}
-            style="height: calc(100vh - ${hasMultipleUIs ? '120px' : '80px'});"
+            style="${this._mainTab === 'app'
+              ? 'flex: 1; height: 100%;'
+              : `height: calc(100vh - ${hasMultipleUIs ? '120px' : '80px'});`}"
           ></mcp-app-renderer>
         </div>
 
-        ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
-        <div id="photon-methods" class="bento-methods">
-          <h3 class="bento-section-title">
-            ${(() => {
-              const visible = this._getVisibleMethods();
-              const hasTools = visible.some((m: any) => !m.isTemplate);
-              const hasPrompts = visible.some((m: any) => m.isTemplate);
-              return hasTools && hasPrompts
-                ? 'Methods & Prompts'
-                : hasPrompts
-                  ? 'Prompts'
-                  : 'Methods';
-            })()}
-          </h3>
-          ${this._getVisibleMethods().length > 0
-            ? html`
-                <div class="cards-grid">
-                  ${this._getVisibleMethods().map(
-                    (method: any) => html`
-                      <method-card
-                        .method=${method}
-                        .photonName=${this._selectedPhoton.name}
-                        .selected=${this._selectedMethod?.name === method.name}
-                        @select=${(e: CustomEvent) => {
-                          this._selectedMethod = e.detail.method;
-                          this._view = 'form';
-                          this._updateRoute();
-                        }}
-                      ></method-card>
+        ${this._mainTab !== 'app'
+          ? html`
+              ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+              <div id="photon-methods" class="bento-methods">
+                <h3 class="bento-section-title">
+                  ${(() => {
+                    const visible = this._getVisibleMethods();
+                    const hasTools = visible.some((m: any) => !m.isTemplate);
+                    const hasPrompts = visible.some((m: any) => m.isTemplate);
+                    return hasTools && hasPrompts
+                      ? 'Methods & Prompts'
+                      : hasPrompts
+                        ? 'Prompts'
+                        : 'Methods';
+                  })()}
+                </h3>
+                ${this._getVisibleMethods().length > 0
+                  ? html`
+                      <div class="cards-grid">
+                        ${this._getVisibleMethods().map(
+                          (method: any) => html`
+                            <method-card
+                              .method=${method}
+                              .photonName=${this._selectedPhoton.name}
+                              .selected=${this._selectedMethod?.name === method.name}
+                              @select=${(e: CustomEvent) => {
+                                this._selectedMethod = e.detail.method;
+                                this._view = 'form';
+                                this._updateRoute();
+                              }}
+                            ></method-card>
+                          `
+                        )}
+                      </div>
                     `
-                  )}
-                </div>
-              `
-            : ''}
-        </div>
-        <div id="photon-prompts" class="bento-bottom-grid">
-          ${this._renderPromptsSection()} ${this._renderResourcesSection()}
-        </div>
+                  : ''}
+              </div>
+              <div id="photon-prompts" class="bento-bottom-grid">
+                ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+              </div>
+            `
+          : ''}
       `;
     }
 
