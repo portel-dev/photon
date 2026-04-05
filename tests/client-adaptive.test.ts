@@ -23,7 +23,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { strict as assert } from 'assert';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -44,6 +44,15 @@ function ok(condition: boolean, message: string) {
     console.error(`  ❌ ${message}`);
     failed++;
   }
+}
+
+/** Resolve tool name — handles both bare 'main' (STDIO) and 'photon/main' (SSE) */
+function findTool(tools: any[], name: string) {
+  return tools.find((t: any) => t.name === name || t.name.endsWith(`/${name}`));
+}
+function toolName(tools: any[], name: string): string {
+  const t = findTool(tools, name);
+  return t?.name ?? name;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -120,7 +129,7 @@ async function startSSEServer(port: number): Promise<ChildProcess> {
  */
 async function createSSEClient(port: number, opts: ClientOpts): Promise<Client> {
   const url = new URL(`http://localhost:${port}/mcp`);
-  const transport = new SSEClientTransport(url);
+  const transport = new StreamableHTTPClientTransport(url);
 
   const client = new Client(
     { name: opts.name, version: opts.version ?? '1.0.0' },
@@ -143,7 +152,7 @@ async function testBasicToolsList(createFn: (opts: ClientOpts) => Promise<Client
   const client = await createFn({ name: 'unknown-client' });
   try {
     const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
+    const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
     ok(!(mainTool as any)._meta?.ui, 'No _meta.ui for basic client');
   } finally {
@@ -157,7 +166,8 @@ async function testBasicToolsCall(createFn: (opts: ClientOpts) => Promise<Client
   );
   const client = await createFn({ name: 'unknown-client' });
   try {
-    const result = await client.callTool({ name: 'main', arguments: {} });
+    const { tools } = await client.listTools();
+    const result = await client.callTool({ name: toolName(tools, 'main'), arguments: {} });
     ok(Array.isArray(result.content), 'Has content array');
     ok(!(result as any).structuredContent, 'No structuredContent');
     ok(!(result as any)._meta?.ui, 'No _meta.ui');
@@ -180,13 +190,13 @@ async function testExperimentalCapability(
   });
   try {
     const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
+    const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
     const meta = (mainTool as any)._meta;
     ok(!!meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
     ok((meta.ui.resourceUri as string).startsWith('ui://'), 'tools/list: starts with ui://');
 
-    const result = await client.callTool({ name: 'main', arguments: {} });
+    const result = await client.callTool({ name: mainTool!.name, arguments: {} });
     ok(Array.isArray(result.content), 'tools/call: has content array');
     ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
     ok(
@@ -231,11 +241,11 @@ async function testClaudeDesktopWithUI(
   });
   try {
     const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
+    const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
     ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
 
-    const result = await client.callTool({ name: 'main', arguments: {} });
+    const result = await client.callTool({ name: mainTool!.name, arguments: {} });
     ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
     ok(
       (result as any).structuredContent?.message === 'Hello from UI test',
@@ -261,11 +271,11 @@ async function testClaudeDesktopNoUI(
   });
   try {
     const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
+    const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
     ok(!(mainTool as any)._meta?.ui, 'No _meta.ui (claude-ai without UI capability)');
 
-    const result = await client.callTool({ name: 'main', arguments: {} });
+    const result = await client.callTool({ name: mainTool!.name, arguments: {} });
     ok(!(result as any).structuredContent, 'No structuredContent without UI capability');
   } finally {
     await client.close();
@@ -289,11 +299,11 @@ async function testChatGPTWithUI(createFn: (opts: ClientOpts) => Promise<Client>
   });
   try {
     const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
+    const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
     ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
 
-    const result = await client.callTool({ name: 'main', arguments: {} });
+    const result = await client.callTool({ name: mainTool!.name, arguments: {} });
     ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
   } finally {
     await client.close();
@@ -311,7 +321,7 @@ async function testChatGPTNoCapability(
   const client = await createFn({ name: 'chatgpt', capabilities: {} });
   try {
     const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
+    const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
     ok(!(mainTool as any)._meta?.ui, 'No _meta.ui (chatgpt without capability)');
   } finally {
@@ -327,11 +337,11 @@ async function testBeamClient(createFn: (opts: ClientOpts) => Promise<Client>, l
   const client = await createFn({ name: 'beam' });
   try {
     const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
+    const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
     ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
 
-    const result = await client.callTool({ name: 'main', arguments: {} });
+    const result = await client.callTool({ name: mainTool!.name, arguments: {} });
     ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
     ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
   } finally {
@@ -356,11 +366,11 @@ async function testUnknownFutureClient(
   });
   try {
     const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
+    const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
     ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'Future client with capability gets _meta.ui');
 
-    const result = await client.callTool({ name: 'main', arguments: {} });
+    const result = await client.callTool({ name: mainTool!.name, arguments: {} });
     ok(!!(result as any).structuredContent, 'Future client gets structuredContent');
   } finally {
     await client.close();

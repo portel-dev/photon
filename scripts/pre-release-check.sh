@@ -90,27 +90,20 @@ echo ""
 
 # ─── 6. Fresh install simulation ────────────────────
 echo "▶ Step 6: Fresh install simulation"
-BACKUP_DIR="$HOME/.photon-prerelease-backup-$$"
-SIMULATED=false
+FRESH_DIR=$(mktemp -d)
+export PHOTON_DIR="$FRESH_DIR"
 
-if [ -d "$HOME/.photon" ]; then
-  mv "$HOME/.photon" "$BACKUP_DIR"
-  SIMULATED=true
-fi
-
-# Trap to restore on any failure
-restore_photon() {
-  if [ "$SIMULATED" = true ] && [ -d "$BACKUP_DIR" ]; then
-    rm -rf "$HOME/.photon"
-    mv "$BACKUP_DIR" "$HOME/.photon"
-  fi
+# Trap to clean up temp dir on any failure
+cleanup_fresh() {
+  rm -rf "$FRESH_DIR"
+  unset PHOTON_DIR
 }
-trap restore_photon EXIT
+trap cleanup_fresh EXIT
 
-# Test 5a: Beam starts with only internal photons
+# Test 6a: Beam starts with only internal photons
 echo "  Testing Beam startup..."
 BEAM_LOG=$(mktemp)
-node dist/cli.js beam > "$BEAM_LOG" 2>&1 &
+PHOTON_DIR="$FRESH_DIR" node dist/cli.js beam > "$BEAM_LOG" 2>&1 &
 BEAM_PID=$!
 sleep 6
 kill $BEAM_PID 2>/dev/null || true
@@ -135,9 +128,9 @@ fi
 echo "  ✓ No errors during startup"
 rm -f "$BEAM_LOG"
 
-# Test 5b: Marketplace search works
+# Test 6b: Marketplace search works
 echo "  Testing marketplace search..."
-SEARCH_OUT=$(node dist/cli.js search web 2>&1)
+SEARCH_OUT=$(PHOTON_DIR="$FRESH_DIR" node dist/cli.js search web 2>&1)
 if echo "$SEARCH_OUT" | grep -q "web"; then
   echo "  ✓ Marketplace search works"
 else
@@ -146,9 +139,9 @@ else
   exit 1
 fi
 
-# Test 5c: Photon install works
+# Test 6c: Photon install works
 echo "  Testing photon install..."
-ADD_OUT=$(node dist/cli.js add web 2>&1)
+ADD_OUT=$(PHOTON_DIR="$FRESH_DIR" node dist/cli.js add web 2>&1)
 if echo "$ADD_OUT" | grep -q "Added web"; then
   echo "  ✓ Photon install works"
 else
@@ -157,7 +150,7 @@ else
   exit 1
 fi
 
-# Restore original .photon (trap handles this)
+# Clean up (trap handles this)
 
 # ─── 7. Visual tests (optional — requires lookout + MLX) ────
 echo ""
@@ -183,7 +176,6 @@ echo "▶ Step 9: Global install simulation"
 PACK_TGZ=$(npm pack 2>/dev/null | tail -1)
 if [ -f "$PACK_TGZ" ]; then
   TEST_DIR=$(mktemp -d)
-  trap "rm -rf $TEST_DIR $PACK_TGZ" EXIT
 
   # Test with bun if available
   if command -v bun >/dev/null 2>&1; then
@@ -223,7 +215,7 @@ if [ -f "$PACK_TGZ" ]; then
     echo "  ⏭ node not available — skipping npm global test"
   fi
 
-  rm -f "$PACK_TGZ"
+  rm -rf "$TEST_DIR" "$PACK_TGZ"
 else
   echo "  ⏭ npm pack failed — skipping install test"
 fi
