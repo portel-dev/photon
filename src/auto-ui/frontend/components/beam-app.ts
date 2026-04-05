@@ -4840,6 +4840,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
                               <method-card
                                 .method=${method}
                                 .photonName=${this._selectedPhoton.name}
+                                .editable=${!!this._selectedPhoton.editable &&
+                                !this._selectedPhoton.isExternalMCP}
                                 @select=${(e: Event) => this._handleMethodSelect(e as CustomEvent)}
                                 @update-metadata=${this._handleMethodMetadataUpdate}
                               ></method-card>
@@ -8034,12 +8036,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const hasInstallSource = !!this._selectedPhoton?.installSource;
     const isStateful = !!this._selectedPhoton?.stateful;
     const hasSettings = !!this._selectedPhoton?.hasSettings;
-    // Source mode: show source button for local photons on list view, edit button on source view
+    // Editable: photon file sits directly in the base dir (user-owned).
+    // Marketplace-installed or external MCPs are read-only — show Fork instead.
+    const isEditable = !!this._selectedPhoton?.editable && !isExternalMCP;
+    // Source mode: show source button for editable photons, hidden for read-only
     const sourceMode = isExternalMCP
       ? 'hidden'
       : this._view === 'source'
         ? 'edit'
-        : hasPath && !this._selectedPhoton?.internal
+        : hasPath && !this._selectedPhoton?.internal && isEditable
           ? 'source'
           : 'hidden';
     return html`
@@ -8059,11 +8064,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
           showRefresh: !isExternalMCP,
           showEdit: false,
           showUpgrade: !!this._selectedPhoton?.hasUpdate,
-          showRename: !isExternalMCP,
+          showRename: isEditable,
           showViewSource: false,
-          showFork: hasInstallSource && !isExternalMCP,
+          showFork: !isEditable && !isExternalMCP,
           showContribute: hasInstallSource && !isExternalMCP,
-          showDelete: !isExternalMCP,
+          showDelete: isEditable,
           showHelp: !isExternalMCP,
         })}
         @context-action=${this._handleContextAction}
@@ -8350,6 +8355,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     if (!this._selectedPhoton) return '';
 
     const isApp = this._selectedPhoton.isApp;
+    const isEditable = !!this._selectedPhoton.editable && !this._selectedPhoton.isExternalMCP;
     const methods = this._selectedPhoton.methods || [];
     const templateCount = methods.filter((m: any) => m.isTemplate).length;
     const toolCount = methods.filter((m: any) => !m.isTemplate).length;
@@ -8368,45 +8374,49 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     return html`
       <header class="photon-header">
-        <button
-          type="button"
-          class="photon-icon-large editable ${isApp ? '' : 'mcp-icon'}"
-          @click=${this._startEditingIcon}
-          title="Click to change icon"
-          aria-label="Change icon"
-        >
-          ${displayIcon}
-        </button>
+        ${isEditable
+          ? html`<button
+              type="button"
+              class="photon-icon-large editable ${isApp ? '' : 'mcp-icon'}"
+              @click=${this._startEditingIcon}
+              title="Click to change icon"
+              aria-label="Change icon"
+            >
+              ${displayIcon}
+            </button>`
+          : html`<span class="photon-icon-large ${isApp ? '' : 'mcp-icon'}">${displayIcon}</span>`}
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
         <div class="photon-header-info">
           <h1 class="photon-header-name">${this._selectedPhoton.name}</h1>
-          ${this._editingDescription
-            ? html`
-                <p class="photon-header-desc editable editing">
-                  <input
-                    class="editable-input"
-                    type="text"
-                    .value=${this._editedDescription}
-                    placeholder="Add a description..."
-                    @input=${(e: Event) =>
-                      (this._editedDescription = (e.target as HTMLInputElement).value)}
-                    @blur=${this._saveDescription}
-                    @keydown=${this._handleDescriptionKeydown}
-                    autofocus
-                  />
-                </p>
-              `
-            : html`
-                <button
-                  type="button"
-                  class="photon-header-desc editable ${isGenericDesc ? 'placeholder' : ''}"
-                  @click=${this._startEditingDescription}
-                  title="Click to edit description"
-                  aria-label="Edit description"
-                >
-                  ${isGenericDesc ? 'Click to add a description...' : description}
-                </button>
-              `}
+          ${isEditable
+            ? this._editingDescription
+              ? html`
+                  <p class="photon-header-desc editable editing">
+                    <input
+                      class="editable-input"
+                      type="text"
+                      .value=${this._editedDescription}
+                      placeholder="Add a description..."
+                      @input=${(e: Event) =>
+                        (this._editedDescription = (e.target as HTMLInputElement).value)}
+                      @blur=${this._saveDescription}
+                      @keydown=${this._handleDescriptionKeydown}
+                      autofocus
+                    />
+                  </p>
+                `
+              : html`
+                  <button
+                    type="button"
+                    class="photon-header-desc editable ${isGenericDesc ? 'placeholder' : ''}"
+                    @click=${this._startEditingDescription}
+                    title="Click to edit description"
+                    aria-label="Edit description"
+                  >
+                    ${isGenericDesc ? 'Click to add a description...' : description}
+                  </button>
+                `
+            : html`<p class="photon-header-desc">${description}</p>`}
           <div class="photon-header-meta">
             ${isApp
               ? html`<span class="photon-badge app">App</span>`

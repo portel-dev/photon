@@ -909,6 +909,7 @@ class MCPClientService {
             id: tool['x-photon-id'] || serverName, // Use hash ID, fallback to name
             name: serverName,
             path: tool['x-photon-path'], // File path for View Source
+            editable: tool['x-photon-editable'] ?? false, // User-owned (at baseDir root)
             description: tool['x-photon-description'],
             icon: tool['x-photon-icon'],
             internal: tool['x-photon-internal'],

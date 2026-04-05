@@ -849,6 +849,11 @@ const handlers: Record<string, RequestHandler> = {
           inputSchema: method.params || { type: 'object', properties: {} },
           'x-photon-id': photon.id, // Unique ID (hash of path) for subscriptions
           'x-photon-path': photon.path, // File path for View Source
+          // Editable when the photon file sits directly in the base dir (user-owned).
+          // Marketplace-installed photons live in a subdirectory and are read-only.
+          'x-photon-editable': photon.path
+            ? dirname(photon.path) === (ctx.workingDir || '')
+            : false,
           'x-photon-description': photon.description,
           'x-photon-icon': photon.icon,
           'x-photon-internal': photon.internal,

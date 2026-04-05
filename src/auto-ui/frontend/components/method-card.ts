@@ -442,6 +442,9 @@ export class MethodCard extends LitElement {
   @property({ type: String })
   photonName = '';
 
+  @property({ type: Boolean })
+  editable = false;
+
   @state() private _editingDescription = false;
   @state() private _editingIcon = false;
   @state() private _editedDescription = '';
@@ -529,22 +532,24 @@ export class MethodCard extends LitElement {
                     </div>
                   `
                 : ''}
-              <span class="editable">
+              <span class="${this.editable ? 'editable' : ''}">
                 <h3 class="title">
                   <span class="title-name">${this.method.name}</span>${this._renderParamSignature()}
                 </h3>
-                <span
-                  class="edit-pencil"
-                  role="button"
-                  tabindex="0"
-                  @click=${(e: Event) => this._handleNameEditClick(e)}
-                  @keydown=${(e: KeyboardEvent) =>
-                    (e.key === 'Enter' || e.key === ' ') &&
-                    (e.preventDefault(), this._handleNameEditClick(e))}
-                  title="Rename method"
-                  aria-label="Rename method"
-                  >${pencil}</span
-                >
+                ${this.editable
+                  ? html`<span
+                      class="edit-pencil"
+                      role="button"
+                      tabindex="0"
+                      @click=${(e: Event) => this._handleNameEditClick(e)}
+                      @keydown=${(e: KeyboardEvent) =>
+                        (e.key === 'Enter' || e.key === ' ') &&
+                        (e.preventDefault(), this._handleNameEditClick(e))}
+                      title="Rename method"
+                      aria-label="Rename method"
+                      >${pencil}</span
+                    >`
+                  : ''}
               </span>
             </div>
             ${this.method.isTemplate ? html`<span class="badge prompt">Prompt</span>` : ''}
@@ -598,25 +603,32 @@ export class MethodCard extends LitElement {
                 </div>
               `
             : html`
-                <div class="editable" style="flex:1; align-items: flex-start;">
+                <div
+                  class="${this.editable ? 'editable' : ''}"
+                  style="flex:1; align-items: flex-start;"
+                >
                   <div class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
                     ${hasDescription
                       ? this._renderDescription(this.method.description)
-                      : 'Add description...'}
+                      : this.editable
+                        ? 'Add description...'
+                        : ''}
                   </div>
-                  <span
-                    class="edit-pencil"
-                    role="button"
-                    tabindex="0"
-                    @click=${(e: Event) => this._handleDescriptionEditClick(e)}
-                    @keydown=${(e: KeyboardEvent) =>
-                      (e.key === 'Enter' || e.key === ' ') &&
-                      (e.preventDefault(), this._handleDescriptionEditClick(e))}
-                    title="Edit description"
-                    aria-label="Edit description"
-                    style="margin-top: 2px;"
-                    >${pencil}</span
-                  >
+                  ${this.editable
+                    ? html`<span
+                        class="edit-pencil"
+                        role="button"
+                        tabindex="0"
+                        @click=${(e: Event) => this._handleDescriptionEditClick(e)}
+                        @keydown=${(e: KeyboardEvent) =>
+                          (e.key === 'Enter' || e.key === ' ') &&
+                          (e.preventDefault(), this._handleDescriptionEditClick(e))}
+                        title="Edit description"
+                        aria-label="Edit description"
+                        style="margin-top: 2px;"
+                        >${pencil}</span
+                      >`
+                    : ''}
                 </div>
               `}
         </div>
