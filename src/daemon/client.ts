@@ -6,6 +6,7 @@
  * Supports bidirectional prompts - daemon can request user input
  */
 
+import * as fs from 'fs';
 import * as net from 'net';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
@@ -1185,6 +1186,11 @@ export async function listJobs(photonName: string): Promise<
  */
 export async function pingDaemon(photonName: string): Promise<boolean> {
   const socketPath = getGlobalSocketPath();
+
+  if (!fs.existsSync(socketPath)) {
+    return false;
+  }
+
   const requestId = `ping_${Date.now()}`;
 
   return new Promise((resolve) => {
@@ -1244,6 +1250,13 @@ export async function queryDaemonStatus(): Promise<{
   photonsLoaded: number;
 } | null> {
   const socketPath = getGlobalSocketPath();
+
+  // Bail early if socket doesn't exist — avoids Bun crashing on ENOENT
+  // before the 'error' event listener can be attached
+  if (!fs.existsSync(socketPath)) {
+    return null;
+  }
+
   const requestId = `status_${Date.now()}`;
 
   return new Promise((resolve) => {
@@ -1299,6 +1312,11 @@ export async function queryDaemonStatus(): Promise<{
  */
 export async function clearInstances(photonName: string, workingDir?: string): Promise<boolean> {
   const socketPath = getGlobalSocketPath();
+
+  if (!fs.existsSync(socketPath)) {
+    return false;
+  }
+
   const requestId = `clearinst_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve) => {
