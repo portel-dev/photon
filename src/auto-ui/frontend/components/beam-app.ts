@@ -4933,13 +4933,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
             <div
               slot="app"
               style="${appTabActive
-                ? 'flex: 1; display: flex; flex-direction: column;'
+                ? 'height: calc(100vh - 80px);'
                 : 'min-height: calc(100vh - 140px);'}"
             >
               <div
                 class="glass-panel"
                 style="${appTabActive
-                  ? 'flex: 1; display: flex; flex-direction: column;'
+                  ? 'height: calc(100vh - 80px);'
                   : 'min-height: calc(100vh - 140px);'} overflow: hidden;"
               >
                 ${this._renderMethodBody({
@@ -5012,7 +5012,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         // iframe from loading data independently while an elicitation is pending
         const appFillStyle =
           this._mainTab === 'app' && isAppMain
-            ? 'flex: 1; min-height: 0; display: block; width: 100%;'
+            ? 'height: calc(100vh - 80px);'
             : 'height: calc(100vh - 140px);';
         const appRenderer = this._isExecuting
           ? html`
@@ -5083,12 +5083,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
               .hideBelow=${appTabActive2}
             >
-              <div
-                slot="app"
-                style="${appTabActive2
-                  ? 'flex: 1; display: flex; flex-direction: column;'
-                  : 'min-height: calc(100vh - 140px);'}"
-              >
+              <div slot="app" style="${appTabActive2 ? '' : 'min-height: calc(100vh - 140px);'}">
                 ${appRenderer}
               </div>
               <!-- Popout slot is lazily populated when app-layout toggles popout mode.

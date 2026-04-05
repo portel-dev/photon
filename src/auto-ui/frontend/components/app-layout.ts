@@ -20,27 +20,6 @@ export class AppLayout extends LitElement {
         display: block;
       }
 
-      :host([hide-below]) {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        min-height: 0;
-      }
-
-      :host([hide-below]) .app-viewport {
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-      }
-
-      :host([hide-below]) .app-content {
-        flex: 1;
-        min-height: 0;
-        overflow: auto;
-      }
-
       :host([hide-below]) .scroll-divider,
       :host([hide-below]) .below-fold {
         display: none;
