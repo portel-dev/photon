@@ -1767,6 +1767,34 @@ export class BeamApp extends LitElement {
         margin-top: var(--space-md);
       }
 
+      .split-divider {
+        width: 5px;
+        flex-shrink: 0;
+        cursor: col-resize;
+        background: var(--border-glass);
+        position: relative;
+        transition: background 0.15s;
+      }
+
+      .split-divider::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 1px;
+        height: 32px;
+        background: var(--t-muted);
+        border-radius: 2px;
+        opacity: 0.4;
+      }
+
+      .split-divider:hover,
+      .split-divider.dragging {
+        background: var(--accent-primary);
+        opacity: 0.6;
+      }
+
       .method-detail h2 {
         margin-top: 0;
       }
@@ -2190,6 +2218,7 @@ export class BeamApp extends LitElement {
   }> = [];
   @state() private _methodPickerOpen = false;
   @state() private _methodPickerPanelId: string | null = null;
+  @state() private _splitPrimaryWidth: number | null = null; // null = equal flex split
   private _nextPanelId = 0;
   // Maps progressToken → panelId so progress events route to the correct split pane
   private _panelProgressTokens = new Map<string | number, string>();
@@ -5069,6 +5098,35 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._sidebarVisible = false;
   }
 
+  private _handleSplitResizeStart(e: PointerEvent) {
+    e.preventDefault();
+    const divider = e.currentTarget as HTMLElement;
+    divider.setPointerCapture(e.pointerId);
+    divider.classList.add('dragging');
+
+    const container = divider.parentElement!;
+    const containerRect = container.getBoundingClientRect();
+    const startX = e.clientX;
+    const primaryPanel = divider.previousElementSibling as HTMLElement;
+    const startWidth = primaryPanel.getBoundingClientRect().width;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const minWidth = 200;
+      const maxWidth = containerRect.width - 200 - 5; // 5px divider
+      this._splitPrimaryWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
+    };
+
+    const onUp = () => {
+      divider.classList.remove('dragging');
+      divider.removeEventListener('pointermove', onMove);
+      divider.removeEventListener('pointerup', onUp);
+    };
+
+    divider.addEventListener('pointermove', onMove);
+    divider.addEventListener('pointerup', onUp);
+  }
+
   private _handleSidebarResizeStart(e: PointerEvent) {
     e.preventDefault();
     const handle = e.currentTarget as HTMLElement;
@@ -5417,10 +5475,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Split view mode — N panels
     if (this._splitPanels.length > 0) {
       return html`
-        <div style="display: flex; gap: 1px; height: 100%; overflow: hidden; width: 100%;">
+        <div style="display: flex; height: 100%; overflow: hidden; width: 100%;">
           <!-- Primary Panel -->
           <div
-            style="flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
+            style="${this._splitPrimaryWidth != null
+              ? `width: ${this._splitPrimaryWidth}px; flex-shrink: 0;`
+              : 'flex: 1;'} min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
           >
             ${this._renderSinglePanel({
               photon: this._selectedPhoton,
@@ -5456,6 +5516,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
           <!-- Additional Panels -->
           ${this._splitPanels.map(
             (panel) => html`
+              <div
+                class="split-divider"
+                @pointerdown=${(e: PointerEvent) => this._handleSplitResizeStart(e)}
+              ></div>
               <div
                 style="flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg-panel);"
               >
@@ -5792,6 +5856,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   /** Close all split panels and return to single-panel mode */
   private _closeSecondPanel() {
     this._splitPanels = [];
+    this._splitPrimaryWidth = null;
     this._methodPickerOpen = false;
     this._methodPickerPanelId = null;
     this._updateRoute();
