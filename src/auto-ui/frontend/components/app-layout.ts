@@ -20,6 +20,32 @@ export class AppLayout extends LitElement {
         display: block;
       }
 
+      :host([hide-below]) {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+
+      :host([hide-below]) .app-viewport {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      :host([hide-below]) .app-content {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      :host([hide-below]) .scroll-divider,
+      :host([hide-below]) .below-fold {
+        display: none;
+      }
+
       .app-viewport {
         min-height: calc(100vh - 140px);
         border-radius: var(--radius-md);
@@ -129,6 +155,9 @@ export class AppLayout extends LitElement {
 
   @property({ type: String })
   photonIcon = '';
+
+  @property({ type: Boolean, reflect: true, attribute: 'hide-below' })
+  hideBelow = false;
 
   @state()
   private _poppedOut = false;

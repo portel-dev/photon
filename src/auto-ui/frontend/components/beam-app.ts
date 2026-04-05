@@ -4923,13 +4923,25 @@ ${photon.errorMessage || 'Unknown error'}</pre
       if (isAppMain && !this._selectedMethod.linkedUi) {
         const otherMethods = this._getVisibleMethods().filter((m: any) => m.name !== 'main');
 
+        const appTabActive = this._mainTab === 'app';
         return html`
           <app-layout
             .photonName=${this._selectedPhoton.name}
             .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
+            .hideBelow=${appTabActive}
           >
-            <div slot="app" style="min-height: calc(100vh - 140px);">
-              <div class="glass-panel" style="min-height: calc(100vh - 140px); overflow: hidden;">
+            <div
+              slot="app"
+              style="${appTabActive
+                ? 'flex: 1; display: flex; flex-direction: column;'
+                : 'min-height: calc(100vh - 140px);'}"
+            >
+              <div
+                class="glass-panel"
+                style="${appTabActive
+                  ? 'flex: 1; display: flex; flex-direction: column;'
+                  : 'min-height: calc(100vh - 140px);'} overflow: hidden;"
+              >
                 ${this._renderMethodBody({
                   photon: this._selectedPhoton,
                   method: this._selectedMethod,
@@ -4944,41 +4956,44 @@ ${photon.errorMessage || 'Unknown error'}</pre
               </div>
             </div>
             <div slot="popout" style="height: 100%;"></div>
-            <div slot="below-fold">
-              ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
-              ${otherMethods.length > 0
-                ? html`
-                    <div id="photon-methods" class="bento-methods">
-                      <h3 class="bento-section-title">
-                        ${(() => {
-                          const hasTools = otherMethods.some((m: any) => !m.isTemplate);
-                          const hasPrompts = otherMethods.some((m: any) => m.isTemplate);
-                          return hasTools && hasPrompts
-                            ? 'Methods & Prompts'
-                            : hasPrompts
-                              ? 'Prompts'
-                              : 'Methods';
-                        })()}
-                      </h3>
-                      <div class="cards-grid">
-                        ${otherMethods.map(
-                          (method: any) => html`
-                            <method-card
-                              .method=${method}
-                              .photonName=${this._selectedPhoton.name}
-                              @select=${(e: Event) => this._handleMethodSelect(e as CustomEvent)}
-                              @update-metadata=${this._handleMethodMetadataUpdate}
-                            ></method-card>
-                          `
-                        )}
-                      </div>
-                    </div>
-                  `
-                : ''}
-              <div id="photon-prompts" class="bento-bottom-grid">
-                ${this._renderPromptsSection()} ${this._renderResourcesSection()}
-              </div>
-            </div>
+            ${appTabActive
+              ? html`<div slot="below-fold"></div>`
+              : html`<div slot="below-fold">
+                  ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+                  ${otherMethods.length > 0
+                    ? html`
+                        <div id="photon-methods" class="bento-methods">
+                          <h3 class="bento-section-title">
+                            ${(() => {
+                              const hasTools = otherMethods.some((m: any) => !m.isTemplate);
+                              const hasPrompts = otherMethods.some((m: any) => m.isTemplate);
+                              return hasTools && hasPrompts
+                                ? 'Methods & Prompts'
+                                : hasPrompts
+                                  ? 'Prompts'
+                                  : 'Methods';
+                            })()}
+                          </h3>
+                          <div class="cards-grid">
+                            ${otherMethods.map(
+                              (method: any) => html`
+                                <method-card
+                                  .method=${method}
+                                  .photonName=${this._selectedPhoton.name}
+                                  @select=${(e: Event) =>
+                                    this._handleMethodSelect(e as CustomEvent)}
+                                  @update-metadata=${this._handleMethodMetadataUpdate}
+                                ></method-card>
+                              `
+                            )}
+                          </div>
+                        </div>
+                      `
+                    : ''}
+                  <div id="photon-prompts" class="bento-bottom-grid">
+                    ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+                  </div>
+                </div>`}
           </app-layout>
         `;
       }
@@ -4995,10 +5010,14 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
         // Don't render the iframe until main() completes — this prevents the
         // iframe from loading data independently while an elicitation is pending
+        const appFillStyle =
+          this._mainTab === 'app' && isAppMain
+            ? 'flex: 1; height: 100%;'
+            : 'height: calc(100vh - 140px);';
         const appRenderer = this._isExecuting
           ? html`
               <div
-                style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: calc(100vh - 140px);"
+                style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; ${appFillStyle}"
               >
                 <span class="spinner"></span>
                 <span style="color: var(--t-muted); font-size: 13px;">
@@ -5013,7 +5032,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   .appUri=${`ui://${this._selectedPhoton.name}/${this._selectedMethod.linkedUi}`}
                   .linkedTool=${this._selectedMethod.name}
                   .theme=${this._theme}
-                  style="height: calc(100vh - 140px);"
+                  style="${appFillStyle}"
                 ></mcp-app-renderer>
               `
             : html`
@@ -5024,7 +5043,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   .theme=${this._theme}
                   .initialResult=${this._lastResult}
                   .revision=${this._customUiRevision}
-                  style="height: calc(100vh - 140px);"
+                  style="${appFillStyle}"
                 ></custom-ui-renderer>
               `;
 
@@ -5057,54 +5076,66 @@ ${photon.errorMessage || 'Unknown error'}</pre
             `;
           }
 
+          const appTabActive2 = this._mainTab === 'app';
           return html`
             <app-layout
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
+              .hideBelow=${appTabActive2}
             >
-              <div slot="app" style="min-height: calc(100vh - 140px);">${appRenderer}</div>
+              <div
+                slot="app"
+                style="${appTabActive2
+                  ? 'flex: 1; display: flex; flex-direction: column;'
+                  : 'min-height: calc(100vh - 140px);'}"
+              >
+                ${appRenderer}
+              </div>
               <!-- Popout slot is lazily populated when app-layout toggles popout mode.
                    Eagerly creating a second renderer causes Safari to load two
                    iframes simultaneously (one with zero dimensions), leading to
                    blank screens. -->
               <div slot="popout" style="height: 100%;"></div>
-              <div slot="below-fold">
-                ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
-                ${otherMethods.length > 0
-                  ? html`
-                      <div id="photon-methods" class="bento-methods">
-                        <h3 class="bento-section-title">
-                          ${(() => {
-                            const hasTools = otherMethods.some((m: any) => !m.isTemplate);
-                            const hasPrompts = otherMethods.some((m: any) => m.isTemplate);
-                            return hasTools && hasPrompts
-                              ? 'Methods & Prompts'
-                              : hasPrompts
-                                ? 'Prompts'
-                                : 'Methods';
-                          })()}
-                        </h3>
-                        <div class="cards-grid">
-                          ${otherMethods.map(
-                            (method: any) => html`
-                              <method-card
-                                .method=${method}
-                                .photonName=${this._selectedPhoton.name}
-                                .editable=${!!this._selectedPhoton.editable &&
-                                !this._selectedPhoton.isExternalMCP}
-                                @select=${(e: Event) => this._handleMethodSelect(e as CustomEvent)}
-                                @update-metadata=${this._handleMethodMetadataUpdate}
-                              ></method-card>
-                            `
-                          )}
-                        </div>
-                      </div>
-                    `
-                  : ''}
-                <div id="photon-prompts" class="bento-bottom-grid">
-                  ${this._renderPromptsSection()} ${this._renderResourcesSection()}
-                </div>
-              </div>
+              ${appTabActive2
+                ? html`<div slot="below-fold"></div>`
+                : html`<div slot="below-fold">
+                    ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+                    ${otherMethods.length > 0
+                      ? html`
+                          <div id="photon-methods" class="bento-methods">
+                            <h3 class="bento-section-title">
+                              ${(() => {
+                                const hasTools = otherMethods.some((m: any) => !m.isTemplate);
+                                const hasPrompts = otherMethods.some((m: any) => m.isTemplate);
+                                return hasTools && hasPrompts
+                                  ? 'Methods & Prompts'
+                                  : hasPrompts
+                                    ? 'Prompts'
+                                    : 'Methods';
+                              })()}
+                            </h3>
+                            <div class="cards-grid">
+                              ${otherMethods.map(
+                                (method: any) => html`
+                                  <method-card
+                                    .method=${method}
+                                    .photonName=${this._selectedPhoton.name}
+                                    .editable=${!!this._selectedPhoton.editable &&
+                                    !this._selectedPhoton.isExternalMCP}
+                                    @select=${(e: Event) =>
+                                      this._handleMethodSelect(e as CustomEvent)}
+                                    @update-metadata=${this._handleMethodMetadataUpdate}
+                                  ></method-card>
+                                `
+                              )}
+                            </div>
+                          </div>
+                        `
+                      : ''}
+                    <div id="photon-prompts" class="bento-bottom-grid">
+                      ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+                    </div>
+                  </div>`}
             </app-layout>
           `;
         }
