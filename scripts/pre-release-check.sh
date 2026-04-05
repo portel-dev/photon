@@ -183,9 +183,9 @@ if [ -f "$PACK_TGZ" ]; then
   if command -v bun >/dev/null 2>&1; then
     echo "  Testing bun global install..."
     cd "$TEST_DIR"
-    bun add -g "$OLDPWD/$PACK_TGZ" 2>/dev/null
-    BUN_OUT=$(photon --version 2>&1)
-    bun remove -g @portel/photon 2>/dev/null
+    bun add -g "$OLDPWD/$PACK_TGZ" 2>/dev/null || true
+    BUN_OUT=$(photon --version 2>&1) || true
+    bun remove -g @portel/photon 2>/dev/null || true
     cd "$OLDPWD"
     if echo "$BUN_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
       echo "  ✓ bun global install works ($BUN_OUT)"
@@ -202,9 +202,9 @@ if [ -f "$PACK_TGZ" ]; then
   if command -v node >/dev/null 2>&1; then
     echo "  Testing npm global install..."
     cd "$TEST_DIR"
-    npm install -g "$OLDPWD/$PACK_TGZ" 2>/dev/null
-    NPM_OUT=$(photon --version 2>&1)
-    npm uninstall -g @portel/photon 2>/dev/null
+    npm install -g "$OLDPWD/$PACK_TGZ" 2>/dev/null || true
+    NPM_OUT=$(photon --version 2>&1) || true
+    npm uninstall -g @portel/photon 2>/dev/null || true
     cd "$OLDPWD"
     if echo "$NPM_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
       echo "  ✓ npm global install works ($NPM_OUT)"
