@@ -25,6 +25,26 @@ export class AppLayout extends LitElement {
         display: none;
       }
 
+      /* App tab mode: fill the available flex height instead of using min-height */
+      :host([hide-below]) {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+      }
+
+      :host([hide-below]) .app-viewport {
+        min-height: unset;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      :host([hide-below]) .app-content {
+        overflow: hidden;
+        flex: 1;
+        min-height: 0;
+      }
+
       .app-viewport {
         min-height: calc(100vh - 140px);
         border-radius: var(--radius-md);

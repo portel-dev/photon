@@ -622,19 +622,27 @@ export class CustomUiRenderer extends LitElement {
 
     // Grow iframe when content exceeds the container height (e.g. long forms).
     // We never shrink below the natural CSS height (100% of the container).
+    // Exception: if the body opts into overflow:hidden (full-height app layout),
+    // respect that and never force the iframe to grow beyond the container.
     this._contentResizeObserver?.disconnect();
     const body = iframe.contentDocument?.body;
     if (body) {
-      this._contentResizeObserver = new ResizeObserver(() => {
-        const scrollH = iframe.contentDocument?.body.scrollHeight ?? 0;
-        const containerH = this.offsetHeight || 500;
-        if (scrollH > containerH) {
-          iframe.style.height = scrollH + 'px';
-        } else {
-          iframe.style.height = ''; // let CSS height: 100% take over
-        }
-      });
-      this._contentResizeObserver.observe(body);
+      const bodyOverflow = iframe.contentDocument?.defaultView
+        ? getComputedStyle(iframe.contentDocument.body).overflow
+        : '';
+      const isFullHeightApp = bodyOverflow === 'hidden';
+      if (!isFullHeightApp) {
+        this._contentResizeObserver = new ResizeObserver(() => {
+          const scrollH = iframe.contentDocument?.body.scrollHeight ?? 0;
+          const containerH = this.offsetHeight || 500;
+          if (scrollH > containerH) {
+            iframe.style.height = scrollH + 'px';
+          } else {
+            iframe.style.height = ''; // let CSS height: 100% take over
+          }
+        });
+        this._contentResizeObserver.observe(body);
+      }
     }
   }
 

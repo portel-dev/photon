@@ -3894,7 +3894,13 @@ export class BeamApp extends LitElement {
       <main class="main-area" id="main-content" tabindex="-1" aria-label="Main content">
         <div
           class="main-content-scroll"
-          style="${this._splitViewEnabled ? 'overflow: hidden !important; padding: 0;' : ''}"
+          style="${this._splitViewEnabled
+            ? 'overflow: hidden !important; padding: 0;'
+            : this._mainTab === 'app' &&
+                (this._selectedPhoton?.isApp ||
+                  (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
+              ? 'overflow: hidden; padding: 0;'
+              : ''}"
         >
           ${this._focusMode && this._selectedPhoton
             ? html`<div class="focus-toolbar">
@@ -5012,7 +5018,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         // iframe from loading data independently while an elicitation is pending
         const appFillStyle =
           this._mainTab === 'app' && isAppMain
-            ? 'height: calc(100vh - 80px);'
+            ? 'height: 100%; min-height: 0;'
             : 'height: calc(100vh - 140px);';
         const appRenderer = this._isExecuting
           ? html`
@@ -5083,7 +5089,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
               .hideBelow=${appTabActive2}
             >
-              <div slot="app" style="${appTabActive2 ? '' : 'min-height: calc(100vh - 140px);'}">
+              <div
+                slot="app"
+                style="${appTabActive2
+                  ? 'height: 100%; min-height: 0; display: flex; flex-direction: column;'
+                  : 'min-height: calc(100vh - 140px);'}"
+              >
                 ${appRenderer}
               </div>
               <!-- Popout slot is lazily populated when app-layout toggles popout mode.
