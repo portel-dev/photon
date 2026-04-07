@@ -35,12 +35,15 @@ export interface AuditEntry {
 
 let dirEnsured = false;
 let writeCount = 0;
+let rotating = false;
 
 /**
  * Rotate audit log files: audit.jsonl → audit.1.jsonl → audit.2.jsonl → audit.3.jsonl
  * Oldest file beyond MAX_ROTATED_FILES is deleted.
  */
 function rotateIfNeeded(): void {
+  if (rotating) return;
+  rotating = true;
   try {
     const stats = statSync(AUDIT_FILE);
     if (stats.size < MAX_FILE_SIZE) return;
@@ -59,6 +62,8 @@ function rotateIfNeeded(): void {
     // AUDIT_FILE has been renamed to audit.1.jsonl — next append creates a fresh file
   } catch {
     // Silent failure — rotation is best-effort
+  } finally {
+    rotating = false;
   }
 }
 

@@ -149,6 +149,29 @@ interface PersistentApproval {
 
 const APPROVALS_DIR = join(homedir(), '.photon', 'state');
 
+// Simple async mutex for file operations
+function createMutex() {
+  let locked: Promise<void> = Promise.resolve();
+  return {
+    async acquire<T>(fn: () => Promise<T>): Promise<T> {
+      let release: () => void;
+      const next = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const prev = locked;
+      locked = next;
+      await prev;
+      try {
+        return await fn();
+      } finally {
+        release!();
+      }
+    },
+  };
+}
+
+const approvalsMutex = createMutex();
+
 function approvalsPath(photonName: string): string {
   return join(APPROVALS_DIR, photonName, 'approvals.json');
 }
@@ -174,9 +197,11 @@ async function saveApprovals(photonName: string, approvals: PersistentApproval[]
 }
 
 async function addApproval(approval: PersistentApproval): Promise<void> {
-  const approvals = await loadApprovals(approval.photon);
-  approvals.push(approval);
-  await saveApprovals(approval.photon, approvals);
+  return approvalsMutex.acquire(async () => {
+    const approvals = await loadApprovals(approval.photon);
+    approvals.push(approval);
+    await saveApprovals(approval.photon, approvals);
+  });
 }
 
 async function resolveApproval(
@@ -184,12 +209,14 @@ async function resolveApproval(
   approvalId: string,
   status: 'approved' | 'rejected'
 ): Promise<PersistentApproval | undefined> {
-  const approvals = await loadApprovals(photonName);
-  const idx = approvals.findIndex((a) => a.id === approvalId);
-  if (idx === -1) return undefined;
-  approvals[idx].status = status;
-  await saveApprovals(photonName, approvals);
-  return approvals[idx];
+  return approvalsMutex.acquire(async () => {
+    const approvals = await loadApprovals(photonName);
+    const idx = approvals.findIndex((a) => a.id === approvalId);
+    if (idx === -1) return undefined;
+    approvals[idx].status = status;
+    await saveApprovals(photonName, approvals);
+    return approvals[idx];
+  });
 }
 
 async function getAllPendingApprovals(photonNames: string[]): Promise<PersistentApproval[]> {
