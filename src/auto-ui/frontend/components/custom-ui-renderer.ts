@@ -5,6 +5,29 @@ import { getThemeTokens } from '../../design-system/tokens.js';
 import { beamTypographyTokens } from '../styles/beam-tokens.js';
 import { mcpClient } from '../services/mcp-client.js';
 
+/**
+ * Override design-system surface tokens with Beam's own background colors
+ * so iframe content seamlessly blends with the Beam chrome.
+ * Beam uses blue-tinted darks (hsl 220,15%) while design tokens use neutral grays.
+ */
+function getBeamThemeTokens(themeMode: 'light' | 'dark'): Record<string, string> {
+  const tokens = getThemeTokens(themeMode);
+  if (themeMode === 'dark') {
+    tokens['--color-surface'] = 'hsl(220, 15%, 10%)'; // --bg-app
+    tokens['--color-surface-container'] = 'hsl(220, 15%, 12%)'; // --bg-panel
+    tokens['--color-surface-container-high'] = 'hsl(220, 15%, 14%)';
+    tokens['--color-surface-container-highest'] = 'hsl(220, 15%, 16%)';
+    tokens['--bg'] = 'hsl(220, 15%, 10%)';
+  } else {
+    tokens['--color-surface'] = '#eae4dd'; // light --bg-app
+    tokens['--color-surface-container'] = '#f8f5f1'; // light --bg-panel
+    tokens['--color-surface-container-high'] = '#f0ebe5';
+    tokens['--color-surface-container-highest'] = '#e8e2db';
+    tokens['--bg'] = '#eae4dd';
+  }
+  return tokens;
+}
+
 @customElement('custom-ui-renderer')
 export class CustomUiRenderer extends LitElement {
   static styles = [
@@ -16,7 +39,7 @@ export class CustomUiRenderer extends LitElement {
         width: 100%;
         height: 100%;
         min-height: 500px;
-        background: var(--bg-panel, #0d0d0d);
+        background: transparent;
         border-radius: var(--radius-md);
         overflow: visible;
       }
@@ -221,7 +244,7 @@ export class CustomUiRenderer extends LitElement {
     // Notify iframe of theme change without reloading
     if (changedProperties.has('theme')) {
       if (this._iframeRef?.contentWindow) {
-        const themeTokens = getThemeTokens(this.theme);
+        const themeTokens = getBeamThemeTokens(this.theme);
         // Standard MCP Apps notification
         this._iframeRef.contentWindow.postMessage(
           {
@@ -274,6 +297,7 @@ export class CustomUiRenderer extends LitElement {
       'sandbox',
       'allow-scripts allow-forms allow-same-origin allow-popups allow-modals'
     );
+    iframe.setAttribute('allowtransparency', 'true');
     iframe.addEventListener('load', (e) => this._handleIframeLoad(e));
     iframe.src = this._blobUrl;
     container.appendChild(iframe);
@@ -579,7 +603,7 @@ export class CustomUiRenderer extends LitElement {
     this._iframeRef = iframe;
 
     // Send initial theme to iframe after load (with tokens for immediate styling)
-    const themeTokens = getThemeTokens(this.theme);
+    const themeTokens = getBeamThemeTokens(this.theme);
     // Standard MCP Apps notification
     this._iframeRef?.contentWindow?.postMessage(
       {

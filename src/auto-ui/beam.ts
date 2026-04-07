@@ -2096,9 +2096,29 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
     // React to .photon.ts file changes — both top-level and namespaced subdirectories.
     // Top-level: foo.photon.ts → "foo"
-    // Namespaced: portel/gitbox.photon.ts → "portel/gitbox"
+    // Namespaced: Arul-/git-box.photon.ts → "git-box" (short name only)
     if (relativePath.endsWith('.photon.ts')) {
-      return relativePath.slice(0, -'.photon.ts'.length);
+      // For namespaced paths, look up by file path first to respect disambiguated
+      // names like "chat (1)" / "chat (2)" assigned at startup
+      let resolvedPath: string;
+      try {
+        resolvedPath = realpathSync(changedPath);
+      } catch {
+        resolvedPath = changedPath;
+      }
+      const byPath = photons.find((p) => {
+        try {
+          return realpathSync(p.path) === resolvedPath;
+        } catch {
+          return p.path === changedPath;
+        }
+      });
+      if (byPath) return byPath.name;
+
+      // New photon — derive short name from filename
+      const withoutExt = relativePath.slice(0, -'.photon.ts'.length);
+      const slashIndex = withoutExt.lastIndexOf(path.sep);
+      return slashIndex >= 0 ? withoutExt.slice(slashIndex + 1) : withoutExt;
     }
 
     // Detect asset changes for local (non-symlinked) photons.
@@ -2137,9 +2157,33 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           try {
             const photonIndex = photons.findIndex((p) => p.name === photonName);
             const isNewPhoton = photonIndex === -1;
-            const photonPath = isNewPhoton
-              ? path.join(workingDir, `${photonName}.photon.ts`)
-              : photons[photonIndex].path;
+            let photonPath: string;
+            if (!isNewPhoton) {
+              photonPath = photons[photonIndex].path;
+            } else {
+              // Try flat path first, then search namespace subdirectories
+              const flatPath = path.join(workingDir, `${photonName}.photon.ts`);
+              if (existsSync(flatPath)) {
+                photonPath = flatPath;
+              } else {
+                // Search namespace dirs (one level deep) for the photon file
+                let found: string | null = null;
+                try {
+                  const entries = await fs.readdir(workingDir, { withFileTypes: true });
+                  for (const entry of entries) {
+                    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+                    const candidate = path.join(workingDir, entry.name, `${photonName}.photon.ts`);
+                    if (existsSync(candidate)) {
+                      found = candidate;
+                      break;
+                    }
+                  }
+                } catch {
+                  // readdir failed
+                }
+                photonPath = found || flatPath;
+              }
+            }
             const previouslyConfigured = !isNewPhoton && photons[photonIndex]?.configured === true;
 
             // Handle file deletion - if file no longer exists and photon is in list, remove it

@@ -39,6 +39,24 @@ export type {
 export function generateBridgeScript(context: PhotonBridgeContext): string {
   // Get theme tokens for the specified theme (light or dark)
   const themeTokens = getThemeTokens(context.theme);
+
+  // When hosted in Beam, override surface tokens to match Beam's blue-tinted backgrounds
+  if (context.hostName === 'beam') {
+    if (context.theme === 'dark') {
+      themeTokens['--color-surface'] = 'hsl(220, 15%, 10%)';
+      themeTokens['--color-surface-container'] = 'hsl(220, 15%, 12%)';
+      themeTokens['--color-surface-container-high'] = 'hsl(220, 15%, 14%)';
+      themeTokens['--color-surface-container-highest'] = 'hsl(220, 15%, 16%)';
+      themeTokens['--bg'] = 'hsl(220, 15%, 10%)';
+    } else {
+      themeTokens['--color-surface'] = '#eae4dd';
+      themeTokens['--color-surface-container'] = '#f8f5f1';
+      themeTokens['--color-surface-container-high'] = '#f0ebe5';
+      themeTokens['--color-surface-container-highest'] = '#e8e2db';
+      themeTokens['--bg'] = '#eae4dd';
+    }
+  }
+
   const themeTokensJson = JSON.stringify(themeTokens);
   const contextJson = JSON.stringify(context);
 

@@ -57,9 +57,17 @@ export class BeamSidebar extends LitElement {
         flex-direction: column;
         height: 100%;
         color: var(--t-primary);
+        overflow: visible;
       }
 
       .sidebar-content {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .sidebar-scroll {
         flex: 1;
         overflow-y: auto;
         padding-right: 4px;
@@ -151,6 +159,7 @@ export class BeamSidebar extends LitElement {
       .header {
         padding: var(--space-md);
         border-bottom: 1px solid var(--border-glass);
+        flex-shrink: 0;
       }
 
       .header-row {
@@ -258,6 +267,69 @@ export class BeamSidebar extends LitElement {
       .search-box {
         margin-top: var(--space-md);
         position: relative;
+      }
+
+      .view-tabs {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 2px;
+        margin-top: var(--space-sm);
+        /* Extend past the sidebar padding and the parent glass-panel boundary */
+        margin-right: calc(-1 * var(--space-md) - 8px);
+        padding: 4px 10px 4px 6px;
+        background: color-mix(in srgb, var(--accent-secondary) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--accent-secondary) 20%, transparent);
+        border-right: none;
+        border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+      }
+
+      .view-tab {
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius-xs, 4px);
+        background: transparent;
+        border: none;
+        color: var(--t-muted);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+        font-size: 0.85rem;
+        padding: 0;
+      }
+
+      .view-tab:hover {
+        color: var(--t-primary);
+        background: var(--bg-glass);
+      }
+
+      .view-tab.active {
+        color: var(--accent-secondary);
+        background: var(--bg-glass-strong);
+        border: 1px solid var(--accent-secondary);
+      }
+
+      .sidebar-minimize-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        border: none;
+        color: var(--t-muted);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+        padding: 0;
+        flex-shrink: 0;
+      }
+
+      .sidebar-minimize-btn:hover {
+        color: var(--t-primary);
+        background: var(--bg-glass);
       }
 
       input {
@@ -790,6 +862,21 @@ export class BeamSidebar extends LitElement {
   @property({ type: Number })
   pendingApprovals = 0;
 
+  @property({ type: String })
+  mainTab = 'methods';
+
+  @property({ type: Boolean })
+  isApp = false;
+
+  @property({ type: Boolean })
+  hasSettings = false;
+
+  @property({ type: Boolean })
+  isExternalMCP = false;
+
+  @property({ type: Boolean })
+  hasPath = false;
+
   @state()
   private _searchQuery = '';
 
@@ -1014,7 +1101,158 @@ export class BeamSidebar extends LitElement {
                     : 'Disconnected'}"
               ></span>
             </button>
+            <button
+              class="sidebar-minimize-btn"
+              @click=${() => this.dispatchEvent(new CustomEvent('toggle-focus'))}
+              title="Minimize sidebar"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+                <polyline points="13 15 9 12 13 9" />
+              </svg>
+            </button>
           </div>
+          ${this.selectedPhoton
+            ? html`<div class="view-tabs">
+                ${this.isApp
+                  ? html`<button
+                      class="view-tab ${this.mainTab === 'app' ? 'active' : ''}"
+                      @click=${() => this._emitTabChange('app')}
+                      title="App"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <path d="M3 9h18" />
+                        <path d="M9 21V9" />
+                      </svg>
+                    </button>`
+                  : ''}
+                <button
+                  class="view-tab ${this.mainTab === 'methods' ? 'active' : ''}"
+                  @click=${() => this._emitTabChange('methods')}
+                  title="Methods"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="3" y="3" width="7" height="7" />
+                    <rect x="14" y="3" width="7" height="7" />
+                    <rect x="3" y="14" width="7" height="7" />
+                    <rect x="14" y="14" width="7" height="7" />
+                  </svg>
+                </button>
+                <button
+                  class="view-tab ${this.mainTab === 'log' ? 'active' : ''}"
+                  @click=${() => this._emitTabChange('log')}
+                  title="Activity Log"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M9 6h11M9 12h11M9 18h11" />
+                    <circle cx="5" cy="6" r="1" fill="currentColor" />
+                    <circle cx="5" cy="12" r="1" fill="currentColor" />
+                    <circle cx="5" cy="18" r="1" fill="currentColor" />
+                  </svg>
+                </button>
+                ${this.hasSettings
+                  ? html`<button
+                      class="view-tab ${this.mainTab === 'settings' ? 'active' : ''}"
+                      @click=${() => this._emitTabChange('settings')}
+                      title="Settings"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path
+                          d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+                        />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>`
+                  : ''}
+                ${this.hasPath && !this.isExternalMCP
+                  ? html`<button
+                      class="view-tab ${this.mainTab === 'source' ? 'active' : ''}"
+                      @click=${() => this._emitTabChange('source')}
+                      title="Source"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="16 18 22 12 16 6" />
+                        <polyline points="8 6 2 12 8 18" />
+                      </svg>
+                    </button>`
+                  : ''}
+                <button
+                  class="view-tab ${this.mainTab === 'help' ? 'active' : ''}"
+                  @click=${() => this._emitTabChange('help')}
+                  title="Help"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                </button>
+              </div>`
+            : ''}
           <div class="search-box" role="search">
             <input
               type="search"
@@ -1048,86 +1286,88 @@ export class BeamSidebar extends LitElement {
           </div>
         </div>
 
-        ${(() => {
-          const apps = this._sortByRecency(this._apps);
-          const configured = this._sortByRecency(this._configured);
-          return html`
-            ${apps.length > 0
-              ? this._renderSection('apps', 'APPS', apps, (p) =>
-                  p.isExternalMCP
-                    ? this._renderExternalMCPItem(p)
-                    : this._renderPhotonItem(p, 'app')
-                )
-              : ''}
-            ${configured.length > 0
-              ? this._renderSection('photons', 'PHOTONS', configured, (p) =>
-                  this._renderPhotonItem(p, 'configured')
-                )
-              : ''}
-          `;
-        })()}
-        ${(() => {
-          const needsConfig = this._needsSetup.filter((p) => p.errorReason !== 'load-error');
-          const loadErrors = this._needsSetup.filter((p) => p.errorReason === 'load-error');
-          return html`
-            ${needsConfig.length > 0
-              ? this._renderSection(
-                  'config',
-                  'NEEDS CONFIGURATION',
-                  needsConfig,
-                  (p) => this._renderPhotonItem(p, 'unconfigured'),
-                  'attention',
-                  warningIcon
-                )
-              : ''}
-            ${loadErrors.length > 0
-              ? this._renderSection(
-                  'errors',
-                  'LOAD ERRORS',
-                  loadErrors,
-                  (p) => this._renderPhotonItem(p, 'unconfigured'),
-                  'attention',
-                  xMark
-                )
-              : ''}
-          `;
-        })()}
-        ${this._nonAppExternalMCPs.length > 0
-          ? this._renderSection(
-              'mcps',
-              'MCPS',
-              this._sortByRecency(this._nonAppExternalMCPs),
-              (mcp) => this._renderExternalMCPItem(mcp)
-            )
-          : ''}
-        ${this._apps.length === 0 &&
-        this._configured.length === 0 &&
-        this._needsSetup.length === 0 &&
-        this._nonAppExternalMCPs.length === 0
-          ? html`
-              <div class="empty-state">
-                ${this._searchQuery.trim()
-                  ? html`
-                      <div class="empty-icon">${searchIcon}</div>
-                      <div class="empty-title">No results</div>
-                      <div class="empty-hint">No photons match "${this._searchQuery}"</div>
-                    `
-                  : html`
-                      <div class="empty-icon">${packageBox}</div>
-                      <div class="empty-title">No photons yet</div>
-                      <div class="empty-hint">
-                        Add photons from the marketplace or create your own
-                      </div>
-                      <button
-                        class="empty-action"
-                        @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
-                      >
-                        ${marketplaceIcon} Browse Marketplace
-                      </button>
-                    `}
-              </div>
-            `
-          : ''}
+        <div class="sidebar-scroll">
+          ${(() => {
+            const apps = this._sortByRecency(this._apps);
+            const configured = this._sortByRecency(this._configured);
+            return html`
+              ${apps.length > 0
+                ? this._renderSection('apps', 'APPS', apps, (p) =>
+                    p.isExternalMCP
+                      ? this._renderExternalMCPItem(p)
+                      : this._renderPhotonItem(p, 'app')
+                  )
+                : ''}
+              ${configured.length > 0
+                ? this._renderSection('photons', 'PHOTONS', configured, (p) =>
+                    this._renderPhotonItem(p, 'configured')
+                  )
+                : ''}
+            `;
+          })()}
+          ${(() => {
+            const needsConfig = this._needsSetup.filter((p) => p.errorReason !== 'load-error');
+            const loadErrors = this._needsSetup.filter((p) => p.errorReason === 'load-error');
+            return html`
+              ${needsConfig.length > 0
+                ? this._renderSection(
+                    'config',
+                    'NEEDS CONFIGURATION',
+                    needsConfig,
+                    (p) => this._renderPhotonItem(p, 'unconfigured'),
+                    'attention',
+                    warningIcon
+                  )
+                : ''}
+              ${loadErrors.length > 0
+                ? this._renderSection(
+                    'errors',
+                    'LOAD ERRORS',
+                    loadErrors,
+                    (p) => this._renderPhotonItem(p, 'unconfigured'),
+                    'attention',
+                    xMark
+                  )
+                : ''}
+            `;
+          })()}
+          ${this._nonAppExternalMCPs.length > 0
+            ? this._renderSection(
+                'mcps',
+                'MCPS',
+                this._sortByRecency(this._nonAppExternalMCPs),
+                (mcp) => this._renderExternalMCPItem(mcp)
+              )
+            : ''}
+          ${this._apps.length === 0 &&
+          this._configured.length === 0 &&
+          this._needsSetup.length === 0 &&
+          this._nonAppExternalMCPs.length === 0
+            ? html`
+                <div class="empty-state">
+                  ${this._searchQuery.trim()
+                    ? html`
+                        <div class="empty-icon">${searchIcon}</div>
+                        <div class="empty-title">No results</div>
+                        <div class="empty-hint">No photons match "${this._searchQuery}"</div>
+                      `
+                    : html`
+                        <div class="empty-icon">${packageBox}</div>
+                        <div class="empty-title">No photons yet</div>
+                        <div class="empty-hint">
+                          Add photons from the marketplace or create your own
+                        </div>
+                        <button
+                          class="empty-action"
+                          @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
+                        >
+                          ${marketplaceIcon} Browse Marketplace
+                        </button>
+                      `}
+                </div>
+              `
+            : ''}
+        </div>
       </nav>
 
       <div class="sidebar-footer">
@@ -1430,6 +1670,10 @@ export class BeamSidebar extends LitElement {
         composed: true,
       })
     );
+  }
+
+  private _emitTabChange(tab: string) {
+    this.dispatchEvent(new CustomEvent('tab-change', { detail: { tab } }));
   }
 
   private _handleSearch(e: Event) {

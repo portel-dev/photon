@@ -666,6 +666,10 @@ export class InvokeForm extends LitElement {
   @property({ type: Object })
   sharedValues: Record<string, any> | null = null;
 
+  /** Render in two-column settings layout */
+  @property({ type: Boolean })
+  settingsLayout = false;
+
   @state()
   private _values: Record<string, any> = {};
 
@@ -946,6 +950,50 @@ export class InvokeForm extends LitElement {
       const error = this._errors[key];
 
       const inputId = `field-${key}`;
+
+      if (this.settingsLayout) {
+        const isBoolean = schema.type === 'boolean' || schema.type === '"boolean"';
+        return html`
+          <div
+            style="display: grid; grid-template-columns: 200px 1fr; border-bottom: 1px solid var(--border-glass); min-height: 48px;"
+          >
+            <div
+              style="padding: 12px var(--space-md); display: flex; flex-direction: column; justify-content: center; background: var(--bg-glass);"
+            >
+              <label
+                for=${inputId}
+                style="font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); margin: 0;"
+              >
+                ${formatLabel(key)}
+              </label>
+              ${schema.description
+                ? html`<span
+                    style="font-size: var(--text-2xs); color: var(--t-muted); margin-top: 2px; line-height: 1.3;"
+                    >${this._cleanDescription(schema.description, schema)}</span
+                  >`
+                : ''}
+            </div>
+            <div
+              style="padding: ${isBoolean
+                ? '8px'
+                : '6px'} var(--space-md); display: flex; align-items: center;"
+            >
+              ${this._renderInput(key, schema, !!error, inputId)}
+              ${error
+                ? html`<div
+                    class="error-text"
+                    style="margin-left: 8px;"
+                    id="${inputId}-error"
+                    role="alert"
+                  >
+                    ${error}
+                  </div>`
+                : ''}
+            </div>
+          </div>
+        `;
+      }
+
       return html`
         <div class="form-group">
           <label for=${inputId}>

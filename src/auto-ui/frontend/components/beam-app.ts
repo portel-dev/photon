@@ -199,6 +199,7 @@ export class BeamApp extends LitElement {
         display: flex;
         flex-direction: column;
         position: relative;
+        overflow: visible;
       }
 
       .sidebar-resize-handle {
@@ -2234,7 +2235,7 @@ export class BeamApp extends LitElement {
   @state() private _methodPickerOpen = false;
   @state() private _methodPickerPanelId: string | null = null;
   @state() private _splitPrimaryWidth: number | null = null; // null = equal flex split
-  @state() private _mainTab: 'app' | 'methods' | 'log' = 'methods';
+  @state() private _mainTab: 'app' | 'methods' | 'log' | 'source' | 'settings' | 'help' = 'methods';
   private _nextPanelId = 0;
   // Maps progressToken → panelId so progress events route to the correct split pane
   private _panelProgressTokens = new Map<string | number, string>();
@@ -3856,6 +3857,65 @@ export class BeamApp extends LitElement {
           .connected=${this._connected}
           .reconnecting=${this._reconnecting}
           .updatesAvailable=${this._updatesAvailable.length}
+          .mainTab=${this._mainTab}
+          .isApp=${!!(
+            this._selectedPhoton?.isApp ||
+            (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp)
+          )}
+          .hasSettings=${!!(
+            this._selectedPhoton?.hasSettings && !this._selectedPhoton?.isExternalMCP
+          )}
+          .isExternalMCP=${!!this._selectedPhoton?.isExternalMCP}
+          .hasPath=${!!this._selectedPhoton?.path}
+          @tab-change=${(e: CustomEvent) => {
+            const tab = e.detail.tab;
+            this._mainTab = tab;
+            // Handle source tab
+            if (tab === 'source') {
+              void this._handleViewSourceInline();
+              return;
+            }
+            // Handle help tab
+            if (tab === 'help') {
+              void this._loadPhotonHelp();
+              return;
+            }
+            // Exit source/studio view when switching away
+            if (this._view === 'source' || this._view === 'studio') {
+              if (this._selectedMethod) {
+                this._view = 'form';
+              } else {
+                this._view = 'list';
+              }
+            }
+            // Handle settings tab
+            if (tab === 'settings' && this._selectedPhoton) {
+              const settingsMethod = this._selectedPhoton.methods?.find(
+                (m: any) => m.name === 'settings'
+              );
+              if (settingsMethod) {
+                this._selectedMethod = settingsMethod;
+                this._view = 'form';
+                this._maybeAutoInvoke(settingsMethod);
+              }
+              return;
+            }
+            // Handle app tab for external MCPs
+            if (
+              tab === 'app' &&
+              this._selectedPhoton?.isExternalMCP &&
+              this._selectedPhoton?.hasMcpApp
+            ) {
+              this._view = 'mcp-app';
+            }
+            // Handle app tab for native apps
+            if (tab === 'app' && this._selectedPhoton?.isApp && this._selectedPhoton?.appEntry) {
+              this._selectedMethod = this._selectedPhoton.appEntry;
+              this._view = 'form';
+              this._maybeAutoInvoke(this._selectedPhoton.appEntry);
+            }
+          }}
+          @toggle-focus=${() => this._toggleFocusMode()}
           @home=${this._goHome}
           @select=${(e: Event) => this._handlePhotonSelectMobile(e as CustomEvent)}
           @marketplace=${() => this._handleMarketplaceMobile()}
@@ -3900,7 +3960,11 @@ export class BeamApp extends LitElement {
                 (this._selectedPhoton?.isApp ||
                   (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
               ? 'overflow: hidden; padding: 0;'
-              : ''}"
+              : this._mainTab === 'source'
+                ? 'padding: 0; overflow: hidden;'
+                : this._view === 'studio'
+                  ? 'padding: 0; overflow: hidden;'
+                  : ''}"
         >
           ${this._focusMode && this._selectedPhoton
             ? html`<div class="focus-toolbar">
@@ -3948,198 +4012,9 @@ export class BeamApp extends LitElement {
                 </button>
               </div>`
             : ''}
-          ${this._selectedPhoton
+          ${this._selectedPhoton && !this._selectedMethod && this._mainTab === 'methods'
             ? html`<div class="main-toolbar">
-                <div>
-                  ${this._selectedMethod && !this._selectedPhoton.isApp
-                    ? html`<button
-                        class="beam-back-btn"
-                        @click=${() => this._handleBackFromMethod()}
-                        @mouseenter=${(e: MouseEvent) => {
-                          (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                          (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-                        }}
-                        @mouseleave=${(e: MouseEvent) => {
-                          (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                          (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                        }}
-                        title="Back to ${this._selectedPhoton.name}"
-                      >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <path d="m15 18-6-6 6-6" />
-                        </svg>
-                      </button>`
-                    : ''}
-                </div>
-                <div
-                  style="flex: 1; min-width: 0; ${this._mainTab === 'app' ? 'display: none;' : ''}"
-                >
-                  ${this._renderPhotonToolbar(
-                    this._view === 'source'
-                      ? { showConfigure: false, showCopyConfig: false }
-                      : undefined
-                  )}
-                </div>
-                <div style="display: flex; gap: 4px; align-items: center;">
-                  <!-- Tab switcher: App / Methods / Log -->
-                  ${this._selectedPhoton.isApp ||
-                  (this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp)
-                    ? html`<button
-                        class="beam-fullscreen-btn beam-tab-btn ${this._mainTab === 'app'
-                          ? 'active'
-                          : ''}"
-                        @click=${() => {
-                          this._mainTab = 'app';
-                          if (
-                            this._selectedPhoton.isExternalMCP &&
-                            this._selectedPhoton.hasMcpApp
-                          ) {
-                            this._view = 'mcp-app';
-                          }
-                        }}
-                        @mouseenter=${(e: MouseEvent) => {
-                          if (this._mainTab !== 'app')
-                            (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                        }}
-                        @mouseleave=${(e: MouseEvent) => {
-                          if (this._mainTab !== 'app')
-                            (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                        }}
-                        title="App"
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <rect x="3" y="3" width="18" height="18" rx="2" />
-                          <path d="M3 9h18" />
-                          <path d="M9 21V9" />
-                        </svg>
-                      </button>`
-                    : ''}
-                  <button
-                    class="beam-fullscreen-btn beam-tab-btn ${this._mainTab === 'methods'
-                      ? 'active'
-                      : ''}"
-                    @click=${() => {
-                      this._mainTab = 'methods';
-                    }}
-                    @mouseenter=${(e: MouseEvent) => {
-                      if (this._mainTab !== 'methods')
-                        (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                    }}
-                    @mouseleave=${(e: MouseEvent) => {
-                      if (this._mainTab !== 'methods')
-                        (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                    }}
-                    title="Methods"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <rect x="3" y="3" width="7" height="7" />
-                      <rect x="14" y="3" width="7" height="7" />
-                      <rect x="3" y="14" width="7" height="7" />
-                      <rect x="14" y="14" width="7" height="7" />
-                    </svg>
-                  </button>
-                  <button
-                    class="beam-fullscreen-btn beam-tab-btn ${this._mainTab === 'log'
-                      ? 'active'
-                      : ''}"
-                    @click=${() => {
-                      this._mainTab = 'log';
-                    }}
-                    @mouseenter=${(e: MouseEvent) => {
-                      if (this._mainTab !== 'log')
-                        (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                    }}
-                    @mouseleave=${(e: MouseEvent) => {
-                      if (this._mainTab !== 'log')
-                        (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                    }}
-                    title="Activity Log"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M9 6h11M9 12h11M9 18h11" />
-                      <circle cx="5" cy="6" r="1" fill="currentColor" />
-                      <circle cx="5" cy="12" r="1" fill="currentColor" />
-                      <circle cx="5" cy="18" r="1" fill="currentColor" />
-                    </svg>
-                  </button>
-                  <div class="tab-group-divider"></div>
-                  ${this._selectedPhoton.isApp
-                    ? html`<div style="position: relative;">
-                        <button
-                          class="beam-fullscreen-btn"
-                          @click=${() => {
-                            this._methodPickerOpen = !this._methodPickerOpen;
-                            this._methodPickerPanelId = null;
-                          }}
-                          @mouseenter=${(e: MouseEvent) => {
-                            (e.target as HTMLElement).style.color = 'var(--accent-secondary)';
-                            (e.target as HTMLElement).style.borderColor = 'var(--accent-secondary)';
-                          }}
-                          @mouseleave=${(e: MouseEvent) => {
-                            (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                            (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                          }}
-                          title="Add panel"
-                        >
-                          +
-                        </button>
-                        ${this._methodPickerOpen && this._methodPickerPanelId === null
-                          ? this._renderMethodPickerPopover()
-                          : ''}
-                      </div>`
-                    : ''}
-                  <button
-                    class="beam-fullscreen-btn"
-                    @click=${this._toggleFocusMode}
-                    @mouseenter=${(e: MouseEvent) => {
-                      (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                      (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-                    }}
-                    @mouseleave=${(e: MouseEvent) => {
-                      (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                      (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                    }}
-                    title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
-                  >
-                    ${this._focusMode ? collapse : expand}
-                  </button>
-                </div>
+                <div style="flex: 1; min-width: 0;">${this._renderPhotonToolbar()}</div>
               </div>`
             : ''}
           ${this._mainTab === 'log'
@@ -4149,11 +4024,15 @@ export class BeamApp extends LitElement {
                 .fullscreen=${true}
                 @clear=${() => (this._activityLog = [])}
               ></activity-log>`
-            : this._mainTab === 'methods' &&
-                (this._selectedPhoton?.isApp ||
-                  (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
-              ? this._renderMethodsBentoOnly()
-              : this._renderContent()}
+            : this._mainTab === 'help' && this._selectedPhoton
+              ? this._renderPhotonHelpView()
+              : this._mainTab === 'settings' && this._selectedPhoton
+                ? this._renderSettingsView()
+                : this._mainTab === 'methods' &&
+                    (this._selectedPhoton?.isApp ||
+                      (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
+                  ? this._renderMethodsBentoOnly()
+                  : this._renderContent()}
         </div>
       </main>
 
@@ -4177,8 +4056,6 @@ export class BeamApp extends LitElement {
           `
         : ''}
       ${this._showHelp ? this._renderHelpModal() : ''}
-      ${this._showPhotonHelp ? this._renderPhotonHelpModal() : ''}
-      ${this._showSourceModal ? this._renderSourceModal() : ''}
       ${this._selectedPrompt?.content ? this._renderPromptModal() : ''}
       ${this._selectedResource?.content ? this._renderResourceModal() : ''}
       ${this._showForkDialog
@@ -5462,6 +5339,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // For external MCPs with MCP Apps, show the MCP App
     if (this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
       this._view = 'mcp-app';
+      this._mainTab = 'app';
       this._updateRoute();
       return;
     }
@@ -5504,12 +5382,14 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
       this._selectedMethod = this._selectedPhoton.appEntry;
       this._view = 'form';
+      this._mainTab = 'app';
       this._updateRoute();
       // Auto-invoke to load initial data (e.g., kanban board)
       this._maybeAutoInvoke(this._selectedPhoton.appEntry);
       return;
     } else {
       this._view = 'list';
+      this._mainTab = 'methods';
     }
     this._updateRoute();
   }
@@ -5740,6 +5620,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 showHelp: !this._selectedPhoton?.isExternalMCP,
               }),
               onOverflowSelect: (id: string) => this._handleOverflowAction(id),
+              onBack: !this._selectedPhoton?.isApp
+                ? () => void this._handleBackFromMethod()
+                : undefined,
+              backLabel: this._selectedPhoton?.name,
             })}
           </div>
 
@@ -5801,6 +5685,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
         showHelp: !this._selectedPhoton?.isExternalMCP,
       }),
       onOverflowSelect: (id: string) => this._handleOverflowAction(id),
+      onBack: !this._selectedPhoton?.isApp ? () => void this._handleBackFromMethod() : undefined,
+      backLabel: this._selectedPhoton?.name,
     });
   }
 
@@ -5826,6 +5712,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
     isLive?: boolean;
     overflowItems?: import('./overflow-menu.js').OverflowMenuItem[];
     onOverflowSelect?: (id: string) => void;
+    onBack?: () => void;
+    backLabel?: string;
   }) {
     const isSplit = this._splitPanels.length > 0;
     return html`
@@ -5840,6 +5728,35 @@ ${photon.errorMessage || 'Unknown error'}</pre
           class="panel-header"
           style="display: flex; align-items: center; gap: 8px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0; position: relative;"
         >
+          <!-- Back button -->
+          ${opts.onBack
+            ? html`<button
+                @click=${() => opts.onBack!()}
+                style="padding: 0; width: 24px; height: 24px; background: none; border: 1px solid var(--border-glass); border-radius: var(--radius-xs, 4px); color: var(--t-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s ease;"
+                @mouseenter=${(e: MouseEvent) => {
+                  (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                }}
+                @mouseleave=${(e: MouseEvent) => {
+                  (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                }}
+                title="Back to ${opts.backLabel || 'methods'}"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+              </button>`
+            : ''}
           <!-- LED dot (stateful/live indicator) -->
           ${opts.isStateful
             ? html`<span
@@ -6281,7 +6198,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
         void this._runTests();
         break;
       case 'help':
-        this._showPhotonHelp = true;
+        this._mainTab = 'help';
+        void this._loadPhotonHelp();
         break;
       default:
         // Delegate to existing context action handler
@@ -6814,7 +6732,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
           const data = mcpClient.parseToolResult(result);
           if (data && data.code) {
             this._sourceData = data;
-            this._showSourceModal = true;
+            this._mainTab = 'source';
+            this._view = 'source';
           } else {
             showToast('No source code returned', 'error');
           }
@@ -6827,16 +6746,19 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   /** Navigate to inline source view (Phase 2) */
   private _handleViewSourceInline = async () => {
-    if (this._view === 'source') {
-      // Already on source — toggle to studio
-      this._view = 'studio';
-      return;
+    if (this._view === 'source' || this._view === 'studio') {
+      return; // Already showing source/studio
     }
-    // Load source data then switch to source view
-    await this._handleViewSource();
-    if (this._sourceData) {
-      this._showSourceModal = false; // Don't show modal
-      this._view = 'source';
+    const isEditable = this._selectedPhoton?.editable && !this._selectedPhoton?.isExternalMCP;
+    if (isEditable) {
+      // Editable photons get the full studio editor
+      this._view = 'studio';
+    } else {
+      // Protected photons get read-only source view
+      await this._handleViewSource();
+      if (this._sourceData) {
+        this._view = 'source';
+      }
     }
   };
 
@@ -8019,16 +7941,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
         this._showHelp = false;
         return;
       }
-      if (this._showPhotonHelp) {
-        this._showPhotonHelp = false;
-        return;
-      }
-      if (this._view === 'source') {
-        this._view = 'list';
-        return;
-      }
-      if (this._showSourceModal) {
-        this._closeSourceModal();
+      if (this._mainTab === 'help' || this._mainTab === 'source') {
+        this._mainTab = 'methods';
+        if (this._view === 'source') this._view = 'list';
         return;
       }
       if (this._view === 'form' && this._selectedMethod) {
@@ -8194,6 +8109,100 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   private _closePhotonHelp() {
     this._showPhotonHelp = false;
+  }
+
+  /** Load help content for inline help tab view */
+  private _loadPhotonHelp = async () => {
+    if (!this._selectedPhoton) return;
+    this._photonHelpMarkdown = '';
+    this._photonHelpLoading = true;
+
+    const markdown = await mcpClient.getPhotonHelp(this._selectedPhoton.name);
+    if (markdown) {
+      this._photonHelpMarkdown = markdown;
+    } else {
+      this._photonHelpMarkdown = this._generatePhotonHelpMarkdown();
+    }
+    this._photonHelpLoading = false;
+
+    // Exit source/studio view
+    if (this._view === 'source' || this._view === 'studio') {
+      if (this._selectedMethod) {
+        this._view = 'form';
+      } else {
+        this._view = 'list';
+      }
+    }
+  };
+
+  /** Render the inline help view (used as a tab, not a modal) */
+  private _renderPhotonHelpView() {
+    const markdown = this._photonHelpLoading
+      ? this._generatePhotonHelpMarkdown()
+      : this._photonHelpMarkdown || this._generatePhotonHelpMarkdown();
+    let htmlContent = markdown;
+
+    if ((window as any).marked) {
+      const mermaidBlocks: { id: string; code: string }[] = [];
+      let processed = markdown.replace(
+        /```mermaid\s*\n([\s\S]*?)```/g,
+        (_match: string, code: string) => {
+          const id = `help-mermaid-${Math.random().toString(36).substr(2, 9)}`;
+          mermaidBlocks.push({ id, code: code.trim() });
+          return `<div data-mermaid-id="${id}" style="min-height: 80px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
+        }
+      );
+      htmlContent = (window as any).marked.parse(processed);
+
+      if (mermaidBlocks.length > 0 && (window as any).mermaid) {
+        const mermaid = (window as any).mermaid;
+        const isDark = this.getAttribute('data-theme') !== 'light';
+        mermaid.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'default' });
+        requestAnimationFrame(() => {
+          for (const { id, code } of mermaidBlocks) {
+            const el = this.shadowRoot?.querySelector(`[data-mermaid-id="${id}"]`);
+            if (el) {
+              mermaid
+                .render(id + '-svg', code)
+                .then(({ svg }: { svg: string }) => {
+                  el.innerHTML = svg;
+                  (el as HTMLElement).style.minHeight = '';
+                  (el as HTMLElement).style.background = isDark
+                    ? 'hsla(220, 15%, 18%, 0.8)'
+                    : 'hsla(0, 0%, 97%, 0.8)';
+                  (el as HTMLElement).style.borderRadius = '8px';
+                  (el as HTMLElement).style.padding = '12px';
+                })
+                .catch(() => {
+                  el.textContent = 'Diagram rendering failed';
+                });
+            }
+          }
+        });
+      }
+    }
+
+    return html`
+      <div
+        style="display: flex; flex-direction: column; height: 100%; overflow: auto; padding: var(--space-lg);"
+      >
+        <div style="max-width: 700px; width: 100%;">
+          <h2 class="text-gradient" style="margin: 0 0 var(--space-md) 0;">
+            Help
+            ${this._photonHelpLoading
+              ? html`<span style="font-size: 0.7em; opacity: 0.6; margin-left: 8px;"
+                  >Loading...</span
+                >`
+              : ''}
+          </h2>
+          <div class="markdown-body" style="color: var(--t-default);">
+            ${(window as any).marked
+              ? html`${unsafeHTML(htmlContent)}`
+              : html`<pre style="white-space: pre-wrap;">${markdown}</pre>`}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   private _generatePhotonHelpMarkdown(): string {
@@ -8411,8 +8420,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
         .instances=${this._instances}
         .instanceSelectorMode=${this._instanceSelectorMode}
         .autoInstance=${this._autoInstance}
-        .sourceMode=${sourceMode}
-        .hasSettings=${hasSettings && !isExternalMCP}
+        .sourceMode=${'hidden'}
+        .hasSettings=${false}
         .overflowItems=${this._buildOverflowItems({
           showRefresh: !isExternalMCP,
           showEdit: false,
@@ -8677,7 +8686,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
             void this._handleRemove();
             break;
           case 'help':
-            void this._showPhotonHelpModal();
+            this._mainTab = 'help';
+            void this._loadPhotonHelp();
             break;
           case 'fullscreen':
             this._handleFullscreen();
@@ -9510,13 +9520,161 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
   };
 
+  /** Render the settings view — a professional two-column settings panel */
+  private _renderSettingsView() {
+    const photon = this._selectedPhoton;
+    if (!photon) return '';
+    const settingsMethod = photon.methods?.find((m: any) => m.name === 'settings');
+    if (!settingsMethod)
+      return html`<div style="padding: var(--space-xl); color: var(--t-muted); text-align: center;">
+        No settings available for this photon.
+      </div>`;
+
+    const params = settingsMethod.params;
+    const properties = params?.properties || {};
+    const propEntries = Object.entries(properties);
+    const hasResult = this._lastResult !== null;
+
+    // Parse result into key-value pairs for the status section
+    let statusEntries: Array<[string, string]> = [];
+    if (hasResult) {
+      try {
+        const resultData =
+          typeof this._lastResult === 'string'
+            ? JSON.parse(this._lastResult)
+            : Array.isArray(this._lastResult)
+              ? this._lastResult.find((c: any) => c.type === 'text')?.text
+                ? JSON.parse(this._lastResult.find((c: any) => c.type === 'text').text)
+                : this._lastResult
+              : this._lastResult;
+        if (resultData && typeof resultData === 'object' && !Array.isArray(resultData)) {
+          statusEntries = Object.entries(resultData)
+            .filter(([, v]) => v !== null && v !== undefined)
+            .map(([k, v]) => [k, String(v)]);
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    }
+
+    return html`
+      <div style="padding: var(--space-lg); max-width: 900px; margin: 0 auto; width: 100%;">
+        <!-- Settings Header -->
+        <div style="margin-bottom: var(--space-xl);">
+          <h2
+            style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: var(--t-primary); margin: 0 0 4px 0;"
+          >
+            ${photon.name} Settings
+          </h2>
+          ${settingsMethod.description
+            ? html`<p
+                style="color: var(--t-muted); font-size: var(--text-sm); margin: 0; line-height: 1.5;"
+              >
+                View or update photon configuration. Changes are applied immediately.
+              </p>`
+            : ''}
+        </div>
+
+        <!-- Configuration Section -->
+        ${propEntries.length > 0
+          ? html`
+              <div class="glass-panel" style="margin-bottom: var(--space-lg); overflow: hidden;">
+                <div
+                  style="padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
+                >
+                  <span
+                    style="font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); text-transform: uppercase; letter-spacing: 0.05em;"
+                    >Configuration</span
+                  >
+                </div>
+                <div class="method-detail" style="padding: 0;">
+                  <invoke-form
+                    .params=${params}
+                    .loading=${this._isExecuting}
+                    .photonName=${photon.name}
+                    .methodName=${'settings'}
+                    .rememberValues=${this._rememberFormValues}
+                    .sharedValues=${this._sharedFormParams ?? this._lastFormParams}
+                    .settingsLayout=${true}
+                    @submit=${(e: Event) => void this._handleExecute(e as CustomEvent)}
+                    @cancel=${() => {}}
+                  ></invoke-form>
+                  <div
+                    style="display: flex; justify-content: flex-end; padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-glass);"
+                  >
+                    <button
+                      class="btn-primary"
+                      style="font-size: var(--text-sm); padding: 6px 20px;"
+                      @click=${(e: Event) => {
+                        const panel = (e.target as HTMLElement).closest('.glass-panel');
+                        const form: any = panel?.querySelector('invoke-form');
+                        form?.handleSubmit();
+                      }}
+                      ?disabled=${this._isExecuting}
+                    >
+                      ${this._isExecuting
+                        ? html`<span class="btn-loading"
+                            ><span class="spinner"></span>Saving...</span
+                          >`
+                        : 'Save Settings'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `
+          : ''}
+
+        <!-- Status Section (from last result) -->
+        ${statusEntries.length > 0
+          ? html`
+              <div class="glass-panel" style="overflow: hidden;">
+                <div
+                  style="padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
+                >
+                  <span
+                    style="font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); text-transform: uppercase; letter-spacing: 0.05em;"
+                    >Status</span
+                  >
+                </div>
+                <div style="padding: 0;">
+                  ${statusEntries.map(
+                    ([key, value], i) => html`
+                      <div
+                        style="display: grid; grid-template-columns: 200px 1fr; border-bottom: ${i <
+                        statusEntries.length - 1
+                          ? '1px solid var(--border-glass)'
+                          : 'none'};"
+                      >
+                        <div
+                          style="padding: 10px var(--space-md); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-muted); background: var(--bg-glass);"
+                        >
+                          ${key
+                            .replace(/([A-Z])/g, ' $1')
+                            .replace(/_/g, ' ')
+                            .trim()}
+                        </div>
+                        <div
+                          style="padding: 10px var(--space-md); font-size: var(--text-sm); color: var(--t-primary); word-break: break-word;"
+                        >
+                          ${value}
+                        </div>
+                      </div>
+                    `
+                  )}
+                </div>
+              </div>
+            `
+          : ''}
+      </div>
+    `;
+  }
+
   /** Render source code as an inline view (not a modal) — Phase 2 */
   private _renderSourceView() {
     if (!this._sourceData) {
       return html`
         <div
-          class="glass-panel"
-          style="padding: var(--space-xl); text-align: center; color: var(--t-muted);"
+          style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--t-muted);"
         >
           Loading source...
         </div>
@@ -9550,25 +9708,61 @@ ${photon.errorMessage || 'Unknown error'}</pre
       highlightedCode = Prism.highlight(this._sourceData.code, Prism.languages[language], language);
     }
 
+    const isProtected = !this._selectedPhoton?.editable;
+
     return html`
-      <div
-        class="glass-panel"
-        style="margin-top: var(--space-md); display: flex; flex-direction: column; max-height: calc(100vh - 120px);"
-      >
+      <div style="display: flex; flex-direction: column; height: 100%;">
         <div
-          style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); flex-shrink: 0;"
+          style="display: flex; justify-content: space-between; align-items: center; padding: 6px var(--space-md); border-bottom: 1px solid var(--border-glass); flex-shrink: 0; background: var(--bg-panel);"
         >
-          <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--t-muted);">
-            ${filename}
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--t-muted);">
+              ${filename}
+            </div>
+            ${isProtected
+              ? html`<span
+                  style="font-size: var(--text-2xs); padding: 2px 6px; background: var(--bg-glass-strong); border: 1px solid var(--border-glass); border-radius: var(--radius-xs); color: var(--t-muted); text-transform: uppercase; letter-spacing: 0.05em;"
+                  >Protected</span
+                >`
+              : ''}
           </div>
-          <button
-            class="action-btn"
-            style="background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--text-xs);"
-            @click=${this._copySourceCode}
-            title="Copy source code"
-          >
-            ${clipboard} Copy
-          </button>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            ${isProtected
+              ? html`<button
+                  class="action-btn"
+                  style="display: inline-flex; align-items: center; background: var(--bg-glass); border: 1px solid var(--accent-secondary); color: var(--accent-secondary); padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--text-xs);"
+                  @click=${this._handleFork}
+                  title="Fork to create an editable local copy"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    style="margin-right: 3px;"
+                  >
+                    <circle cx="12" cy="18" r="3" />
+                    <circle cx="6" cy="6" r="3" />
+                    <circle cx="18" cy="6" r="3" />
+                    <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" />
+                    <path d="M12 12v3" />
+                  </svg>
+                  Fork
+                </button>`
+              : ''}
+            <button
+              class="action-btn"
+              style="display: inline-flex; align-items: center; background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--text-xs);"
+              @click=${this._copySourceCode}
+              title="Copy source code"
+            >
+              ${clipboard} Copy
+            </button>
+          </div>
         </div>
         <pre
           class="language-${language}"
@@ -9583,7 +9777,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
           font-size: 0.85rem;
           line-height: 1.6;
           tab-size: 2;
-          border-radius: 0 0 var(--radius-md) var(--radius-md);
         "
         ><code class="language-${language}" style="display: block; overflow-x: visible;">${Prism
           ? unsafeHTML(highlightedCode)

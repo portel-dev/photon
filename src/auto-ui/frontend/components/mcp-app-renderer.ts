@@ -24,6 +24,28 @@ import { mcpClient } from '../services/mcp-client.js';
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
 
 /**
+ * Override design-system surface tokens with Beam's own background colors
+ * so iframe content seamlessly blends with the Beam chrome.
+ */
+function getBeamThemeTokens(themeMode: 'light' | 'dark'): Record<string, string> {
+  const tokens = getThemeTokens(themeMode);
+  if (themeMode === 'dark') {
+    tokens['--color-surface'] = 'hsl(220, 15%, 10%)';
+    tokens['--color-surface-container'] = 'hsl(220, 15%, 12%)';
+    tokens['--color-surface-container-high'] = 'hsl(220, 15%, 14%)';
+    tokens['--color-surface-container-highest'] = 'hsl(220, 15%, 16%)';
+    tokens['--bg'] = 'hsl(220, 15%, 10%)';
+  } else {
+    tokens['--color-surface'] = '#eae4dd';
+    tokens['--color-surface-container'] = '#f8f5f1';
+    tokens['--color-surface-container-high'] = '#f0ebe5';
+    tokens['--color-surface-container-highest'] = '#e8e2db';
+    tokens['--bg'] = '#eae4dd';
+  }
+  return tokens;
+}
+
+/**
  * Filter theme tokens to only include keys valid per the MCP Apps Extension spec.
  * AppBridge validates styles.variables via Zod and rejects unrecognized keys.
  */
@@ -135,7 +157,7 @@ export class McpAppRenderer extends LitElement {
         width: 100%;
         height: 100%;
         min-height: 500px;
-        background: var(--bg-panel, #0d0d0d);
+        background: transparent;
         border-radius: var(--radius-md);
         overflow: visible;
       }
@@ -253,7 +275,7 @@ export class McpAppRenderer extends LitElement {
     if (changedProperties.has('theme')) {
       // AppBridge (MCP Apps protocol) — uses filtered spec tokens
       if (this._bridge) {
-        const specTokens = filterSpecVariables(getThemeTokens(this.theme));
+        const specTokens = filterSpecVariables(getBeamThemeTokens(this.theme));
         this._bridge.setHostContext({
           theme: this.theme,
           styles: { variables: specTokens },
@@ -262,7 +284,7 @@ export class McpAppRenderer extends LitElement {
 
       // Direct postMessage — uses full Beam tokens (matches custom-ui-renderer)
       if (this._iframeRef?.contentWindow) {
-        const themeTokens = getThemeTokens(this.theme);
+        const themeTokens = getBeamThemeTokens(this.theme);
         this._iframeRef.contentWindow.postMessage(
           {
             jsonrpc: '2.0',
@@ -327,6 +349,7 @@ export class McpAppRenderer extends LitElement {
       'sandbox',
       'allow-scripts allow-forms allow-same-origin allow-popups allow-modals'
     );
+    iframe.setAttribute('allowtransparency', 'true');
     iframe.addEventListener('load', (e) => this._handleIframeLoad(e));
     iframe.src = this._blobUrl;
     container.appendChild(iframe);
@@ -410,7 +433,7 @@ export class McpAppRenderer extends LitElement {
     if (!iframe.contentWindow) return;
 
     // Send initial theme to iframe after load (matching custom-ui-renderer pattern)
-    const themeTokens = getThemeTokens(this.theme);
+    const themeTokens = getBeamThemeTokens(this.theme);
     iframe.contentWindow.postMessage(
       {
         jsonrpc: '2.0',
@@ -467,7 +490,7 @@ export class McpAppRenderer extends LitElement {
       if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize' && msg.id != null) {
         // Send full unfiltered tokens (including --bg-primary, --bg-secondary aliases)
         // so the iframe gets the same theme as custom-ui-renderer iframes
-        const themeTokens = getThemeTokens(this.theme);
+        const themeTokens = getBeamThemeTokens(this.theme);
         iframe.contentWindow?.postMessage(
           {
             jsonrpc: '2.0',
@@ -550,7 +573,7 @@ export class McpAppRenderer extends LitElement {
     window.addEventListener('message', this._messageHandler);
 
     // Create AppBridge for MCP Apps protocol (some external MCPs may use it)
-    const specTokens = filterSpecVariables(getThemeTokens(this.theme));
+    const specTokens = filterSpecVariables(getBeamThemeTokens(this.theme));
     this._bridge = new AppBridge(
       null,
       { name: 'Photon Beam', version: '1.0.0' },
