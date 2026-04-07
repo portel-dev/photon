@@ -23,7 +23,12 @@ import * as path from 'path';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
-import { setSecurityHeaders, SimpleRateLimiter, escapeHtml } from '../shared/security.js';
+import {
+  setSecurityHeaders,
+  SimpleRateLimiter,
+  escapeHtml,
+  getCorsOrigin,
+} from '../shared/security.js';
 
 /**
  * Check if shell integration has been installed (photon init cli).
@@ -1145,10 +1150,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             version: PHOTON_VERSION,
           }
         );
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        });
+        const cardHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        const cardCorsOrigin = getCorsOrigin(req);
+        if (cardCorsOrigin) cardHeaders['Access-Control-Allow-Origin'] = cardCorsOrigin;
+        res.writeHead(200, cardHeaders);
         res.end(JSON.stringify(card));
         return;
       }

@@ -162,6 +162,34 @@ export function readBody(
   });
 }
 
+// ─── CORS Origin Validation ─────────────────────────────────────────
+
+/**
+ * Returns true if the given Origin header value is a localhost address.
+ * Same-origin requests (no Origin header) are considered safe.
+ */
+export function isLocalhostOrigin(origin: string | undefined): boolean {
+  if (!origin) return true; // same-origin requests have no Origin header
+  try {
+    const url = new URL(origin);
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns the CORS origin to use in Access-Control-Allow-Origin, or undefined
+ * if the request origin is not from localhost (in which case the header should be omitted).
+ */
+export function getCorsOrigin(req: IncomingMessage): string | undefined {
+  const origin = req.headers.origin;
+  if (isLocalhostOrigin(origin)) {
+    return origin || 'http://localhost';
+  }
+  return undefined;
+}
+
 // ─── Security Headers ───────────────────────────────────────────────
 
 /**

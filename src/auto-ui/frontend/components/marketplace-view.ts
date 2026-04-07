@@ -1541,7 +1541,7 @@ export class MarketplaceView extends LitElement {
     try {
       const res = await fetch('/api/marketplace/sources/remove', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Photon-Request': '1' },
         body: JSON.stringify({ name }),
         signal: AbortSignal.timeout(10000),
       });
@@ -1577,6 +1577,7 @@ export class MarketplaceView extends LitElement {
     try {
       const res = await fetch('/api/marketplace/add', {
         method: 'POST',
+        headers: { 'X-Photon-Request': '1' },
         body: JSON.stringify({ name: item.name }),
         signal: AbortSignal.timeout(30000), // 30s for installation
       });
@@ -1617,6 +1618,7 @@ export class MarketplaceView extends LitElement {
     try {
       const res = await fetch('/api/marketplace/remove', {
         method: 'POST',
+        headers: { 'X-Photon-Request': '1' },
         body: JSON.stringify({ name: item.name }),
         signal: AbortSignal.timeout(10000),
       });
@@ -1649,6 +1651,7 @@ export class MarketplaceView extends LitElement {
       // Re-install overwrites the existing file and updates metadata
       const res = await fetch('/api/marketplace/add', {
         method: 'POST',
+        headers: { 'X-Photon-Request': '1' },
         body: JSON.stringify({ name: item.name }),
         signal: AbortSignal.timeout(30000),
       });
@@ -1737,7 +1740,7 @@ export class MarketplaceView extends LitElement {
     try {
       const res = await fetch('/api/marketplace/sources/add', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Photon-Request': '1' },
         body: JSON.stringify({ source }),
         signal: AbortSignal.timeout(30000), // 30s for adding repo
       });

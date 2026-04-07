@@ -6510,7 +6510,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     try {
       const res = await fetch('/api/marketplace/add', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Photon-Request': '1' },
         body: JSON.stringify({ name }),
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
@@ -6579,7 +6579,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     try {
       const res = await fetch('/api/marketplace/fork', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Photon-Request': '1' },
         body: JSON.stringify({ name, target }),
         signal: AbortSignal.timeout(30000),
       });
@@ -6622,7 +6622,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     try {
       const res = await fetch('/api/marketplace/contribute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Photon-Request': '1' },
         body: JSON.stringify({ name }),
         signal: AbortSignal.timeout(60000),
       });

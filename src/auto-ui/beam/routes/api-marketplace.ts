@@ -14,6 +14,17 @@ import type { RouteHandler } from '../types.js';
 export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state) => {
   if (!url.pathname.startsWith('/api/marketplace')) return false;
 
+  // CSRF protection: require custom header on all mutation requests.
+  // Browsers won't send custom headers in cross-origin requests without CORS preflight approval.
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
+    const photonHeader = req.headers['x-photon-request'];
+    if (!photonHeader) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing X-Photon-Request header' }));
+      return true;
+    }
+  }
+
   // Marketplace API: Search photons
   if (url.pathname === '/api/marketplace/search') {
     res.setHeader('Content-Type', 'application/json');

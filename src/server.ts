@@ -47,7 +47,7 @@ import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
 import { subscribeChannel, pingDaemon, publishToChannel } from './daemon/client.js';
 import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
-import { isLocalRequest, readBody, setSecurityHeaders } from './shared/security.js';
+import { isLocalRequest, readBody, setSecurityHeaders, getCorsOrigin } from './shared/security.js';
 import { audit } from './shared/audit.js';
 import {
   createTask,
@@ -251,16 +251,19 @@ class BeamCompatTransport implements Transport {
   }
 
   async handleHTTP(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    const corsOrigin = getCorsOrigin(req);
+
     // GET — open SSE stream for server-to-client notifications
     if (req.method === 'GET') {
       this.sseResponse = res;
-      res.writeHead(200, {
+      const sseHeaders: Record<string, string> = {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
         'Mcp-Session-Id': this.sessionId,
-      });
+      };
+      if (corsOrigin) sseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+      res.writeHead(200, sseHeaders);
       // Send initial event so the client knows connection is established
       res.write(':connected\n\n');
       // Send keepalive every 15s
@@ -317,12 +320,13 @@ class BeamCompatTransport implements Transport {
                   parsed.params.arguments || {}
                 );
                 const response = { jsonrpc: '2.0', id: parsed.id, result };
-                res.writeHead(200, {
+                const subHeaders: Record<string, string> = {
                   'Content-Type': 'application/json',
-                  'Access-Control-Allow-Origin': '*',
                   'Access-Control-Expose-Headers': 'Mcp-Session-Id',
                   'Mcp-Session-Id': this.sessionId,
-                });
+                };
+                if (corsOrigin) subHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                res.writeHead(200, subHeaders);
                 res.end(JSON.stringify(response));
                 return;
               } catch (err: any) {
@@ -334,10 +338,11 @@ class BeamCompatTransport implements Transport {
                     isError: true,
                   },
                 };
-                res.writeHead(200, {
+                const errHeaders: Record<string, string> = {
                   'Content-Type': 'application/json',
-                  'Access-Control-Allow-Origin': '*',
-                });
+                };
+                if (corsOrigin) errHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                res.writeHead(200, errHeaders);
                 res.end(JSON.stringify(response));
                 return;
               }
@@ -352,10 +357,11 @@ class BeamCompatTransport implements Transport {
       // Notifications have no id — fire-and-forget
       if (parsed.id === undefined) {
         this.onmessage?.(parsed, { sessionId: this.sessionId });
-        res.writeHead(202, {
-          'Access-Control-Allow-Origin': '*',
+        const notifHeaders: Record<string, string> = {
           'Mcp-Session-Id': this.sessionId,
-        });
+        };
+        if (corsOrigin) notifHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+        res.writeHead(202, notifHeaders);
         res.end();
         return;
       }
@@ -366,24 +372,29 @@ class BeamCompatTransport implements Transport {
         this.onmessage?.(parsed, { sessionId: this.sessionId });
       });
 
-      res.writeHead(200, {
+      const resHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
         'Access-Control-Expose-Headers': 'Mcp-Session-Id',
         'Mcp-Session-Id': this.sessionId,
-      });
+      };
+      if (corsOrigin) resHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+      res.writeHead(200, resHeaders);
       res.end(JSON.stringify(response));
       return;
     }
 
     // DELETE — session termination (spec compliance)
     if (req.method === 'DELETE') {
-      res.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
+      const delHeaders: Record<string, string> = {};
+      if (corsOrigin) delHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+      res.writeHead(200, delHeaders);
       res.end();
       return;
     }
 
-    res.writeHead(405, { 'Access-Control-Allow-Origin': '*' });
+    const methodHeaders: Record<string, string> = {};
+    if (corsOrigin) methodHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+    res.writeHead(405, methodHeaders);
     res.end('Method not allowed');
   }
 }
@@ -2655,16 +2666,18 @@ export class PhotonServer {
         }
 
         const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const corsOrigin = getCorsOrigin(req);
 
         // Handle CORS preflight
         if (req.method === 'OPTIONS') {
-          res.writeHead(204, {
-            'Access-Control-Allow-Origin': '*',
+          const preflightHeaders: Record<string, string> = {
             'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
             'Access-Control-Allow-Headers':
-              'Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version',
+              'Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version, X-Photon-Request',
             'Access-Control-Expose-Headers': 'Mcp-Session-Id',
-          });
+          };
+          if (corsOrigin) preflightHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+          res.writeHead(204, preflightHeaders);
           res.end();
           return;
         }
@@ -2677,7 +2690,7 @@ export class PhotonServer {
 
         // Legacy SSE transport (when not using Streamable HTTP)
         if (!beamTransport && req.method === 'GET' && url.pathname === ssePath) {
-          await this.handleSSEConnection(res, messagesPath);
+          await this.handleSSEConnection(req, res, messagesPath);
           return;
         }
         if (!beamTransport && req.method === 'POST' && url.pathname === messagesPath) {
@@ -2687,7 +2700,9 @@ export class PhotonServer {
 
         // Serve embedded index.html at root when assets are available
         if (req.method === 'GET' && url.pathname === '/' && this.options.embeddedAssets) {
-          res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+          const htmlHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+          if (corsOrigin) htmlHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+          res.writeHead(200, htmlHeaders);
           res.end(this.options.embeddedAssets.indexHtml);
           return;
         }
@@ -2730,10 +2745,9 @@ export class PhotonServer {
 
           // API: List all photons
           if (req.method === 'GET' && url.pathname === '/api/photons') {
-            res.writeHead(200, {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            });
+            const photonHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (corsOrigin) photonHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, photonHeaders);
             try {
               const photons = await this.listAllPhotons();
               res.end(JSON.stringify({ photons }));
@@ -2746,10 +2760,9 @@ export class PhotonServer {
 
           // API: List tools (for compatibility, now returns current photon)
           if (req.method === 'GET' && url.pathname === '/api/tools') {
-            res.writeHead(200, {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            });
+            const toolHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (corsOrigin) toolHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, toolHeaders);
             const tools =
               this.mcp?.tools.map((tool) => {
                 const linkedUI = this.mcp?.assets?.ui.find(
@@ -2773,10 +2786,9 @@ export class PhotonServer {
           }
 
           if (req.method === 'GET' && url.pathname === '/api/status') {
-            res.writeHead(200, {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            });
+            const statusHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (corsOrigin) statusHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, statusHeaders);
             res.end(JSON.stringify(this.buildStatusSnapshot()));
             return;
           }
@@ -2790,10 +2802,7 @@ export class PhotonServer {
         // API: Call tool
         if (req.method === 'POST' && url.pathname === '/api/call') {
           // Security: restrict CORS to localhost and require local request
-          res.setHeader(
-            'Access-Control-Allow-Origin',
-            `http://localhost:${this.options.port || 3000}`
-          );
+          if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
           res.setHeader('Content-Type', 'application/json');
 
           if (!isLocalRequest(req)) {
@@ -2830,10 +2839,7 @@ export class PhotonServer {
 
         // API: Call tool with streaming progress (SSE)
         if (req.method === 'POST' && url.pathname === '/api/call-stream') {
-          res.setHeader(
-            'Access-Control-Allow-Origin',
-            `http://localhost:${this.options.port || 3000}`
-          );
+          if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
           res.setHeader('Content-Type', 'text/event-stream');
           res.setHeader('Cache-Control', 'no-cache');
           res.setHeader('Connection', 'keep-alive');
@@ -2956,10 +2962,9 @@ export class PhotonServer {
           if (ui?.resolvedPath) {
             try {
               const content = await readText(ui.resolvedPath);
-              res.writeHead(200, {
-                'Content-Type': 'text/html',
-                'Access-Control-Allow-Origin': '*',
-              });
+              const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+              if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+              res.writeHead(200, uiHeaders);
               res.end(content);
               return;
             } catch {
@@ -2979,10 +2984,9 @@ export class PhotonServer {
             const { PHOTON_VERSION } = await import('./version.js');
             const photonName = this.mcp?.name || 'photon';
             const tools = this.mcp ? Object.keys((this.mcp as any)._toolSchemas || {}).length : 0;
-            res.writeHead(200, {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            });
+            const diagHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (corsOrigin) diagHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, diagHeaders);
             res.end(
               JSON.stringify({
                 photonVersion: PHOTON_VERSION,
@@ -3014,31 +3018,33 @@ export class PhotonServer {
               hostVersion: '1.5.0',
               injectedPhotons: [],
             });
-            res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+            const bridgeHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+            if (corsOrigin) bridgeHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, bridgeHeaders);
             res.end(script);
             return;
           }
 
           if (req.method === 'GET' && url.pathname === '/index.html') {
-            res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+            const indexHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+            if (corsOrigin) indexHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, indexHeaders);
             res.end(assets.indexHtml);
             return;
           }
 
           if (req.method === 'GET' && url.pathname === '/beam.bundle.js') {
-            res.writeHead(200, {
-              'Content-Type': 'text/javascript',
-              'Access-Control-Allow-Origin': '*',
-            });
+            const jsHeaders: Record<string, string> = { 'Content-Type': 'text/javascript' };
+            if (corsOrigin) jsHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, jsHeaders);
             res.end(assets.bundleJs);
             return;
           }
 
           if (req.method === 'GET' && url.pathname === '/sw.js') {
-            res.writeHead(200, {
-              'Content-Type': 'text/javascript',
-              'Access-Control-Allow-Origin': '*',
-            });
+            const swHeaders: Record<string, string> = { 'Content-Type': 'text/javascript' };
+            if (corsOrigin) swHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, swHeaders);
             res.end('self.addEventListener("fetch", () => {});');
             return;
           }
@@ -3054,7 +3060,9 @@ export class PhotonServer {
 <script>window.PHOTON_APP_NAME="${appName}";window.PHOTON_SSE_URL=window.location.origin;</script>
 <script src="/beam.bundle.js"></script>
 </body></html>`;
-            res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+            const appHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+            if (corsOrigin) appHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, appHeaders);
             res.end(appHtml);
             return;
           }
@@ -3062,7 +3070,9 @@ export class PhotonServer {
 
         // SPA fallback: serve index.html for unmatched GET requests (compiled binary with Beam UI)
         if (req.method === 'GET' && this.options.embeddedAssets) {
-          res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+          const fallbackHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+          if (corsOrigin) fallbackHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+          res.writeHead(200, fallbackHeaders);
           res.end(this.options.embeddedAssets.indexHtml);
           return;
         }
@@ -3131,8 +3141,13 @@ export class PhotonServer {
   /**
    * Handle new SSE connection
    */
-  private async handleSSEConnection(res: ServerResponse, messagesPath: string) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  private async handleSSEConnection(
+    req: IncomingMessage,
+    res: ServerResponse,
+    messagesPath: string
+  ) {
+    const origin = getCorsOrigin(req);
+    if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
 
     // Create a new MCP server instance for this session
     const sessionServer = new Server(
@@ -3207,7 +3222,8 @@ export class PhotonServer {
    * Handle incoming SSE message
    */
   private async handleSSEMessage(req: IncomingMessage, res: ServerResponse, url: URL) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = getCorsOrigin(req);
+    if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     const sessionId = url.searchParams.get('sessionId');
@@ -3851,12 +3867,14 @@ export class PhotonServer {
   }
 
   private handleStatusStream(_req: IncomingMessage, res: ServerResponse) {
-    res.writeHead(200, {
+    const ssHeaders: Record<string, string> = {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-    });
+    };
+    const origin = getCorsOrigin(_req);
+    if (origin) ssHeaders['Access-Control-Allow-Origin'] = origin;
+    res.writeHead(200, ssHeaders);
 
     res.write(`data: ${JSON.stringify(this.buildStatusSnapshot())}\n\n`);
     this.statusClients.add(res);
