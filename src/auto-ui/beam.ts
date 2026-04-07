@@ -1697,9 +1697,27 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         appEl.appendChild(iframe);
         initBridge(iframe, bridgeMethod);
       } catch (err) {
-        appEl.innerHTML = '<div class="status-page show"><div class="icon">⚠️</div>'
-          + '<h2>Failed to load</h2><p>' + err.message + '</p>'
-          + '<button class="retry-btn" onclick="checkAndLoad()">Retry</button></div>';
+        appEl.innerHTML = '';
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'status-page show';
+
+        const icon = document.createElement('div');
+        icon.className = 'icon';
+        icon.textContent = '⚠️';
+
+        const h2 = document.createElement('h2');
+        h2.textContent = 'Failed to load';
+
+        const p = document.createElement('p');
+        p.textContent = err.message;
+
+        const btn = document.createElement('button');
+        btn.className = 'retry-btn';
+        btn.textContent = 'Retry';
+        btn.addEventListener('click', () => checkAndLoad());
+
+        statusDiv.append(icon, h2, p, btn);
+        appEl.appendChild(statusDiv);
       }
     }
 
