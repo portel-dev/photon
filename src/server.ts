@@ -49,17 +49,7 @@ import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isLocalRequest, readBody, setSecurityHeaders, getCorsOrigin } from './shared/security.js';
 import { audit } from './shared/audit.js';
-import {
-  createTask,
-  getTask,
-  updateTask,
-  listTasks,
-  registerController,
-  getController,
-  unregisterController,
-} from './tasks/store.js';
-import { toWireFormat, relatedTaskMeta, TERMINAL_STATES } from './tasks/types.js';
-import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from './tasks/executor.js';
+import { TaskExecutor } from './task-executor.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -403,6 +393,7 @@ export class PhotonServer {
   private loader: PhotonLoader;
   private mcp: PhotonClassExtended | null = null;
   private server: Server;
+  private taskExecutor: TaskExecutor;
   private options: PhotonServerOptions;
   private mcpClientFactory: SDKMCPClientFactory | null = null;
   private httpServer: ReturnType<typeof createServer> | null = null;
@@ -553,6 +544,16 @@ export class PhotonServer {
             }
           : {}),
       }
+    );
+
+    // Task executor — handles MCP Tasks protocol (spec v2025-11-25)
+    this.taskExecutor = new TaskExecutor(
+      (level, message, meta) => this.log(level, message, meta),
+      {
+        executeTool: (photon, toolName, args, opts) =>
+          this.loader.executeTool(photon as any, toolName, args, opts),
+      },
+      { createMCPInputProvider: (server) => this.createMCPInputProvider(server) }
     );
 
     // Set up protocol handlers
@@ -1759,25 +1760,7 @@ export class PhotonServer {
       const taskField = (request.params as any)?.task;
       if (taskField && this.mcp) {
         const { name: toolName, arguments: args } = request.params;
-        const ttl = typeof taskField.ttl === 'number' ? taskField.ttl : undefined;
-        const task = createTask(this.mcp.name, toolName, args as any, ttl);
-        const controller = new AbortController();
-        registerController(task.id, controller);
-
-        const executeFn = async (taskInputProvider: any, outputHandler: any) => {
-          return this.loader.executeTool(this.mcp!, toolName, args || {}, {
-            outputHandler,
-            inputProvider: taskInputProvider,
-          });
-        };
-
-        runTaskExecution(task.id, executeFn, {
-          signal: controller.signal,
-        });
-
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ task: toWireFormat(task) }, null, 2) }],
-        } as any;
+        return this.taskExecutor.handleTaskModeCall(this.mcp.name, toolName, args || {}, taskField);
       }
 
       try {
@@ -1830,129 +1813,22 @@ export class PhotonServer {
       return this.handleReadResource(request);
     });
 
-    // ── MCP Tasks handlers (2025-11-25 spec) ──
+    // ── MCP Tasks handlers (2025-11-25 spec) — delegated to TaskExecutor ──
 
     this.server.setRequestHandler(GetTaskRequestSchema, async (request) => {
-      const { taskId } = request.params;
-      const task = getTask(taskId);
-      if (!task) throw new Error(`Task not found: ${taskId}`);
-      return toWireFormat(task) as any;
+      return this.taskExecutor.handleGetTask(request.params.taskId);
     });
 
     this.server.setRequestHandler(ListTasksRequestSchema, async (request) => {
-      const allTasks = listTasks();
-      const cursor = (request.params as any)?.cursor;
-      const offset = cursor ? parseInt(cursor, 10) || 0 : 0;
-      const pageSize = 50;
-      const page = allTasks.slice(offset, offset + pageSize);
-      const nextCursor =
-        offset + pageSize < allTasks.length ? String(offset + pageSize) : undefined;
-      return {
-        tasks: page.map(toWireFormat),
-        ...(nextCursor && { nextCursor }),
-      } as any;
+      return this.taskExecutor.handleListTasks((request.params as any)?.cursor);
     });
 
     this.server.setRequestHandler(CancelTaskRequestSchema, async (request) => {
-      const { taskId } = request.params;
-      const task = getTask(taskId);
-      if (!task) throw new Error(`Task not found: ${taskId}`);
-      if (TERMINAL_STATES.includes(task.state)) {
-        throw new Error(`Cannot cancel task in terminal state: ${task.state}`);
-      }
-      const controller = getController(taskId);
-      if (controller) controller.abort();
-      const updated = updateTask(taskId, {
-        state: 'cancelled',
-        statusMessage: 'The task was cancelled by request.',
-      });
-      unregisterController(taskId);
-      return toWireFormat(updated!) as any;
+      return this.taskExecutor.handleCancelTask(request.params.taskId);
     });
 
     this.server.setRequestHandler(GetTaskPayloadRequestSchema, async (request) => {
-      const { taskId } = request.params;
-      const task = getTask(taskId);
-      if (!task) throw new Error(`Task not found: ${taskId}`);
-
-      // Helper to format terminal task result
-      const formatResult = (t: typeof task) => {
-        if (t.state === 'failed') {
-          return {
-            content: [{ type: 'text' as const, text: t.error || 'Task failed' }],
-            isError: true,
-            _meta: relatedTaskMeta(taskId),
-          };
-        }
-        if (t.state === 'cancelled') {
-          return {
-            content: [{ type: 'text' as const, text: 'Task was cancelled.' }],
-            isError: false,
-            _meta: relatedTaskMeta(taskId),
-          };
-        }
-        // Completed
-        if (t.result && typeof t.result === 'object' && 'content' in (t.result as any)) {
-          return { ...(t.result as any), _meta: relatedTaskMeta(taskId) };
-        }
-        const text = typeof t.result === 'string' ? t.result : JSON.stringify(t.result ?? null);
-        return {
-          content: [{ type: 'text' as const, text }],
-          isError: false,
-          _meta: relatedTaskMeta(taskId),
-        };
-      };
-
-      // Already terminal — return immediately
-      if (TERMINAL_STATES.includes(task.state)) {
-        return formatResult(task);
-      }
-
-      // If input_required, try to get input via elicitation
-      if (task.state === 'input_required' && task.input) {
-        const inputProvider = this.createMCPInputProvider(this.server);
-        try {
-          const value = await inputProvider(task.input);
-          resolveTaskInput(taskId, value);
-        } catch {
-          resolveTaskInput(taskId, null);
-        }
-      }
-
-      // Block until terminal (max 5 min per call)
-      try {
-        const abortController = new AbortController();
-        const timeout = setTimeout(() => abortController.abort(), 300000);
-        try {
-          while (true) {
-            const current = await waitForTerminalOrInput(taskId, abortController.signal);
-            if (TERMINAL_STATES.includes(current.state)) {
-              return formatResult(current);
-            }
-            if (current.state === 'input_required' && current.input) {
-              const inputProvider = this.createMCPInputProvider(this.server);
-              try {
-                const value = await inputProvider(current.input);
-                resolveTaskInput(taskId, value);
-              } catch {
-                resolveTaskInput(taskId, null);
-              }
-            }
-          }
-        } finally {
-          clearTimeout(timeout);
-        }
-      } catch {
-        const current = getTask(taskId);
-        if (current && TERMINAL_STATES.includes(current.state)) {
-          return formatResult(current);
-        }
-        return {
-          content: [{ type: 'text' as const, text: `Task ${taskId} is still running.` }],
-          isError: false,
-          _meta: relatedTaskMeta(taskId),
-        } as any;
-      }
+      return this.taskExecutor.handleGetTaskPayload(request.params.taskId, this.server);
     });
   }
 
