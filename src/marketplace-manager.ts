@@ -36,8 +36,12 @@ function getGitHubToken(): string | null {
   _ghToken = process.env.GITHUB_TOKEN || null;
   if (!_ghToken) {
     try {
-      const { execSync } = require('child_process');
-      _ghToken = execSync('gh auth token 2>/dev/null', { encoding: 'utf-8' }).trim() || null;
+      const { execFileSync } = require('child_process');
+      _ghToken =
+        execFileSync('gh', ['auth', 'token'], {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'ignore'],
+        }).trim() || null;
     } catch {
       _ghToken = null;
     }
@@ -211,6 +215,12 @@ export async function readLocalMetadata(): Promise<LocalMetadata> {
     logger.warn(`Failed to read metadata file, using empty defaults: ${getErrorMessage(error)}`);
   }
   return { photons: {} };
+}
+
+function validateSafeName(name: string, label: string): void {
+  if (/[;&|$`(){}\\\<>!#~\n\r]/.test(name)) {
+    throw new Error(`Invalid ${label}: contains unsafe characters`);
+  }
 }
 
 export class MarketplaceManager {
@@ -1638,6 +1648,10 @@ export class MarketplaceManager {
       createRepo?: string; // create new GitHub repo with this name
     }
   ): Promise<{ success: boolean; message: string }> {
+    validateSafeName(name, 'photon name');
+    if (options?.targetRepo) validateSafeName(options.targetRepo, 'target repo');
+    if (options?.createRepo) validateSafeName(options.createRepo, 'repo name');
+
     const fileName = `${name}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 
@@ -1663,11 +1677,11 @@ export class MarketplaceManager {
 
     // Handle target repo push if specified
     if (options?.targetRepo || options?.createRepo) {
-      const { execSync } = await import('child_process');
+      const { execFileSync } = await import('child_process');
 
       // Check gh CLI
       try {
-        execSync('gh --version', { stdio: 'pipe' });
+        execFileSync('gh', ['--version'], { stdio: 'pipe' });
       } catch {
         return {
           success: false,
@@ -1678,14 +1692,16 @@ export class MarketplaceManager {
       if (options.createRepo) {
         // Create new repo and push
         try {
-          execSync(`gh repo create ${options.createRepo} --public --confirm`, { stdio: 'pipe' });
+          execFileSync('gh', ['repo', 'create', options.createRepo, '--public', '--confirm'], {
+            stdio: 'pipe',
+          });
         } catch {
           // Repo may already exist
         }
         const targetRepo = options.createRepo;
         const tmpDir = path.join(os.tmpdir(), `photon-fork-${Date.now()}`);
         try {
-          execSync(`gh repo clone ${targetRepo} "${tmpDir}" -- --depth=1`, {
+          execFileSync('gh', ['repo', 'clone', targetRepo, tmpDir, '--', '--depth=1'], {
             stdio: 'pipe',
           });
           await fs.copyFile(filePath, path.join(tmpDir, fileName));
@@ -1701,10 +1717,12 @@ export class MarketplaceManager {
               }
             }
           }
-          execSync(
-            `cd "${tmpDir}" && git add -A && git commit -m "fork: ${name} photon" && git push origin`,
-            { stdio: 'pipe' }
-          );
+          execFileSync('git', ['add', '-A'], { cwd: tmpDir, stdio: 'pipe' });
+          execFileSync('git', ['commit', '-m', `fork: ${name} photon`], {
+            cwd: tmpDir,
+            stdio: 'pipe',
+          });
+          execFileSync('git', ['push', 'origin'], { cwd: tmpDir, stdio: 'pipe' });
           await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
         } catch (e) {
           await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -1717,7 +1735,7 @@ export class MarketplaceManager {
         // Push to existing repo
         const tmpDir = path.join(os.tmpdir(), `photon-fork-${Date.now()}`);
         try {
-          execSync(`gh repo clone ${options.targetRepo} "${tmpDir}" -- --depth=1`, {
+          execFileSync('gh', ['repo', 'clone', options.targetRepo, tmpDir, '--', '--depth=1'], {
             stdio: 'pipe',
           });
           await fs.copyFile(filePath, path.join(tmpDir, fileName));
@@ -1733,10 +1751,12 @@ export class MarketplaceManager {
               }
             }
           }
-          execSync(
-            `cd "${tmpDir}" && git add -A && git commit -m "fork: ${name} photon" && git push origin`,
-            { stdio: 'pipe' }
-          );
+          execFileSync('git', ['add', '-A'], { cwd: tmpDir, stdio: 'pipe' });
+          execFileSync('git', ['commit', '-m', `fork: ${name} photon`], {
+            cwd: tmpDir,
+            stdio: 'pipe',
+          });
+          execFileSync('git', ['push', 'origin'], { cwd: tmpDir, stdio: 'pipe' });
           await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
         } catch (e) {
           await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -1771,7 +1791,10 @@ export class MarketplaceManager {
     workingDir: string,
     options?: { dryRun?: boolean; branch?: string }
   ): Promise<{ success: boolean; prUrl?: string; message: string }> {
-    const { execSync } = await import('child_process');
+    validateSafeName(name, 'photon name');
+    if (options?.branch) validateSafeName(options.branch, 'branch name');
+
+    const { execFileSync } = await import('child_process');
     const fileName = `${name}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 
@@ -1782,7 +1805,7 @@ export class MarketplaceManager {
 
     // Check gh CLI
     try {
-      execSync('gh --version', { stdio: 'pipe' });
+      execFileSync('gh', ['--version'], { stdio: 'pipe' });
     } catch {
       return {
         success: false,
@@ -1792,7 +1815,7 @@ export class MarketplaceManager {
 
     // Check gh auth
     try {
-      execSync('gh auth status', { stdio: 'pipe' });
+      execFileSync('gh', ['auth', 'status'], { stdio: 'pipe' });
     } catch {
       return {
         success: false,
@@ -1847,13 +1870,13 @@ export class MarketplaceManager {
 
     // Fork the repo
     try {
-      execSync(`gh repo fork ${repo} --clone=false`, { stdio: 'pipe' });
+      execFileSync('gh', ['repo', 'fork', repo, '--clone=false'], { stdio: 'pipe' });
     } catch {
       // Fork may already exist
     }
 
     // Get fork name
-    const forkJson = execSync('gh api user', { encoding: 'utf-8' });
+    const forkJson = execFileSync('gh', ['api', 'user'], { encoding: 'utf-8' });
     const ghUser = JSON.parse(forkJson).login;
     const repoName = repo.split('/')[1];
     const forkRepo = `${ghUser}/${repoName}`;
@@ -1862,7 +1885,7 @@ export class MarketplaceManager {
     const tmpDir = path.join(os.tmpdir(), `photon-contribute-${Date.now()}`);
 
     try {
-      execSync(`gh repo clone ${forkRepo} "${tmpDir}" -- --depth=1`, {
+      execFileSync('gh', ['repo', 'clone', forkRepo, tmpDir, '--', '--depth=1'], {
         stdio: 'pipe',
       });
 
@@ -1883,15 +1906,28 @@ export class MarketplaceManager {
       }
 
       // Create branch, commit, push
-      execSync(
-        `cd "${tmpDir}" && git checkout -b "${branchName}" && git add -A && git commit -m "improve: update ${name} photon" && git push origin "${branchName}"`,
-        { stdio: 'pipe' }
-      );
+      execFileSync('git', ['checkout', '-b', branchName], { cwd: tmpDir, stdio: 'pipe' });
+      execFileSync('git', ['add', '-A'], { cwd: tmpDir, stdio: 'pipe' });
+      execFileSync('git', ['commit', '-m', `improve: update ${name} photon`], {
+        cwd: tmpDir,
+        stdio: 'pipe',
+      });
+      execFileSync('git', ['push', 'origin', branchName], { cwd: tmpDir, stdio: 'pipe' });
 
       // Create PR
-      const prOutput = execSync(
-        `cd "${tmpDir}" && gh pr create --repo "${repo}" --title "Improve ${name} photon" --body "Contributed improvements to ${name} photon via Photon marketplace."`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      const prOutput = execFileSync(
+        'gh',
+        [
+          'pr',
+          'create',
+          '--repo',
+          repo,
+          '--title',
+          `Improve ${name} photon`,
+          '--body',
+          `Contributed improvements to ${name} photon via Photon marketplace.`,
+        ],
+        { cwd: tmpDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
       );
 
       // Cleanup temp dir
