@@ -913,9 +913,17 @@ export class PhotonLoader {
                       timestamp: Date.now(),
                       source: name,
                     })
-                    .catch(() => {}); // Best-effort
+                    .catch((e: any) => {
+                      this.logger.debug('Failed to publish broker event', {
+                        error: e?.message || e,
+                      });
+                    });
                 })
-                .catch(() => {});
+                .catch((e: any) => {
+                  this.logger.debug('Failed to import photon-core for broker', {
+                    error: e?.message || e,
+                  });
+                });
             }
           };
 
@@ -1475,9 +1483,15 @@ export class PhotonLoader {
                     timestamp: Date.now(),
                     source: name,
                   })
-                  .catch(() => {});
+                  .catch((e: any) => {
+                    this.logger.debug('Failed to publish broker event', { error: e?.message || e });
+                  });
               })
-              .catch(() => {});
+              .catch((e: any) => {
+                this.logger.debug('Failed to import photon-core for broker', {
+                  error: e?.message || e,
+                });
+              });
           }
         };
 
@@ -3387,8 +3401,8 @@ Run: photon mcp ${mcpName} --config
                   );
                 }
                 // Cast to any - outputHandler is flexible and routes any object with channel property
-                void Promise.resolve(options.outputHandler(eventData as any)).catch(() => {
-                  // Ignore output handler errors - don't break tool execution
+                void Promise.resolve(options.outputHandler(eventData as any)).catch((e) => {
+                  this.logger.debug('Output handler failed for event', { error: e?.message || e });
                 });
                 if (process.env.PHOTON_DEBUG_EMIT === '1') {
                   console.error(`[EMIT-DEBUG] Event transmitted to outputHandler`);

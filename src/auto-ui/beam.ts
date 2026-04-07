@@ -685,7 +685,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
     try {
       source = await readText(photonPath);
-      await ensurePhotonEditorDeclaration(photonPath, source, workingDir).catch(() => {});
+      await ensurePhotonEditorDeclaration(photonPath, source, workingDir).catch((e) => {
+        logger.debug(`Failed to ensure editor declaration for ${photonPath}: ${e?.message || e}`);
+      });
     } catch {
       // Can't read source
     }
@@ -1242,8 +1244,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               activeLoads,
               (name, path, isStateful) => {
                 if (isStateful) {
-                  subscribeStatefulPhoton(name).catch(() => {});
-                  reloadDaemonPhoton(name, path, workingDir).catch(() => {});
+                  subscribeStatefulPhoton(name).catch((e) => {
+                    logger.debug(`Failed to subscribe stateful photon ${name}: ${e?.message || e}`);
+                  });
+                  reloadDaemonPhoton(name, path, workingDir).catch((e) => {
+                    logger.debug(`Failed to reload daemon photon ${name}: ${e?.message || e}`);
+                  });
                 }
               }
             );
@@ -2285,7 +2291,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
               try {
                 const source = await readText(photonPath);
-                await writePhotonEditorDeclaration(photonPath, source, workingDir).catch(() => {});
+                await writePhotonEditorDeclaration(photonPath, source, workingDir).catch((e) => {
+                  logger.debug(
+                    `Failed to write editor declaration for ${photonPath}: ${e?.message || e}`
+                  );
+                });
                 const params = extractor.extractConstructorParams(source);
                 constructorParams = params
                   .filter((p: ConstructorParam) => p.isPrimitive)

@@ -760,7 +760,9 @@ export class PhotonServer {
         this.log('debug', 'Permission response failed', { error: getErrorMessage(e) });
       });
       for (const session of Array.from(this.sseSessions.values())) {
-        session.server.notification(notification as any).catch(() => {});
+        session.server.notification(notification as any).catch((e) => {
+          this.log('debug', `Failed to send notification to SSE session: ${e?.message || e}`);
+        });
       }
     }
   }
@@ -1286,9 +1288,11 @@ export class PhotonServer {
     const outputHandler = (emit: any) => {
       // Forward channel events to daemon for cross-process pub/sub
       if (this.daemonName && emit?.channel) {
-        publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(() => {
-          // Ignore publish errors - daemon may not be running
-        });
+        publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(
+          (e) => {
+            this.log('debug', `Failed to publish channel event to daemon: ${e?.message || e}`);
+          }
+        );
       }
 
       // Forward emit yields as MCP progress notifications to STDIO client
@@ -2322,6 +2326,20 @@ export class PhotonServer {
    * Initialize and start the server
    */
   async start() {
+    // Safety net: catch unhandled errors so a bad photon can't crash the server
+    process.on('uncaughtException', (err) => {
+      this.log('error', 'Uncaught exception in PhotonServer', {
+        error: getErrorMessage(err),
+        stack: err?.stack,
+      });
+    });
+    process.on('unhandledRejection', (reason) => {
+      this.log('error', 'Unhandled rejection in PhotonServer', {
+        error: reason instanceof Error ? getErrorMessage(reason) : String(reason),
+        stack: reason instanceof Error ? reason.stack : undefined,
+      });
+    });
+
     try {
       // If unresolvedPhoton is set, skip loading — defer to first tool call
       if (this.options.unresolvedPhoton) {
@@ -2911,8 +2929,11 @@ export class PhotonServer {
                       emit.channel,
                       emit,
                       this.options.workingDir
-                    ).catch(() => {
-                      // Ignore publish errors - daemon may not be running
+                    ).catch((e) => {
+                      this.log(
+                        'debug',
+                        `Failed to publish channel event to daemon: ${e?.message || e}`
+                      );
                     });
                   }
                 };
