@@ -347,7 +347,7 @@ function cleanupStaleMaps(): void {
 
   // Remove empty channel subscription sets and prune destroyed sockets
   for (const [channel, subs] of channelSubscriptions.entries()) {
-    for (const socket of subs) {
+    for (const socket of [...subs]) {
       if (socket.destroyed) subs.delete(socket);
     }
     if (subs.size === 0) channelSubscriptions.delete(channel);
@@ -857,7 +857,7 @@ function publishToChannel(channel: string, message: unknown, excludeSocket?: net
   // Send to exact channel subscribers
   const exactSubscribers = channelSubscriptions.get(channel);
   if (exactSubscribers) {
-    for (const socket of exactSubscribers) {
+    for (const socket of [...exactSubscribers]) {
       if (socket !== excludeSocket && !socket.destroyed && !sentSockets.has(socket)) {
         try {
           socket.write(payload);
@@ -876,7 +876,7 @@ function publishToChannel(channel: string, message: unknown, excludeSocket?: net
     const wildcardChannel = `${channelPrefix}:*`;
     const wildcardSubscribers = channelSubscriptions.get(wildcardChannel);
     if (wildcardSubscribers) {
-      for (const socket of wildcardSubscribers) {
+      for (const socket of [...wildcardSubscribers]) {
         if (socket !== excludeSocket && !socket.destroyed && !sentSockets.has(socket)) {
           try {
             socket.write(payload);
@@ -2694,62 +2694,61 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
       const existing = watchDebounce.get(watchPath);
       if (existing) clearTimeout(existing);
 
-      watchDebounce.set(
-        watchPath,
-        setTimeout(() => {
-          void (async () => {
-            watchDebounce.delete(watchPath);
+      const timer = setTimeout(() => {
+        void (async () => {
+          const currentTimer = watchDebounce.get(watchPath);
+          if (currentTimer === timer) watchDebounce.delete(watchPath);
 
-            // On macOS, editors like sed -i and some IDEs replace the file (new inode),
-            // which kills the watcher. Re-watch via original path (symlink) so we
-            // re-resolve to the new real path. Don't return — fall through to reload,
-            // because the new watcher won't fire (file was already written before it was set up).
-            if (eventType === 'rename') {
-              unwatchPhotonFile(watchPath);
-              if (fs.existsSync(photonPath)) {
-                watchPhotonFile(photonName, photonPath);
-              } else {
-                // Photon file deleted (uninstalled) — unload all session managers for it
-                logger.info('Photon file deleted — unloading', { photonName, path: photonPath });
-                // Collect keys first — mutating Maps during a live async iterator is unsafe
-                const keysToDelete = Array.from(photonPaths.entries())
-                  .filter(([, storedPath]) => storedPath === photonPath)
-                  .map(([key]) => key);
-                for (const key of keysToDelete) {
-                  const manager = sessionManagers.get(key);
-                  if (manager) await manager.clearInstances();
-                  sessionManagers.delete(key);
-                  photonPaths.delete(key);
-                  workingDirs.delete(key);
-                }
-                stateKeysCache.delete(photonName);
-                return;
+          // On macOS, editors like sed -i and some IDEs replace the file (new inode),
+          // which kills the watcher. Re-watch via original path (symlink) so we
+          // re-resolve to the new real path. Don't return — fall through to reload,
+          // because the new watcher won't fire (file was already written before it was set up).
+          if (eventType === 'rename') {
+            unwatchPhotonFile(watchPath);
+            if (fs.existsSync(photonPath)) {
+              watchPhotonFile(photonName, photonPath);
+            } else {
+              // Photon file deleted (uninstalled) — unload all session managers for it
+              logger.info('Photon file deleted — unloading', { photonName, path: photonPath });
+              // Collect keys first — mutating Maps during a live async iterator is unsafe
+              const keysToDelete = Array.from(photonPaths.entries())
+                .filter(([, storedPath]) => storedPath === photonPath)
+                .map(([key]) => key);
+              for (const key of keysToDelete) {
+                const manager = sessionManagers.get(key);
+                if (manager) await manager.clearInstances();
+                sessionManagers.delete(key);
+                photonPaths.delete(key);
+                workingDirs.delete(key);
               }
+              stateKeysCache.delete(photonName);
+              return;
             }
+          }
 
-            if (!fs.existsSync(photonPath)) return;
+          if (!fs.existsSync(photonPath)) return;
 
-            logger.info('File changed, auto-reloading', { photonName, path: photonPath });
+          logger.info('File changed, auto-reloading', { photonName, path: photonPath });
 
-            // Invalidate cached state keys so they're re-extracted from fresh source
-            stateKeysCache.delete(photonName);
+          // Invalidate cached state keys so they're re-extracted from fresh source
+          stateKeysCache.delete(photonName);
 
-            try {
-              await reloadPhoton(photonName, photonPath);
-            } catch (err) {
-              logger.error('Hot-reload crashed — old instance preserved', {
-                photonName,
-                error: getErrorMessage(err),
-              });
-              publishToChannel(`system:${photonName}`, {
-                event: 'photon-reload-failed',
-                timestamp: Date.now(),
-                error: getErrorMessage(err),
-              });
-            }
-          })();
-        }, 100)
-      );
+          try {
+            await reloadPhoton(photonName, photonPath);
+          } catch (err) {
+            logger.error('Hot-reload crashed — old instance preserved', {
+              photonName,
+              error: getErrorMessage(err),
+            });
+            publishToChannel(`system:${photonName}`, {
+              event: 'photon-reload-failed',
+              timestamp: Date.now(),
+              error: getErrorMessage(err),
+            });
+          }
+        })();
+      }, 100);
+      watchDebounce.set(watchPath, timer);
     });
 
     if ('on' in watcher && typeof (watcher as any).on === 'function') {
@@ -2858,64 +2857,63 @@ function watchWorkingDir(workingDir: string): void {
       const existing = watchDebounce.get(debounceKey);
       if (existing) clearTimeout(existing);
 
-      watchDebounce.set(
-        debounceKey,
-        setTimeout(() => {
-          void (async () => {
-            watchDebounce.delete(debounceKey);
+      const timer = setTimeout(() => {
+        void (async () => {
+          const currentTimer = watchDebounce.get(debounceKey);
+          if (currentTimer === timer) watchDebounce.delete(debounceKey);
 
-            if (fs.existsSync(workingDir)) {
-              // Still exists — record updated inode in case it was recreated
-              try {
-                workingDirInodes.set(workingDir, fs.statSync(workingDir).ino);
-              } catch {
-                /* stat may fail if dir was just recreated */
-              }
-              return;
+          if (fs.existsSync(workingDir)) {
+            // Still exists — record updated inode in case it was recreated
+            try {
+              workingDirInodes.set(workingDir, fs.statSync(workingDir).ino);
+            } catch {
+              /* stat may fail if dir was just recreated */
             }
+            return;
+          }
 
-            const renamedTo = detectRenameOrDelete(workingDir);
+          const renamedTo = detectRenameOrDelete(workingDir);
 
-            if (renamedTo) {
-              // RENAME: data is intact at the new path.
-              // Migrate each session manager's loader baseDir to the new path so
-              // subsequent loadFile calls set PHOTON_DIR correctly — photon
-              // module-level constants (STATE_DIR, etc.) pick up the new location
-              // on the next fresh import (loader uses ?t=Date.now() cache busting).
-              logger.info('workingDir renamed — migrating sessions', {
-                from: workingDir,
-                to: renamedTo,
-              });
-              for (const [key, dir] of workingDirs.entries()) {
-                if (dir !== workingDir) continue;
-                workingDirs.set(key, renamedTo);
-                const manager = sessionManagers.get(key);
-                if (manager) {
-                  await manager.migrateBaseDir(renamedTo);
-                }
+          if (renamedTo) {
+            // RENAME: data is intact at the new path.
+            // Migrate each session manager's loader baseDir to the new path so
+            // subsequent loadFile calls set PHOTON_DIR correctly — photon
+            // module-level constants (STATE_DIR, etc.) pick up the new location
+            // on the next fresh import (loader uses ?t=Date.now() cache busting).
+            logger.info('workingDir renamed — migrating sessions', {
+              from: workingDir,
+              to: renamedTo,
+            });
+            for (const [key, dir] of workingDirs.entries()) {
+              if (dir !== workingDir) continue;
+              workingDirs.set(key, renamedTo);
+              const manager = sessionManagers.get(key);
+              if (manager) {
+                await manager.migrateBaseDir(renamedTo);
               }
-              workingDirInodes.delete(workingDir);
-              workingDirInodes.set(renamedTo, fs.statSync(renamedTo).ino);
-            } else {
-              // DELETE: data is gone — clear all in-memory instances so stale
-              // state isn't replayed into a fresh directory.
-              logger.info('workingDir deleted — clearing all instances', { workingDir });
-              // Collect keys first to avoid async mutation of live iterators
-              const deletedDirKeys = Array.from(workingDirs.entries())
-                .filter(([, dir]) => dir === workingDir)
-                .map(([key]) => key);
-              for (const key of deletedDirKeys) {
-                const manager = sessionManagers.get(key);
-                if (manager) await manager.clearInstances();
-                sessionManagers.delete(key);
-                photonPaths.delete(key);
-                workingDirs.delete(key);
-              }
-              workingDirInodes.delete(workingDir);
             }
-          })();
-        }, 150)
-      );
+            workingDirInodes.delete(workingDir);
+            workingDirInodes.set(renamedTo, fs.statSync(renamedTo).ino);
+          } else {
+            // DELETE: data is gone — clear all in-memory instances so stale
+            // state isn't replayed into a fresh directory.
+            logger.info('workingDir deleted — clearing all instances', { workingDir });
+            // Collect keys first to avoid async mutation of live iterators
+            const deletedDirKeys = Array.from(workingDirs.entries())
+              .filter(([, dir]) => dir === workingDir)
+              .map(([key]) => key);
+            for (const key of deletedDirKeys) {
+              const manager = sessionManagers.get(key);
+              if (manager) await manager.clearInstances();
+              sessionManagers.delete(key);
+              photonPaths.delete(key);
+              workingDirs.delete(key);
+            }
+            workingDirInodes.delete(workingDir);
+          }
+        })();
+      }, 150);
+      watchDebounce.set(debounceKey, timer);
     });
 
     if ('on' in watcher && typeof (watcher as any).on === 'function') {
@@ -2961,28 +2959,27 @@ function watchStateDir(workingDir: string): void {
       const existing = watchDebounce.get(debounceKey);
       if (existing) clearTimeout(existing);
 
-      watchDebounce.set(
-        debounceKey,
-        setTimeout(() => {
-          void (async () => {
-            watchDebounce.delete(debounceKey);
+      const timer = setTimeout(() => {
+        void (async () => {
+          const currentTimer = watchDebounce.get(debounceKey);
+          if (currentTimer === timer) watchDebounce.delete(debounceKey);
 
-            const photonStateDir = path.join(stateDir, filename);
-            if (fs.existsSync(photonStateDir)) return; // Still there — not a deletion
+          const photonStateDir = path.join(stateDir, filename);
+          if (fs.existsSync(photonStateDir)) return; // Still there — not a deletion
 
-            // A photon's state subdir was deleted — clear its instances
-            logger.info('Photon state dir deleted — clearing instances', {
-              photon: filename,
-              workingDir,
-            });
-            const key = compositeKey(filename, workingDir);
-            const manager = sessionManagers.get(key);
-            if (manager) {
-              await manager.clearInstances();
-            }
-          })();
-        }, 150)
-      );
+          // A photon's state subdir was deleted — clear its instances
+          logger.info('Photon state dir deleted — clearing instances', {
+            photon: filename,
+            workingDir,
+          });
+          const key = compositeKey(filename, workingDir);
+          const manager = sessionManagers.get(key);
+          if (manager) {
+            await manager.clearInstances();
+          }
+        })();
+      }, 150);
+      watchDebounce.set(debounceKey, timer);
     });
 
     if ('on' in watcher && typeof (watcher as any).on === 'function') {

@@ -30,6 +30,7 @@ interface PendingCall {
   resolve: (value: any) => void;
   reject: (reason: Error) => void;
   timer: NodeJS.Timeout;
+  resolved: boolean;
 }
 
 export class WorkerManager {
@@ -160,7 +161,8 @@ export class WorkerManager {
         }
         // Clean up pending calls for this worker
         for (const [id, pending] of this.pendingCalls) {
-          // Check if the pending call's id starts with the worker key pattern
+          if (pending.resolved) continue;
+          pending.resolved = true;
           clearTimeout(pending.timer);
           pending.reject(new Error(`Worker ${photonName} exited (code ${code})`));
           this.pendingCalls.delete(id);
@@ -186,12 +188,22 @@ export class WorkerManager {
     const id = `wc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingCalls.delete(id);
-        resolve({ success: false, error: `Worker call ${method} timed out after ${timeoutMs}ms` });
-      }, timeoutMs);
+      const pending: PendingCall = {
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          if (pending.resolved) return;
+          pending.resolved = true;
+          this.pendingCalls.delete(id);
+          resolve({
+            success: false,
+            error: `Worker call ${method} timed out after ${timeoutMs}ms`,
+          });
+        }, timeoutMs),
+        resolved: false,
+      };
 
-      this.pendingCalls.set(id, { resolve, reject, timer });
+      this.pendingCalls.set(id, pending);
 
       const msg: MainToWorkerMessage = { type: 'call', id, method, args, sessionId, instanceName };
       info.worker.postMessage(msg);
@@ -276,7 +288,8 @@ export class WorkerManager {
     switch (msg.type) {
       case 'result': {
         const pending = this.pendingCalls.get(msg.id);
-        if (pending) {
+        if (pending && !pending.resolved) {
+          pending.resolved = true;
           clearTimeout(pending.timer);
           this.pendingCalls.delete(msg.id);
           pending.resolve({
