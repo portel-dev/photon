@@ -22,12 +22,13 @@ import {
   CancelTaskRequestSchema,
   GetTaskPayloadRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import type { ServerNotification } from '@modelcontextprotocol/sdk/types.js';
 import { readText } from './shared/io.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import { PhotonClassExtended, generateExecutionId } from '@portel/photon-core';
-import type { ExtractedSchema } from '@portel/photon-core';
+import type { ExtractedSchema, PhotonClass } from '@portel/photon-core';
 import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
@@ -55,6 +56,12 @@ import { audit } from './shared/audit.js';
 import { TaskExecutor } from './task-executor.js';
 import { CapabilityNegotiator } from './capability-negotiator.js';
 import { ResourceServer } from './resource-server.js';
+import type {
+  PhotonClassWithMeta,
+  MCPToolDefinition,
+  MCPTextContent,
+  MCPToolResponse,
+} from './types/server-types.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -482,14 +489,14 @@ export class PhotonServer {
     // The sink is wired up lazily because `this.server` doesn't exist yet
     const channelSink: ChannelNotificationSink = {
       sendNotification: async (notification) => {
-        await this.server.notification(notification as any);
+        await this.server.notification(notification as ServerNotification);
       },
       sendNotificationToAllSessions: async (notification) => {
         for (const session of Array.from(this.sseSessions.values())) {
-          await session.server.notification(notification as any);
+          await session.server.notification(notification as ServerNotification);
         }
       },
-      getPhotonInstance: () => this.mcp as any,
+      getPhotonInstance: () => this.mcp as unknown,
     };
     this.channelManager = new ChannelManager({
       channelOptions: {
@@ -500,7 +507,7 @@ export class PhotonServer {
       },
       workingDir: options.workingDir,
       sink: channelSink,
-      log: (level, message, data) => this.log(level as any, message, data),
+      log: (level, message, data) => this.log(level as LogLevel, message, data),
     });
 
     // Create MCP server instance
@@ -541,7 +548,7 @@ export class PhotonServer {
       (level, message, meta) => this.log(level, message, meta),
       {
         executeTool: (photon, toolName, args, opts) =>
-          this.loader.executeTool(photon as any, toolName, args, opts),
+          this.loader.executeTool(photon as PhotonClass, toolName, args, opts),
       },
       { createMCPInputProvider: (server) => this.createMCPInputProvider(server) }
     );
@@ -897,20 +904,20 @@ export class PhotonServer {
     const tools = this.mcp.tools.map((tool) => {
       // Append deprecation notice to tool description if tagged
       let description = tool.description;
-      const deprecated = (tool as any).deprecated;
+      const deprecated = (tool as ExtractedSchema).deprecated;
       if (deprecated) {
         const notice = typeof deprecated === 'string' ? deprecated : 'This tool is deprecated.';
         description = `[DEPRECATED: ${notice}] ${description}`;
       }
 
-      const toolDef: any = {
+      const toolDef: MCPToolDefinition = {
         name: tool.name,
         description,
         inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)),
       };
 
       // MCP standard annotations (2025-11-25 spec)
-      const schema = tool as any;
+      const schema = tool as ExtractedSchema;
       const annotations: Record<string, unknown> = {};
       if (schema.title) annotations.title = schema.title;
       if (schema.readOnlyHint) annotations.readOnlyHint = true;
@@ -1207,14 +1214,14 @@ export class PhotonServer {
     }
 
     // Build content with optional annotations
-    const content: any = {
+    const content: MCPTextContent = {
       type: 'text',
       text: this.formatResult(actualResult),
     };
 
     // Content annotations: audience and priority from schema, mimeType from format
     const contentAnnotations: Record<string, unknown> = {};
-    const schema = tool as any;
+    const schema = tool as ExtractedSchema;
     if (schema?.audience) contentAnnotations.audience = schema.audience;
     if (schema?.contentPriority !== undefined) contentAnnotations.priority = schema.contentPriority;
     if (outputFormat) {
@@ -1226,7 +1233,7 @@ export class PhotonServer {
       content.annotations = contentAnnotations;
     }
 
-    const response: any = { content: [content], isError: false };
+    const response: MCPToolResponse = { content: [content], isError: false };
 
     // Structured output: include structuredContent when outputSchema is declared
     if (
@@ -1429,7 +1436,7 @@ export class PhotonServer {
       }
 
       // ── Task mode: when params contain task field, run async ──
-      const taskField = (request.params as any)?.task;
+      const taskField = (request.params as Record<string, unknown>)?.task;
       if (taskField && this.mcp) {
         const { name: toolName, arguments: args } = request.params;
         return this.taskExecutor.handleTaskModeCall(this.mcp.name, toolName, args || {}, taskField);
@@ -1495,7 +1502,9 @@ export class PhotonServer {
     });
 
     this.server.setRequestHandler(ListTasksRequestSchema, async (request) => {
-      return this.taskExecutor.handleListTasks((request.params as any)?.cursor);
+      return this.taskExecutor.handleListTasks(
+        (request.params as Record<string, unknown>)?.cursor as string | undefined
+      );
     });
 
     this.server.setRequestHandler(CancelTaskRequestSchema, async (request) => {
@@ -1951,9 +1960,9 @@ export class PhotonServer {
       const photonName = this.mcp?.name || 'photon';
       beamTransport = new BeamCompatTransport(photonName, {
         description: this.mcp?.description,
-        icon: (this.mcp as any)?.icon,
-        stateful: !!(this.mcp as any)?.stateful,
-        hasSettings: !!(this.mcp as any)?.hasSettings,
+        icon: (this.mcp as PhotonClassWithMeta | null)?.icon,
+        stateful: !!(this.mcp as PhotonClassWithMeta | null)?.stateful,
+        hasSettings: !!(this.mcp as PhotonClassWithMeta | null)?.hasSettings,
       });
       this.capabilityNegotiator.interceptTransportForRawCapabilities(
         beamTransport,
@@ -1967,16 +1976,16 @@ export class PhotonServer {
       const allLoaded = this.loader.getLoadedPhotons();
       for (const [, loaded] of allLoaded) {
         if (loaded.name === mainName) continue;
-        const icon = (loaded as any).icon || '⚡';
-        const stateful = !!(loaded as any).stateful;
-        const hasSettings = !!(loaded as any).settingsSchema?.hasSettings;
+        const icon = (loaded as PhotonClassWithMeta).icon || '⚡';
+        const stateful = !!(loaded as PhotonClassWithMeta).stateful;
+        const hasSettings = !!loaded.settingsSchema?.hasSettings;
         // Convert PhotonTool[] to MCP tool format with UI linking
         const uiAssets = loaded.assets?.ui || [];
-        const tools = loaded.tools
-          .filter((t: any) => !t.internal)
-          .map((t: any) => {
+        const tools = (loaded.tools as Array<ExtractedSchema & { internal?: boolean }>)
+          .filter((t) => !t.internal)
+          .map((t) => {
             const linkedUI = uiAssets.find(
-              (u: any) => u.linkedTool === t.name || u.linkedTools?.includes(t.name)
+              (u) => u.linkedTool === t.name || u.linkedTools?.includes(t.name)
             );
             return {
               name: t.name,
@@ -2331,7 +2340,9 @@ export class PhotonServer {
           if (req.method === 'GET' && url.pathname === '/api/diagnostics') {
             const { PHOTON_VERSION } = await import('./version.js');
             const photonName = this.mcp?.name || 'photon';
-            const tools = this.mcp ? Object.keys((this.mcp as any)._toolSchemas || {}).length : 0;
+            const tools = this.mcp
+              ? Object.keys((this.mcp as PhotonClassWithMeta)._toolSchemas || {}).length
+              : 0;
             const diagHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
             if (corsOrigin) diagHeaders['Access-Control-Allow-Origin'] = corsOrigin;
             res.writeHead(200, diagHeaders);
