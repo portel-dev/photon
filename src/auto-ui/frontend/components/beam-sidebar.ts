@@ -16,6 +16,8 @@ import {
   xMark,
   docs,
   shieldCheck,
+  settings as settingsIcon,
+  source as sourceIcon,
 } from '../icons.js';
 
 interface PhotonItem {
@@ -269,48 +271,6 @@ export class BeamSidebar extends LitElement {
         position: relative;
       }
 
-      .view-tabs {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 2px;
-        margin-top: var(--space-sm);
-        /* Extend past the sidebar padding and the parent glass-panel boundary */
-        margin-right: calc(-1 * var(--space-md) - 8px);
-        padding: 4px 10px 4px 6px;
-        background: color-mix(in srgb, var(--accent-secondary) 12%, transparent);
-        border: 1px solid color-mix(in srgb, var(--accent-secondary) 20%, transparent);
-        border-right: none;
-        border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-      }
-
-      .view-tab {
-        width: 28px;
-        height: 28px;
-        border-radius: var(--radius-xs, 4px);
-        background: transparent;
-        border: none;
-        color: var(--t-muted);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.15s ease;
-        font-size: 0.85rem;
-        padding: 0;
-      }
-
-      .view-tab:hover {
-        color: var(--t-primary);
-        background: var(--bg-glass);
-      }
-
-      .view-tab.active {
-        color: var(--accent-secondary);
-        background: var(--bg-glass-strong);
-        border: 1px solid var(--accent-secondary);
-      }
-
       .sidebar-minimize-btn {
         width: 28px;
         height: 28px;
@@ -425,6 +385,9 @@ export class BeamSidebar extends LitElement {
         border-left: 2px solid var(--accent-primary);
         color: var(--accent-primary);
         font-weight: 500;
+        align-items: stretch;
+        padding-top: calc(var(--space-sm) + 2px);
+        padding-bottom: calc(var(--space-sm) + 2px);
       }
 
       .photon-item.flash-highlight {
@@ -494,6 +457,25 @@ export class BeamSidebar extends LitElement {
         flex: 1;
       }
 
+      .photon-item-body {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .photon-main-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        min-width: 0;
+      }
+
+      .photon-main-row .photon-info {
+        min-width: 0;
+      }
+
       .photon-name {
         font-family: var(--font-display);
         font-weight: 600;
@@ -508,6 +490,45 @@ export class BeamSidebar extends LitElement {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .photon-view-tabs {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: calc(28px + var(--space-sm));
+      }
+
+      .photon-view-tab {
+        width: 26px;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border-glass);
+        background: color-mix(in srgb, var(--bg-glass-strong) 82%, transparent);
+        color: var(--t-muted);
+        border-radius: var(--radius-sm);
+        padding: 0;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+
+      .photon-view-tab svg {
+        width: 13px;
+        height: 13px;
+      }
+
+      .photon-view-tab:hover {
+        color: var(--t-primary);
+        border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-glass));
+        background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-glass-strong));
+      }
+
+      .photon-view-tab.active {
+        color: white;
+        border-color: var(--accent-primary);
+        background: color-mix(in srgb, var(--accent-primary) 78%, black 22%);
       }
 
       .method-count {
@@ -810,6 +831,10 @@ export class BeamSidebar extends LitElement {
           min-height: 44px;
         }
 
+        .photon-view-tabs {
+          margin-left: 0;
+        }
+
         .photon-item .star-btn {
           padding: var(--space-sm);
           opacity: 0.4;
@@ -995,6 +1020,11 @@ export class BeamSidebar extends LitElement {
     super.updated(changedProps);
     if (changedProps.has('selectedPhoton')) {
       this._ensureActiveSectionOpen();
+      if (this.selectedPhoton) {
+        this._scrollPhotonIntoView(this.selectedPhoton, false);
+      } else {
+        this._scrollSidebarToTop();
+      }
     }
   }
 
@@ -1121,138 +1151,6 @@ export class BeamSidebar extends LitElement {
               </svg>
             </button>
           </div>
-          ${this.selectedPhoton
-            ? html`<div class="view-tabs">
-                ${this.isApp
-                  ? html`<button
-                      class="view-tab ${this.mainTab === 'app' ? 'active' : ''}"
-                      @click=${() => this._emitTabChange('app')}
-                      title="App"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <rect x="3" y="3" width="18" height="18" rx="2" />
-                        <path d="M3 9h18" />
-                        <path d="M9 21V9" />
-                      </svg>
-                    </button>`
-                  : ''}
-                <button
-                  class="view-tab ${this.mainTab === 'methods' ? 'active' : ''}"
-                  @click=${() => this._emitTabChange('methods')}
-                  title="Methods"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <rect x="3" y="3" width="7" height="7" />
-                    <rect x="14" y="3" width="7" height="7" />
-                    <rect x="3" y="14" width="7" height="7" />
-                    <rect x="14" y="14" width="7" height="7" />
-                  </svg>
-                </button>
-                <button
-                  class="view-tab ${this.mainTab === 'log' ? 'active' : ''}"
-                  @click=${() => this._emitTabChange('log')}
-                  title="Activity Log"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M9 6h11M9 12h11M9 18h11" />
-                    <circle cx="5" cy="6" r="1" fill="currentColor" />
-                    <circle cx="5" cy="12" r="1" fill="currentColor" />
-                    <circle cx="5" cy="18" r="1" fill="currentColor" />
-                  </svg>
-                </button>
-                ${this.hasSettings
-                  ? html`<button
-                      class="view-tab ${this.mainTab === 'settings' ? 'active' : ''}"
-                      @click=${() => this._emitTabChange('settings')}
-                      title="Settings"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path
-                          d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-                        />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    </button>`
-                  : ''}
-                ${this.hasPath && !this.isExternalMCP
-                  ? html`<button
-                      class="view-tab ${this.mainTab === 'source' ? 'active' : ''}"
-                      @click=${() => this._emitTabChange('source')}
-                      title="Source"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <polyline points="16 18 22 12 16 6" />
-                        <polyline points="8 6 2 12 8 18" />
-                      </svg>
-                    </button>`
-                  : ''}
-                <button
-                  class="view-tab ${this.mainTab === 'help' ? 'active' : ''}"
-                  @click=${() => this._emitTabChange('help')}
-                  title="Help"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                </button>
-              </div>`
-            : ''}
           <div class="search-box" role="search">
             <input
               type="search"
@@ -1389,15 +1287,6 @@ export class BeamSidebar extends LitElement {
           : ''}
         <button
           class="footer-link"
-          @click=${() =>
-            this.dispatchEvent(new CustomEvent('diagnostics', { bubbles: true, composed: true }))}
-          title="Server diagnostics"
-          aria-label="Show diagnostics"
-        >
-          ${activityIcon}
-        </button>
-        <button
-          class="footer-link"
           @click=${() => this._showShortcuts()}
           title="Shortcuts"
           aria-label="Show keyboard shortcuts"
@@ -1483,7 +1372,7 @@ export class BeamSidebar extends LitElement {
         class="photon-list motion-stagger ${collapsed ? 'collapsed' : ''}"
         role="listbox"
         aria-labelledby=${headerId}
-        style="max-height: ${collapsed ? '0' : items.length * 52 + 'px'}"
+        style="max-height: ${collapsed ? '0' : this._estimateSectionHeight(items) + 'px'}"
       >
         ${items.map(renderItem)}
       </ul>
@@ -1516,48 +1405,54 @@ export class BeamSidebar extends LitElement {
         : `background: hsl(${hue}, 35%, 22%); color: hsl(${hue}, 60%, 75%);`;
     }
 
+    const isSelected = this.selectedPhoton === photon.name;
+
     return html`
       <li
-        class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''} ${photon.internal
+        class="photon-item ${isSelected ? 'active' : ''} ${photon.internal
           ? 'internal'
           : ''} ${this._isPhotonWarm(photon.name) ? 'warmth' : ''}"
         role="option"
-        aria-selected="${this.selectedPhoton === photon.name}"
+        aria-selected="${isSelected}"
         tabindex="0"
         @click=${() => this._selectPhoton(photon)}
         @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(photon)}
         title="${photon.description || photon.name}${photon.path ? `\n${photon.path}` : ''}"
       >
-        <div
-          class="photon-icon ${isEmoji ? 'emoji-icon' : ''}"
-          style="${initialsStyle}"
-          aria-hidden="true"
-        >
-          ${displayIcon}
+        <div class="photon-item-body">
+          <div class="photon-main-row">
+            <div
+              class="photon-icon ${isEmoji ? 'emoji-icon' : ''}"
+              style="${initialsStyle}"
+              aria-hidden="true"
+            >
+              ${displayIcon}
+            </div>
+            <div class="photon-info">
+              <div class="photon-name">${photon.name}</div>
+              ${photon.internal ? html`<span class="internal-badge">System</span>` : ''}
+            </div>
+            <button
+              class="star-btn ${isFavorited ? 'favorited' : ''}"
+              @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
+              title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}"
+              aria-label="${isFavorited
+                ? `Remove ${photon.name} from favorites`
+                : `Add ${photon.name} to favorites`}"
+              aria-pressed="${isFavorited}"
+            >
+              ${isFavorited ? starFilled : starOutline}
+            </button>
+            ${isUnconfigured
+              ? photon.errorReason === 'load-error'
+                ? html`<span class="method-count error" aria-label="Error loading">×</span>`
+                : html`<span class="method-count unconfigured" aria-label="Needs configuration"
+                    >?</span
+                  >`
+              : this._renderCountsPill(photon, methodCount)}
+          </div>
+          ${isSelected ? this._renderInlineViewTabs() : ''}
         </div>
-        <div class="photon-info">
-          <div class="photon-name">${photon.name}</div>
-          ${photon.internal ? html`<span class="internal-badge">System</span>` : ''}
-        </div>
-        ${'' /* Settings button removed — now in context bar (Phase 3) */}
-        <button
-          class="star-btn ${isFavorited ? 'favorited' : ''}"
-          @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
-          title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}"
-          aria-label="${isFavorited
-            ? `Remove ${photon.name} from favorites`
-            : `Add ${photon.name} to favorites`}"
-          aria-pressed="${isFavorited}"
-        >
-          ${isFavorited ? starFilled : starOutline}
-        </button>
-        ${isUnconfigured
-          ? photon.errorReason === 'load-error'
-            ? html`<span class="method-count error" aria-label="Error loading">×</span>`
-            : html`<span class="method-count unconfigured" aria-label="Needs configuration"
-                >?</span
-              >`
-          : this._renderCountsPill(photon, methodCount)}
       </li>
     `;
   }
@@ -1567,14 +1462,13 @@ export class BeamSidebar extends LitElement {
     const isConnected = mcp.connected !== false;
     const displayIcon = mcp.icon || plug;
     const isFavorited = this._favorites.has(mcp.name);
+    const isSelected = this.selectedPhoton === mcp.name;
 
     return html`
       <li
-        class="photon-item ${this.selectedPhoton === mcp.name ? 'active' : ''} ${!isConnected
-          ? 'disconnected'
-          : ''}"
+        class="photon-item ${isSelected ? 'active' : ''} ${!isConnected ? 'disconnected' : ''}"
         role="option"
-        aria-selected="${this.selectedPhoton === mcp.name}"
+        aria-selected="${isSelected}"
         tabindex="0"
         @click=${() => this._selectPhoton(mcp)}
         @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(mcp)}
@@ -1582,38 +1476,118 @@ export class BeamSidebar extends LitElement {
           ? `\n⚠️ ${mcp.errorMessage}`
           : ''}"
       >
-        <div class="photon-icon external-mcp-icon" aria-hidden="true">${displayIcon}</div>
-        <div class="photon-info">
-          <div class="photon-name">${mcp.name}</div>
+        <div class="photon-item-body">
+          <div class="photon-main-row">
+            <div class="photon-icon external-mcp-icon" aria-hidden="true">${displayIcon}</div>
+            <div class="photon-info">
+              <div class="photon-name">${mcp.name}</div>
+            </div>
+            <button
+              class="star-btn ${isFavorited ? 'favorited' : ''}"
+              @click=${(e: Event) => this._toggleFavorite(e, mcp.name)}
+              title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}"
+              aria-label="${isFavorited
+                ? `Remove ${mcp.name} from favorites`
+                : `Add ${mcp.name} to favorites`}"
+              aria-pressed="${isFavorited}"
+            >
+              ${isFavorited ? starFilled : starOutline}
+            </button>
+            ${!isConnected
+              ? html`
+                  <span class="disconnect-badge" title="${mcp.errorMessage || 'Disconnected'}"
+                    >Offline</span
+                  >
+                  <button
+                    class="reconnect-btn"
+                    @click=${(e: Event) => this._reconnectMCP(e, mcp.name)}
+                    title="Reconnect"
+                    aria-label="Reconnect ${mcp.name}"
+                  >
+                    ↻
+                  </button>
+                `
+              : this._renderCountsPill(mcp, methodCount)}
+          </div>
+          ${isSelected ? this._renderInlineViewTabs() : ''}
         </div>
-        <button
-          class="star-btn ${isFavorited ? 'favorited' : ''}"
-          @click=${(e: Event) => this._toggleFavorite(e, mcp.name)}
-          title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}"
-          aria-label="${isFavorited
-            ? `Remove ${mcp.name} from favorites`
-            : `Add ${mcp.name} to favorites`}"
-          aria-pressed="${isFavorited}"
-        >
-          ${isFavorited ? starFilled : starOutline}
-        </button>
-        ${!isConnected
-          ? html`
-              <span class="disconnect-badge" title="${mcp.errorMessage || 'Disconnected'}"
-                >Offline</span
-              >
-              <button
-                class="reconnect-btn"
-                @click=${(e: Event) => this._reconnectMCP(e, mcp.name)}
-                title="Reconnect"
-                aria-label="Reconnect ${mcp.name}"
-              >
-                ↻
-              </button>
-            `
-          : this._renderCountsPill(mcp, methodCount)}
       </li>
     `;
+  }
+
+  private _renderInlineViewTabs() {
+    const appTabIcon = html`<svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M9 21V9" />
+    </svg>`;
+
+    const methodsTabIcon = html`<svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
+    </svg>`;
+
+    const tabs = [
+      ...(this.isApp ? [{ id: 'app', label: 'App', icon: appTabIcon }] : []),
+      { id: 'methods', label: 'Methods', icon: methodsTabIcon },
+      { id: 'log', label: 'Activity', icon: activityIcon },
+      ...(this.hasSettings ? [{ id: 'settings', label: 'Settings', icon: settingsIcon }] : []),
+      ...(this.hasPath && !this.isExternalMCP
+        ? [{ id: 'source', label: 'Source', icon: sourceIcon }]
+        : []),
+      { id: 'help', label: 'Help', icon: docs },
+    ];
+
+    return html`
+      <div class="photon-view-tabs" role="tablist" aria-label="Selected photon views">
+        ${tabs.map(
+          (tab) => html`
+            <button
+              class="photon-view-tab ${this.mainTab === tab.id ? 'active' : ''}"
+              role="tab"
+              aria-selected=${String(this.mainTab === tab.id)}
+              title=${tab.label}
+              aria-label=${tab.label}
+              @click=${(e: Event) => {
+                e.stopPropagation();
+                this._emitTabChange(tab.id);
+              }}
+            >
+              ${tab.icon}
+            </button>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _estimateSectionHeight(items: PhotonItem[]) {
+    return items.reduce((height, item) => {
+      const isSelected = item.name === this.selectedPhoton;
+      return height + (isSelected ? 92 : 52);
+    }, 0);
   }
 
   private _reconnectMCP(e: Event, mcpName: string) {
@@ -1744,6 +1718,10 @@ export class BeamSidebar extends LitElement {
   }
 
   scrollPhotonIntoView(name: string) {
+    this._scrollPhotonIntoView(name, true);
+  }
+
+  private _scrollPhotonIntoView(name: string, flashHighlight: boolean) {
     void this.updateComplete.then(() => {
       const items = this.shadowRoot?.querySelectorAll('.photon-item');
       if (!items) return;
@@ -1751,10 +1729,21 @@ export class BeamSidebar extends LitElement {
         const nameEl = item.querySelector('.photon-name');
         if (nameEl?.textContent?.trim() === name) {
           item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          (item as HTMLElement).classList.add('flash-highlight');
-          setTimeout(() => (item as HTMLElement).classList.remove('flash-highlight'), 600);
+          if (flashHighlight) {
+            (item as HTMLElement).classList.add('flash-highlight');
+            setTimeout(() => (item as HTMLElement).classList.remove('flash-highlight'), 600);
+          }
           break;
         }
+      }
+    });
+  }
+
+  private _scrollSidebarToTop() {
+    void this.updateComplete.then(() => {
+      const scrollEl = this.shadowRoot?.querySelector('.sidebar-scroll');
+      if (scrollEl) {
+        scrollEl.scrollTo({ top: 0, behavior: 'smooth' });
       }
     });
   }

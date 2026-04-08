@@ -3874,6 +3874,13 @@ export class BeamApp extends LitElement {
           @tab-change=${(e: CustomEvent) => {
             const tab = e.detail.tab;
             this._mainTab = tab;
+            if (tab === 'methods') {
+              this._closeSecondPanel();
+              this._selectedMethod = null;
+              this._view = 'list';
+              this._updateRoute();
+              return;
+            }
             // Handle source tab
             if (tab === 'source') {
               void this._handleViewSourceInline();
@@ -4033,6 +4040,7 @@ export class BeamApp extends LitElement {
               : this._mainTab === 'settings' && this._selectedPhoton
                 ? this._renderSettingsView()
                 : this._mainTab === 'methods' &&
+                    !this._selectedMethod &&
                     (this._selectedPhoton?.isApp ||
                       (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
                   ? this._renderMethodsBentoOnly()
@@ -5566,6 +5574,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
   }
 
   private _renderMethodContent() {
+    const showBackButton = this._mainTab === 'methods' || !this._selectedPhoton?.isApp;
+
     // HTML UI mode: minimal chrome, just show the interactive content
     if (this._isHtmlUiMode()) {
       return html`
@@ -5626,9 +5636,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 showHelp: !this._selectedPhoton?.isExternalMCP,
               }),
               onOverflowSelect: (id: string) => this._handleOverflowAction(id),
-              onBack: !this._selectedPhoton?.isApp
-                ? () => void this._handleBackFromMethod()
-                : undefined,
+              onBack: showBackButton ? () => void this._handleBackFromMethod() : undefined,
               backLabel: this._selectedPhoton?.name,
             })}
           </div>
@@ -5691,7 +5699,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         showHelp: !this._selectedPhoton?.isExternalMCP,
       }),
       onOverflowSelect: (id: string) => this._handleOverflowAction(id),
-      onBack: !this._selectedPhoton?.isApp ? () => void this._handleBackFromMethod() : undefined,
+      onBack: showBackButton ? () => void this._handleBackFromMethod() : undefined,
       backLabel: this._selectedPhoton?.name,
     });
   }
