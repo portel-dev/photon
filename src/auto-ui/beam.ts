@@ -189,17 +189,48 @@ const getConfigFilePath = getConfigFilePathFromModule;
 // PhotonConfig type imported from beam/types.ts
 type PhotonConfig = import('./beam/types.js').PhotonConfig;
 
-// Module-level state for external MCPs (shared with transport handler)
-const externalMCPs: ExternalMCPInfo[] = [];
-const externalMCPClients = new Map<string, any>();
-const externalMCPSDKClients = new Map<string, Client>();
+// ═══════════════════════════════════════════════════════════════════════════════
+// BEAM CONTEXT — all module-level mutable state lives here
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class BeamContext {
+  /** External MCP server metadata */
+  readonly externalMCPs: ExternalMCPInfo[] = [];
+  /** Transport-level clients for external MCPs */
+  readonly externalMCPClients = new Map<string, any>();
+  /** SDK Client instances for tool calls with structuredContent */
+  readonly externalMCPSDKClients = new Map<string, Client>();
+
+  /**
+   * Notification subscriptions per photon.
+   * Key: photon name, Value: list of event types this photon cares about
+   * Example: { "chat": ["mentions", "direct-messages"], "tasks": ["deadline", "assigned-to-me"] }
+   */
+  readonly photonNotificationSubscriptions = new Map<string, string[]>();
+
+  /**
+   * Track which state-changed channels we've already subscribed to,
+   * so dynamically discovered photons can be subscribed without duplicates.
+   */
+  readonly subscribedStateChannels = new Set<string>();
+
+  /** Convenience accessor matching the shape expected by external-mcp module */
+  get externalMCPState() {
+    return {
+      externalMCPs: this.externalMCPs,
+      externalMCPClients: this.externalMCPClients,
+      externalMCPSDKClients: this.externalMCPSDKClients,
+    };
+  }
+}
+
+const ctx = new BeamContext();
 
 // Delegates — external MCP management now in beam/external-mcp.ts
-const externalMCPState = { externalMCPs, externalMCPClients, externalMCPSDKClients };
 const loadExternalMCPs = (config: PhotonConfig) =>
-  loadExternalMCPsFromModule(config, externalMCPState);
+  loadExternalMCPsFromModule(config, ctx.externalMCPState);
 const reconnectExternalMCP = (name: string) =>
-  reconnectExternalMCPFromModule(name, externalMCPState);
+  reconnectExternalMCPFromModule(name, ctx.externalMCPState);
 
 // Delegates to extracted config module
 const migrateConfig = migrateConfigFromModule;
@@ -216,21 +247,8 @@ const applyMethodVisibility = applyMethodVisibilityFromModule;
 const extractCspFromSource = extractCspFromModule;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION SUBSCRIPTIONS
+// NOTIFICATION SUBSCRIPTIONS (state lives in ctx: BeamContext)
 // ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Map to store notification subscriptions per photon
- * Key: photon name, Value: list of event types this photon cares about
- * Example: { "chat": ["mentions", "direct-messages"], "tasks": ["deadline", "assigned-to-me"] }
- */
-const photonNotificationSubscriptions = new Map<string, string[]>();
-
-/**
- * Track which state-changed channels we've already subscribed to,
- * so dynamically discovered photons can be subscribed without duplicates.
- */
-const subscribedStateChannels = new Set<string>();
 
 /**
  * Generate the service worker JS that validates the Beam backend
@@ -807,10 +825,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       // Store notification subscriptions per photon
       if (metadata.notificationSubscriptions?.watchFor) {
-        photonNotificationSubscriptions.set(name, metadata.notificationSubscriptions.watchFor);
+        ctx.photonNotificationSubscriptions.set(name, metadata.notificationSubscriptions.watchFor);
       } else {
         // Clear previous subscription if photon no longer has @notify-on
-        photonNotificationSubscriptions.delete(name);
+        ctx.photonNotificationSubscriptions.delete(name);
       }
 
       // Get UI assets for linking
@@ -1113,9 +1131,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     savedConfig,
     photons,
     photonMCPs,
-    externalMCPs,
-    externalMCPClients,
-    externalMCPSDKClients,
+    externalMCPs: ctx.externalMCPs,
+    externalMCPClients: ctx.externalMCPClients,
+    externalMCPSDKClients: ctx.externalMCPSDKClients,
     channelSubscriptions: new Map(),
     channelEventBuffers: new Map(),
     sessionViewState: new Map(),
@@ -1234,9 +1252,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         const handled = await handleStreamableHTTP(req, res, {
           photons, // Pass all photons including unconfigured for configurationSchema
           photonMCPs,
-          externalMCPs,
-          externalMCPClients,
-          externalMCPSDKClients, // SDK clients for tool calls with structuredContent
+          externalMCPs: ctx.externalMCPs,
+          externalMCPClients: ctx.externalMCPClients,
+          externalMCPSDKClients: ctx.externalMCPSDKClients, // SDK clients for tool calls with structuredContent
           reconnectExternalMCP,
           loadUIAsset,
           workingDir,
@@ -2377,12 +2395,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
               // Update notification subscriptions for reloaded photon
               if (reloadMetadata.notificationSubscriptions?.watchFor) {
-                photonNotificationSubscriptions.set(
+                ctx.photonNotificationSubscriptions.set(
                   photonName,
                   reloadMetadata.notificationSubscriptions.watchFor
                 );
               } else {
-                photonNotificationSubscriptions.delete(photonName);
+                ctx.photonNotificationSubscriptions.delete(photonName);
               }
 
               const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
@@ -2762,7 +2780,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Load external MCPs from config
   const externalMCPList = await loadExternalMCPs(savedConfig);
-  externalMCPs.push(...externalMCPList);
+  ctx.externalMCPs.push(...externalMCPList);
 
   // Mark startup complete — flushes queued output and restores console
   startup.ready();
@@ -2776,8 +2794,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     const instanceNames = ['default'];
     for (const instanceName of instanceNames) {
       const channel = `${photonName}:${instanceName}:state-changed`;
-      if (subscribedStateChannels.has(channel)) continue;
-      subscribedStateChannels.add(channel);
+      if (ctx.subscribedStateChannels.has(channel)) continue;
+      ctx.subscribedStateChannels.add(channel);
 
       subscribeChannel(
         photonName,
@@ -2875,7 +2893,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         const notificationChannel = `${photonName}:${instanceName}:notifications`;
 
         // Get this photon's notification subscriptions from @notify-on tags
-        const watchFor = photonNotificationSubscriptions.get(photonName);
+        const watchFor = ctx.photonNotificationSubscriptions.get(photonName);
 
         subscribeChannel(
           photonName,
@@ -3095,13 +3113,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // Remove MCPs — do all synchronous Map mutations first, then close async
           const removedSdkClients: Array<{ name: string; client: any }> = [];
           for (const name of removed) {
-            const idx = externalMCPs.findIndex((m) => m.name === name);
-            if (idx !== -1) externalMCPs.splice(idx, 1);
+            const idx = ctx.externalMCPs.findIndex((m) => m.name === name);
+            if (idx !== -1) ctx.externalMCPs.splice(idx, 1);
 
-            const sdkClient = externalMCPSDKClients.get(name);
+            const sdkClient = ctx.externalMCPSDKClients.get(name);
             if (sdkClient) removedSdkClients.push({ name, client: sdkClient });
-            externalMCPSDKClients.delete(name);
-            externalMCPClients.delete(name);
+            ctx.externalMCPSDKClients.delete(name);
+            ctx.externalMCPClients.delete(name);
 
             logger.info(`🔌 Removed external MCP: ${name}`);
           }
@@ -3121,7 +3139,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               mcpServers: Object.fromEntries(added.map((k) => [k, newServers[k]])),
             };
             const newMCPs = await loadExternalMCPs(addConfig);
-            externalMCPs.push(...newMCPs);
+            ctx.externalMCPs.push(...newMCPs);
             for (const m of newMCPs) {
               logger.info(
                 `🔌 Added external MCP: ${m.name} (${m.connected ? m.methods.length + ' tools' : 'failed'})`
@@ -3132,13 +3150,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // Reconnect modified MCPs — synchronous cleanup first, then async reconnect
           const modifiedSdkClients: Array<{ name: string; client: any }> = [];
           for (const name of modified) {
-            const idx = externalMCPs.findIndex((m) => m.name === name);
-            if (idx !== -1) externalMCPs.splice(idx, 1);
+            const idx = ctx.externalMCPs.findIndex((m) => m.name === name);
+            if (idx !== -1) ctx.externalMCPs.splice(idx, 1);
 
-            const sdkClient = externalMCPSDKClients.get(name);
+            const sdkClient = ctx.externalMCPSDKClients.get(name);
             if (sdkClient) modifiedSdkClients.push({ name, client: sdkClient });
-            externalMCPSDKClients.delete(name);
-            externalMCPClients.delete(name);
+            ctx.externalMCPSDKClients.delete(name);
+            ctx.externalMCPClients.delete(name);
           }
           // Close old SDK clients
           for (const { client } of modifiedSdkClients) {
@@ -3155,7 +3173,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               mcpServers: { [name]: newServers[name] },
             };
             const reconnected = await loadExternalMCPs(modConfig);
-            externalMCPs.push(...reconnected);
+            ctx.externalMCPs.push(...reconnected);
             logger.info(`🔌 Reconnected external MCP: ${name}`);
           }
 
@@ -3192,7 +3210,7 @@ export async function stopBeam(): Promise<void> {
   // Close all SDK clients gracefully
   const closePromises: Promise<void>[] = [];
 
-  for (const [, client] of externalMCPSDKClients) {
+  for (const [, client] of ctx.externalMCPSDKClients) {
     closePromises.push(
       client.close().catch(() => {
         // Ignore close errors - process is exiting anyway
@@ -3205,6 +3223,6 @@ export async function stopBeam(): Promise<void> {
     await withTimeout(Promise.all(closePromises), 1000, 'MCP client close timeout').catch(() => {}); // Timeout during shutdown is expected
   }
 
-  externalMCPSDKClients.clear();
-  externalMCPClients.clear();
+  ctx.externalMCPSDKClients.clear();
+  ctx.externalMCPClients.clear();
 }
