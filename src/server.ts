@@ -44,8 +44,13 @@ import {
   hasExtension,
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
-import { subscribeChannel, pingDaemon, publishToChannel } from './daemon/client.js';
+import { pingDaemon } from './daemon/client.js';
 import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
+import {
+  ChannelManager,
+  type ChannelNotificationSink,
+  type ChannelPermissionResponse,
+} from './channel-manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isLocalRequest, readBody, setSecurityHeaders, getCorsOrigin } from './shared/security.js';
 import { audit } from './shared/audit.js';
@@ -107,19 +112,8 @@ export interface PhotonServerOptions {
   channelInstructions?: string;
 }
 
-/** Permission request from the client (e.g. Claude Code asking to approve a tool call) */
-export type ChannelPermissionRequest = {
-  request_id: string;
-  tool_name: string;
-  description: string;
-  input_preview: string;
-};
-
-/** Permission response from the photon back to the client */
-export type ChannelPermissionResponse = {
-  request_id: string;
-  behavior: 'allow' | 'deny';
-};
+// ChannelPermissionRequest and ChannelPermissionResponse re-exported from channel-manager
+export type { ChannelPermissionRequest, ChannelPermissionResponse } from './channel-manager.js';
 
 // SSE session record for managing multiple clients
 type SSESession = {
@@ -407,7 +401,7 @@ export class PhotonServer {
     attempts: number;
   };
   private statusClients: Set<ServerResponse> = new Set();
-  private channelUnsubscribers: Array<() => void> = [];
+  private channelManager: ChannelManager;
   private daemonName: string | null = null;
   /** Tracked instance name for daemon drift recovery (STDIO path) */
   private daemonInstanceName?: string;
@@ -493,14 +487,35 @@ export class PhotonServer {
       options.workingDir
     );
 
-    // Create MCP server instance
-    // When channelMode is set, declare claude/channel capability and use photon name as server name
-    const serverName =
-      options.channelMode && options.channelName ? options.channelName : 'photon-mcp';
+    // Initialize ChannelManager — owns all channel/pub-sub logic
+    // The sink is wired up lazily because `this.server` doesn't exist yet
+    const channelSink: ChannelNotificationSink = {
+      sendNotification: async (notification) => {
+        await this.server.notification(notification as any);
+      },
+      sendNotificationToAllSessions: async (notification) => {
+        for (const session of Array.from(this.sseSessions.values())) {
+          await session.server.notification(notification as any);
+        }
+      },
+      getPhotonInstance: () => this.mcp as any,
+    };
+    this.channelManager = new ChannelManager({
+      channelOptions: {
+        channelMode: options.channelMode,
+        channelName: options.channelName,
+        channelTargets: options.channelTargets,
+        channelInstructions: options.channelInstructions,
+      },
+      workingDir: options.workingDir,
+      sink: channelSink,
+      log: (level, message, data) => this.log(level as any, message, data),
+    });
 
+    // Create MCP server instance
     this.server = new Server(
       {
-        name: serverName,
+        name: this.channelManager.getServerName(),
         version: PHOTON_VERSION,
       },
       {
@@ -522,27 +537,11 @@ export class PhotonServer {
               tools: { call: {} },
             },
           },
-          // Note: Server doesn't declare elicitation capability - that's a client capability
-          // The server uses elicitInput() when the client has elicitation support
-          //
-          // Channel capabilities — declare only the protocols specified by @channel tag.
-          // e.g. @channel claude → { 'claude/channel': {}, 'claude/channel/permission': {} }
-          ...(options.channelMode && options.channelTargets?.length
-            ? {
-                experimental: Object.fromEntries(
-                  options.channelTargets.flatMap((t) => [
-                    [`${t}/channel`, {}],
-                    [`${t}/channel/permission`, {}],
-                  ])
-                ),
-              }
-            : {}),
+          // Channel capabilities (experimental) — delegated to ChannelManager
+          ...this.channelManager.getExtraCapabilities(),
         },
-        ...(options.channelMode && options.channelInstructions
-          ? {
-              instructions: options.channelInstructions,
-            }
-          : {}),
+        // Channel instructions
+        ...this.channelManager.getExtraServerOptions(),
       }
     );
 
@@ -709,63 +708,11 @@ export class PhotonServer {
   }
 
   /**
-   * Get the channel notification method for the connected client.
-   * Each client uses its own notification namespace under the MCP experimental extension point.
-   * Returns undefined if the client is unknown or doesn't support channels.
-   */
-  /**
-   * Get the notification methods for all declared channel targets.
-   * Each target (e.g. 'claude') maps to its notification method.
-   */
-  private getChannelNotificationMethods(): string[] {
-    const targets = this.options.channelTargets || [];
-    // Each target's notification method follows the pattern: notifications/{target}/channel
-    return targets.map((t) => `notifications/${t}/channel`);
-  }
-
-  /**
-   * Handle permission request from the client (e.g. Claude Code asking "Allow tool X?").
-   * Forwards to the photon instance via channel._dispatchPermission().
-   */
-  private handlePermissionRequest(params: any) {
-    if (!params?.request_id || !params?.tool_name) return;
-    const request: ChannelPermissionRequest = {
-      request_id: params.request_id,
-      tool_name: params.tool_name,
-      description: params.description || '',
-      input_preview: params.input_preview || '',
-    };
-    this.log('info', `Permission request: ${request.tool_name} (${request.request_id})`);
-    // Dispatch to the photon instance's permission handler
-    const instance = this.mcp as any;
-    if (instance?.channel?._dispatchPermission) {
-      instance.channel._dispatchPermission(request);
-    }
-  }
-
-  /**
    * Send a permission response back to the client.
-   * Called by the photon instance (via this.channel.respond) when the user approves/denies.
+   * Delegates to ChannelManager.
    */
   public respondToPermission(response: ChannelPermissionResponse) {
-    const targets = this.options.channelTargets || [];
-    for (const target of targets) {
-      const notification = {
-        method: `notifications/${target}/channel/permission`,
-        params: {
-          request_id: response.request_id,
-          behavior: response.behavior,
-        },
-      };
-      this.server.notification(notification as any).catch((e) => {
-        this.log('debug', 'Permission response failed', { error: getErrorMessage(e) });
-      });
-      for (const session of Array.from(this.sseSessions.values())) {
-        session.server.notification(notification as any).catch((e) => {
-          this.log('debug', `Failed to send notification to SSE session: ${e?.message || e}`);
-        });
-      }
-    }
+    this.channelManager.respondToPermission(response);
   }
 
   /**
@@ -1288,13 +1235,7 @@ export class PhotonServer {
     // Handler for channel events - forward to daemon for cross-process pub/sub
     const outputHandler = (emit: any) => {
       // Forward channel events to daemon for cross-process pub/sub
-      if (this.daemonName && emit?.channel) {
-        publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(
-          (e) => {
-            this.log('debug', `Failed to publish channel event to daemon: ${e?.message || e}`);
-          }
-        );
-      }
+      this.channelManager.publishIfChannel(emit);
 
       // Forward emit yields as MCP progress notifications to STDIO client
       if (emit?.emit === 'progress') {
@@ -1668,11 +1609,7 @@ export class PhotonServer {
           const executionId = generateExecutionId();
           const inputProvider = this.createMCPInputProvider();
           const outputHandler = (emit: any) => {
-            if (this.daemonName && emit?.channel) {
-              publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(
-                () => {}
-              );
-            }
+            this.channelManager.publishIfChannel(emit);
             // Forward emit yields as MCP notifications for async tools
             if (emit?.emit === 'progress' || emit?.emit === 'status') {
               const rawValue =
@@ -2171,13 +2108,7 @@ export class PhotonServer {
       // Retry the original tool call
       const inputProvider = this.createMCPInputProvider();
       const outputHandler = (emit: any) => {
-        if (this.daemonName && emit?.channel) {
-          publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(
-            (e) => {
-              this.log('debug', 'Publish to channel failed', { error: getErrorMessage(e) });
-            }
-          );
-        }
+        this.channelManager.publishIfChannel(emit);
       };
 
       const retryResult = await this.loader.executeTool(this.mcp, toolName, args, {
@@ -2251,6 +2182,7 @@ export class PhotonServer {
         if (isStateful) {
           const photonName = metadata.name;
           this.daemonName = photonName; // Store for subscription
+          this.channelManager.setDaemonName(photonName);
           this.log('info', `Stateful photon detected: ${photonName}`);
 
           if (!isGlobalDaemonRunning()) {
@@ -2289,9 +2221,9 @@ export class PhotonServer {
       }
 
       // Subscribe to daemon channels for cross-process notifications.
-      // In channel mode, handleChannelMessage intercepts 'channel-push' events
+      // In channel mode, ChannelManager intercepts 'channel-push' events
       // and translates them to notifications/claude/channel for the connected client.
-      await this.subscribeToChannels();
+      await this.channelManager.subscribeToChannels();
 
       // Start with the appropriate transport
       const transport = this.options.transport || 'stdio';
@@ -2316,126 +2248,6 @@ export class PhotonServer {
   }
 
   /**
-   * Subscribe to daemon channels for cross-process notifications
-   * This enables real-time updates when other processes (e.g., Beam UI, other MCP clients) modify data
-   */
-  private async subscribeToChannels() {
-    // Only subscribe if we have a daemon running (stateful photon)
-    if (!this.daemonName) return;
-
-    try {
-      // Subscribe to wildcard channel for all events from this photon
-      // E.g., "kanban:*" receives "kanban:photon", "kanban:my-board", etc.
-      const unsubscribe = await subscribeChannel(
-        this.daemonName,
-        `${this.daemonName}:*`,
-        (message: unknown) => {
-          void this.handleChannelMessage(message);
-        },
-        { workingDir: this.options.workingDir }
-      );
-      this.channelUnsubscribers.push(unsubscribe);
-      this.log('info', `Subscribed to daemon channel: ${this.daemonName}:*`);
-    } catch (error) {
-      this.log('warn', `Failed to subscribe to daemon: ${getErrorMessage(error)}`);
-    }
-  }
-
-  /**
-   * Handle incoming channel messages and forward as MCP notifications
-   * This enables cross-client real-time updates (e.g., Beam updates show in Claude Desktop)
-   *
-   * Uses standard MCP Apps notification with embedded _photon data:
-   * - Claude Desktop forwards standard notifications (ui/notifications/host-context-changed)
-   * - Photon bridge extracts _photon field and routes to event listeners
-   * - This ensures cross-client sync works without requiring custom protocol support
-   */
-  private async handleChannelMessage(message: unknown) {
-    if (!message || typeof message !== 'object') return;
-
-    const msg = message as Record<string, unknown>;
-
-    // Debug logging for cross-client event transmission
-    if (process.env.PHOTON_DEBUG_EVENTS === '1') {
-      console.error(
-        `[PHOTON-SERVER] Received daemon message on ${String(msg.channel)}: event=${String(msg.event)}`
-      );
-    }
-
-    // Channel permission responses — photon called this.channel.respond()
-    if (this.options.channelMode && String(msg.channel).endsWith(':channel-permission-response')) {
-      const data = msg.data as Record<string, unknown> | undefined;
-      if (data?.request_id && data?.behavior) {
-        this.respondToPermission({
-          request_id: data.request_id as string,
-          behavior: data.behavior as 'allow' | 'deny',
-        });
-      }
-      return;
-    }
-
-    // Channel events — translate to client-specific channel notifications.
-    // Each declared target (e.g. 'claude') gets its own notification method.
-    if (this.options.channelMode && String(msg.channel).endsWith(':channel-push')) {
-      const pushData = msg.data as Record<string, unknown> | undefined;
-      const methods = this.getChannelNotificationMethods();
-      if (methods.length === 0) return;
-      const content = typeof pushData?.content === 'string' ? pushData.content : '';
-      const meta = (pushData?.meta as Record<string, string>) || {};
-      try {
-        for (const method of methods) {
-          const notification = { method, params: { content, meta } };
-          await this.server.notification(notification as any);
-          for (const session of Array.from(this.sseSessions.values())) {
-            await session.server.notification(notification as any);
-          }
-        }
-      } catch (e) {
-        this.log('debug', 'Channel notification failed', { error: getErrorMessage(e) });
-      }
-      return; // Don't also forward as a regular photon event
-    }
-
-    // Use STANDARD notification with embedded photon data
-    // Claude Desktop will forward this (it's a standard notification)
-    // Our bridge extracts _photon and routes to the appropriate event handler
-    const payload = {
-      method: 'ui/notifications/host-context-changed',
-      params: {
-        // _photon field carries our custom event data
-        _photon: {
-          photon: this.daemonName,
-          channel: msg.channel,
-          event: msg.event,
-          data: msg.data,
-        },
-      },
-    };
-
-    try {
-      if (process.env.PHOTON_DEBUG_EVENTS === '1') {
-        console.error(`[PHOTON-SERVER] Sending notification to MCP clients...`);
-      }
-      await this.server.notification(payload);
-      if (process.env.PHOTON_DEBUG_EVENTS === '1') {
-        console.error(`[PHOTON-SERVER] Notification sent successfully`);
-      }
-    } catch (e) {
-      console.error(`[PHOTON-SERVER-ERROR] Notification send failed: ${getErrorMessage(e)}`);
-      this.log('debug', 'Notification send failed', { error: getErrorMessage(e) });
-    }
-
-    // Also send to SSE sessions — snapshot to avoid live-iterator + await issues
-    for (const session of Array.from(this.sseSessions.values())) {
-      try {
-        await session.server.notification(payload);
-      } catch (e) {
-        this.log('debug', 'Session notification failed', { error: getErrorMessage(e) });
-      }
-    }
-  }
-
-  /**
    * Intercept a transport to capture raw client capabilities before Zod strips them.
    *
    * The MCP SDK's Zod schema for ClientCapabilities doesn't include `extensions`
@@ -2456,9 +2268,7 @@ export class PhotonServer {
         }
       }
       // Intercept channel permission requests from the client
-      if (this.options.channelMode && message?.method?.endsWith('/channel/permission_request')) {
-        this.handlePermissionRequest(message.params);
-      }
+      this.channelManager.interceptPermissionRequest(message);
       origOnMessage?.(message, extra);
     };
   }
@@ -2799,19 +2609,7 @@ export class PhotonServer {
                     sendNotification('notifications/emit', { event: emit });
                   }
                   // Forward channel events to daemon for cross-process pub/sub
-                  if (this.daemonName && emit.channel) {
-                    publishToChannel(
-                      this.daemonName,
-                      emit.channel,
-                      emit,
-                      this.options.workingDir
-                    ).catch((e) => {
-                      this.log(
-                        'debug',
-                        `Failed to publish channel event to daemon: ${e?.message || e}`
-                      );
-                    });
-                  }
+                  this.channelManager.publishIfChannel(emit);
                 };
 
                 sendNotification('notifications/status', {
@@ -3697,14 +3495,7 @@ export class PhotonServer {
       }
 
       // Unsubscribe daemon channels
-      for (const unsubscribe of this.channelUnsubscribers) {
-        try {
-          unsubscribe();
-        } catch {
-          /* ignore */
-        }
-      }
-      this.channelUnsubscribers = [];
+      this.channelManager.cleanup();
 
       // Close SSE sessions — snapshot to avoid live-iterator + await issues
       for (const session of Array.from(this.sseSessions.values())) {
