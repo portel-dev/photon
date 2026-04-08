@@ -368,8 +368,10 @@ function cleanupStaleMaps(): void {
   }
 }
 
-setInterval(cleanupExpiredLocks, 10000);
-setInterval(cleanupStaleMaps, 60000);
+const lockCleanupInterval = setInterval(cleanupExpiredLocks, 10000);
+const staleMapCleanupInterval = setInterval(cleanupStaleMaps, 60000);
+lockCleanupInterval.unref();
+staleMapCleanupInterval.unref();
 
 // ════════════════════════════════════════════════════════════════════════════════
 // SCHEDULED JOBS
@@ -1655,13 +1657,14 @@ async function handleRequest(
       };
     }
 
+    const existing = scheduledJobs.get(request.jobId!);
     const job: ScheduledJob & { photonName: string; workingDir?: string } = {
       id: request.jobId!,
       method: request.method!,
       args: request.args,
       cron: request.cron!,
-      runCount: 0,
-      createdAt: Date.now(),
+      runCount: existing?.runCount ?? 0,
+      createdAt: existing?.createdAt ?? Date.now(),
       createdBy: request.sessionId,
       photonName,
       workingDir: request.workingDir,
@@ -3495,6 +3498,9 @@ function shutdown(): void {
   if (idleTimer) {
     clearTimeout(idleTimer);
   }
+
+  clearInterval(lockCleanupInterval);
+  clearInterval(staleMapCleanupInterval);
 
   for (const timer of jobTimers.values()) {
     clearTimeout(timer);

@@ -263,14 +263,30 @@ function parseDurationToMs(duration: string): number {
 // Clean up old sessions periodically (30 min timeout)
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, session] of sessions) {
-    if (now - session.lastActivity.getTime() > SESSION_TIMEOUT_MS) {
-      sessions.delete(id);
+let sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+function startSessionCleanup(): void {
+  if (sessionCleanupInterval) return;
+  sessionCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [id, session] of sessions) {
+      if (now - session.lastActivity.getTime() > SESSION_TIMEOUT_MS) {
+        sessions.delete(id);
+      }
     }
+  }, 60 * 1000);
+  sessionCleanupInterval.unref();
+}
+
+export function stopSessionCleanup(): void {
+  if (sessionCleanupInterval) {
+    clearInterval(sessionCleanupInterval);
+    sessionCleanupInterval = null;
   }
-}, 60 * 1000);
+}
+
+// Start cleanup on module load
+startSessionCleanup();
 
 function getOrCreateSession(sessionId?: string): MCPSession {
   if (sessionId && sessions.has(sessionId)) {

@@ -292,6 +292,12 @@ export function getTokenVault(): TokenVault {
 }
 
 export function initTokenVault(options: CreateTokenVaultOptions): TokenVault {
+  if (tokenVaultInstance) return tokenVaultInstance;
   tokenVaultInstance = createTokenVault(options);
   return tokenVaultInstance;
+}
+
+/** Reset the singleton — for testing only. */
+export function resetTokenVault(): void {
+  tokenVaultInstance = null;
 }

@@ -133,6 +133,7 @@ import {
   handleStreamableHTTP,
   broadcastNotification,
   broadcastToBeam,
+  stopSessionCleanup,
 } from './streamable-http-transport.js';
 // MCPServer type removed - no longer needed for WebSocket transport
 import type {
@@ -3167,6 +3168,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
  * Closes all external MCP SDK clients to prevent ugly tracebacks on shutdown.
  */
 export async function stopBeam(): Promise<void> {
+  // Stop session cleanup timer
+  stopSessionCleanup();
+
   // Close all SDK clients gracefully
   const closePromises: Promise<void>[] = [];
 

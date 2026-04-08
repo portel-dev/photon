@@ -302,18 +302,23 @@ let jwtServiceInstance: JwtService | null = null;
 export function getJwtService(
   config?: Partial<JwtConfig> & { secret: string; issuer: string }
 ): JwtService {
-  if (!jwtServiceInstance) {
-    if (!config) {
-      throw new Error('JWT service not initialized. Call with config first.');
-    }
-    jwtServiceInstance = new JwtService(config);
+  if (jwtServiceInstance) return jwtServiceInstance;
+  if (!config) {
+    throw new Error('JWT service not initialized. Call with config first.');
   }
+  jwtServiceInstance = new JwtService(config);
   return jwtServiceInstance;
 }
 
 export function initJwtService(
   config: Partial<JwtConfig> & { secret: string; issuer: string }
 ): JwtService {
+  if (jwtServiceInstance) return jwtServiceInstance;
   jwtServiceInstance = new JwtService(config);
   return jwtServiceInstance;
+}
+
+/** Reset the singleton — for testing only. */
+export function resetJwtService(): void {
+  jwtServiceInstance = null;
 }
