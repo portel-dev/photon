@@ -9,6 +9,62 @@ import { link, expand } from '../icons.js';
 import { mcpClient } from '../services/mcp-client.js';
 import { MotionObserver } from '../services/motion.js';
 
+/* ── Window globals loaded via CDN scripts ── */
+interface PrismLib {
+  highlight: (code: string, grammar: unknown, language: string) => string;
+  languages: Record<string, unknown>;
+}
+interface MermaidLib {
+  initialize: (config: Record<string, unknown>) => void;
+  render: (id: string, code: string) => Promise<{ svg: string }>;
+  run: (config: Record<string, unknown>) => Promise<void>;
+}
+interface MarkedLib {
+  parse: (src: string, options?: Record<string, unknown>) => string;
+}
+interface QRCodeConstructor {
+  new (el: HTMLElement, opts: Record<string, unknown>): unknown;
+  CorrectLevel?: { H?: unknown };
+}
+interface PretextModule {
+  layout: (prepared: unknown, width: number, lineHeight: number) => { height: number };
+  prepare: (text: string, font: string) => unknown;
+}
+interface PhotonRenderers {
+  render: (target: HTMLElement, data: unknown, format: string) => void;
+}
+declare global {
+  interface Window {
+    Prism?: PrismLib;
+    mermaid?: MermaidLib;
+    marked?: MarkedLib;
+    QRCode?: QRCodeConstructor;
+    __pretextModule?: PretextModule;
+    __photonMCPClient?: unknown;
+    _photonRenderers?: PhotonRenderers;
+    _photonRenderersLoading?: boolean;
+    _photonRenderersQueue?: Array<() => void>;
+  }
+}
+
+/** Metadata attached to stateful objects */
+interface ObjectMeta {
+  createdAt?: string;
+  modifiedAt?: string;
+  [key: string]: unknown;
+}
+
+/** Element with optional render cleanup function */
+interface CleanupElement extends Element {
+  _renderCleanup?: () => void;
+}
+
+/** Photon method descriptor from beam-app */
+interface PhotonDescriptor {
+  name: string;
+  methods?: Array<{ name: string; outputFormat?: string }>;
+}
+
 type LayoutType =
   | 'table'
   | 'list'
@@ -3130,7 +3186,7 @@ export class ResultViewer extends LitElement {
       const rec = item as Record<string, unknown>;
 
       // Check __meta object first (highest priority — most recent change)
-      const meta = (rec as any).__meta;
+      const meta = rec.__meta as ObjectMeta | undefined;
       if (meta && typeof meta === 'object') {
         // Prefer modifiedAt (most recent change) over createdAt
         if (meta.modifiedAt) {
@@ -3742,7 +3798,7 @@ export class ResultViewer extends LitElement {
       default: {
         // Unknown UI type — strip _photonType, caller will re-detect
         const { _photonType, ...rest } = data;
-        return { layout: null as any, result: rest };
+        return { layout: null as LayoutType | null, result: rest };
       }
     }
   }
@@ -4149,7 +4205,7 @@ export class ResultViewer extends LitElement {
                     ${formatLabel(key)}
                   </div>`
                 : ''}
-              ${this._renderTable(arr as any[])}
+              ${this._renderTable(arr as Record<string, unknown>[])}
             </div>
           `
         )}`;
@@ -4750,7 +4806,7 @@ export class ResultViewer extends LitElement {
 
   private _renderMarkdownStack(rawItems: string[]): TemplateResult {
     const items = rawItems.filter((s) => s && s.trim());
-    const marked = (window as any).marked;
+    const marked = window.marked;
 
     return html`
       <div style="display:flex; flex-direction:column; gap:0;">
@@ -4760,9 +4816,7 @@ export class ResultViewer extends LitElement {
           ${items.length} results
         </span>
         ${items.map((item, i) => {
-          const htmlContent = marked
-            ? (marked.parse(item, { breaks: false, gfm: true }) as string)
-            : item;
+          const htmlContent = marked ? marked.parse(item, { breaks: false, gfm: true }) : item;
           return html`
             <div
               class="markdown-content"
@@ -4780,7 +4834,7 @@ export class ResultViewer extends LitElement {
 
   private _renderMarkdown(filteredData?: any): TemplateResult {
     const data = filteredData !== undefined ? filteredData : this.result;
-    const marked = (window as any).marked;
+    const marked = window.marked;
 
     // Array of items: route to tabbed view (handled by switch case above)
     // This path is for non-@format markdown arrays (auto-detected)
@@ -4868,7 +4922,7 @@ export class ResultViewer extends LitElement {
       return `<div class="code-block-wrapper"><span class="language-label">${language}</span><pre data-code-id="${id}" class="language-${language}"><code class="language-${language}">Loading...</code></pre></div>`;
     });
 
-    const marked = (window as any).marked;
+    const marked = window.marked;
     return {
       html: marked ? marked.parse(processed) : processed,
       mermaidBlocks,
@@ -4974,10 +5028,10 @@ export class ResultViewer extends LitElement {
           this.layoutHints = { ...this.layoutHints, ...unwrapped.hints };
         }
         if (unwrapped.uiTypeColumns !== undefined) {
-          (this as any)._uiTypeColumns = unwrapped.uiTypeColumns;
+          (this as unknown as Record<string, unknown>)._uiTypeColumns = unwrapped.uiTypeColumns;
         }
         if (unwrapped.uiTypeFields !== undefined) {
-          (this as any)._uiTypeFields = unwrapped.uiTypeFields;
+          (this as unknown as Record<string, unknown>)._uiTypeFields = unwrapped.uiTypeFields;
         }
       }
       // Setting this.result triggers another updated() cycle with the clean data
@@ -5022,14 +5076,14 @@ export class ResultViewer extends LitElement {
     }
 
     // Render mermaid blocks after DOM update (only if there are pending blocks)
-    if (this._pendingMermaidBlocks.length > 0 && (window as any).mermaid) {
+    if (this._pendingMermaidBlocks.length > 0 && window.mermaid) {
       const blocks = this._pendingMermaidBlocks;
       this._pendingMermaidBlocks = []; // Clear before async render to prevent re-entry
       void this._renderMermaidBlocks(blocks);
     }
 
     // Highlight code blocks with Prism after DOM update
-    if (this._pendingCodeBlocks.length > 0 && (window as any).Prism) {
+    if (this._pendingCodeBlocks.length > 0 && window.Prism) {
       const codeBlocks = this._pendingCodeBlocks;
       this._pendingCodeBlocks = []; // Clear before render to prevent re-entry
       this._highlightCodeBlocks(codeBlocks);
@@ -5064,7 +5118,7 @@ export class ResultViewer extends LitElement {
   }
 
   private _highlightCodeBlocks(blocks: { id: string; code: string; language: string }[]) {
-    const Prism = (window as any).Prism;
+    const Prism = window.Prism;
     if (!Prism) return;
 
     for (const { id, code, language } of blocks) {
@@ -5105,7 +5159,7 @@ export class ResultViewer extends LitElement {
    * These bypass the fenced code block regex but have language class hints.
    */
   private _highlightInlineCodeElements(): void {
-    const Prism = (window as any).Prism;
+    const Prism = window.Prism;
     if (!Prism) return;
 
     const codeElements = this.shadowRoot?.querySelectorAll('code[class*="language-"]');
@@ -5147,7 +5201,7 @@ export class ResultViewer extends LitElement {
     const wrappers = this.shadowRoot?.querySelectorAll('.mermaid-wrapper');
     if (!wrappers || wrappers.length === 0) return;
 
-    const mermaid = (window as any).mermaid;
+    const mermaid = window.mermaid;
     if (!mermaid) return;
 
     // Update background color for existing wrappers
@@ -5161,7 +5215,7 @@ export class ResultViewer extends LitElement {
   }
 
   private async _renderMermaidBlocks(blocks: { id: string; code: string }[]) {
-    const mermaid = (window as any).mermaid;
+    const mermaid = window.mermaid;
     if (!mermaid) return;
 
     // Configure mermaid theme based on current theme
@@ -5259,7 +5313,7 @@ export class ResultViewer extends LitElement {
     setTimeout(() => {
       void (async () => {
         const fc = this.shadowRoot?.querySelector('#fullscreen-mermaid');
-        const m = (window as any).mermaid;
+        const m = window.mermaid;
         if (fc && m) {
           const { svg } = await m.render(`fs-${id}-svg`, code);
           fc.innerHTML = svg;
@@ -7434,7 +7488,11 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
     if (iframe?.contentWindow) {
       try {
-        return (iframe.contentWindow as any).advanceFragment?.() === true;
+        return (
+          (
+            iframe.contentWindow as Window & { advanceFragment?: () => boolean }
+          ).advanceFragment?.() === true
+        );
       } catch {
         return false;
       }
@@ -7458,7 +7516,11 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
     if (iframe?.contentWindow) {
       try {
-        return (iframe.contentWindow as any).allFragmentsRevealed?.() !== false;
+        return (
+          (
+            iframe.contentWindow as Window & { allFragmentsRevealed?: () => boolean }
+          ).allFragmentsRevealed?.() !== false
+        );
       } catch {
         return true;
       }
@@ -7529,7 +7591,11 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       return;
     }
 
-    (document as any)
+    (
+      document as unknown as {
+        startViewTransition: (cb: () => Promise<void>) => { finished: Promise<void> };
+      }
+    )
       .startViewTransition(() => {
         this._slidesCurrentIndex = newIndex;
         this.requestUpdate();
@@ -7732,9 +7798,10 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           try {
             const beamApp =
               (this.getRootNode() as ShadowRoot)?.host || document.querySelector('beam-app');
-            const photons = (beamApp as any)?._photons || [];
-            const photon = photons.find((p: any) => p.name === parts[0]);
-            const method = photon?.methods?.find((m: any) => m.name === parts[1]);
+            const photons =
+              (beamApp as Element & { _photons?: PhotonDescriptor[] })?._photons || [];
+            const photon = photons.find((p) => p.name === parts[0]);
+            const method = photon?.methods?.find((m) => m.name === parts[1]);
             if (method?.outputFormat) {
               el.setAttribute('data-format', method.outputFormat);
             }
@@ -7772,7 +7839,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
       // Fast path: use Pretext to estimate text height without DOM reflow.
       // Works for text-only slides; falls through to DOM measurement for complex slides.
-      const pretext = (window as any).__pretextModule;
+      const pretext = window.__pretextModule;
       const hasEmbeds = content.querySelector(
         'iframe, [data-method], canvas, svg, img, table, pre'
       );
@@ -7852,7 +7919,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     this._slidesRefreshTimers = [];
     // Clean up render event listeners from previous slide
     this._slidesBoundElements.forEach((el) => {
-      const cleanup = (el as any)._renderCleanup;
+      const cleanup = (el as CleanupElement)._renderCleanup;
       if (typeof cleanup === 'function') cleanup();
     });
     this._slidesBoundElements.clear();
@@ -7919,9 +7986,10 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           try {
             const beamApp =
               (this.getRootNode() as ShadowRoot)?.host || document.querySelector('beam-app');
-            const photons = (beamApp as any)?._photons || [];
-            const photon = photons.find((p: any) => p.name === parts[0]);
-            const method = photon?.methods?.find((m: any) => m.name === parts[1]);
+            const photons =
+              (beamApp as Element & { _photons?: PhotonDescriptor[] })?._photons || [];
+            const photon = photons.find((p) => p.name === parts[0]);
+            const method = photon?.methods?.find((m) => m.name === parts[1]);
             if (method?.outputFormat) {
               el.setAttribute('data-format', method.outputFormat);
             }
@@ -8005,7 +8073,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         };
         mcpClient.on('render', renderHandler);
         // Store cleanup reference — cleared when _bindSlideElements resets
-        (el as any)._renderCleanup = () => mcpClient.off('render', renderHandler);
+        (el as CleanupElement)._renderCleanup = () => mcpClient.off('render', renderHandler);
       }
 
       // Polling via data-refresh
@@ -8082,10 +8150,9 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
   private _renderSlideFormat(target: HTMLElement, data: unknown, format: string): void {
     // Use the full photon renderers (same as bridge's photon.render())
     // Lazy-load on first use from /api/photon-renderers.js
-    const win = window as any;
     const doRender = () => {
-      if (win._photonRenderers?.render) {
-        win._photonRenderers.render(target, data, format);
+      if (window._photonRenderers?.render) {
+        window._photonRenderers.render(target, data, format);
       } else {
         // Final fallback: render as text
         target.textContent =
@@ -8095,16 +8162,16 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       }
     };
 
-    if (win._photonRenderers) {
+    if (window._photonRenderers) {
       doRender();
-    } else if (win._photonRenderersLoading) {
+    } else if (window._photonRenderersLoading) {
       // Already loading — queue this render
-      win._photonRenderersQueue = win._photonRenderersQueue || [];
-      win._photonRenderersQueue.push(doRender);
+      window._photonRenderersQueue = window._photonRenderersQueue || [];
+      window._photonRenderersQueue.push(doRender);
     } else {
       // Load the renderers script via fetch+eval (avoids strict MIME and quote escaping issues)
-      win._photonRenderersLoading = true;
-      win._photonRenderersQueue = [doRender];
+      window._photonRenderersLoading = true;
+      window._photonRenderersQueue = [doRender];
       fetch('/api/photon-renderers.js')
         .then((r) => r.text())
         .then((code) => {
@@ -8114,13 +8181,13 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           } catch {
             /* renderer eval failed */
           }
-          const queue = win._photonRenderersQueue || [];
-          win._photonRenderersQueue = [];
+          const queue = window._photonRenderersQueue || [];
+          window._photonRenderersQueue = [];
           queue.forEach((fn: () => void) => fn());
         })
         .catch(() => {
-          const queue = win._photonRenderersQueue || [];
-          win._photonRenderersQueue = [];
+          const queue = window._photonRenderersQueue || [];
+          window._photonRenderersQueue = [];
           queue.forEach((fn: () => void) => fn());
         });
     }
@@ -8208,11 +8275,11 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       try {
         const containerWidth = this._qrContainer.clientWidth;
         const qrSize = Math.max(200, Math.min(containerWidth - 48, 400));
-        new (window as any).QRCode(this._qrContainer, {
+        new window.QRCode(this._qrContainer, {
           text: text,
           width: qrSize,
           height: qrSize,
-          correctLevel: (window as any).QRCode?.CorrectLevel?.H,
+          correctLevel: window.QRCode?.CorrectLevel?.H,
           colorDark: '#000000',
           colorLight: '#ffffff',
         });
@@ -8222,7 +8289,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     };
 
     setTimeout(() => {
-      if ((window as any).QRCode) {
+      if (window.QRCode) {
         renderQR();
       } else {
         const script = document.createElement('script');
@@ -8782,7 +8849,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
     const columnCount = Math.min(4, Math.max(1, parseInt(this.layoutHints?.columns || '2', 10)));
 
-    const marked = (window as any).marked;
+    const marked = window.marked;
     if (!marked) return this._renderText(text);
 
     // Reuse the rich markdown pipeline (mermaid, code blocks, YAML frontmatter)
@@ -8862,11 +8929,11 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     }>
   ): TemplateResult {
     // Lazy import check — Pretext is bundled when this code path is used
-    const pretext = (window as any).__pretextModule;
+    const pretext = window.__pretextModule;
     if (!pretext) {
       // Load Pretext dynamically on first use
       void import('../services/text-layout.js').then((mod) => {
-        (window as any).__pretextModule = mod;
+        window.__pretextModule = mod;
         this.requestUpdate(); // re-render with Pretext available
       });
       return this._renderArticleFallback(text, images);
@@ -10343,7 +10410,7 @@ ${str}</pre
       // Handle chart subtypes: @inner chart:pie → render chart with outputFormat override
       if (layout.startsWith('chart:')) {
         const origFormat = this.outputFormat;
-        this.outputFormat = layout as any;
+        this.outputFormat = layout as LayoutType;
         const result = this._renderContent('chart' as LayoutType, data);
         this.outputFormat = origFormat;
         return result;

@@ -93,10 +93,46 @@ function isValidCharForFormat(char: string, format?: string, position?: number):
   }
 }
 
+/** JSON Schema property descriptor used by the form renderer */
 interface MethodParam {
   type: string;
   description?: string;
-  required?: boolean;
+  required?: boolean | string[];
+  /** Enum values for select dropdowns */
+  enum?: string[];
+  /** Default value */
+  default?: string | number | boolean | null;
+  /** JSON Schema format (date, email, textarea, path, etc.) */
+  format?: string;
+  /** Regex pattern constraint */
+  pattern?: string;
+  /** Numeric constraints */
+  minimum?: number;
+  maximum?: number;
+  multipleOf?: number;
+  /** String constraints */
+  minLength?: number;
+  maxLength?: number;
+  /** File accept filter */
+  accept?: string;
+  /** Array item schema */
+  items?: MethodParam;
+  /** Nested object properties */
+  properties?: Record<string, MethodParam>;
+  /** Extension: choice-from reference */
+  'x-choiceFrom'?: string;
+}
+
+/** Top-level JSON Schema object with properties and required list */
+interface JsonSchemaParams {
+  properties?: Record<string, MethodParam>;
+  required?: string[];
+}
+
+/** MCP tool call result shape */
+interface MCPToolResult {
+  content?: Array<{ type: string; text?: string }>;
+  isError?: boolean;
 }
 
 @customElement('invoke-form')
@@ -641,7 +677,7 @@ export class InvokeForm extends LitElement {
   ];
 
   @property({ type: Object })
-  params: Record<string, MethodParam> = {};
+  params: JsonSchemaParams | Record<string, MethodParam> = {};
 
   @property({ type: Boolean })
   loading = false;
@@ -787,7 +823,7 @@ export class InvokeForm extends LitElement {
       return;
     }
 
-    const props = (this.params as any)?.properties;
+    const props = (this.params as JsonSchemaParams)?.properties;
     if (!props) {
       this._resolvedParams = null;
       return;
@@ -807,7 +843,7 @@ export class InvokeForm extends LitElement {
     let hasUnresolved = false;
 
     for (const [key, schema] of choiceFromFields) {
-      const choiceFrom = (schema as any)['x-choiceFrom'] as string;
+      const choiceFrom = schema['x-choiceFrom'] as string;
       const dotIdx = choiceFrom.indexOf('.');
       const toolName = dotIdx >= 0 ? choiceFrom.substring(0, dotIdx) : choiceFrom;
       const fieldName = dotIdx >= 0 ? choiceFrom.substring(dotIdx + 1) : null;
@@ -820,14 +856,15 @@ export class InvokeForm extends LitElement {
         let values: string[] = [];
 
         // Parse the MCP tool result — content is an array of { type, text } blocks
-        let data: any = result;
-        if (result && Array.isArray((result as any).content)) {
+        let data: unknown = result;
+        const mcpResult = result as MCPToolResult;
+        if (result && Array.isArray(mcpResult.content)) {
           // Skip error results (e.g., "Not connected")
-          if ((result as any).isError) {
+          if (mcpResult.isError) {
             hasUnresolved = true;
             continue;
           }
-          const textBlock = (result as any).content.find((c: any) => c.type === 'text');
+          const textBlock = mcpResult.content.find((c) => c.type === 'text');
           if (textBlock?.text) {
             try {
               data = JSON.parse(textBlock.text);
@@ -908,7 +945,7 @@ export class InvokeForm extends LitElement {
 
   render() {
     const effectiveParams = this._resolvedParams || this.params;
-    const properties = (effectiveParams as any)?.properties || effectiveParams;
+    const properties = (effectiveParams as JsonSchemaParams)?.properties || effectiveParams;
     const hasParams =
       properties && typeof properties === 'object' && Object.keys(properties).length > 0;
 
@@ -935,8 +972,8 @@ export class InvokeForm extends LitElement {
   private _renderFields() {
     // Handle standard JSON Schema 'properties'
     const effectiveParams = this._resolvedParams || this.params;
-    const properties = (effectiveParams as any).properties || effectiveParams;
-    const requiredList = (effectiveParams as any).required || [];
+    const properties = (effectiveParams as JsonSchemaParams).properties || effectiveParams;
+    const requiredList = (effectiveParams as JsonSchemaParams).required || [];
 
     // Check if properties is actual object to avoid crash
     if (!properties || typeof properties !== 'object') {
@@ -1015,7 +1052,7 @@ export class InvokeForm extends LitElement {
   }
 
   private _renderInput(key: string, schema: MethodParam, hasError = false, inputId?: string) {
-    const isBoolean = schema.type === 'boolean' || (schema as any).type === '"boolean"';
+    const isBoolean = schema.type === 'boolean' || schema.type === '"boolean"';
     const errorClass = hasError ? 'error' : '';
 
     // Handle Boolean -> Toggle Switch
@@ -1033,13 +1070,13 @@ export class InvokeForm extends LitElement {
     }
 
     // ── Format-based dispatch (checked BEFORE type-based fallbacks) ──
-    const _fmt = (schema as any).format;
+    const _fmt = schema.format;
     const _lk = key.toLowerCase();
 
     // Rating (star rating) — must be before number type check
     if (_fmt === 'rating' || _lk === 'rating' || _lk === 'stars') {
-      const max = (schema as any).maximum || 5;
-      const step = (schema as any).multipleOf || 1;
+      const max = schema.maximum || 5;
+      const step = schema.multipleOf || 1;
       return html`
         <star-rating
           .value=${Number(this._values[key]) || 0}
@@ -1052,10 +1089,10 @@ export class InvokeForm extends LitElement {
     }
 
     // Segmented / Radio — must be before enum dropdown check
-    if ((_fmt === 'segmented' || _fmt === 'radio') && (schema as any).enum) {
+    if ((_fmt === 'segmented' || _fmt === 'radio') && schema.enum) {
       return html`
         <segmented-control
-          .options=${(schema as any).enum}
+          .options=${schema.enum}
           .value=${this._values[key] || ''}
           .variant=${_fmt === 'radio' ? 'radio' : 'segmented'}
           .hasError=${hasError}
@@ -1091,8 +1128,7 @@ export class InvokeForm extends LitElement {
     // Handle Array with {@format tags} -> Tag/chip input
     if (
       schema.type === 'array' &&
-      ((schema as any).format === 'tags' ||
-        ((schema as any).items?.type === 'string' && (schema as any).format === 'tags'))
+      (schema.format === 'tags' || (schema.items?.type === 'string' && schema.format === 'tags'))
     ) {
       const currentTags = Array.isArray(this._values[key]) ? this._values[key] : [];
       return html`
@@ -1105,8 +1141,8 @@ export class InvokeForm extends LitElement {
     }
 
     // Handle Array of Enums -> Multiselect
-    if (schema.type === 'array' && (schema as any).items?.enum) {
-      const enumValues = (schema as any).items.enum as string[];
+    if (schema.type === 'array' && schema.items?.enum) {
+      const enumValues = schema.items.enum;
       const selectedValues = (this._values[key] as string[]) || [];
 
       return html`
@@ -1132,13 +1168,13 @@ export class InvokeForm extends LitElement {
     }
 
     // Handle Array of Objects -> Repeatable Mini-Forms (Swagger-style)
-    if (schema.type === 'array' && (schema as any).items?.type === 'object') {
+    if (schema.type === 'array' && schema.items?.type === 'object') {
       return this._renderArrayOfObjects(key, schema, hasError);
     }
 
     // Handle plain Array (string/number items) -> Text input with comma-separated hint
     if (schema.type === 'array') {
-      const defaultVal = (schema as any).default;
+      const defaultVal = schema.default;
       const placeholder = defaultVal != null ? String(defaultVal) : 'value1, value2, value3';
       return html`
         <div>
@@ -1173,14 +1209,14 @@ export class InvokeForm extends LitElement {
     // Handle Object with Properties -> Nested Sub-Fields
     if (
       schema.type === 'object' &&
-      (schema as any).properties &&
-      Object.keys((schema as any).properties).length > 0
+      schema.properties &&
+      Object.keys(schema.properties).length > 0
     ) {
       return this._renderObjectFields(key, schema, hasError);
     }
 
     // Handle Enums -> Select Dropdown
-    if ((schema as any).enum) {
+    if (schema.enum) {
       const currentValue = this._values[key] || '';
       return html`
         <select
@@ -1190,7 +1226,7 @@ export class InvokeForm extends LitElement {
           @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}
         >
           <option value="">Select...</option>
-          ${(schema as any).enum.map(
+          ${schema.enum.map(
             (val: string) => html`
               <option value=${val} ?selected=${val === currentValue}>
                 ${capitalizeEnumValue(val)}
@@ -1204,21 +1240,19 @@ export class InvokeForm extends LitElement {
     // Handle Number/Integer — slider only when BOTH minimum AND maximum are explicitly declared
     if (schema.type === 'number' || schema.type === 'integer') {
       const isInteger = schema.type === 'integer';
-      const hasMin = (schema as any).minimum !== undefined;
-      const hasMax = (schema as any).maximum !== undefined;
+      const hasMin = schema.minimum !== undefined;
+      const hasMax = schema.maximum !== undefined;
 
       // Only render a slider when both bounds are present; otherwise use a plain number input
       if (hasMin && hasMax) {
-        const min: number = (schema as any).minimum;
-        const max: number = (schema as any).maximum;
+        const min: number = schema.minimum;
+        const max: number = schema.maximum;
 
         // Infer integer step when type is 'number' but bounds are both whole numbers
         const boundsAreIntegers = Number.isInteger(min) && Number.isInteger(max);
         const step =
-          isInteger || (boundsAreIntegers && !(schema as any).multipleOf)
-            ? 1
-            : ((schema as any).multipleOf ?? 0.01);
-        const defaultVal = (schema as any).default ?? min;
+          isInteger || (boundsAreIntegers && !schema.multipleOf) ? 1 : (schema.multipleOf ?? 0.01);
+        const defaultVal = schema.default ?? min;
         const currentValue = this._values[key] ?? defaultVal;
         const effectivelyInteger = isInteger || step === 1;
         const displayValue = effectivelyInteger
@@ -1272,8 +1306,8 @@ export class InvokeForm extends LitElement {
       }
 
       // No explicit maximum — render a plain number input
-      const step = isInteger ? 1 : ((schema as any).multipleOf ?? 0.01);
-      const defaultVal = (schema as any).default ?? (hasMin ? (schema as any).minimum : 0);
+      const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
+      const defaultVal = schema.default ?? (hasMin ? schema.minimum : 0);
       const currentValue = this._values[key] ?? defaultVal;
       const displayValue = isInteger
         ? String(Math.round(Number(currentValue)))
@@ -1284,7 +1318,7 @@ export class InvokeForm extends LitElement {
           type="text"
           class="number-input-clean ${errorClass}"
           inputmode=${isInteger ? 'numeric' : 'decimal'}
-          ${hasMin ? `min="${(schema as any).minimum}"` : ''}
+          ${hasMin ? `min="${schema.minimum}"` : ''}
           placeholder="${defaultVal}"
           .value=${displayValue}
           @keypress=${(e: KeyboardEvent) => {
@@ -1322,8 +1356,8 @@ export class InvokeForm extends LitElement {
     // Handle File Paths -> File Picker
     // Primary: JSDoc {@format path|file|directory} and {@accept ...} annotations
     // Fallback: heuristic based on param name (path, file, dir)
-    const fmt = (schema as any).format;
-    const schemaAccept = (schema as any).accept || '';
+    const fmt = schema.format;
+    const schemaAccept = schema.accept || '';
     const isFileBySchema = fmt === 'path' || fmt === 'file' || fmt === 'directory';
     const lk = key.toLowerCase();
     // Heuristic: key must strongly suggest a single file/directory path, not just contain
@@ -1341,7 +1375,7 @@ export class InvokeForm extends LitElement {
 
     if (isFileBySchema || isFileByHeuristic) {
       const isDir = fmt === 'directory' || (!fmt && (lk.includes('dir') || lk.includes('folder')));
-      const defaultVal = (schema as any).default;
+      const defaultVal = schema.default;
       const placeholder = defaultVal ? String(defaultVal) : '';
       return html`
         <file-picker
@@ -1358,7 +1392,7 @@ export class InvokeForm extends LitElement {
 
     // Heuristic: Use textarea for keys suggesting multi-line content
     const lowerKey = key.toLowerCase();
-    const lowerDesc = ((schema as any).description || '').toLowerCase();
+    const lowerDesc = (schema.description || '').toLowerCase();
     const multiLineKeys = [
       'code',
       'content',
@@ -1384,7 +1418,7 @@ export class InvokeForm extends LitElement {
       ) ||
       lowerDesc.includes('multi-line') ||
       lowerDesc.includes('multiline') ||
-      (schema as any).format === 'textarea';
+      schema.format === 'textarea';
 
     if (isMultiLine) {
       return html`
@@ -1402,7 +1436,7 @@ export class InvokeForm extends LitElement {
     // This catches cases where the photon author listed valid values in the description
     // but didn't declare an enum in the schema.
     if (schema.type === 'string' || !schema.type) {
-      const desc = (schema as any).description || '';
+      const desc = schema.description || '';
       const enumMatch = desc.match(/\(([^)]+)\)\s*$/);
       if (enumMatch) {
         const candidates = enumMatch[1].split(',').map((s: string) => s.trim());
@@ -1436,7 +1470,7 @@ export class InvokeForm extends LitElement {
     }
 
     // ── Enhanced Input Formats (basic HTML types) ──
-    const fmt2 = (schema as any).format;
+    const fmt2 = schema.format;
     const lk2 = key.toLowerCase();
 
     // Password / Secret
@@ -1593,10 +1627,10 @@ export class InvokeForm extends LitElement {
     }
 
     // Default -> Text Input
-    const defaultVal = (schema as any).default;
+    const defaultVal = schema.default;
     const placeholder = defaultVal != null ? String(defaultVal) : '';
-    const format = (schema as any).format;
-    const pattern = (schema as any).pattern; // Regex pattern from {@pattern} tag
+    const format = schema.format;
+    const pattern = schema.pattern; // Regex pattern from {@pattern} tag
 
     return html`
       <input
@@ -1632,7 +1666,7 @@ export class InvokeForm extends LitElement {
   }
 
   /** Detect if a schema/key should render as a date/time input */
-  private _isDateTimeFormat(key: string, schema: any): boolean {
+  private _isDateTimeFormat(key: string, schema: MethodParam): boolean {
     const fmt = schema.format;
     if (fmt && ['date', 'date-time', 'time', 'date-range', 'datetime-range'].includes(fmt)) {
       return true;
@@ -1663,7 +1697,7 @@ export class InvokeForm extends LitElement {
   }
 
   /** Determine the effective date/time format from schema and key heuristics */
-  private _getDateTimeFormat(key: string, schema: any): string {
+  private _getDateTimeFormat(key: string, schema: MethodParam): string {
     const fmt = schema.format;
     if (fmt && ['date', 'date-time', 'time', 'date-range', 'datetime-range'].includes(fmt)) {
       return fmt;
@@ -1675,7 +1709,12 @@ export class InvokeForm extends LitElement {
   }
 
   /** Render date/time input based on format */
-  private _renderDateTimeInput(key: string, schema: any, hasError: boolean, _inputId?: string) {
+  private _renderDateTimeInput(
+    key: string,
+    schema: MethodParam,
+    hasError: boolean,
+    _inputId?: string
+  ) {
     const fmt = this._getDateTimeFormat(key, schema);
 
     if (fmt === 'date-range') {
@@ -1756,7 +1795,7 @@ export class InvokeForm extends LitElement {
    *   (default: 'val')
    *   Trailing colon after removal
    */
-  private _cleanDescription(desc: string, schema: any): string {
+  private _cleanDescription(desc: string, schema: MethodParam): string {
     if (!desc) return desc;
 
     // Remove JSDoc tags that might leak from documentation (@emits, @internal, @deprecated, etc.)
@@ -1889,10 +1928,10 @@ export class InvokeForm extends LitElement {
 
   /** Check if schema has complex types (array of objects) that benefit from JSON view */
   private _hasComplexTypes(): boolean {
-    const properties = (this.params as any)?.properties || this.params;
+    const properties = (this.params as JsonSchemaParams)?.properties || this.params;
     if (!properties || typeof properties !== 'object') return false;
 
-    return Object.values(properties).some((schema: any) => {
+    return Object.values(properties).some((schema: MethodParam) => {
       return schema.type === 'array' && schema.items?.type === 'object';
     });
   }
@@ -1940,12 +1979,12 @@ export class InvokeForm extends LitElement {
   }
 
   /** Render an object parameter with sub-fields for each property */
-  private _renderObjectFields(key: string, schema: any, _hasError: boolean) {
+  private _renderObjectFields(key: string, schema: MethodParam, _hasError: boolean) {
     const properties = schema.properties || {};
     const requiredList = schema.required || [];
     const currentObj = (this._values[key] as Record<string, any>) || {};
 
-    const handleFieldChange = (propKey: string, newValue: any) => {
+    const handleFieldChange = (propKey: string, newValue: string | number | boolean) => {
       const updated = { ...currentObj, [propKey]: newValue };
       this._values = { ...this._values, [key]: updated };
       if (this.rememberValues) {
@@ -1984,9 +2023,9 @@ export class InvokeForm extends LitElement {
   /** Render input for a sub-field within an object parameter */
   private _renderObjectSubInput(
     propKey: string,
-    schema: any,
-    value: any,
-    onChange: (key: string, val: any) => void
+    schema: MethodParam,
+    value: string | number | boolean | null | undefined,
+    onChange: (key: string, val: string | number | boolean) => void
   ) {
     if (schema.enum) {
       return html`
@@ -2139,8 +2178,8 @@ export class InvokeForm extends LitElement {
   }
 
   /** Render array of objects with repeatable mini-forms */
-  private _renderArrayOfObjects(key: string, schema: any, hasError: boolean) {
-    const items = (this._values[key] as any[]) || [];
+  private _renderArrayOfObjects(key: string, schema: MethodParam, hasError: boolean) {
+    const items = (this._values[key] as Record<string, unknown>[]) || [];
     const itemSchema = schema.items;
     const itemProperties = itemSchema?.properties || {};
     const itemRequired = itemSchema?.required || [];
@@ -2190,10 +2229,10 @@ export class InvokeForm extends LitElement {
     arrayKey: string,
     index: number,
     propKey: string,
-    schema: any,
-    value: any
+    schema: MethodParam,
+    value: string | number | boolean | null | undefined
   ) {
-    const handleNestedChange = (newValue: any) => {
+    const handleNestedChange = (newValue: string | number | boolean) => {
       const items = [...(this._values[arrayKey] || [])];
       items[index] = { ...items[index], [propKey]: newValue };
       this._values = { ...this._values, [arrayKey]: items };
@@ -2434,13 +2473,13 @@ export class InvokeForm extends LitElement {
 
   /** Validate and submit the form. Called by parent chrome wrapper. */
   handleSubmit() {
-    const properties = (this.params as any).properties || this.params;
-    const requiredList = (this.params as any).required || [];
+    const properties = (this.params as JsonSchemaParams).properties || this.params;
+    const requiredList = (this.params as JsonSchemaParams).required || [];
     const errors: Record<string, string> = {};
 
     if (properties && typeof properties === 'object') {
       for (const [key, schema] of Object.entries(properties)) {
-        const s = schema as any;
+        const s = schema as MethodParam;
         const value = this._values[key];
         const isRequired = Array.isArray(requiredList) ? requiredList.includes(key) : !!s.required;
 

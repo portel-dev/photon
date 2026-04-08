@@ -358,7 +358,7 @@ function generateConfigurationSchema(photons: AnyPhotonInfo[]): Record<string, a
   const schema: Record<string, any> = {};
 
   for (const photon of photons) {
-    const params = (photon as any).requiredParams as any[] | undefined;
+    const params = photon.requiredParams;
     const unconfigured = photon as UnconfiguredPhotonInfo;
     const isLoadError = !photon.configured && unconfigured.errorReason === 'load-error';
 
@@ -383,7 +383,7 @@ function generateConfigurationSchema(photons: AnyPhotonInfo[]): Record<string, a
       required: required.length > 0 ? required : undefined,
       'x-error-reason': unconfigured.errorReason,
       'x-error-message': unconfigured.errorMessage,
-      'x-internal': (photon as any).internal,
+      'x-internal': photon.internal,
       'x-configured': photon.configured || undefined,
     };
   }
@@ -1241,7 +1241,9 @@ const handlers: Record<string, RequestHandler> = {
     const visibleTools = session.isBeam
       ? tools
       : tools.filter((t) => {
-          const vis = (t as any)._meta?.ui?.visibility;
+          const vis = (
+            t as Record<string, unknown> & { _meta?: { ui?: { visibility?: string[] } } }
+          )._meta?.ui?.visibility;
           if (vis && Array.isArray(vis) && vis.includes('app') && !vis.includes('model')) {
             return false;
           }
@@ -1324,7 +1326,7 @@ const handlers: Record<string, RequestHandler> = {
 
     // Per-photon auth check: if this photon requires auth but caller is anonymous, reject
     const targetPhoton = ctx.photons.find((p) => p.name === serverName);
-    if (targetPhoton?.configured && (targetPhoton as any).auth === 'required') {
+    if (targetPhoton?.configured && targetPhoton.auth === 'required') {
       if (!ctx.caller || ctx.caller.anonymous) {
         return {
           jsonrpc: '2.0',
@@ -1674,7 +1676,9 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     // ── Task mode: when params.task is present, run async and return immediately ──
-    const taskRequest = (req.params as any)?.task;
+    const taskRequest = (req.params as Record<string, unknown>)?.task as
+      | { ttl?: number }
+      | undefined;
     if (taskRequest) {
       const ttl = typeof taskRequest.ttl === 'number' ? taskRequest.ttl : undefined;
       const task = createTask(photonName, methodName, args, ttl);
@@ -2094,7 +2098,7 @@ const handlers: Record<string, RequestHandler> = {
       if (!photon.configured || !photon.assets?.ui) continue;
 
       for (const uiAsset of photon.assets.ui) {
-        const uri = (uiAsset as any).uri || `ui://${photon.name}/${uiAsset.id}`;
+        const uri = uiAsset.uri || `ui://${photon.name}/${uiAsset.id}`;
         resources.push({
           uri,
           name: uiAsset.id,
@@ -2198,7 +2202,7 @@ const handlers: Record<string, RequestHandler> = {
               name,
               description:
                 (typeof schema === 'object' && schema && 'description' in schema
-                  ? (schema as any).description
+                  ? (schema as { description?: string }).description
                   : '') || '',
               required: template.inputSchema?.required?.includes(name) || false,
             })
@@ -2211,7 +2215,7 @@ const handlers: Record<string, RequestHandler> = {
 
   'prompts/get': async (req, _session, ctx) => {
     const { name } = req.params as { name: string; arguments?: Record<string, string> };
-    const args = (req.params as any).arguments || {};
+    const args = (req.params as { arguments?: Record<string, string> }).arguments || {};
 
     const slashIndex = name.indexOf('/');
     if (slashIndex === -1) {
@@ -2452,13 +2456,13 @@ const handlers: Record<string, RequestHandler> = {
         };
       }
       // Completed — result is already a CallToolResult or raw value
-      if (t.result && typeof t.result === 'object' && 'content' in (t.result as any)) {
+      if (t.result && typeof t.result === 'object' && 'content' in t.result) {
         // Already CallToolResult format
         return {
           jsonrpc: '2.0' as const,
           id: req.id,
           result: {
-            ...(t.result as any),
+            ...(t.result as Record<string, unknown>),
             _meta: relatedTaskMeta(taskId),
           },
         };
@@ -2483,7 +2487,9 @@ const handlers: Record<string, RequestHandler> = {
 
     // If input_required right now, handle elicitation before waiting
     if (task.state === 'input_required' && task.input) {
-      const elicitResult = await requestBeamElicitation(task.input as any);
+      const elicitResult = await requestBeamElicitation(
+        task.input as Parameters<typeof requestBeamElicitation>[0]
+      );
       if (elicitResult.action === 'accept') {
         resolveTaskInput(taskId, elicitResult.content);
       } else {
@@ -2507,7 +2513,9 @@ const handlers: Record<string, RequestHandler> = {
 
         if (current.state === 'input_required' && current.input) {
           // Send elicitation to the client
-          const elicitResult = await requestBeamElicitation(current.input as any);
+          const elicitResult = await requestBeamElicitation(
+            current.input as Parameters<typeof requestBeamElicitation>[0]
+          );
           if (elicitResult.action === 'accept') {
             resolveTaskInput(taskId, elicitResult.content);
           } else {
