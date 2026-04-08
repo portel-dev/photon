@@ -318,7 +318,16 @@ await test('Transport handlers registered in compiled output', async () => {
   assert.ok(source.includes("'tasks/get'"), 'tasks/get handler missing');
   assert.ok(source.includes("'tasks/list'"), 'tasks/list handler missing');
   assert.ok(source.includes("'tasks/cancel'"), 'tasks/cancel handler missing');
-  assert.ok(source.includes('tasks: {}'), 'tasks capability missing from initialize response');
+  assert.ok(source.includes('tasks: {'), 'tasks capability missing from initialize response');
+  assert.ok(source.includes('list: {}'), 'tasks list capability missing from initialize response');
+  assert.ok(
+    source.includes('cancel: {}'),
+    'tasks cancel capability missing from initialize response'
+  );
+  assert.ok(
+    source.includes('requests: {') && source.includes('tools: { call: {} }'),
+    'tasks requests capability missing from initialize response'
+  );
 });
 
 // ─── Cleanup ─────────────────────────────────────────────────────────────────

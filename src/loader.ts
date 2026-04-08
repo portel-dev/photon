@@ -2559,6 +2559,7 @@ export class PhotonLoader {
 
     // Resolve the Photon path
     const resolvedPath = await this.resolvePhotonPath(dep, currentPhotonPath);
+    await this.materializeSiblingDependencySymlink(dep, currentPhotonPath, resolvedPath);
 
     // Cache key includes instance name to allow multiple instances of the same photon
     const cacheKey = dep.instanceName ? `${resolvedPath}::${dep.instanceName}` : resolvedPath;
@@ -2638,15 +2639,17 @@ export class PhotonLoader {
     dep: PhotonDependency,
     currentPhotonPath: string
   ): Promise<string> {
+    const resolvedCurrentPhotonPath = await this.resolveRealPhotonPath(currentPhotonPath);
+
     switch (dep.sourceType) {
       case 'local':
         if (dep.source.startsWith('./') || dep.source.startsWith('../')) {
-          return path.resolve(path.dirname(currentPhotonPath), dep.source);
+          return path.resolve(path.dirname(resolvedCurrentPhotonPath), dep.source);
         }
         return dep.source;
 
       case 'marketplace':
-        return await this.resolveMarketplacePhoton(dep, currentPhotonPath);
+        return await this.resolveMarketplacePhoton(dep, resolvedCurrentPhotonPath);
 
       case 'github':
         return await this.fetchGithubPhoton(dep);
@@ -2748,6 +2751,57 @@ export class PhotonLoader {
       `Photon "${dep.source}" not found in local paths or configured marketplaces. ` +
         `Checked: ${candidates.join(', ')}`
     );
+  }
+
+  private async resolveRealPhotonPath(currentPhotonPath: string): Promise<string> {
+    try {
+      return await fs.realpath(currentPhotonPath);
+    } catch {
+      return currentPhotonPath;
+    }
+  }
+
+  private async materializeSiblingDependencySymlink(
+    dep: PhotonDependency,
+    currentPhotonPath: string,
+    resolvedPath: string
+  ): Promise<void> {
+    if (dep.sourceType !== 'marketplace') return;
+    if (dep.source.includes(':')) return;
+    if (dep.source.includes('/')) return;
+
+    const realCurrentPhotonPath = await this.resolveRealPhotonPath(currentPhotonPath);
+    if (realCurrentPhotonPath === currentPhotonPath) return;
+    if (path.dirname(realCurrentPhotonPath) !== path.dirname(resolvedPath)) return;
+
+    const linkPath = path.join(this.baseDir, path.basename(resolvedPath));
+    await this.createSymlinkIfMissing(resolvedPath, linkPath);
+
+    const depName = path.basename(resolvedPath).replace(/\.photon\.(ts|js)$/, '');
+    const sourceAssetDir = path.join(path.dirname(resolvedPath), depName);
+    const targetAssetDir = path.join(this.baseDir, depName);
+    if (existsSync(sourceAssetDir)) {
+      await this.createSymlinkIfMissing(sourceAssetDir, targetAssetDir, 'dir');
+    }
+  }
+
+  private async createSymlinkIfMissing(
+    sourcePath: string,
+    targetPath: string,
+    type?: 'dir' | 'file'
+  ): Promise<void> {
+    try {
+      const existing = await fs.lstat(targetPath).catch(() => null);
+      if (existing) return;
+
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      symlinkSync(sourcePath, targetPath, type);
+      this.log(`🔗 Materialized sibling photon symlink: ${path.basename(targetPath)}`);
+    } catch (error) {
+      this.log(
+        `⚠️ Failed to materialize sibling symlink ${path.basename(targetPath)}: ${getErrorMessage(error)}`
+      );
+    }
   }
 
   private normalizeMarketplaceSource(source: string): {
@@ -4073,7 +4127,7 @@ Run: photon mcp ${mcpName} --config
    *
    * Examples:
    *   ~/.photon/portel-dev/todo.photon.ts → 'portel-dev'
-   *   ~/.photon/local/todo.photon.ts      → 'local'
+   *   ~/.photon/acme/todo.photon.ts       → 'acme'
    *   ~/.photon/todo.photon.ts            → detected from git or 'local'
    */
   private resolveNamespace(absolutePath: string): string {

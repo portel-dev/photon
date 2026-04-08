@@ -546,8 +546,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const workingDir = path.resolve(rawWorkingDir);
   const { PHOTON_VERSION } = await import('../version.js');
 
-  // Run data migration on first startup (fast no-op if already done)
+  // Run startup migrations (fast no-op when already applied)
   try {
+    const { runNamespaceMigration } = await import('../namespace-migration.js');
+    await runNamespaceMigration();
     const { runDataMigration } = await import('../data-migration.js');
     await runDataMigration();
   } catch {
@@ -610,7 +612,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Build photon list with short names plus a numeric suffix for duplicates.
   // Also track resolved paths from namespace scan.
-  const namespacePaths = new Map<string, string>(); // displayName → filePath
+  const photonRouteMeta = new Map<
+    string,
+    { filePath: string; shortName: string; namespace?: string; qualifiedName?: string }
+  >(); // displayName → route metadata
   const userPhotonList: string[] = [];
   const duplicateIndex = new Map<string, number>();
   for (const p of userPhotonListDetailed) {
@@ -619,7 +624,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     duplicateIndex.set(p.name, nextIndex);
     const displayName = duplicateCount > 1 ? `${p.name} (${nextIndex})` : p.name;
     userPhotonList.push(displayName);
-    namespacePaths.set(displayName, p.filePath);
+    photonRouteMeta.set(displayName, {
+      filePath: p.filePath,
+      shortName: p.name,
+      namespace: p.namespace || undefined,
+      qualifiedName: p.qualifiedName || undefined,
+    });
   }
 
   // Add bundled photons with their paths
@@ -666,9 +676,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   async function loadSinglePhoton(name: string): Promise<AnyPhotonInfo | null> {
     const photonPath =
       bundledPhotonPaths.get(name) ||
-      namespacePaths.get(name) ||
+      photonRouteMeta.get(name)?.filePath ||
       (await resolvePhotonPath(name, workingDir));
     if (!photonPath) return null;
+    const routeMeta = photonRouteMeta.get(name);
 
     // Apply saved config to environment before loading
     if (savedConfig.photons[name]) {
@@ -954,6 +965,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       return {
         id: generatePhotonId(photonPath),
         name,
+        ...(routeMeta?.shortName ? { shortName: routeMeta.shortName } : {}),
+        ...(routeMeta?.namespace ? { namespace: routeMeta.namespace } : {}),
+        ...(routeMeta?.qualifiedName ? { qualifiedName: routeMeta.qualifiedName } : {}),
         path: photonPath,
         configured: true,
         methods,
@@ -983,6 +997,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       return {
         id: generatePhotonId(photonPath),
         name,
+        ...(routeMeta?.shortName ? { shortName: routeMeta.shortName } : {}),
+        ...(routeMeta?.namespace ? { namespace: routeMeta.namespace } : {}),
+        ...(routeMeta?.qualifiedName ? { qualifiedName: routeMeta.qualifiedName } : {}),
         path: photonPath,
         configured: false,
         label: prettifyName(name),
@@ -1015,6 +1032,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     if (!photon || !photon.configured) return null;
 
     const photonDir = path.dirname(photon.path);
+    const photonBaseName = path.basename(photon.path, '.photon.ts');
     const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
 
     let uiPath: string;
@@ -1022,8 +1040,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       uiPath = asset.resolvedPath;
     } else {
       // Prefer .photon.html, then .photon.md, fall back to .html
-      const photonHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.html`);
-      const photonMdPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.md`);
+      const photonHtmlPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.photon.html`);
+      const photonMdPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.photon.md`);
       try {
         await fs.access(photonHtmlPath);
         uiPath = photonHtmlPath;
@@ -1032,7 +1050,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           await fs.access(photonMdPath);
           uiPath = photonMdPath;
         } catch {
-          uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+          uiPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.html`);
         }
       }
     }
@@ -1052,7 +1070,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       const formatName = uiId.slice('format-'.length);
       const formatPath = path.join(
         photonDir,
-        photonName,
+        photonBaseName,
         'assets',
         'formats',
         `${formatName}.html`

@@ -115,6 +115,12 @@ export interface PhotonInfo {
   id: string;
   /** Photon name (derived from filename) */
   name: string;
+  /** Short photon name without duplicate disambiguation suffixes */
+  shortName?: string;
+  /** Namespace/owner when installed in a namespace directory */
+  namespace?: string;
+  /** Stable qualified identity (e.g. portel-dev:telegram) */
+  qualifiedName?: string;
   /** Absolute path to .photon.ts file */
   path: string;
   /** Discriminator: always true for configured photons */
@@ -167,6 +173,12 @@ export interface UnconfiguredPhotonInfo {
   id: string;
   /** Photon name (derived from filename) */
   name: string;
+  /** Short photon name without duplicate disambiguation suffixes */
+  shortName?: string;
+  /** Namespace/owner when installed in a namespace directory */
+  namespace?: string;
+  /** Stable qualified identity (e.g. portel-dev:telegram) */
+  qualifiedName?: string;
   /** Absolute path to .photon.ts file */
   path: string;
   /** Discriminator: always false for unconfigured photons */

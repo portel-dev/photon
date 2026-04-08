@@ -908,6 +908,9 @@ class MCPClientService {
           photonMap.set(serverName, {
             id: tool['x-photon-id'] || serverName, // Use hash ID, fallback to name
             name: serverName,
+            shortName: tool['x-photon-short-name'],
+            namespace: tool['x-photon-namespace'],
+            qualifiedName: tool['x-photon-qualified-name'],
             path: tool['x-photon-path'], // File path for View Source
             editable: tool['x-photon-editable'] ?? false, // User-owned (at baseDir root)
             description: tool['x-photon-description'],

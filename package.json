@@ -68,7 +68,7 @@
     "test:client-adaptive": "npx tsx tests/client-adaptive.test.ts",
     "test:load": "npm run build && node --expose-gc --max-old-space-size=4096 node_modules/.bin/tsx tests/load-test.ts",
     "test:sqlite": "npm run build && npx tsx tests/sqlite.test.ts",
-    "test:github": "npm run build && npx tsx tests/github-issues.test.ts",
+    "test:github": "npm run build && npx tsx tests/github-issues.integration.ts",
     "test:beam": "npm run build && npx tsx tests/beam/rendering.test.ts",
     "test:beam:regressions": "npm run build && npx tsx tests/beam/beam-integration-regressions.test.ts",
     "test:e2e": "npm run build && npx playwright test",

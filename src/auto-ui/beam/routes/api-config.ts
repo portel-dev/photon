@@ -481,7 +481,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
 
   // Instances API: List named instances for a stateful photon
   if (url.pathname.startsWith('/api/instances/') && req.method === 'GET') {
-    const photonName = url.pathname.slice('/api/instances/'.length);
+    const photonName = decodeURIComponent(url.pathname.slice('/api/instances/'.length));
     if (!photonName) {
       res.writeHead(400);
       res.end(JSON.stringify({ error: 'Missing photon name' }));
@@ -508,7 +508,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       return true;
     }
     const parts = url.pathname.slice('/api/instances/'.length).split('/');
-    const [photonName, instanceName] = parts;
+    const [photonName, instanceName] = parts.map((part) => decodeURIComponent(part));
     if (instanceName === 'default') {
       res.writeHead(400);
       res.end(JSON.stringify({ error: 'Cannot delete default instance' }));
@@ -544,7 +544,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       return true;
     }
     const parts = url.pathname.slice('/api/instances/'.length).split('/');
-    const [photonName, instanceName] = parts;
+    const [photonName, instanceName] = parts.map((part) => decodeURIComponent(part));
     try {
       const body = await readBody(req);
       const { newName } = JSON.parse(body);
@@ -585,7 +585,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       return true;
     }
     const parts = url.pathname.slice('/api/instances/'.length).split('/');
-    const [photonName, instanceName] = parts;
+    const [photonName, instanceName] = parts.map((part) => decodeURIComponent(part));
     try {
       const body = await readBody(req);
       const { newName } = JSON.parse(body);

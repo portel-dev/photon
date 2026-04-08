@@ -66,7 +66,7 @@ npx tsx tests/sqlite.test.ts
 export GITHUB_TOKEN="ghp_your_token_here"
 npm test:github
 # or
-npx tsx tests/github-issues.test.ts
+npx tsx tests/github-issues.integration.ts
 ```
 
 ## Writing Tests

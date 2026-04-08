@@ -1115,41 +1115,6 @@ async function getOrCreateSessionManager(
     // Do this lazily on first session creation
     void autoRegisterFromMetadata(key, manager);
 
-    // Auto-symlink: if this photon was resolved from a @photon dependency path
-    // (e.g. ./chat.photon.ts relative to consumer), ensure it's accessible by bare
-    // name from ~/.photon/local/ so CLI can reach it without manual symlinking.
-    try {
-      const localDir = path.join(os.homedir(), '.photon', 'local');
-      const symlinkName = `${photonName}.photon.ts`;
-      const symlinkPath = path.join(localDir, symlinkName);
-      const resolvedSource = fs.realpathSync(pathToUse);
-
-      if (!fs.existsSync(symlinkPath)) {
-        fs.mkdirSync(localDir, { recursive: true });
-        fs.symlinkSync(resolvedSource, symlinkPath);
-        logger.info('Auto-created symlink for CLI access', {
-          photonName,
-          symlink: symlinkPath,
-          target: resolvedSource,
-        });
-      }
-
-      // Also symlink the UI directory if it exists alongside the photon
-      const photonDir = path.dirname(resolvedSource);
-      const uiDir = path.join(photonDir, photonName);
-      const symlinkUiDir = path.join(localDir, photonName);
-      if (fs.existsSync(uiDir) && !fs.existsSync(symlinkUiDir)) {
-        fs.symlinkSync(uiDir, symlinkUiDir);
-        logger.info('Auto-created UI directory symlink', {
-          photonName,
-          symlink: symlinkUiDir,
-          target: uiDir,
-        });
-      }
-    } catch {
-      // Non-critical — CLI access via full path still works
-    }
-
     return manager;
   } catch (error) {
     logger.error('Failed to initialize session manager', {

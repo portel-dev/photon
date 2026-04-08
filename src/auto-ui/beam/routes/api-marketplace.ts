@@ -247,20 +247,23 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
 
     const body = await readBody(req);
     try {
-      const { name, target } = JSON.parse(body);
+      const { name, target, newName } = JSON.parse(body);
       if (!name) {
         res.writeHead(400);
         res.end(JSON.stringify({ error: 'Missing photon name' }));
         return true;
       }
 
-      let forkOptions: { targetRepo?: string; createRepo?: string } | undefined;
+      let forkOptions: { targetRepo?: string; createRepo?: string; newName?: string } | undefined;
       if (target && target !== 'local') {
         if (target.startsWith('create:')) {
           forkOptions = { createRepo: target.slice(7) };
         } else {
           forkOptions = { targetRepo: target };
         }
+      }
+      if (newName?.trim()) {
+        forkOptions = { ...(forkOptions || {}), newName: newName.trim() };
       }
 
       const result = await state.marketplace.forkPhoton(name, state.workingDir, forkOptions);

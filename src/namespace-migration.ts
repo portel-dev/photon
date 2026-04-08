@@ -2,6 +2,7 @@
  * Namespace Migration
  *
  * Migrates flat ~/.photon/*.photon.ts files into namespace subdirectories.
+ * Also cleans up legacy ~/.photon/local/ artifacts from older auto-symlink logic.
  *
  * Files with @forkedFrom metadata → move to author namespace
  * Files without metadata → stay in root (local photons live at ~/.photon/ root)
@@ -15,6 +16,7 @@ import * as path from 'path';
 import { getDefaultContext } from './context.js';
 
 const SENTINEL = '.migrated';
+const LEGACY_LOCAL_DIR = 'local';
 
 /**
  * Run the namespace migration if it hasn't been run yet.
@@ -31,6 +33,7 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
   }
 
   const dir = baseDir || getDefaultContext().baseDir;
+  await cleanupLegacyLocalNamespace(dir);
   const sentinelPath = path.join(dir, SENTINEL);
 
   // Already migrated?
@@ -192,6 +195,102 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
 
   if (migrated > 0) {
     console.error(`[photon] Migrated ${migrated} photon(s) to namespace directories`);
+  }
+}
+
+async function cleanupLegacyLocalNamespace(baseDir: string): Promise<void> {
+  const localDir = path.join(baseDir, LEGACY_LOCAL_DIR);
+  let entries: fs.Dirent[];
+
+  try {
+    entries = await fsp.readdir(localDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const localPath = path.join(localDir, entry.name);
+
+    if (entry.isSymbolicLink()) {
+      await fsp.rm(localPath, { recursive: true, force: true });
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      continue;
+    }
+
+    if (!entry.isFile() || !entry.name.match(/\.photon\.(ts|js)$/)) {
+      continue;
+    }
+
+    const targetPath = path.join(baseDir, entry.name);
+    if (!(await pathExists(targetPath))) {
+      await fsp.rename(localPath, targetPath);
+
+      const photonName = entry.name.replace(/\.photon\.(ts|js)$/, '');
+      const localAssetDir = path.join(localDir, photonName);
+      const targetAssetDir = path.join(baseDir, photonName);
+      if (await pathExists(localAssetDir)) {
+        await moveDirectoryIfPossible(localAssetDir, targetAssetDir);
+      }
+      continue;
+    }
+
+    if (await filesMatch(localPath, targetPath)) {
+      await fsp.rm(localPath, { force: true });
+    }
+  }
+
+  if (await isDirectoryEmpty(localDir)) {
+    await fsp.rm(localDir, { recursive: true, force: true });
+  }
+}
+
+async function moveDirectoryIfPossible(sourceDir: string, targetDir: string): Promise<void> {
+  const sourceStat = await fsp.lstat(sourceDir).catch(() => null);
+  if (!sourceStat) return;
+
+  if (sourceStat.isSymbolicLink()) {
+    await fsp.rm(sourceDir, { recursive: true, force: true });
+    return;
+  }
+
+  if (!sourceStat.isDirectory()) {
+    return;
+  }
+
+  if (await pathExists(targetDir)) {
+    return;
+  }
+
+  await fsp.rename(sourceDir, targetDir);
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fsp.lstat(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function filesMatch(a: string, b: string): Promise<boolean> {
+  try {
+    const [aContent, bContent] = await Promise.all([fsp.readFile(a), fsp.readFile(b)]);
+    return aContent.equals(bContent);
+  } catch {
+    return false;
+  }
+}
+
+async function isDirectoryEmpty(dir: string): Promise<boolean> {
+  try {
+    const entries = await fsp.readdir(dir);
+    return entries.length === 0;
+  } catch {
+    return false;
   }
 }
 

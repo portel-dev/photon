@@ -211,6 +211,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       ? realpathSync(photon.path)
       : photon.path;
     const photonDir = path.dirname(resolvedPhotonPath);
+    const photonBaseName = path.basename(resolvedPhotonPath, '.photon.ts');
 
     // Try to use resolved path from assets if available (respects JSDoc)
     const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
@@ -257,9 +258,9 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       }
     } else {
       // Try .photon.html first, then .photon.md, fall back to .html
-      const photonHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.html`);
-      const photonMdPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.md`);
-      const plainHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+      const photonHtmlPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.photon.html`);
+      const photonMdPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.photon.md`);
+      const plainHtmlPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.html`);
       try {
         await fs.access(photonHtmlPath);
         uiPath = photonHtmlPath;

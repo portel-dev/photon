@@ -41,6 +41,7 @@ import {
 } from '../services/photon-instance-manager.js';
 import { ViewportAwareProxy } from '../services/viewport-aware-proxy.js';
 import { ViewportManager, getPageSizeForClient } from '../services/viewport-manager.js';
+import { buildBeamRoutePath, parseBeamRoutePath } from '../utils/beam-route.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
@@ -2650,9 +2651,14 @@ export class BeamApp extends LitElement {
 
           // No photon selected — either re-try URL route or auto-select new photon
           if (!this._selectedPhoton && window.location.pathname !== '/') {
-            const pathPhotonName = window.location.pathname.slice(1).split('/')[0];
+            const { photonName: pathPhotonName } = parseBeamRoutePath(
+              window.location.pathname,
+              this._photons,
+              this._externalMCPs
+            );
             const routePhoton = pathPhotonName
-              ? this._photons.find((p) => p.name === pathPhotonName)
+              ? this._photons.find((p) => p.name === pathPhotonName) ||
+                this._externalMCPs.find((p) => p.name === pathPhotonName)
               : null;
             if (routePhoton) {
               // URL points to a photon that's now available — re-run route handling
@@ -3094,10 +3100,13 @@ export class BeamApp extends LitElement {
 
   private _handleRouteChange = () => {
     void (async () => {
-      const fullPath = window.location.pathname.slice(1); // "/boards/main" → "boards/main"
       const queryPart = window.location.search.slice(1); // "?focus=1&key=val" → "focus=1&key=val"
-      // Parse path format: /photon/method with query ?param1=value1&param2=value2
-      const [photonName, methodName] = fullPath.split('/');
+      const { photonName, methodNames } = parseBeamRoutePath(
+        window.location.pathname,
+        this._photons,
+        this._externalMCPs
+      );
+      const methodName = methodNames[0];
 
       // Parse query parameters for shared links
       this._sharedFormParams = null;
@@ -3186,7 +3195,7 @@ export class BeamApp extends LitElement {
 
           if (methodName && photon.methods) {
             // Handle split view format: "method1+method2"
-            const [firstMethodName, secondMethodName] = methodName.split('+');
+            const [firstMethodName, secondMethodName] = methodNames;
             const method = photon.methods.find((m: any) => m.name === firstMethodName);
             if (method) {
               // Store shared params to pre-populate form
@@ -3210,13 +3219,6 @@ export class BeamApp extends LitElement {
 
               // Handle split view if additional methods are in URL
               if (secondMethodName) {
-                // secondMethodName may contain multiple methods separated by +
-                // The URL format is /photon/method+panel1+panel2
-                // But secondMethodName is just the first extra method from URL parsing
-                // We need to restore all panels from the URL
-                const urlPath = location.pathname;
-                const methodPart = urlPath.split('/').pop() || '';
-                const methodNames = methodPart.split('+');
                 // Skip first (primary method), restore the rest as panels
                 for (let i = 1; i < methodNames.length; i++) {
                   const name = methodNames[i];
@@ -3265,18 +3267,20 @@ export class BeamApp extends LitElement {
     } else if (!this._selectedPhoton) {
       path = '/';
     } else {
-      path = '/' + this._selectedPhoton.name;
-      if (this._selectedMethod) {
-        path += `/${this._selectedMethod.name}`;
-        // Add split panel methods to URL: /list/get+add+remove
-        for (const panel of this._splitPanels) {
-          if (panel.type === 'method' && panel.method) {
-            path += `+${panel.method.name}`;
-          } else if (panel.type === 'source') {
-            path += `+source`;
-          }
-        }
-      }
+      const splitPanelMethodNames = this._selectedMethod
+        ? this._splitPanels
+            .map((panel) => {
+              if (panel.type === 'method' && panel.method) return panel.method.name;
+              if (panel.type === 'source') return 'source';
+              return null;
+            })
+            .filter((name): name is string => !!name)
+        : [];
+      path = buildBeamRoutePath(
+        this._selectedPhoton,
+        this._selectedMethod?.name,
+        splitPanelMethodNames
+      );
     }
     // Push state for browser back/forward navigation
     if (replace) {
@@ -4062,6 +4066,8 @@ export class BeamApp extends LitElement {
         ? html`<fork-dialog
             .photonName=${this._forkPhotonName}
             .originRepo=${this._forkOriginRepo}
+            .requireNewName=${this._forkRequireNewName}
+            .suggestedName=${this._forkSuggestedName}
             .targets=${this._forkTargets}
             @fork-confirm=${this._handleForkConfirm}
             @fork-cancel=${() => {
@@ -5397,7 +5403,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   /** Fetch available instances for a stateful photon from the server */
   private async _fetchInstances(photonName: string) {
     try {
-      const res = await fetch(`/api/instances/${photonName}`, {
+      const res = await fetch(`/api/instances/${encodeURIComponent(photonName)}`, {
         signal: AbortSignal.timeout(10000),
       });
       if (res.ok) {
@@ -6544,12 +6550,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
   @state() private _showForkDialog = false;
   @state() private _forkPhotonName = '';
   @state() private _forkOriginRepo = '';
+  @state() private _forkRequireNewName = false;
+  @state() private _forkSuggestedName = '';
   @state() private _forkTargets: Array<{ name: string; repo: string; sourceType: string }> = [];
 
   private _handleFork = async () => {
     if (!this._selectedPhoton) return;
-    this._forkPhotonName = this._selectedPhoton.name;
+    this._forkPhotonName = this._selectedPhoton.qualifiedName || this._selectedPhoton.name;
     this._forkOriginRepo = this._selectedPhoton.installSource?.marketplace || '';
+    this._forkRequireNewName = !this._selectedPhoton.installSource;
+    this._forkSuggestedName = `${this._selectedPhoton.shortName || this._selectedPhoton.name}-copy`;
     await this._openForkDialog();
   };
 
@@ -6569,7 +6579,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   }
 
   private _handleForkConfirm = async (e: CustomEvent) => {
-    const { target } = e.detail;
+    const { target, newName } = e.detail;
     const name = this._forkPhotonName;
     if (!name) return;
 
@@ -6580,7 +6590,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       const res = await fetch('/api/marketplace/fork', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Photon-Request': '1' },
-        body: JSON.stringify({ name, target }),
+        body: JSON.stringify({ name, target, newName }),
         signal: AbortSignal.timeout(30000),
       });
 
@@ -6610,6 +6620,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const { name } = e.detail;
     this._forkPhotonName = name;
     this._forkOriginRepo = '';
+    this._forkRequireNewName = false;
+    this._forkSuggestedName = `${name}-copy`;
     await this._openForkDialog();
   };
 
@@ -6835,12 +6847,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
         const newName = detail.cloneName;
         if (!newName) return;
         try {
-          const res = await fetch(`/api/instances/${photonName}/${detail.instance}/clone`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newName }),
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          });
+          const res = await fetch(
+            `/api/instances/${encodeURIComponent(photonName)}/${encodeURIComponent(detail.instance)}/clone`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ newName }),
+              signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+            }
+          );
           if (res.ok) {
             await this._fetchInstances(photonName);
             showToast(`Cloned as: ${newName}`, 'success');
@@ -6857,12 +6872,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
         const newName = detail.newName;
         if (!newName) return;
         try {
-          const res = await fetch(`/api/instances/${photonName}/${detail.instance}/rename`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newName }),
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          });
+          const res = await fetch(
+            `/api/instances/${encodeURIComponent(photonName)}/${encodeURIComponent(detail.instance)}/rename`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ newName }),
+              signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+            }
+          );
           if (res.ok) {
             // Switch to the renamed instance
             await mcpClient.callTool(`${photonName}/_use`, { name: newName });
@@ -6885,10 +6903,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
           return;
         }
         try {
-          const res = await fetch(`/api/instances/${photonName}/${instanceToDelete}`, {
-            method: 'DELETE',
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          });
+          const res = await fetch(
+            `/api/instances/${encodeURIComponent(photonName)}/${encodeURIComponent(instanceToDelete)}`,
+            {
+              method: 'DELETE',
+              signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+            }
+          );
           if (res.ok) {
             // Switch to default
             await mcpClient.callTool(`${photonName}/_use`, { name: 'default' });

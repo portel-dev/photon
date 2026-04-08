@@ -199,7 +199,7 @@ describe('Instance-Aware DI (schema-extractor)', () => {
 });
 
 describe('Namespace Migration', () => {
-  it('migrates flat files to local/ when no metadata', async () => {
+  it('keeps flat files at root when no metadata', async () => {
     // Create a flat photon file without @forkedFrom
     await fsp.writeFile(
       path.join(testDir, 'todo.photon.ts'),
@@ -209,10 +209,10 @@ describe('Namespace Migration', () => {
     const { runNamespaceMigration } = await import('../src/namespace-migration.js');
     await runNamespaceMigration(testDir);
 
-    // File should be in local/
-    expect(fs.existsSync(path.join(testDir, 'local', 'todo.photon.ts'))).toBe(true);
-    // Original should be gone
-    expect(fs.existsSync(path.join(testDir, 'todo.photon.ts'))).toBe(false);
+    // File should stay at root
+    expect(fs.existsSync(path.join(testDir, 'todo.photon.ts'))).toBe(true);
+    // Legacy local folder should not be introduced
+    expect(fs.existsSync(path.join(testDir, 'local', 'todo.photon.ts'))).toBe(false);
     // Sentinel should exist
     expect(fs.existsSync(path.join(testDir, '.migrated'))).toBe(true);
   });
@@ -270,6 +270,47 @@ describe('Namespace Migration', () => {
     await runNamespaceMigration(testDir);
 
     expect(fs.existsSync(path.join(testDir, '.migrated'))).toBe(true);
+  });
+
+  it('removes legacy local symlink aliases even after sentinel exists', async () => {
+    await fsp.writeFile(path.join(testDir, '.migrated'), '{"version":1}');
+    await fsp.writeFile(
+      path.join(testDir, 'telegram.photon.ts'),
+      'export default class Telegram {}'
+    );
+    await fsp.mkdir(path.join(testDir, 'local'), { recursive: true });
+    await fsp.symlink(
+      path.join(testDir, 'telegram.photon.ts'),
+      path.join(testDir, 'local', 'telegram (1).photon.ts')
+    );
+    await fsp
+      .symlink(path.join(testDir, 'telegram'), path.join(testDir, 'local', 'telegram'))
+      .catch(() => {});
+
+    const { runNamespaceMigration } = await import('../src/namespace-migration.js');
+    await runNamespaceMigration(testDir);
+
+    expect(fs.existsSync(path.join(testDir, 'local', 'telegram (1).photon.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(testDir, 'local', 'telegram'))).toBe(false);
+    expect(fs.existsSync(path.join(testDir, 'telegram.photon.ts'))).toBe(true);
+  });
+
+  it('flattens real photons from legacy local/ back to root', async () => {
+    const legacyDir = path.join(testDir, 'local');
+    await fsp.mkdir(path.join(legacyDir, 'todo'), { recursive: true });
+    await fsp.writeFile(
+      path.join(legacyDir, 'todo.photon.ts'),
+      'export default class Todo { async add() {} }'
+    );
+    await fsp.writeFile(path.join(legacyDir, 'todo', 'index.html'), '<div>todo ui</div>');
+
+    const { runNamespaceMigration } = await import('../src/namespace-migration.js');
+    await runNamespaceMigration(testDir);
+
+    expect(fs.existsSync(path.join(testDir, 'todo.photon.ts'))).toBe(true);
+    expect(fs.existsSync(path.join(testDir, 'todo', 'index.html'))).toBe(true);
+    expect(fs.existsSync(path.join(testDir, 'local', 'todo.photon.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(testDir, 'local', 'todo'))).toBe(false);
   });
 });
 

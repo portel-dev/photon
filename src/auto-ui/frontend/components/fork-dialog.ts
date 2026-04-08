@@ -170,6 +170,8 @@ export class ForkDialog extends LitElement {
 
   @property() photonName = '';
   @property() originRepo = '';
+  @property({ type: Boolean }) requireNewName = false;
+  @property() suggestedName = '';
   @property({ type: Array }) targets: Array<{
     name: string;
     repo: string;
@@ -178,12 +180,18 @@ export class ForkDialog extends LitElement {
 
   @state() private _selectedTarget = 'local';
   @state() private _newRepoName = '';
+  @state() private _newPhotonName = '';
 
   render() {
     return html`
       <div class="modal-content" @click=${(e: Event) => e.stopPropagation()}>
         <h3>Fork ${this.photonName}</h3>
         ${this.originRepo ? html`<div class="origin-info">From ${this.originRepo}</div>` : ''}
+        <div class="origin-info">
+          ${this.requireNewName
+            ? 'This photon is already local, so the fork needs a new local name.'
+            : 'Marketplace forks keep the same local name unless you choose another one.'}
+        </div>
 
         <div class="target-list">
           ${this.targets.map(
@@ -237,16 +245,28 @@ export class ForkDialog extends LitElement {
             <div class="target-radio"></div>
             <div class="target-info">
               <div class="target-name">Local only</div>
-              <div class="target-repo">Remove marketplace tracking, keep file as-is</div>
+              <div class="target-repo">Create or keep a local editable copy</div>
             </div>
           </div>
         </div>
+
+        <input
+          class="create-repo-input"
+          type="text"
+          placeholder=${this.suggestedName ||
+          (this.requireNewName ? 'new-local-name' : 'Optional local name')}
+          .value=${this._newPhotonName}
+          @input=${(e: Event) => {
+            this._newPhotonName = (e.target as HTMLInputElement).value;
+          }}
+        />
 
         <div class="actions">
           <button class="btn" @click=${() => this._cancel()}>Cancel</button>
           <button
             class="btn btn-primary"
-            ?disabled=${this._selectedTarget === 'create' && !this._newRepoName.trim()}
+            ?disabled=${(this._selectedTarget === 'create' && !this._newRepoName.trim()) ||
+            (this.requireNewName && !this._newPhotonName.trim())}
             @click=${() => this._confirm()}
           >
             Fork
@@ -266,7 +286,7 @@ export class ForkDialog extends LitElement {
 
     this.dispatchEvent(
       new CustomEvent('fork-confirm', {
-        detail: { target },
+        detail: { target, newName: this._newPhotonName.trim() || undefined },
         bubbles: true,
         composed: true,
       })

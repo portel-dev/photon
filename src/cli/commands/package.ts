@@ -589,7 +589,7 @@ export function registerPackageCommands(program: Command): void {
               tableData.push({
                 name: mcpName,
                 local: info.local || '-',
-                remote: info.remote || 'local only',
+                remote: info.remote || 'local editable copy',
                 status: STATUS.UNKNOWN,
               });
             }
@@ -757,8 +757,12 @@ export function registerPackageCommands(program: Command): void {
   program
     .command('fork')
     .argument('<name>', 'Photon name to fork/own')
-    .description('Take ownership of an installed photon (removes marketplace tracking)')
-    .action(async (name: string, _options: any, command: Command) => {
+    .option(
+      '--as <newName>',
+      'New local photon name (required when forking an already-local photon)'
+    )
+    .description('Create a local editable copy or take ownership of a tracked photon')
+    .action(async (name: string, options: any, command: Command) => {
       try {
         const { printSuccess, printError } = await import('../../cli-formatter.js');
         const workingDir = getDefaultContext().baseDir;
@@ -777,7 +781,7 @@ export function registerPackageCommands(program: Command): void {
           }
         }
         choices.push('Create new GitHub repository');
-        choices.push('Local only (remove marketplace tracking)');
+        choices.push('Local editable copy');
 
         const rl = createReadline();
         console.error(`\nWhere do you want to fork ${name}?\n`);
@@ -795,7 +799,9 @@ export function registerPackageCommands(program: Command): void {
           process.exit(1);
         }
 
-        let forkOptions: { targetRepo?: string; createRepo?: string } | undefined;
+        let forkOptions:
+          | { targetRepo?: string; createRepo?: string; newName?: string }
+          | undefined = {};
 
         if (choiceIdx < targets.length) {
           // Push to existing marketplace repo
@@ -813,9 +819,26 @@ export function registerPackageCommands(program: Command): void {
           }
           forkOptions = { createRepo: repoName.trim() };
         }
-        // else: local only, no options
+        if (options.as?.trim()) {
+          forkOptions.newName = options.as.trim();
+        }
 
-        const result = await manager.forkPhoton(name, workingDir, forkOptions);
+        let result = await manager.forkPhoton(name, workingDir, forkOptions);
+        if (!result.success && result.requiresName && !forkOptions.newName) {
+          const rl3 = createReadline();
+          const suggested = result.suggestedName ? ` [${result.suggestedName}]` : '';
+          const newName = await new Promise<string>((resolve) => {
+            rl3.question(`New local photon name${suggested}: `, resolve);
+          });
+          rl3.close();
+          const resolvedName = newName.trim() || result.suggestedName;
+          if (!resolvedName) {
+            printError('A new local name is required');
+            process.exit(1);
+          }
+          forkOptions.newName = resolvedName;
+          result = await manager.forkPhoton(name, workingDir, forkOptions);
+        }
 
         if (result.success) {
           printSuccess(result.message);

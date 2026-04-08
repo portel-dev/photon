@@ -12,7 +12,7 @@ import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { verifyContentHash, validateAssetPath, isPathWithin } from './shared/security.js';
 import { getDefaultContext } from './context.js';
-import { getMetadataPath } from '@portel/photon-core';
+import { getMetadataPath, resolvePath } from '@portel/photon-core';
 import { SchemaExtractor } from '@portel/photon-core';
 
 // Timeout for marketplace fetch requests
@@ -932,7 +932,7 @@ export class MarketplaceManager {
    * Safe to call on every startup — only fetches when assets are actually missing.
    */
   async repairMissingAssets(workingDir: string): Promise<number> {
-    const localMetadata = await readLocalMetadata();
+    const localMetadata = await this.readMetadata();
     let repaired = 0;
 
     for (const [fileName, installInfo] of Object.entries(localMetadata.photons)) {
@@ -1415,7 +1415,7 @@ export class MarketplaceManager {
   }
 
   private async writeMetadata(metadata: LocalMetadata): Promise<void> {
-    await fs.mkdir(this.configDir, { recursive: true });
+    await fs.mkdir(path.dirname(this.metadataFile), { recursive: true });
     await writeJSON(this.metadataFile, metadata);
   }
 
@@ -1646,34 +1646,89 @@ export class MarketplaceManager {
     options?: {
       targetRepo?: string; // e.g. "arul/my-photons" — push file there
       createRepo?: string; // create new GitHub repo with this name
+      newName?: string; // new local photon name when duplicating/forking locally
     }
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{
+    success: boolean;
+    message: string;
+    requiresName?: boolean;
+    suggestedName?: string;
+  }> {
     validateSafeName(name, 'photon name');
     if (options?.targetRepo) validateSafeName(options.targetRepo, 'target repo');
     if (options?.createRepo) validateSafeName(options.createRepo, 'repo name');
+    if (options?.newName) validateSafeName(options.newName, 'new photon name');
 
-    const fileName = `${name}.photon.ts`;
-    const filePath = path.join(workingDir, fileName);
-
-    // Check file exists
-    if (!existsSync(filePath)) {
+    const sourcePath = await resolvePath(name, workingDir);
+    if (!sourcePath) {
       return { success: false, message: `Photon not found: ${name}` };
     }
 
-    // Read install metadata
-    const localMetadata = await readLocalMetadata();
-    const installMeta = localMetadata.photons[fileName];
+    const sourceName = path.basename(sourcePath).replace(/\.photon\.(ts|js)$/, '');
+    const normalizedSourceKey = this.toMetadataKey(sourcePath, workingDir);
+    const requestedNewName = options?.newName?.trim();
+    const localMetadata = await this.readMetadata();
+    const installMeta = localMetadata.photons[normalizedSourceKey];
+    const isLocalSource = !installMeta;
+    const targetName = requestedNewName || sourceName;
+    const suggestedName = `${sourceName}-copy`;
 
-    if (!installMeta) {
+    if (isLocalSource && !requestedNewName) {
       return {
-        success: true,
-        message: `${name} is already a local photon (no marketplace tracking)`,
+        success: false,
+        message: `${sourceName} is already local. Choose a new local name to fork it.`,
+        requiresName: true,
+        suggestedName,
       };
     }
 
+    if (isLocalSource && requestedNewName === sourceName) {
+      return {
+        success: false,
+        message: 'Forking a local photon requires a different new name.',
+        requiresName: true,
+        suggestedName,
+      };
+    }
+
+    const targetPath = path.join(workingDir, `${targetName}.photon.ts`);
+    const sourceRealPath = await fs.realpath(sourcePath).catch(() => sourcePath);
+    const targetExists = existsSync(targetPath);
+    const targetRealPath = targetExists
+      ? await fs.realpath(targetPath).catch(() => targetPath)
+      : null;
+
+    if (targetExists && targetRealPath !== sourceRealPath) {
+      return {
+        success: false,
+        message: `A local photon named ${targetName} already exists. Choose a different local name.`,
+        requiresName: true,
+        suggestedName,
+      };
+    }
+
+    const fileName = `${targetName}.photon.ts`;
+    const filePath = targetPath;
+
     // Check @forkedFrom tag
-    const content = await readText(filePath);
+    const content = await readText(sourcePath);
     const hasForkedFrom = content.includes('@forkedFrom');
+
+    const sourceAssetDir = path.join(path.dirname(sourcePath), sourceName);
+    const targetAssetDir = path.join(workingDir, targetName);
+
+    if (targetRealPath !== sourceRealPath && !isLocalSource) {
+      await fs.mkdir(workingDir, { recursive: true });
+      await fs.rename(sourcePath, targetPath);
+      await this.movePhotonAssetDir(sourceAssetDir, targetAssetDir);
+    } else if (targetRealPath !== sourceRealPath) {
+      await fs.copyFile(sourcePath, targetPath);
+      await this.copyPhotonAssetDir(sourceAssetDir, targetAssetDir);
+    } else if (path.dirname(sourcePath) !== workingDir || targetName !== sourceName) {
+      await fs.mkdir(workingDir, { recursive: true });
+      await fs.rename(sourcePath, targetPath);
+      await this.movePhotonAssetDir(sourceAssetDir, targetAssetDir);
+    }
 
     // Handle target repo push if specified
     if (options?.targetRepo || options?.createRepo) {
@@ -1705,18 +1760,7 @@ export class MarketplaceManager {
             stdio: 'pipe',
           });
           await fs.copyFile(filePath, path.join(tmpDir, fileName));
-          // Copy assets
-          const photonMeta = await this.getPhotonMetadata(name);
-          if (photonMeta?.metadata.assets) {
-            for (const asset of photonMeta.metadata.assets) {
-              const srcAsset = path.join(workingDir, asset);
-              if (existsSync(srcAsset)) {
-                const dstAsset = path.join(tmpDir, asset);
-                await fs.mkdir(path.dirname(dstAsset), { recursive: true });
-                await fs.copyFile(srcAsset, dstAsset);
-              }
-            }
-          }
+          await this.copyPhotonAssetDir(targetAssetDir, path.join(tmpDir, targetName));
           execFileSync('git', ['add', '-A'], { cwd: tmpDir, stdio: 'pipe' });
           execFileSync('git', ['commit', '-m', `fork: ${name} photon`], {
             cwd: tmpDir,
@@ -1739,18 +1783,7 @@ export class MarketplaceManager {
             stdio: 'pipe',
           });
           await fs.copyFile(filePath, path.join(tmpDir, fileName));
-          // Copy assets
-          const photonMeta = await this.getPhotonMetadata(name);
-          if (photonMeta?.metadata.assets) {
-            for (const asset of photonMeta.metadata.assets) {
-              const srcAsset = path.join(workingDir, asset);
-              if (existsSync(srcAsset)) {
-                const dstAsset = path.join(tmpDir, asset);
-                await fs.mkdir(path.dirname(dstAsset), { recursive: true });
-                await fs.copyFile(srcAsset, dstAsset);
-              }
-            }
-          }
+          await this.copyPhotonAssetDir(targetAssetDir, path.join(tmpDir, targetName));
           execFileSync('git', ['add', '-A'], { cwd: tmpDir, stdio: 'pipe' });
           execFileSync('git', ['commit', '-m', `fork: ${name} photon`], {
             cwd: tmpDir,
@@ -1769,17 +1802,51 @@ export class MarketplaceManager {
     }
 
     // Remove marketplace tracking
-    delete localMetadata.photons[fileName];
+    if (installMeta) {
+      delete localMetadata.photons[normalizedSourceKey];
+    }
     await this.writeMetadata(localMetadata);
 
     const parts = [];
-    parts.push(`${name} is now your own`);
+    if (targetName !== sourceName) {
+      parts.push(`Created local fork ${targetName} from ${sourceName}`);
+    } else {
+      parts.push(`${sourceName} is now your own`);
+    }
     if (hasForkedFrom) {
       parts.push('Origin preserved as @forkedFrom tag');
     }
-    parts.push('Marketplace update tracking removed');
+    if (installMeta) {
+      parts.push('Marketplace update tracking removed');
+    }
 
     return { success: true, message: parts.join('. ') };
+  }
+
+  private toMetadataKey(filePath: string, workingDir: string): string {
+    return path.relative(workingDir, filePath).split(path.sep).join('/');
+  }
+
+  private async copyPhotonAssetDir(sourceDir: string, targetDir: string): Promise<void> {
+    const stat = await fs.lstat(sourceDir).catch(() => null);
+    if (!stat) return;
+
+    if (stat.isSymbolicLink()) {
+      const linkTarget = await fs.readlink(sourceDir);
+      await fs.symlink(linkTarget, targetDir).catch(() => {});
+      return;
+    }
+
+    if (!stat.isDirectory()) return;
+    await fs.cp(sourceDir, targetDir, { recursive: true, force: true });
+  }
+
+  private async movePhotonAssetDir(sourceDir: string, targetDir: string): Promise<void> {
+    const stat = await fs.lstat(sourceDir).catch(() => null);
+    if (!stat) return;
+    if (existsSync(targetDir)) return;
+    await fs.mkdir(path.dirname(targetDir), { recursive: true });
+    await fs.rename(sourceDir, targetDir);
   }
 
   /**

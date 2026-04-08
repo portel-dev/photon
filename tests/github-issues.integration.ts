@@ -4,7 +4,7 @@
  *
  * Usage:
  *   export GITHUB_TOKEN="your_token_here"
- *   npx tsx tests/github-issues.test.ts
+ *   npx tsx tests/github-issues.integration.ts
  */
 
 import { MCPTestClient, validators } from '../src/test-client.js';
@@ -13,8 +13,8 @@ import path from 'path';
 async function main() {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
-    console.error('❌ Set GITHUB_TOKEN environment variable');
-    if (typeof globalThis.vitest === 'undefined') process.exit(1);
+    console.log('⏭️  Skipping GitHub Issues MCP test: GITHUB_TOKEN is not set');
+    return;
   }
 
   console.log('🧪 Testing GitHub Issues MCP\n');
