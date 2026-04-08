@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.20.0](https://github.com/portel-dev/photon/compare/v1.19.0...v1.20.0) (2026-04-08)
+
+### Features
+
+* add draggable resize handle to split pane divider ([2661878](https://github.com/portel-dev/photon/commit/26618789e05e06dc69fb05243309e3f2e7746b8b))
+* add sidebar resize handle with localStorage persistence ([2c9b8c1](https://github.com/portel-dev/photon/commit/2c9b8c1afb0ba21080fd82466184c0aeeb05b6e1))
+* add tab switcher (App / Methods / Log) to main toolbar ([a4d0bf4](https://github.com/portel-dev/photon/commit/a4d0bf434954266148600abfbe8004ee20bc18a1))
+* beam UI improvements — sidebar tabs, bridge extensions, app renderer updates ([a0454c4](https://github.com/portel-dev/photon/commit/a0454c4aad41d20700a2ee1f7dae0e425bf9e7ae))
+* gate edit controls on photon editability ([951043d](https://github.com/portel-dev/photon/commit/951043dfa2b8a6a00ab6345fd2b8afb4bfbe4eb5))
+* merge context-bar into main-toolbar row to eliminate wasted vertical space ([0c9efaa](https://github.com/portel-dev/photon/commit/0c9efaa39b36d533b0dc0f85c92a818a639f6216))
+* namespace migration, beam route encoding, forking improvements, and test updates ([1209827](https://github.com/portel-dev/photon/commit/12098272f6cb323bfe561128e0cdd8e104fe91f3))
+
+### Bug Fixes
+
+* add file locking for approvals and audit log to prevent race conditions ([9775b7c](https://github.com/portel-dev/photon/commit/9775b7c05f66f713aa23cb3d5e6843aa52376871))
+* add global error handlers and replace silent catch blocks with logging ([7cd8b2c](https://github.com/portel-dev/photon/commit/7cd8b2c67e6a3d2355f43a89c5cc70606cf00ba0))
+* app tab fills viewport with no outer scroll or methods hint ([08ded4b](https://github.com/portel-dev/photon/commit/08ded4b7f9306a05b2d47dfcb0eafd39e4b2166f))
+* block all studio/edit entry points for non-editable photons ([a4db38c](https://github.com/portel-dev/photon/commit/a4db38c3440f521fc4f84b5bf7d4a800a56956a3))
+* cap activity log height so custom apps get their full vertical space ([11e770f](https://github.com/portel-dev/photon/commit/11e770fdecc8a9d59bbe1cb1ef2b6b09f8e5ba3a))
+* cap method card grid column width at 380px to prevent overwide cards on large screens ([1ddc189](https://github.com/portel-dev/photon/commit/1ddc18903a98e997ace654c25f34cc6d1bf9f417))
+* constrain app tab to available viewport height without outer scroll ([d26660a](https://github.com/portel-dev/photon/commit/d26660a63487da3dfd428853382dd4fb2c6f4ea4))
+* fall back to auto-discovery when asset resolvedPath does not exist ([88e4158](https://github.com/portel-dev/photon/commit/88e4158a6aad3fc64cbd05a053ae2fdf2c09e37f))
+* guard daemon socket connections against ENOENT on fresh install ([dc006c6](https://github.com/portel-dev/photon/commit/dc006c6327ec4b7902118831279ac4539ae0b23e))
+* move toolbars into scroll container, remove negative-margin hack ([6b0bcfa](https://github.com/portel-dev/photon/commit/6b0bcfa5ccb9238508c1eba7d422d5eb29c0b318))
+* pin activity log to bottom, eliminate competing scrollbars in main area ([73d058c](https://github.com/portel-dev/photon/commit/73d058c26b77dc62bcd87b3a7ca797f13d00bb9a))
+* prevent command injection in marketplace fork/contribute operations ([5ec76ae](https://github.com/portel-dev/photon/commit/5ec76ae6664c1438bf8a276511b6bd1583300e34))
+* prevent race conditions in daemon channel iteration, watcher debounce, and worker calls ([bf0f6f4](https://github.com/portel-dev/photon/commit/bf0f6f46bc603611c21978ef4130c19204d81316))
+* prevent XSS by replacing innerHTML with safe DOM construction ([7638223](https://github.com/portel-dev/photon/commit/763822314071c5a4906f93d0935e691984a81389))
+* reduce double-gap spacing between photon header and anchor nav ([30075a7](https://github.com/portel-dev/photon/commit/30075a70275869646d1a49e7f0c993bbb8377add))
+* remove border-radius clipping on app-viewport in app tab mode ([6204e87](https://github.com/portel-dev/photon/commit/6204e873b87210d48fbf61e1628df6096b1d1c09))
+* resolve singleton initialization races and clean up leaked timers ([a5066a0](https://github.com/portel-dev/photon/commit/a5066a01e271a639d6b3427e3deb57f3f655b99a))
+* restore app sidebar, fill log tab height, fix app renderer flex ([bef4e51](https://github.com/portel-dev/photon/commit/bef4e51678b9199301b065a3f51108affc01d45a))
+* restrict CORS to localhost and add CSRF protection on marketplace endpoints ([8212d02](https://github.com/portel-dev/photon/commit/8212d0242c018d616d83483f8998537ca7784995))
+* route split pane progress events to the correct panel ([3bf439a](https://github.com/portel-dev/photon/commit/3bf439a17c62c11f2bced4ca475824b68e0664c0))
+* set correct mainTab when loading app photon via URL route ([fe9c888](https://github.com/portel-dev/photon/commit/fe9c888c6d231ad5a44544a424c4d46f9a43fa8b))
+* use stable calc heights for app tab to prevent resize loop vibration ([732c314](https://github.com/portel-dev/photon/commit/732c3140b91fd127eb01f65598a297949395c5fb))
+
 ## [1.19.0](https://github.com/portel-dev/photon/compare/v1.18.0...v1.19.0) (2026-04-05)
 
 ### Features
