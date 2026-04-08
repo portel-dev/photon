@@ -55,6 +55,7 @@ import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isLocalRequest, readBody, setSecurityHeaders, getCorsOrigin } from './shared/security.js';
 import { audit } from './shared/audit.js';
 import { TaskExecutor } from './task-executor.js';
+import { CapabilityNegotiator } from './capability-negotiator.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -409,19 +410,8 @@ export class PhotonServer {
   private sseInstanceNames = new Map<string, string>();
   /** Whether client capabilities have been logged (one-time on first tools/list) */
   private clientCapabilitiesLogged = false;
-  /**
-   * Raw client capabilities captured from the initialize request BEFORE Zod parsing.
-   *
-   * The MCP SDK uses Zod to validate incoming requests, which strips unknown fields
-   * from ClientCapabilities. Notably, `extensions` (protocol 2025-11-25+) is not in
-   * the SDK's Zod schema yet, so `getClientCapabilities()` returns an object without
-   * it. Real clients like Claude Desktop and ChatGPT send UI capability under
-   * `extensions`, not `experimental`. We intercept the raw JSON-RPC message to
-   * capture the full capabilities before Zod strips them.
-   *
-   * Key: Server instance → Value: raw capabilities object from initialize request
-   */
-  private rawClientCapabilities = new WeakMap<Server, Record<string, any>>();
+  /** Client capability detection and negotiation */
+  private capabilityNegotiator = new CapabilityNegotiator();
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -651,63 +641,6 @@ export class PhotonServer {
   }
 
   /**
-   * Check if client supports elicitation
-   *
-   * Elicitation is a client capability declared during initialization.
-   * The server can use elicitInput() when the client supports it.
-   */
-  private clientSupportsElicitation(server?: Server): boolean {
-    const targetServer = server || this.server;
-    const capabilities = targetServer.getClientCapabilities();
-
-    if (!capabilities) {
-      return false;
-    }
-
-    // Check for elicitation capability (MCP 2025-06 spec)
-    return !!capabilities.elicitation;
-  }
-
-  private static readonly MCP_UI_CAPABILITY = 'io.modelcontextprotocol/ui';
-
-  /**
-   * Check if client supports MCP Apps UI (structuredContent + _meta.ui)
-   *
-   * Looks for the "io.modelcontextprotocol/ui" capability in the client's
-   * initialize handshake. Any MCP client that advertises this capability
-   * gets rich UI responses — Claude Desktop, ChatGPT, MCPJam, etc.
-   *
-   * The capability may appear under `experimental` (older SDK types) or
-   * `extensions` (protocol version 2025-11-25+). We check both so it
-   * just works regardless of which field the client uses.
-   *
-   * Beam is special-cased because it's our own SSE transport where the
-   * capability is implicit.
-   */
-  private clientSupportsUI(server?: Server): boolean {
-    const targetServer = server || this.server;
-
-    // Check SDK-parsed capabilities (works for `experimental` which is in the Zod schema)
-    const capabilities = targetServer.getClientCapabilities() as Record<string, any>;
-    if (capabilities?.experimental?.[PhotonServer.MCP_UI_CAPABILITY]) {
-      return true;
-    }
-
-    // Check raw capabilities captured before Zod parsing (needed for `extensions`
-    // which the SDK's Zod schema strips — Claude Desktop and ChatGPT use this field)
-    const raw = this.rawClientCapabilities.get(targetServer);
-    if (raw?.extensions?.[PhotonServer.MCP_UI_CAPABILITY]) {
-      return true;
-    }
-
-    // Beam is our own transport — UI support is implicit
-    const clientInfo = targetServer.getClientVersion();
-    if (clientInfo?.name === 'beam') return true;
-
-    return false;
-  }
-
-  /**
    * Send a permission response back to the client.
    * Delegates to ChannelManager.
    */
@@ -721,8 +654,8 @@ export class PhotonServer {
   private logClientCapabilities(server: Server): void {
     const clientInfo = server.getClientVersion();
     const capabilities = server.getClientCapabilities();
-    const supportsUI = this.clientSupportsUI(server);
-    const supportsElicitation = this.clientSupportsElicitation(server);
+    const supportsUI = this.capabilityNegotiator.supportsUI(server);
+    const supportsElicitation = this.capabilityNegotiator.supportsElicitation(server);
 
     this.log('debug', 'Client connected', {
       name: clientInfo?.name ?? 'unknown',
@@ -743,7 +676,7 @@ export class PhotonServer {
   private createMCPInputProvider(server?: Server): (ask: any) => Promise<any> {
     const targetServer = server || this.server;
     const capabilities = targetServer.getClientCapabilities();
-    const supportsElicitation = this.clientSupportsElicitation(server);
+    const supportsElicitation = this.capabilityNegotiator.supportsElicitation(targetServer);
 
     this.log('debug', 'Creating MCP input provider', {
       supportsElicitation,
@@ -1063,7 +996,7 @@ export class PhotonServer {
       const linkedUI = this.mcp?.assets?.ui.find(
         (u) => u.linkedTool === tool.name || u.linkedTools?.includes(tool.name)
       );
-      if (linkedUI && this.clientSupportsUI(ctx.server)) {
+      if (linkedUI && this.capabilityNegotiator.supportsUI(ctx.server)) {
         toolDef._meta = this.buildUIToolMeta(linkedUI.id);
       }
 
@@ -1144,7 +1077,7 @@ export class PhotonServer {
       if (
         toolName === '_use' &&
         (!args || !('name' in args)) &&
-        this.clientSupportsElicitation(ctx.server)
+        this.capabilityNegotiator.supportsElicitation(ctx.server)
       ) {
         const instancesResult = (await sendCommand(
           this.daemonName,
@@ -1384,7 +1317,7 @@ export class PhotonServer {
     const linkedUI = this.mcp?.assets?.ui.find(
       (u) => u.linkedTool === toolName || u.linkedTools?.includes(toolName)
     );
-    if (linkedUI && this.clientSupportsUI(ctx.server)) {
+    if (linkedUI && this.capabilityNegotiator.supportsUI(ctx.server)) {
       if (actualResult !== undefined && actualResult !== null) {
         response.structuredContent =
           typeof actualResult === 'string' ? { text: actualResult } : actualResult;
@@ -1705,7 +1638,10 @@ export class PhotonServer {
       } catch (error) {
         // STDIO-only: config elicitation retry
         const { name: toolName, arguments: args } = request.params;
-        if (this.mcp?.instance?._photonConfigError && this.clientSupportsElicitation()) {
+        if (
+          this.mcp?.instance?._photonConfigError &&
+          this.capabilityNegotiator.supportsElicitation(this.server)
+        ) {
           const retryResult = await this.attemptConfigElicitation(toolName, args || {});
           if (retryResult) return retryResult;
         }
@@ -1967,7 +1903,7 @@ export class PhotonServer {
 
     if (unresolved.sources.length === 1) {
       selectedSource = unresolved.sources[0];
-    } else if (this.clientSupportsElicitation()) {
+    } else if (this.capabilityNegotiator.supportsElicitation(this.server)) {
       // Present choices via elicitation
       const sourceLabels: Array<{ const: string; title: string }> = [];
       for (const source of unresolved.sources) {
@@ -2248,37 +2184,15 @@ export class PhotonServer {
   }
 
   /**
-   * Intercept a transport to capture raw client capabilities before Zod strips them.
-   *
-   * The MCP SDK's Zod schema for ClientCapabilities doesn't include `extensions`
-   * (protocol 2025-11-25+), so getClientCapabilities() returns an object without it.
-   * We intercept the transport's onmessage to capture the raw `initialize` request
-   * and store capabilities before Zod parsing occurs.
-   */
-  private interceptTransportForRawCapabilities(
-    transport: { onmessage?: (...args: any[]) => void },
-    targetServer: Server
-  ) {
-    const origOnMessage = transport.onmessage;
-    transport.onmessage = (message: any, extra?: any) => {
-      // Capture raw capabilities and client name from initialize request
-      if (message?.method === 'initialize' && message?.params) {
-        if (message.params.capabilities) {
-          this.rawClientCapabilities.set(targetServer, message.params.capabilities);
-        }
-      }
-      // Intercept channel permission requests from the client
-      this.channelManager.interceptPermissionRequest(message);
-      origOnMessage?.(message, extra);
-    };
-  }
-
-  /**
    * Start server with stdio transport
    */
   private async startStdio() {
     const transport = new StdioServerTransport();
-    this.interceptTransportForRawCapabilities(transport, this.server);
+    this.capabilityNegotiator.interceptTransportForRawCapabilities(
+      transport,
+      this.server,
+      (msg: any) => this.channelManager.interceptPermissionRequest(msg)
+    );
     await this.server.connect(transport);
     this.log('info', `Server started: ${this.mcp!.name}`);
   }
@@ -2306,7 +2220,11 @@ export class PhotonServer {
         stateful: !!(this.mcp as any)?.stateful,
         hasSettings: !!(this.mcp as any)?.hasSettings,
       });
-      this.interceptTransportForRawCapabilities(beamTransport, this.server);
+      this.capabilityNegotiator.interceptTransportForRawCapabilities(
+        beamTransport,
+        this.server,
+        (msg: any) => this.channelManager.interceptPermissionRequest(msg)
+      );
       await this.server.connect(beamTransport);
 
       // Wire sub-photons: collect all loaded photons except the main one
@@ -2868,7 +2786,11 @@ export class PhotonServer {
 
     // Create SSE transport
     const transport = new SSEServerTransport(messagesPath, res);
-    this.interceptTransportForRawCapabilities(transport, sessionServer);
+    this.capabilityNegotiator.interceptTransportForRawCapabilities(
+      transport,
+      sessionServer,
+      (msg: any) => this.channelManager.interceptPermissionRequest(msg)
+    );
     const sessionId = transport.sessionId;
 
     // Store session
