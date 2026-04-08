@@ -25,6 +25,7 @@ import {
 import type { ServerNotification } from '@modelcontextprotocol/sdk/types.js';
 import { readText } from './shared/io.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import * as path from 'node:path';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import { PhotonClassExtended, generateExecutionId } from '@portel/photon-core';
@@ -418,6 +419,10 @@ export class PhotonServer {
   private clientCapabilitiesLogged = false;
   /** Client capability detection and negotiation */
   private capabilityNegotiator = new CapabilityNegotiator();
+  /** Compatibility alias for tests that seed raw capabilities directly on PhotonServer */
+  public rawClientCapabilities: WeakMap<Server, Record<string, any>> = (
+    this.capabilityNegotiator as any
+  ).rawClientCapabilities;
   /** Resource listing, reading, and asset serving */
   private resourceServer: ResourceServer;
   private currentStatus: {
@@ -1563,6 +1568,36 @@ export class PhotonServer {
         },
       ],
     };
+  }
+
+  /**
+   * Compatibility wrappers for tests and older internal call sites after
+   * resource helpers moved into ResourceServer.
+   */
+  public isUriTemplate(uri: string): boolean {
+    return this.resourceServer.isUriTemplate(uri);
+  }
+
+  public matchUriPattern(pattern: string, uri: string): boolean {
+    return (this.resourceServer as any).matchUriPattern(pattern, uri);
+  }
+
+  public parseUriParams(pattern: string, uri: string): Record<string, string> {
+    return (this.resourceServer as any).parseUriParams(pattern, uri);
+  }
+
+  public formatStaticResult(result: any, mimeType?: string): any {
+    return (this.resourceServer as any).formatStaticResult(result, mimeType);
+  }
+
+  public clientSupportsUI(server: Server): boolean {
+    return this.capabilityNegotiator.supportsUI(server);
+  }
+
+  public buildUIToolMeta(uiId: string): Record<string, unknown> {
+    const photonName =
+      this.mcp?.name || path.basename(this.options.filePath, path.extname(this.options.filePath));
+    return this.resourceServer.buildUIToolMeta(photonName, uiId);
   }
 
   /**
