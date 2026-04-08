@@ -7,6 +7,13 @@
 import * as fs from 'fs/promises';
 import { realpathSync, existsSync, mkdirSync, symlinkSync, readFileSync, type Dirent } from 'fs';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
+import type {
+  PhotonInstance,
+  EventListenerEntry,
+  EventFilter,
+  ChannelMessage,
+  ReactiveCollectionLike,
+} from './types/photon-instance.js';
 import { createRequire } from 'module';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
@@ -154,7 +161,7 @@ class CLIRenderZone {
     process.stdout.write = (chunk: any, ...args: any[]): boolean => {
       const str = typeof chunk === 'string' ? chunk : chunk.toString();
       output += str;
-      return (originalWrite as any)(chunk, ...args);
+      return (originalWrite as (...a: unknown[]) => boolean)(chunk, ...args);
     };
 
     try {
@@ -1124,35 +1131,31 @@ export class PhotonLoader {
         tsContent &&
         /(?:this\._dispatch\s*\(|\(this\s+as\s+any\)\._dispatch\s*\()/.test(tsContent)
       ) {
-        const inst = instance as any;
+        const inst = instance as PhotonInstance;
         if (!inst._eventListeners) {
           inst._eventListeners = [];
         }
 
         if (!inst.on) {
-          inst.on = function (
-            event: string,
-            fn: (data: any) => void,
-            filter?: { group?: string; chatId?: string; trigger?: string; fromMe?: boolean }
-          ) {
-            inst._eventListeners.push({ event, fn, filter });
+          inst.on = function (event: string, fn: (data: unknown) => void, filter?: EventFilter) {
+            inst._eventListeners!.push({ event, fn, filter });
           };
         }
 
         if (!inst.off) {
-          inst.off = function (event: string, fn: (data: any) => void) {
-            const idx = inst._eventListeners.findIndex(
-              (e: any) => e.event === event && e.fn === fn
+          inst.off = function (event: string, fn: (data: unknown) => void) {
+            const idx = inst._eventListeners!.findIndex(
+              (e: EventListenerEntry) => e.event === event && e.fn === fn
             );
-            if (idx !== -1) inst._eventListeners.splice(idx, 1);
+            if (idx !== -1) inst._eventListeners!.splice(idx, 1);
           };
         }
 
         if (!inst._matchesFilter) {
           inst._matchesFilter = function (
-            filter: any,
+            filter: EventFilter | undefined,
             chatId: string,
-            message: any,
+            message: ChannelMessage,
             groupName?: string
           ): boolean {
             if (!filter) return true;
@@ -1169,10 +1172,10 @@ export class PhotonLoader {
         }
 
         if (!inst._dispatch) {
-          inst._dispatch = function (chatId: string, message: any, groupName?: string) {
-            for (const entry of inst._eventListeners) {
+          inst._dispatch = function (chatId: string, message: ChannelMessage, groupName?: string) {
+            for (const entry of inst._eventListeners!) {
               if (entry.event !== 'message') continue;
-              if (inst._matchesFilter(entry.filter, chatId, message, groupName)) {
+              if (inst._matchesFilter!(entry.filter, chatId, message, groupName)) {
                 try {
                   entry.fn({ chatId, message });
                 } catch {
@@ -1307,7 +1310,7 @@ export class PhotonLoader {
       const isStateful = /@stateful\b/.test(classDocblock);
 
       const result: PhotonClassExtended & {
-        classConstructor?: any;
+        /* classConstructor inherited from PhotonClass */
         settingsSchema?: SettingsSchema;
         icon?: string;
         stateful?: boolean;
@@ -1321,10 +1324,13 @@ export class PhotonLoader {
         assets,
         injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
       };
-      if (classIcon) (result as any).icon = classIcon;
-      if (isStateful) (result as any).stateful = true;
+      if (classIcon) result.icon = classIcon;
+      if (isStateful) result.stateful = true;
       // Store class constructor for static method access
-      result.classConstructor = MCPClass;
+      result.classConstructor = MCPClass as unknown as Record<
+        string,
+        (...args: unknown[]) => unknown
+      >;
       // Store settings schema for Beam UI
       if (settingsSchema?.hasSettings) {
         result.settingsSchema = settingsSchema;
@@ -1553,33 +1559,31 @@ export class PhotonLoader {
       tsContent &&
       /(?:this\._dispatch\s*\(|\(this\s+as\s+any\)\._dispatch\s*\()/.test(tsContent)
     ) {
-      const inst = instance as any;
+      const inst = instance as PhotonInstance;
       if (!inst._eventListeners) {
         inst._eventListeners = [];
       }
 
       if (!inst.on) {
-        inst.on = function (
-          event: string,
-          fn: (data: any) => void,
-          filter?: { group?: string; chatId?: string; trigger?: string; fromMe?: boolean }
-        ) {
-          inst._eventListeners.push({ event, fn, filter });
+        inst.on = function (event: string, fn: (data: unknown) => void, filter?: EventFilter) {
+          inst._eventListeners!.push({ event, fn, filter });
         };
       }
 
       if (!inst.off) {
-        inst.off = function (event: string, fn: (data: any) => void) {
-          const idx = inst._eventListeners.findIndex((e: any) => e.event === event && e.fn === fn);
-          if (idx !== -1) inst._eventListeners.splice(idx, 1);
+        inst.off = function (event: string, fn: (data: unknown) => void) {
+          const idx = inst._eventListeners!.findIndex(
+            (e: EventListenerEntry) => e.event === event && e.fn === fn
+          );
+          if (idx !== -1) inst._eventListeners!.splice(idx, 1);
         };
       }
 
       if (!inst._matchesFilter) {
         inst._matchesFilter = function (
-          filter: any,
+          filter: EventFilter | undefined,
           chatId: string,
-          message: any,
+          message: ChannelMessage,
           groupName?: string
         ): boolean {
           if (!filter) return true;
@@ -1596,10 +1600,10 @@ export class PhotonLoader {
       }
 
       if (!inst._dispatch) {
-        inst._dispatch = function (chatId: string, message: any, groupName?: string) {
-          for (const entry of inst._eventListeners) {
+        inst._dispatch = function (chatId: string, message: ChannelMessage, groupName?: string) {
+          for (const entry of inst._eventListeners!) {
             if (entry.event !== 'message') continue;
-            if (inst._matchesFilter(entry.filter, chatId, message, groupName)) {
+            if (inst._matchesFilter!(entry.filter, chatId, message, groupName)) {
               try {
                 entry.fn({ chatId, message });
               } catch {
@@ -1657,7 +1661,7 @@ export class PhotonLoader {
     const isStateful = /@stateful\b/.test(classDocblock);
 
     const result: PhotonClassExtended & {
-      classConstructor?: any;
+      classConstructor?: Record<string, unknown>;
       settingsSchema?: SettingsSchema;
       icon?: string;
       stateful?: boolean;
@@ -1671,9 +1675,12 @@ export class PhotonLoader {
       assets,
       injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
     };
-    if (classIcon) (result as any).icon = classIcon;
-    if (isStateful) (result as any).stateful = true;
-    result.classConstructor = MCPClass;
+    if (classIcon) result.icon = classIcon;
+    if (isStateful) result.stateful = true;
+    result.classConstructor = MCPClass as unknown as Record<
+      string,
+      (...args: unknown[]) => unknown
+    >;
     if (settingsSchema?.hasSettings) {
       result.settingsSchema = settingsSchema;
     }
@@ -3454,8 +3461,10 @@ Run: photon mcp ${mcpName} --config
                     `[EMIT-DEBUG] Sending event: method=${eventPayload.method}, channel=${eventData.channel}, hasMeta=${!!result?.__meta}`
                   );
                 }
-                // Cast to any - outputHandler is flexible and routes any object with channel property
-                void Promise.resolve(options.outputHandler(eventData as any)).catch((e) => {
+                // Cast to DaemonEventEnvelope - outputHandler is flexible and routes any object with channel property
+                void Promise.resolve(
+                  options.outputHandler(eventData as unknown as EmitYield)
+                ).catch((e) => {
                   this.logger.debug('Output handler failed for event', { error: e?.message || e });
                 });
                 if (process.env.PHOTON_DEBUG_EMIT === '1') {
@@ -3686,7 +3695,7 @@ Run: photon mcp ${mcpName} --config
   private createOutputHandler(): OutputHandler {
     return (emit: EmitYield) => {
       // Handle render:clear before the typed switch
-      if ((emit as any).emit === 'render:clear') {
+      if (emit.emit === 'render:clear') {
         cliRenderZone.clear();
         return;
       }
@@ -3827,8 +3836,8 @@ Run: photon mcp ${mcpName} --config
         ctorName === 'ReactiveSet' ||
         ctorName === 'Collection'
       ) {
-        (value as any)._propertyName = key;
-        (value as any)._emitter = emit;
+        (value as ReactiveCollectionLike)._propertyName = key;
+        (value as ReactiveCollectionLike)._emitter = emit;
         this.log(`Wired ${ctorName}: ${key}`);
       }
     }
@@ -3885,7 +3894,7 @@ Run: photon mcp ${mcpName} --config
 
     // Wrap each public method
     for (const methodName of methodNames) {
-      const original = instance[methodName] as any;
+      const original = instance[methodName] as ((...args: unknown[]) => unknown) | undefined;
       if (typeof original !== 'function') continue;
 
       instance[methodName] = function (...args: any[]) {
@@ -3897,7 +3906,13 @@ Run: photon mcp ${mcpName} --config
         const result = original.apply(this, args);
 
         // Attach __meta to returned objects for audit trail
-        if (result && typeof result === 'object' && !Array.isArray(result) && !result.__meta) {
+        const resultObj = result as Record<string, unknown> | null;
+        if (
+          resultObj &&
+          typeof resultObj === 'object' &&
+          !Array.isArray(resultObj) &&
+          !resultObj.__meta
+        ) {
           const timestamp = new Date().toISOString();
           Object.defineProperty(result, '__meta', {
             value: {
