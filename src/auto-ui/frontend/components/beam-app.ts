@@ -4261,6 +4261,7 @@ export class BeamApp extends LitElement {
       return html`<photon-studio
         .photonName=${this._selectedPhoton?.name || ''}
         .theme=${this._theme}
+        .hideCloseButton=${true}
         @studio-close=${() => (this._view = 'list')}
         @studio-saved=${async () => {
           const tools = await mcpClient.listTools();
@@ -6917,6 +6918,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
       return; // Already showing source/studio
     }
     const isEditable = this._selectedPhoton?.editable && !this._selectedPhoton?.isExternalMCP;
+    this._mainTab = 'source';
+
     if (isEditable) {
       // Editable photons get the full studio editor
       this._view = 'studio';
