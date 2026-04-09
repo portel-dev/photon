@@ -24,8 +24,7 @@ if (chalk.level === 0) {
 }
 
 import { highlight } from 'cli-highlight';
-import { resolvePhotonPath } from './path-resolver.js';
-import { getDefaultContext } from './context.js';
+import { getDefaultContext, resolvePhotonFromAllSources } from './context.js';
 import { PhotonLoader, clearRenderZone } from './loader.js';
 import { fileURLToPath } from 'url';
 import { getBundledPhotonPath } from './shared-utils.js';
@@ -36,7 +35,8 @@ const __dirname = path.dirname(__filename);
 // getBundledPhotonPath is imported from shared-utils.js
 
 /**
- * Resolve photon path - checks bundled first, then user directory
+ * Resolve photon path - checks bundled first, then all discovery sources
+ * (local workspace > ~/.photon > null)
  */
 async function resolvePhotonPathWithBundled(name: string): Promise<string | null> {
   // Check bundled photons first
@@ -45,8 +45,8 @@ async function resolvePhotonPathWithBundled(name: string): Promise<string | null
     return bundledPath;
   }
 
-  // Fall back to user photons (respects PHOTON_DIR)
-  return resolvePhotonPath(name, getDefaultContext().baseDir);
+  // Fall back to merged discovery (local workspace > global)
+  return resolvePhotonFromAllSources(name);
 }
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isGlobalDaemonRunning, ensureDaemon } from './daemon/manager.js';
@@ -104,6 +104,35 @@ export interface MethodInfo {
   buttonLabel?: string; // Custom button label from @returns {@label}
   scheduled?: string; // Cron expression for scheduled methods
   webhook?: boolean; // Whether this is a webhook handler
+}
+
+function unwrapNestedParamsSchema(
+  schema: any
+): { type: 'object'; properties: Record<string, any>; required?: string[] } | null {
+  if (!schema?.properties || typeof schema.properties !== 'object') {
+    return null;
+  }
+
+  const propNames = Object.keys(schema.properties);
+  if (propNames.length !== 1 || propNames[0] !== 'params') {
+    return null;
+  }
+
+  const nested = schema.properties.params;
+  if (
+    !nested ||
+    nested.type !== 'object' ||
+    !nested.properties ||
+    typeof nested.properties !== 'object'
+  ) {
+    return null;
+  }
+
+  return {
+    type: 'object',
+    properties: nested.properties,
+    ...(Array.isArray(nested.required) ? { required: nested.required } : {}),
+  };
 }
 
 interface MarkdownBlock {
@@ -179,7 +208,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
 
   return toolsToConvert.map((tool) => {
     const params: MethodInfo['params'] = [];
-    const schema = tool.inputSchema;
+    const schema = unwrapNestedParamsSchema(tool.inputSchema) || tool.inputSchema;
 
     if (schema?.properties) {
       for (const [name, prop] of Object.entries(schema.properties)) {

@@ -322,6 +322,13 @@ export class PhotonLoader {
     { module: { default: any; middleware?: any[] }; source: string; filePath: string }
   >;
 
+  /**
+   * Optional progress callback — invoked during long-running init phases
+   * (dependency install, compilation, onInitialize). Used by worker-host
+   * to send keepalive signals so the spawn timeout resets.
+   */
+  public onProgress?: (phase: string) => void;
+
   constructor(verbose: boolean = false, logger?: Logger, baseDir?: string) {
     this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
@@ -440,7 +447,7 @@ export class PhotonLoader {
    * Directory where MCP-specific dependencies are cached
    */
   private getDependencyCacheDir(cacheKey: string): string {
-    return path.join(getCacheDir(), 'dependencies', cacheKey);
+    return path.join(getCacheDir(process.env.PHOTON_DIR), 'dependencies', cacheKey);
   }
 
   private getBuildCacheDir(cacheKey: string): string {
@@ -560,6 +567,7 @@ export class PhotonLoader {
 
     let nodeModules: string | null = null;
     if (dependencies.length > 0) {
+      this.onProgress?.('installing dependencies');
       nodeModules = await this.dependencyManager.ensureDependencies(cacheKey, dependencies);
       if (nodeModules) {
         this.log(`📦 Dependencies ready for ${mcpName}`, { nodeModules });
@@ -746,6 +754,7 @@ export class PhotonLoader {
 
       const importModule = async () => {
         if (tsContent) {
+          this.onProgress?.('compiling typescript');
           const cachedJsPath = await this.compileTypeScript(absolutePath, cacheKey!, tsContent);
           const cachedJsUrl = pathToFileURL(cachedJsPath).href;
           return await import(`${cachedJsUrl}?t=${Date.now()}`);
@@ -1239,6 +1248,7 @@ export class PhotonLoader {
       // instance after loadFile returns, then onInitialize is called manually.
       const onInitialize = instance.onInitialize;
       if (typeof onInitialize === 'function' && !options?.skipInitialize) {
+        this.onProgress?.('running onInitialize');
         try {
           await onInitialize.call(instance);
         } catch (error) {
@@ -1625,6 +1635,7 @@ export class PhotonLoader {
     // Call lifecycle hook
     const onInitialize = instance.onInitialize;
     if (typeof onInitialize === 'function' && !options?.skipInitialize) {
+      this.onProgress?.('running onInitialize');
       try {
         await onInitialize.call(instance);
       } catch (error) {
@@ -3333,7 +3344,10 @@ Run: photon mcp ${mcpName} --config
       }
 
       // Get tool metadata for functional tags
-      const toolMeta: any = mcp.tools.find((t: any) => t.name === toolName) || {};
+      const rawToolMeta: any = mcp.tools.find((t: any) => t.name === toolName) || {};
+      const normalized = this.normalizeNestedParamsTool(rawToolMeta, parameters);
+      const toolMeta = normalized.toolMeta;
+      parameters = normalized.parameters;
       const hasFunctionalTags = toolMeta.middleware?.length > 0;
 
       // Validate required parameters before execution
@@ -3639,6 +3653,60 @@ Run: photon mcp ${mcpName} --config
     } finally {
       span.end();
     }
+  }
+
+  private normalizeNestedParamsTool(
+    toolMeta: any,
+    parameters: Record<string, unknown> | undefined
+  ): { toolMeta: any; parameters: Record<string, unknown> | undefined } {
+    const schema = toolMeta?.inputSchema;
+    if (!schema?.properties || typeof schema.properties !== 'object') {
+      return { toolMeta, parameters };
+    }
+
+    const propNames = Object.keys(schema.properties);
+    if (propNames.length !== 1 || propNames[0] !== 'params') {
+      return { toolMeta, parameters };
+    }
+
+    const nested = schema.properties.params;
+    if (
+      !nested ||
+      nested.type !== 'object' ||
+      !nested.properties ||
+      typeof nested.properties !== 'object'
+    ) {
+      return { toolMeta, parameters };
+    }
+
+    const normalizedToolMeta = {
+      ...toolMeta,
+      inputSchema: {
+        type: 'object',
+        properties: nested.properties,
+        ...(Array.isArray(nested.required) ? { required: nested.required } : {}),
+      },
+      // Named object params should stay as a single object argument at runtime.
+      simpleParams: false,
+    };
+
+    if (
+      parameters &&
+      typeof parameters === 'object' &&
+      'params' in parameters &&
+      parameters.params &&
+      typeof parameters.params === 'object'
+    ) {
+      return {
+        toolMeta: normalizedToolMeta,
+        parameters: parameters.params as Record<string, unknown>,
+      };
+    }
+
+    return {
+      toolMeta: normalizedToolMeta,
+      parameters,
+    };
   }
 
   /**

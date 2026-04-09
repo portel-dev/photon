@@ -178,7 +178,8 @@ export function registerBuildCommand(program: Command) {
         const sourceCode = fs.readFileSync(photonPath, 'utf-8');
 
         // Resolve @photon dependencies recursively
-        const baseDir = path.join(process.env.HOME || '~', '.photon');
+        const { getDefaultContext } = await import('../../context.js');
+        const baseDir = getDefaultContext().baseDir;
         const photonDeps = resolvePhotonDeps(sourceCode, photonPath, baseDir);
 
         if (photonDeps.length > 0) {
@@ -735,7 +736,7 @@ function extractMethodsFromSource(source: string) {
     .filter((t: any) => !t.name.startsWith('scheduled') && !t.name.startsWith('handle') && t.name !== 'reportError')
     .map((tool: any) => {
       const params: { name: string; type: string; optional: boolean; description?: string }[] = [];
-      const schema = tool.inputSchema;
+      const schema = unwrapNestedParamsSchema(tool.inputSchema) || tool.inputSchema;
       if (schema?.properties) {
         for (const [name, prop] of Object.entries(schema.properties) as [string, any][]) {
           let type = prop.type;
@@ -752,6 +753,30 @@ function extractMethodsFromSource(source: string) {
       }
       return { name: tool.name, params, description: tool.description !== 'No description' ? tool.description : undefined };
     });
+}
+
+function unwrapNestedParamsSchema(schema: any):
+  | { type: 'object'; properties: Record<string, any>; required?: string[] }
+  | null {
+  if (!schema?.properties || typeof schema.properties !== 'object') {
+    return null;
+  }
+
+  const propNames = Object.keys(schema.properties);
+  if (propNames.length !== 1 || propNames[0] !== 'params') {
+    return null;
+  }
+
+  const nested = schema.properties.params;
+  if (!nested || nested.type !== 'object' || !nested.properties || typeof nested.properties !== 'object') {
+    return null;
+  }
+
+  return {
+    type: 'object',
+    properties: nested.properties,
+    ...(Array.isArray(nested.required) ? { required: nested.required } : {}),
+  };
 }
 
 function cliParseArgs(args: string[], params: { name: string; type: string; optional: boolean }[]) {

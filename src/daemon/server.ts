@@ -1684,7 +1684,8 @@ async function handleRequest(
     // not forwarded to worker threads (workers don't know about _use etc.)
     const runtimeTools = ['_use', '_instances', '_undo', '_redo'];
     const cmdKey = compositeKey(photonName, request.workingDir);
-    if (workerManager.has(cmdKey) && !runtimeTools.includes(request.method)) {
+    const readyWorker = workerManager.get(cmdKey);
+    if (readyWorker?.ready && !runtimeTools.includes(request.method)) {
       const startMs = Date.now();
       const result = await workerManager.call(
         cmdKey,
@@ -1711,7 +1712,8 @@ async function handleRequest(
     );
 
     // Re-check: might have spawned a worker
-    if (workerManager.has(cmdKey) && !runtimeTools.includes(request.method)) {
+    const readyWorkerAfterInit = workerManager.get(cmdKey);
+    if (readyWorkerAfterInit?.ready && !runtimeTools.includes(request.method)) {
       const startMs = Date.now();
       const result = await workerManager.call(
         cmdKey,

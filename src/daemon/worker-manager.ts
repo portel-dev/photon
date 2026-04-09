@@ -116,15 +116,44 @@ export class WorkerManager {
 
     this.workers.set(key, info);
 
-    // Wait for ready or crash
+    // Wait for ready or crash. The timeout resets on each progress message
+    // so slow-but-active initialization (npm install, onInitialize) won't fail.
+    const SPAWN_TIMEOUT_MS = 60_000;
     return new Promise<WorkerInfo>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`Worker for ${photonName} did not become ready within 30s`));
-        void this.terminate(key, 'timeout');
-      }, 30_000);
+      let timeout = setTimeout(() => {
+        void failSpawn(
+          new Error(`Worker for ${photonName} did not become ready within 60s`),
+          'timeout'
+        );
+      }, SPAWN_TIMEOUT_MS);
+
+      const resetTimeout = () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          void failSpawn(
+            new Error(`Worker for ${photonName} did not become ready within 60s (stalled)`),
+            'timeout'
+          );
+        }, SPAWN_TIMEOUT_MS);
+      };
+
+      let settled = false;
+      const failSpawn = async (error: Error, reason: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          await this.terminate(key, reason);
+        } catch {
+          // Best effort cleanup before surfacing the spawn failure.
+        }
+        reject(error);
+      };
 
       const onMessage = (msg: WorkerToMainMessage) => {
         if (msg.type === 'ready') {
+          if (settled) return;
+          settled = true;
           clearTimeout(timeout);
           info.tools = msg.tools;
           info.ready = true;
@@ -133,22 +162,23 @@ export class WorkerManager {
           worker.off('message', onMessage);
           worker.on('message', (m: WorkerToMainMessage) => this.handleWorkerMessage(key, m));
           resolve(info);
+        } else if (msg.type === 'progress') {
+          this.logger.info('Worker init progress', { photonName, phase: msg.phase });
+          resetTimeout();
         } else if (msg.type === 'crashed') {
-          clearTimeout(timeout);
           this.logger.error('Worker crashed during init', { photonName, error: msg.error });
-          reject(new Error(msg.error));
-          void this.terminate(key, 'crash');
+          void failSpawn(new Error(msg.error), 'crash');
         }
       };
 
       worker.on('message', onMessage);
 
       worker.on('error', (err) => {
-        clearTimeout(timeout);
+        if (settled) return;
         this.logger.error('Worker thread error', { photonName, error: getErrorMessage(err) });
         info.crashCount++;
         info.lastCrash = Date.now();
-        reject(err);
+        void failSpawn(err, 'error');
       });
 
       worker.on('exit', (code) => {

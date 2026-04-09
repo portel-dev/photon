@@ -340,6 +340,58 @@ async function runTests() {
       console.log('  ✅ Execute add tool');
     }
 
+    // Test 7b: Execute tool with aliased object params
+    {
+      const loader = new PhotonLoader();
+      const testFile = await createTestPhoton(
+        'exec-aliased-object-params',
+        `
+          import { Photon } from '@portel/photon-core';
+
+          interface RunRequest {
+            workspace: string;
+            prompt: string;
+            search?: boolean;
+          }
+
+          export default class AliasParamsPhoton extends Photon {
+            async run(params: RunRequest) {
+              return {
+                workspace: params.workspace,
+                prompt: params.prompt,
+                search: params.search ?? false,
+              };
+            }
+          }
+        `
+      );
+      const mcp = await loader.loadFile(testFile);
+
+      const flatResult = await loader.executeTool(mcp, 'run', {
+        workspace: '/tmp/workspace',
+        prompt: 'ship it',
+        search: true,
+      });
+      assert.deepEqual(flatResult, {
+        workspace: '/tmp/workspace',
+        prompt: 'ship it',
+        search: true,
+      });
+
+      const wrappedResult = await loader.executeTool(mcp, 'run', {
+        params: {
+          workspace: '/tmp/wrapped',
+          prompt: 'still works',
+        },
+      });
+      assert.deepEqual(wrappedResult, {
+        workspace: '/tmp/wrapped',
+        prompt: 'still works',
+        search: false,
+      });
+      console.log('  ✅ Execute tool with aliased object params');
+    }
+
     // Test 8: Execute tool with object result
     {
       const loader = new PhotonLoader();
