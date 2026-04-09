@@ -1704,12 +1704,38 @@ async function handleRequest(
       };
     }
 
-    // Trigger worker spawn if needed (getOrCreateSessionManager returns null for workers)
-    const sessionManager = await getOrCreateSessionManager(
-      photonName,
-      request.photonPath,
-      request.workingDir
-    );
+    // Trigger worker spawn if needed (getOrCreateSessionManager returns null for workers).
+    // Bound the wait so a slow worker spawn (cascading deps) doesn't block the CLI indefinitely.
+    let sessionManager: Awaited<ReturnType<typeof getOrCreateSessionManager>> = null;
+    try {
+      const initPromise = getOrCreateSessionManager(
+        photonName,
+        request.photonPath,
+        request.workingDir
+      );
+      const INIT_TIMEOUT_MS = 60_000;
+      sessionManager = await Promise.race([
+        initPromise,
+        new Promise<null>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Photon ${photonName} initialization timed out (${INIT_TIMEOUT_MS / 1000}s)`
+                )
+              ),
+            INIT_TIMEOUT_MS
+          )
+        ),
+      ]);
+    } catch (initErr) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: getErrorMessage(initErr),
+        suggestion: `The photon may still be loading. Try again shortly, or check: cat ${getDefaultContext().logFile}`,
+      };
+    }
 
     // Re-check: might have spawned a worker
     const readyWorkerAfterInit = workerManager.get(cmdKey);
@@ -3511,11 +3537,35 @@ function shutdown(): void {
     webhookServer.close();
   }
 
+  // Only delete the socket if we still own it.
+  // After `daemon stop` + `daemon start`, a new daemon may have already created
+  // a new socket at this path. Deleting it would orphan the new daemon's listener.
   if (fs.existsSync(socketPath) && process.platform !== 'win32') {
+    let weOwnSocket = true;
     try {
-      fs.unlinkSync(socketPath);
+      const pidFile = getDefaultContext().pidFile;
+      const pidContent = fs.readFileSync(pidFile, 'utf-8').trim();
+      const filePid = parseInt(pidContent, 10);
+      if (!isNaN(filePid) && filePid !== process.pid) {
+        // PID file points to a different process — new daemon already started
+        weOwnSocket = false;
+        logger.info('Socket belongs to new daemon, skipping cleanup', {
+          ourPid: process.pid,
+          newPid: filePid,
+        });
+      }
     } catch {
-      // Ignore cleanup errors
+      // PID file missing (deleted by stop) — another process may own the socket now.
+      // If the socket still exists, it likely belongs to a new daemon. Don't delete.
+      weOwnSocket = false;
+    }
+
+    if (weOwnSocket) {
+      try {
+        fs.unlinkSync(socketPath);
+      } catch {
+        // Ignore cleanup errors
+      }
     }
   }
 

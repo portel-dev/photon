@@ -116,9 +116,11 @@ export class WorkerManager {
 
     this.workers.set(key, info);
 
-    // Wait for ready or crash. The timeout resets on each progress message
+    // Wait for ready or crash. The per-phase timeout resets on each progress message
     // so slow-but-active initialization (npm install, onInitialize) won't fail.
+    // The absolute ceiling prevents indefinite waits from cascading dep resolution.
     const SPAWN_TIMEOUT_MS = 60_000;
+    const ABSOLUTE_CEILING_MS = 120_000;
     return new Promise<WorkerInfo>((resolve, reject) => {
       let timeout = setTimeout(() => {
         void failSpawn(
@@ -126,6 +128,16 @@ export class WorkerManager {
           'timeout'
         );
       }, SPAWN_TIMEOUT_MS);
+
+      // Absolute ceiling: no matter how many progress resets, fail after this
+      const ceilingTimeout = setTimeout(() => {
+        void failSpawn(
+          new Error(
+            `Worker for ${photonName} exceeded absolute timeout of ${ABSOLUTE_CEILING_MS / 1000}s`
+          ),
+          'ceiling-timeout'
+        );
+      }, ABSOLUTE_CEILING_MS);
 
       const resetTimeout = () => {
         clearTimeout(timeout);
@@ -142,6 +154,7 @@ export class WorkerManager {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
+        clearTimeout(ceilingTimeout);
         try {
           await this.terminate(key, reason);
         } catch {
@@ -155,6 +168,7 @@ export class WorkerManager {
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
+          clearTimeout(ceilingTimeout);
           info.tools = msg.tools;
           info.ready = true;
           this.logger.info('Worker ready', { photonName, tools: msg.tools.length });
@@ -183,6 +197,7 @@ export class WorkerManager {
 
       worker.on('exit', (code) => {
         clearTimeout(timeout);
+        clearTimeout(ceilingTimeout);
         if (code !== 0) {
           this.logger.warn('Worker exited unexpectedly', { photonName, code });
           info.crashCount++;

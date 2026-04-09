@@ -443,6 +443,20 @@ export class DaemonManager {
       } catch (killError: any) {
         if (killError.code !== 'ESRCH') throw killError;
       }
+      // Wait for the process to actually exit before cleaning up filesystem state.
+      // Without this, a quick stop→start sequence can race: the new daemon creates
+      // its socket, then the old daemon's SIGTERM handler deletes it.
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline) {
+        try {
+          process.kill(pid, 0); // throws ESRCH when process is gone
+          // Still alive — spin briefly
+          const waitMs = 50;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+        } catch {
+          break; // Process exited
+        }
+      }
       fs.unlinkSync(this.ctx.pidFile);
       if (fs.existsSync(this.ctx.socketPath) && process.platform !== 'win32') {
         fs.unlinkSync(this.ctx.socketPath);
