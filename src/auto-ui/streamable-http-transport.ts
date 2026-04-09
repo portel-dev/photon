@@ -127,6 +127,12 @@ interface PendingElicitation {
   reject: (error: Error) => void;
   sessionId: string;
   timer?: ReturnType<typeof setTimeout>;
+  deferTimer?: ReturnType<typeof setTimeout>;
+  keepaliveInterval?: ReturnType<typeof setInterval>;
+  approvalId?: string;
+  photonName?: string;
+  methodName?: string;
+  message?: string;
 }
 const pendingElicitations = new Map<string, PendingElicitation>();
 
@@ -258,6 +264,99 @@ function parseDurationToMs(duration: string): number {
     default:
       return 5 * 60 * 1000;
   }
+}
+
+// ── Elicitation lifecycle helpers ──
+
+/** Duration before an unanswered elicitation moves to pending approvals */
+const ELICITATION_DEFER_MS = 30_000; // 30 seconds
+/** Maximum time an elicitation stays alive in pending queue */
+const ELICITATION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+/** Interval between progress keepalive broadcasts */
+const KEEPALIVE_INTERVAL_MS = 25_000; // 25 seconds (under 30s SDK default)
+
+/** Clean up all timers associated with a pending elicitation */
+function cleanupElicitation(pending: PendingElicitation): void {
+  if (pending.timer) clearTimeout(pending.timer);
+  if (pending.deferTimer) clearTimeout(pending.deferTimer);
+  if (pending.keepaliveInterval) clearInterval(pending.keepaliveInterval);
+}
+
+/**
+ * Set up two-phase timeout for an elicitation:
+ * Phase 1 (30s): Modal shown to user. If no response, move to pending queue.
+ * Phase 2 (30min): Keepalive progress notifications sent. Final expiry cancels.
+ */
+function setupElicitationTimeout(
+  elicitationId: string,
+  pending: PendingElicitation,
+  resolve: (value: { action: 'accept' | 'decline' | 'cancel'; content?: any }) => void
+): void {
+  const photon = pending.photonName || 'unknown';
+  const method = pending.methodName || 'unknown';
+  const message = pending.message || 'Approval required';
+
+  // Phase 1: After 30s without response, defer to pending queue
+  pending.deferTimer = setTimeout(() => {
+    // Only defer if still pending (user may have responded)
+    if (!pendingElicitations.has(elicitationId)) return;
+
+    const approvalId = elicitationId; // reuse ID for linking
+    pending.approvalId = approvalId;
+    const expiresAt = new Date(Date.now() + ELICITATION_EXPIRY_MS).toISOString();
+
+    // Write to persistent approval storage (fire-and-forget, non-blocking)
+    void addApproval({
+      id: approvalId,
+      photon,
+      method,
+      message,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      expiresAt,
+    });
+
+    // Tell Beam frontend to close modal and show badge
+    broadcastToBeam('beam/elicitation-deferred', {
+      elicitationId,
+      approvalId,
+      photon,
+      method,
+      message,
+      expiresAt,
+    });
+
+    // Start progress keepalives to prevent external MCP client timeout
+    pending.keepaliveInterval = setInterval(() => {
+      if (!pendingElicitations.has(elicitationId)) {
+        if (pending.keepaliveInterval) clearInterval(pending.keepaliveInterval);
+        return;
+      }
+      broadcastNotification('notifications/progress', {
+        progressToken: `approval_${elicitationId}`,
+        progress: 0,
+        total: 0,
+        message: `Waiting for user approval: ${message}`,
+      });
+    }, KEEPALIVE_INTERVAL_MS);
+
+    // Phase 2: Final expiry after 30 minutes
+    pending.timer = setTimeout(() => {
+      if (pendingElicitations.has(elicitationId)) {
+        cleanupElicitation(pending);
+        pendingElicitations.delete(elicitationId);
+        // Mark approval as expired on disk
+        void resolveApproval(photon, approvalId, 'rejected');
+        // Notify frontend
+        broadcastToBeam('beam/approval-resolved', {
+          approvalId,
+          photon,
+          status: 'expired',
+        });
+        resolve({ action: 'cancel' });
+      }
+    }, ELICITATION_EXPIRY_MS);
+  }, ELICITATION_DEFER_MS);
 }
 
 // Clean up old sessions periodically (30 min timeout)
@@ -749,7 +848,18 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     pendingElicitations.delete(elicitationId);
-    if (pending.timer) clearTimeout(pending.timer);
+    cleanupElicitation(pending);
+
+    // If this elicitation was deferred to approvals, resolve the approval on disk too
+    if (pending.approvalId) {
+      const status: 'approved' | 'rejected' = params?.cancelled ? 'rejected' : 'approved';
+      await resolveApproval(pending.photonName || 'unknown', pending.approvalId, status);
+      broadcastToBeam('beam/approval-resolved', {
+        approvalId: pending.approvalId,
+        photon: pending.photonName || 'unknown',
+        status,
+      });
+    }
 
     if (params?.cancelled) {
       pending.reject(new Error('Elicitation cancelled by user'));
@@ -790,7 +900,7 @@ const handlers: Record<string, RequestHandler> = {
     const pending = pendingElicitations.get(params.approvalId);
     if (pending) {
       pendingElicitations.delete(params.approvalId);
-      if (pending.timer) clearTimeout(pending.timer);
+      cleanupElicitation(pending);
       if (params.approved) {
         pending.resolve(true);
       } else {
@@ -1422,10 +1532,13 @@ const handlers: Record<string, RequestHandler> = {
 
     // Auto-confirm @destructive operations before execution (any transport path)
     if (methodInfo?.destructiveHint) {
-      const elicitResult = await requestBeamElicitation({
-        ask: 'confirm',
-        message: `"${methodName}" is a destructive operation. Continue?`,
-      });
+      const elicitResult = await requestBeamElicitation(
+        {
+          ask: 'confirm',
+          message: `"${methodName}" is a destructive operation. Continue?`,
+        },
+        { photonName: serverName, methodName }
+      );
       if (elicitResult.action !== 'accept' || elicitResult.content === false) {
         return {
           jsonrpc: '2.0' as const,
@@ -1474,11 +1587,14 @@ const handlers: Record<string, RequestHandler> = {
           }));
           selectOptions.push({ value: '__create_new__', label: 'Create new...', selected: false });
 
-          const elicitResult = await requestBeamElicitation({
-            ask: 'select',
-            message: 'Select an instance',
-            options: selectOptions,
-          });
+          const elicitResult = await requestBeamElicitation(
+            {
+              ask: 'select',
+              message: 'Select an instance',
+              options: selectOptions,
+            },
+            { photonName: serverName, methodName }
+          );
 
           if (elicitResult.action !== 'accept' || !elicitResult.content) {
             return {
@@ -1495,11 +1611,14 @@ const handlers: Record<string, RequestHandler> = {
 
           // Handle "Create new..." selection
           if (selectedName === '__create_new__') {
-            const nameResult = await requestBeamElicitation({
-              ask: 'text',
-              message: 'Enter a name for the new instance',
-              placeholder: 'e.g. groceries, work, personal',
-            });
+            const nameResult = await requestBeamElicitation(
+              {
+                ask: 'text',
+                message: 'Enter a name for the new instance',
+                placeholder: 'e.g. groceries, work, personal',
+              },
+              { photonName: serverName, methodName }
+            );
 
             if (nameResult.action !== 'accept' || !nameResult.content) {
               return {
@@ -2488,7 +2607,8 @@ const handlers: Record<string, RequestHandler> = {
     // If input_required right now, handle elicitation before waiting
     if (task.state === 'input_required' && task.input) {
       const elicitResult = await requestBeamElicitation(
-        task.input as Parameters<typeof requestBeamElicitation>[0]
+        task.input as Parameters<typeof requestBeamElicitation>[0],
+        { photonName: task.photon || 'task', methodName: task.method || taskId }
       );
       if (elicitResult.action === 'accept') {
         resolveTaskInput(taskId, elicitResult.content);
@@ -2514,7 +2634,8 @@ const handlers: Record<string, RequestHandler> = {
         if (current.state === 'input_required' && current.input) {
           // Send elicitation to the client
           const elicitResult = await requestBeamElicitation(
-            current.input as Parameters<typeof requestBeamElicitation>[0]
+            current.input as Parameters<typeof requestBeamElicitation>[0],
+            { photonName: task.photon || 'task', methodName: task.method || taskId }
           );
           if (elicitResult.action === 'accept') {
             resolveTaskInput(taskId, elicitResult.content);
@@ -2835,10 +2956,13 @@ async function handleBeamRemove(
   }
 
   // Require explicit confirmation before removing
-  const elicitResult = await requestBeamElicitation({
-    ask: 'confirm',
-    message: `Remove "${photonName}"? The photon and its assets will be moved to trash.`,
-  });
+  const elicitResult = await requestBeamElicitation(
+    {
+      ask: 'confirm',
+      message: `Remove "${photonName}"? The photon and its assets will be moved to trash.`,
+    },
+    { photonName, methodName: 'remove' }
+  );
   if (elicitResult.action !== 'accept' || elicitResult.content === false) {
     return {
       jsonrpc: '2.0' as const,
@@ -4066,8 +4190,7 @@ export function requestExternalElicitation(
 ): Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: any }> {
   const elicitationId = randomUUID();
 
-  return new Promise((resolve, reject) => {
-    // Store pending elicitation
+  return new Promise((resolve) => {
     const pending: PendingElicitation = {
       resolve: (value: any) => {
         resolve({ action: 'accept', content: value });
@@ -4079,7 +4202,10 @@ export function requestExternalElicitation(
           resolve({ action: 'decline' });
         }
       },
-      sessionId: '', // External MCP elicitations aren't tied to a specific session
+      sessionId: '',
+      photonName: mcpName,
+      methodName: 'elicitation',
+      message: request.message,
     };
     pendingElicitations.set(elicitationId, pending);
 
@@ -4093,13 +4219,8 @@ export function requestExternalElicitation(
       url: request.url,
     });
 
-    // Timeout after 5 minutes (timer cleared on normal resolve)
-    pending.timer = setTimeout(() => {
-      if (pendingElicitations.has(elicitationId)) {
-        pendingElicitations.delete(elicitationId);
-        resolve({ action: 'cancel' });
-      }
-    }, 300000);
+    // Two-phase timeout: 30s modal → pending queue with keepalives → 30min expiry
+    setupElicitationTimeout(elicitationId, pending, resolve);
   });
 }
 
@@ -4108,13 +4229,16 @@ export function requestExternalElicitation(
  * Unlike requestExternalElicitation which uses MCP form/url mode, this sends
  * the ask type directly so the elicitation modal renders the appropriate UI.
  */
-function requestBeamElicitation(data: {
-  ask: 'select' | 'text' | 'confirm' | 'number';
-  message: string;
-  options?: Array<{ value: string; label: string; selected?: boolean; description?: string }>;
-  placeholder?: string;
-  default?: any;
-}): Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: any }> {
+function requestBeamElicitation(
+  data: {
+    ask: 'select' | 'text' | 'confirm' | 'number';
+    message: string;
+    options?: Array<{ value: string; label: string; selected?: boolean; description?: string }>;
+    placeholder?: string;
+    default?: any;
+  },
+  context?: { photonName?: string; methodName?: string }
+): Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: any }> {
   const elicitationId = randomUUID();
 
   return new Promise((resolve) => {
@@ -4130,6 +4254,9 @@ function requestBeamElicitation(data: {
         }
       },
       sessionId: '',
+      photonName: context?.photonName,
+      methodName: context?.methodName,
+      message: data.message,
     };
     pendingElicitations.set(elicitationId, pending);
 
@@ -4139,12 +4266,7 @@ function requestBeamElicitation(data: {
       ...data,
     });
 
-    // Timeout after 5 minutes (timer cleared on normal resolve)
-    pending.timer = setTimeout(() => {
-      if (pendingElicitations.has(elicitationId)) {
-        pendingElicitations.delete(elicitationId);
-        resolve({ action: 'cancel' });
-      }
-    }, 300000);
+    // Two-phase timeout: 30s modal → pending queue with keepalives → 30min expiry
+    setupElicitationTimeout(elicitationId, pending, resolve);
   });
 }

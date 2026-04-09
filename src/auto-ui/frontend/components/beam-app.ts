@@ -34,6 +34,8 @@ import {
   type ThemeConfig,
 } from '../../design-system/tokens.js';
 import type { ElicitationData } from './elicitation-modal.js';
+import type { ApprovalItem } from './pending-approvals.js';
+import './pending-approvals.js';
 import { mcpClient } from '../services/mcp-client.js';
 import {
   initializeGlobalPhotonSession,
@@ -1683,7 +1685,8 @@ export class BeamApp extends LitElement {
       }
 
       /* ===== Theme Settings Panel ===== */
-      .theme-settings-overlay {
+      .theme-settings-overlay,
+      .approvals-overlay {
         position: fixed;
         inset: 0;
         background: rgba(0, 0, 0, 0.3);
@@ -1700,6 +1703,29 @@ export class BeamApp extends LitElement {
         overflow-y: auto;
         border-radius: var(--radius-md);
         animation: slideInRight 0.2s ease;
+      }
+
+      .approvals-panel {
+        position: fixed;
+        bottom: var(--space-xl);
+        left: var(--space-md);
+        width: 340px;
+        max-height: 60vh;
+        z-index: 1001;
+        overflow-y: auto;
+        border-radius: var(--radius-md);
+        animation: slideInUp 0.2s ease;
+      }
+
+      @keyframes slideInUp {
+        from {
+          transform: translateY(20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
       }
 
       @keyframes slideInRight {
@@ -2193,6 +2219,8 @@ export class BeamApp extends LitElement {
   @state() private _photonHelpLoading = false;
   @state() private _elicitationData: ElicitationData | null = null;
   @state() private _showElicitation = false;
+  @state() private _showApprovals = false;
+  @state() private _pendingApprovalsList: ApprovalItem[] = [];
   @state() private _protocolMode: 'legacy' | 'mcp' = 'legacy';
   @state() private _selectedMcpAppUri: string | null = null; // Selected tab for MCP Apps with multiple UIs
   @state() private _mcpReady = false;
@@ -2579,6 +2607,9 @@ export class BeamApp extends LitElement {
           // Check for available updates in background
           void this._checkForUpdates();
 
+          // Start polling for pending approvals
+          this._startApprovalsPolling();
+
           // Restore state from URL path or select first photon
           if (window.location.pathname !== '/') {
             void this._handleRouteChange();
@@ -2608,6 +2639,7 @@ export class BeamApp extends LitElement {
         this._connected = false;
         this._reconnecting = true;
         this._reconnectAttempt++;
+        this._stopApprovalsPolling();
         // Connection status shown via banner, not log
         showToast('Connection lost. Reconnecting...', 'warning');
       });
@@ -2948,6 +2980,35 @@ export class BeamApp extends LitElement {
           this._elicitationData = elicitationData;
           this._showElicitation = true;
           this._log('info', `Input required: ${data.message || elicitationData.ask}`);
+        }
+      });
+
+      // Handle elicitation deferred to pending approvals
+      mcpClient.on('elicitation-deferred', (data: any) => {
+        if (data) {
+          // Close modal if this elicitation was being shown
+          if (
+            this._elicitationData &&
+            (this._elicitationData as any).elicitationId === data.elicitationId
+          ) {
+            this._showElicitation = false;
+            this._elicitationData = null;
+          }
+          // Refresh pending approvals list
+          void this._fetchPendingApprovals();
+          this._log('info', `Moved to pending approvals: ${data.message || 'Approval required'}`);
+        }
+      });
+
+      // Handle approval resolved (from another tab or timeout)
+      mcpClient.on('approval-resolved', (data: any) => {
+        if (data) {
+          this._pendingApprovalsList = this._pendingApprovalsList.filter(
+            (a) => a.id !== data.approvalId
+          );
+          if (this._pendingApprovalsList.length === 0) {
+            this._showApprovals = false;
+          }
         }
       });
 
@@ -3861,6 +3922,7 @@ export class BeamApp extends LitElement {
           .connected=${this._connected}
           .reconnecting=${this._reconnecting}
           .updatesAvailable=${this._updatesAvailable.length}
+          .pendingApprovals=${this._pendingApprovalsList.length}
           .mainTab=${this._mainTab}
           .isApp=${!!(
             this._selectedPhoton?.isApp ||
@@ -3933,6 +3995,10 @@ export class BeamApp extends LitElement {
           @theme-change=${this._handleThemeChange}
           @open-theme-settings=${() => (this._showThemeSettings = true)}
           @show-shortcuts=${this._showHelpModal}
+          @show-approvals=${() => {
+            this._showApprovals = true;
+            void this._fetchPendingApprovals();
+          }}
           @reconnect-mcp=${(e: Event) => {
             void this._handleReconnectMCP(e as CustomEvent);
           }}
@@ -4091,6 +4157,19 @@ export class BeamApp extends LitElement {
         @cancel=${this._handleElicitationCancel}
         @oauth-complete=${this._handleOAuthComplete}
       ></elicitation-modal>
+
+      ${this._showApprovals
+        ? html`
+            <div class="approvals-overlay" @click=${() => (this._showApprovals = false)}></div>
+            <div class="approvals-panel glass-panel">
+              <pending-approvals
+                .approvals=${this._pendingApprovalsList}
+                @approval-response=${this._handleApprovalResponse}
+                @close=${() => (this._showApprovals = false)}
+              ></pending-approvals>
+            </div>
+          `
+        : ''}
     `;
   }
 
@@ -7809,6 +7888,42 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     this._log('info', 'Input cancelled');
     showToast('Input cancelled', 'info');
+  };
+
+  // ── Pending Approvals ──
+
+  private _approvalsRefreshInterval?: ReturnType<typeof setInterval>;
+
+  private async _fetchPendingApprovals(): Promise<void> {
+    if (!this._mcpReady) return;
+    this._pendingApprovalsList = await mcpClient.fetchPendingApprovals();
+  }
+
+  private _startApprovalsPolling(): void {
+    this._stopApprovalsPolling();
+    void this._fetchPendingApprovals();
+    this._approvalsRefreshInterval = setInterval(() => void this._fetchPendingApprovals(), 60_000);
+  }
+
+  private _stopApprovalsPolling(): void {
+    if (this._approvalsRefreshInterval) {
+      clearInterval(this._approvalsRefreshInterval);
+      this._approvalsRefreshInterval = undefined;
+    }
+  }
+
+  private _handleApprovalResponse = async (e: CustomEvent) => {
+    const { approvalId, photon, approved } = e.detail;
+    // Optimistically remove from list
+    this._pendingApprovalsList = this._pendingApprovalsList.filter((a) => a.id !== approvalId);
+    if (this._pendingApprovalsList.length === 0) {
+      this._showApprovals = false;
+    }
+    const result = await mcpClient.sendApprovalResponse(approvalId, photon, approved);
+    if (!result.success) {
+      showToast('Failed to send approval response', 'error');
+      void this._fetchPendingApprovals(); // Re-fetch to restore accurate state
+    }
   };
 
   private _handleOAuthComplete = async (e: CustomEvent) => {

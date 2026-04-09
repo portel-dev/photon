@@ -751,6 +751,38 @@ class MCPClientService {
   }
 
   /**
+   * Send approval response (approve/reject) for a pending approval
+   */
+  async sendApprovalResponse(
+    approvalId: string,
+    photon: string,
+    approved: boolean
+  ): Promise<{ success: boolean }> {
+    try {
+      await this.sendRequest('beam/approval-response', {
+        approvalId,
+        photon,
+        approved,
+      });
+      return { success: true };
+    } catch {
+      return { success: false };
+    }
+  }
+
+  /**
+   * Fetch all pending approvals from the server
+   */
+  async fetchPendingApprovals(): Promise<any[]> {
+    try {
+      const result = await this.sendRequest('beam/approvals-list', {});
+      return (result as any)?.approvals || [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Get rich help documentation for a photon via beam/photon-help tool
    */
   async getPhotonHelp(photonName: string): Promise<string | null> {
@@ -1139,6 +1171,14 @@ class MCPClientService {
 
       case 'beam/elicitation':
         this.emit('elicitation', notification.params);
+        break;
+
+      case 'beam/elicitation-deferred':
+        this.emit('elicitation-deferred', notification.params);
+        break;
+
+      case 'beam/approval-resolved':
+        this.emit('approval-resolved', notification.params);
         break;
 
       case 'beam/result':

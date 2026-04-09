@@ -112,6 +112,24 @@ export class ConfirmDialog extends LitElement {
       .btn-confirm.destructive:hover {
         background: hsl(0, 60%, 45%);
       }
+
+      .prompt-input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm, 6px);
+        background: var(--bg-glass);
+        color: var(--t-primary);
+        font-size: 13px;
+        font-family: inherit;
+        margin-bottom: 16px;
+        box-sizing: border-box;
+      }
+
+      .prompt-input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
     `,
   ];
 
@@ -122,6 +140,9 @@ export class ConfirmDialog extends LitElement {
   @property({ type: Boolean }) destructive = false;
 
   private _resolve?: (value: boolean) => void;
+  private _promptResolve?: (value: string | null) => void;
+  private _promptMode = false;
+  private _promptDefault = '';
 
   show(
     message: string,
@@ -131,6 +152,7 @@ export class ConfirmDialog extends LitElement {
     this.confirmLabel = options?.confirm ?? 'OK';
     this.cancelLabel = options?.cancel ?? 'Cancel';
     this.destructive = options?.destructive ?? false;
+    this._promptMode = false;
     this.open = true;
 
     return new Promise<boolean>((resolve) => {
@@ -138,14 +160,55 @@ export class ConfirmDialog extends LitElement {
     });
   }
 
+  showPrompt(
+    message: string,
+    defaultValue = '',
+    options?: { confirm?: string; cancel?: string }
+  ): Promise<string | null> {
+    this.message = message;
+    this.confirmLabel = options?.confirm ?? 'OK';
+    this.cancelLabel = options?.cancel ?? 'Cancel';
+    this.destructive = false;
+    this._promptMode = true;
+    this._promptDefault = defaultValue;
+    this.open = true;
+
+    // Focus the input after rendering
+    this.updateComplete
+      .then(() => {
+        const input = this.shadowRoot?.querySelector('.prompt-input') as HTMLInputElement;
+        if (input) {
+          input.value = defaultValue;
+          input.focus();
+          input.select();
+        }
+      })
+      .catch(() => {
+        /* ignore */
+      });
+
+    return new Promise<string | null>((resolve) => {
+      this._promptResolve = resolve;
+    });
+  }
+
   private _handleConfirm() {
     this.open = false;
-    this._resolve?.(true);
+    if (this._promptMode) {
+      const input = this.shadowRoot?.querySelector('.prompt-input') as HTMLInputElement;
+      this._promptResolve?.(input?.value ?? null);
+    } else {
+      this._resolve?.(true);
+    }
   }
 
   private _handleCancel() {
     this.open = false;
-    this._resolve?.(false);
+    if (this._promptMode) {
+      this._promptResolve?.(null);
+    } else {
+      this._resolve?.(false);
+    }
   }
 
   private _handleKeydown(e: KeyboardEvent) {
@@ -157,6 +220,9 @@ export class ConfirmDialog extends LitElement {
     return html`
       <div class="dialog" @keydown=${(e: KeyboardEvent) => this._handleKeydown(e)}>
         <div class="message">${this.message}</div>
+        ${this._promptMode
+          ? html`<input class="prompt-input" type="text" .value=${this._promptDefault} />`
+          : ''}
         <div class="actions">
           <button class="btn-cancel" @click=${() => this._handleCancel()}>
             ${this.cancelLabel}
@@ -173,20 +239,30 @@ export class ConfirmDialog extends LitElement {
   }
 }
 
-/** Global themed confirm dialog — drop-in replacement for window.confirm() */
-export async function confirmDialog(
-  message: string,
-  options?: { confirm?: string; cancel?: string; destructive?: boolean }
-): Promise<boolean> {
-  // Place dialog inside beam-app's shadow root so it inherits theme tokens.
-  // Falls back to document.body if beam-app isn't found.
+function getOrCreateDialog(): ConfirmDialog {
   const beamApp = document.querySelector('beam-app');
   const root = beamApp?.shadowRoot ?? document.body;
-
   let dialog = root.querySelector('confirm-dialog') as ConfirmDialog;
   if (!dialog) {
     dialog = document.createElement('confirm-dialog') as ConfirmDialog;
     root.appendChild(dialog);
   }
-  return dialog.show(message, options);
+  return dialog;
+}
+
+/** Global themed confirm dialog — drop-in replacement for window.confirm() */
+export async function confirmDialog(
+  message: string,
+  options?: { confirm?: string; cancel?: string; destructive?: boolean }
+): Promise<boolean> {
+  return getOrCreateDialog().show(message, options);
+}
+
+/** Global themed prompt dialog — drop-in replacement for window.prompt() */
+export async function promptDialog(
+  message: string,
+  defaultValue = '',
+  options?: { confirm?: string; cancel?: string }
+): Promise<string | null> {
+  return getOrCreateDialog().showPrompt(message, defaultValue, options);
 }

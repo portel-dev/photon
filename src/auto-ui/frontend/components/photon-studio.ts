@@ -15,7 +15,7 @@ import { linter, type Diagnostic } from '@codemirror/lint';
 import { basicSetup } from 'codemirror';
 import { mcpClient } from '../services/mcp-client.js';
 import { showToast } from './toast-manager.js';
-import { confirmDialog } from './confirm-dialog.js';
+import { confirmDialog, promptDialog } from './confirm-dialog.js';
 import {
   createDocblockCompletions,
   photonFormatCompletions,
@@ -1320,7 +1320,7 @@ export class PhotonStudio extends LitElement {
     }
 
     const currentName = seedPlan.symbolName.replace(/^\(alias\)\s*/, '').trim();
-    const nextName = window.prompt('Rename symbol to:', currentName);
+    const nextName = await promptDialog('Rename symbol to:', currentName);
     if (!nextName || nextName === currentName) return;
 
     const renamePlan = await this._tsWorkerClient
