@@ -25,6 +25,7 @@ export type MainToWorkerMessage =
 /** Messages from worker → main thread */
 export type WorkerToMainMessage =
   | { type: 'ready'; tools: Array<{ name: string; description?: string }> }
+  | { type: 'progress'; phase: string }
   | {
       type: 'result';
       id: string;

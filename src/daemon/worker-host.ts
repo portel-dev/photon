@@ -168,6 +168,7 @@ function createDepProxy(depName: string, remoteToolNames: string[]): any {
 
 async function initialize(): Promise<void> {
   try {
+    send({ type: 'progress', phase: 'creating loader' });
     loader = new PhotonLoader(false, logger.child({ component: 'photon-loader' }), init.workingDir);
 
     // Wire @photon dependency resolver to go through main thread
@@ -185,6 +186,13 @@ async function initialize(): Promise<void> {
       });
     };
 
+    // Send progress signals so the main thread resets its spawn timeout.
+    // Each phase (deps, compile, init) can take significant time.
+    loader.onProgress = (phase: string) => {
+      send({ type: 'progress', phase });
+    };
+
+    send({ type: 'progress', phase: 'loading photon' });
     loadedInstance = await loader.loadFile(init.photonPath, {
       instanceName: init.instanceName,
     });
