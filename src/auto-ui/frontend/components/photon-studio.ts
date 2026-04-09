@@ -49,6 +49,7 @@ const lightTheme = EditorView.theme({
 export class PhotonStudio extends LitElement {
   @property() photonName = '';
   @property() theme = 'dark';
+  @property({ type: Boolean }) hideCloseButton = false;
 
   @state() private _source = '';
   @state() private _originalSource = '';
@@ -1820,7 +1821,9 @@ export class PhotonStudio extends LitElement {
       return html`
         <div class="toolbar">
           <span class="toolbar-title">Studio</span>
-          <button class="close-btn" @click=${() => this._close()}>&times;</button>
+          ${!this.hideCloseButton
+            ? html`<button class="close-btn" @click=${() => this._close()}>&times;</button>`
+            : ''}
         </div>
         <div class="loading-state">Loading source...</div>
       `;
@@ -1829,8 +1832,10 @@ export class PhotonStudio extends LitElement {
     if (this._error) {
       return html`
         <div class="toolbar">
-          <span class="toolbar-title">Studio</span>
-          <button class="close-btn" @click=${() => this._close()}>&times;</button>
+          <span class="toolbar-title">Studio Error</span>
+          ${!this.hideCloseButton
+            ? html`<button class="close-btn" @click=${() => this._close()}>&times;</button>`
+            : ''}
         </div>
         <div class="error-state">
           <span>${this._error}</span>
@@ -1906,9 +1911,11 @@ export class PhotonStudio extends LitElement {
           ${this._saving ? 'Saving...' : 'Save'}
         </button>
 
-        <button class="close-btn" @click=${() => this._close()} title="Close Studio">
-          &times;
-        </button>
+        ${!this.hideCloseButton
+          ? html`<button class="close-btn" @click=${() => this._close()} title="Close Studio">
+              &times;
+            </button>`
+          : ''}
       </div>
 
       <div class="studio-body">
