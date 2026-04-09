@@ -7,6 +7,7 @@ dist/
 .env
 .env.local
 coverage/
+.data/
 tests/**/.data/
 tests/**/debug/
 tests/**/snapshots/visual/
@@ -60,6 +61,7 @@ _*.md
 !tests/**/*.photon.ts
 !examples/*.photon.ts
 .marketplace/
+.mcp.json
 .claude-plugin/
 beam-kanban-photon-board.png
 kanban-markdown-checkboxes.png
