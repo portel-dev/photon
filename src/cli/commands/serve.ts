@@ -134,10 +134,20 @@ Press Ctrl+C to stop
         server.listen(availablePort);
 
         // Handle shutdown
+        let shuttingDown = false;
         const shutdown = async () => {
+          if (shuttingDown) return;
+          shuttingDown = true;
           console.error('\nShutting down Photon Serve...');
-          await serv.shutdown();
-          server.close();
+          // Hard exit if graceful shutdown takes too long
+          const forceExit = setTimeout(() => process.exit(0), 3000);
+          forceExit.unref();
+          try {
+            await serv.shutdown();
+            server.close();
+          } catch {
+            // Ignore cleanup errors
+          }
           process.exit(0);
         };
 

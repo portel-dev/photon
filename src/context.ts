@@ -20,14 +20,17 @@ import {
   getDaemonSocketPath,
   getDaemonPidPath,
   getDaemonLogPath,
+  listPhotonFilesWithNamespace,
+  resolvePhotonPath,
+  type ListedPhoton,
 } from '@portel/photon-core';
 
 export interface PhotonContext {
   /** Base directory for photon files (~/.photon or PHOTON_DIR override) */
   readonly baseDir: string;
-  /** Root of all runtime data (baseDir/.data) */
+  /** Root of all runtime data — ALWAYS ~/.photon/.data (canonical, never cwd-relative) */
   readonly dataDir: string;
-  /** Cache directory (baseDir/.data/.cache) */
+  /** Cache directory — ALWAYS ~/.photon/.data/.cache */
   readonly cacheDir: string;
   /** Config file path (baseDir/config.json) — committable, not inside .data */
   readonly configFile: string;
@@ -79,14 +82,80 @@ export function getDefaultContext(): PhotonContext {
     baseDir = HOME_PHOTON_DIR;
   }
 
+  // Data/cache/state ALWAYS live under ~/.photon — never cwd-relative.
+  // This ensures the same photon always reads/writes the same state file
+  // regardless of which process (CLI, Beam, Claude Desktop) launched it.
   return Object.freeze({
     baseDir,
-    dataDir: getDataRoot(baseDir),
-    stateDir: path.join(baseDir, 'state'), // legacy compat
-    cacheDir: getCacheDir(baseDir),
+    dataDir: getDataRoot(HOME_PHOTON_DIR),
+    stateDir: path.join(HOME_PHOTON_DIR, 'state'), // legacy compat
+    cacheDir: getCacheDir(HOME_PHOTON_DIR),
     configFile: path.join(baseDir, 'config.json'),
     socketPath: getDaemonSocketPath(),
     pidFile: getDaemonPidPath(),
     logFile: getDaemonLogPath(),
   });
+}
+
+/**
+ * Get the local workspace directory if cwd or PHOTON_DIR points to a
+ * photon/marketplace folder that isn't ~/.photon itself.
+ *
+ * Priority: PHOTON_DIR (explicit override) > cwd (implicit detection).
+ * Returns null when no extra workspace applies.
+ */
+export function getLocalWorkspace(): string | null {
+  const homeResolved = path.resolve(HOME_PHOTON_DIR);
+
+  // PHOTON_DIR takes precedence — explicit override always wins
+  if (process.env.PHOTON_DIR) {
+    const envDir = path.resolve(process.env.PHOTON_DIR);
+    if (envDir !== homeResolved && isPhotonDirectory(envDir)) return envDir;
+  }
+
+  // Fall back to cwd detection
+  const cwd = process.cwd();
+  if (path.resolve(cwd) !== homeResolved && isPhotonDirectory(cwd)) return cwd;
+
+  return null;
+}
+
+/**
+ * Discover photons from all sources, merged with correct priority:
+ * 1. PHOTON_DIR / cwd marketplace — highest priority (same name wins)
+ * 2. ~/.photon (global installed photons)
+ *
+ * This ensures that when you're in a marketplace folder (or PHOTON_DIR
+ * is set), those photons overlay the global ones for development/testing.
+ */
+export async function discoverPhotons(): Promise<ListedPhoton[]> {
+  // Always start with global ~/.photon photons
+  const globalPhotons = await listPhotonFilesWithNamespace(HOME_PHOTON_DIR);
+
+  const localDir = getLocalWorkspace();
+  if (!localDir) return globalPhotons;
+
+  // Local/PHOTON_DIR photons take priority
+  const localPhotons = await listPhotonFilesWithNamespace(localDir);
+  const localNames = new Set(localPhotons.map((p) => p.name));
+
+  // Merge: local first, then global (skip global duplicates)
+  return [...localPhotons, ...globalPhotons.filter((p) => !localNames.has(p.name))];
+}
+
+/**
+ * Resolve a photon by name across all discovery sources.
+ * Priority: PHOTON_DIR / local workspace > ~/.photon > null.
+ */
+export async function resolvePhotonFromAllSources(name: string): Promise<string | null> {
+  const localDir = getLocalWorkspace();
+
+  // Check local/PHOTON_DIR workspace first (higher priority)
+  if (localDir) {
+    const localPath = await resolvePhotonPath(name, localDir);
+    if (localPath) return localPath;
+  }
+
+  // Fall back to global ~/.photon
+  return resolvePhotonPath(name, HOME_PHOTON_DIR);
 }

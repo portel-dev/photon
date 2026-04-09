@@ -10,8 +10,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { existsSync } from 'fs';
-import { resolvePhotonPath } from './path-resolver.js';
-import { getDefaultContext } from './context.js';
+import { getDefaultContext, resolvePhotonFromAllSources } from './context.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { detectRunner } from './shared-utils.js';
 import { logger } from './shared/logger.js';
@@ -26,7 +25,7 @@ const PATH_SEPARATOR = IS_WINDOWS ? ';' : ':';
 export async function createAlias(photonName: string, aliasName?: string): Promise<void> {
   try {
     // Verify photon exists
-    const photonPath = await resolvePhotonPath(photonName, getDefaultContext().baseDir);
+    const photonPath = await resolvePhotonFromAllSources(photonName);
     if (!photonPath) {
       logger.error(`Photon '${photonName}' not found`);
       logger.info(`Install it first with: photon add ${photonName}`);

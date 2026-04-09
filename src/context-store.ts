@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execSync } from 'child_process';
 import type { ConstructorParam } from '@portel/photon-core';
 import {
   getPhotonContextPath,
@@ -25,8 +26,8 @@ import {
   getLegacyEnvPath,
   getLegacyStatePath,
   getLegacyStateLogPath,
+  DEFAULT_PHOTON_DIR,
 } from '@portel/photon-core';
-import { getDefaultContext } from './context.js';
 import { isNodeError, getErrorMessage } from './shared/error-handler.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -36,8 +37,10 @@ import { isNodeError, getErrorMessage } from './shared/error-handler.js';
 export class InstanceStore {
   private baseDir: string;
 
-  constructor(baseDir: string = getDefaultContext().baseDir) {
-    this.baseDir = baseDir;
+  constructor(_baseDir?: string) {
+    // State ALWAYS lives under ~/.photon — canonical location regardless of
+    // which process (CLI, Beam, Claude Desktop) or cwd launched the runtime.
+    this.baseDir = DEFAULT_PHOTON_DIR;
   }
 
   private _path(photonName: string, namespace?: string): string {
@@ -226,7 +229,6 @@ export class CLISessionStore {
    */
   private static _getSessionKey(): string {
     try {
-      const { execSync } = require('child_process');
       const tty = execSync(`ps -o tty= -p ${process.pid}`, {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -265,8 +267,8 @@ export class CLISessionStore {
 export class EnvStore {
   private baseDir: string;
 
-  constructor(baseDir: string = getDefaultContext().baseDir) {
-    this.baseDir = baseDir;
+  constructor(_baseDir?: string) {
+    this.baseDir = DEFAULT_PHOTON_DIR;
   }
 
   private _path(photonName: string, namespace?: string): string {
@@ -346,15 +348,17 @@ export class EnvStore {
 export function getInstanceStatePath(
   photonName: string,
   instance: string,
-  baseDir?: string,
+  _baseDir?: string,
   photonFilePath?: string,
   namespace?: string
 ): string {
   const name = instance || 'default';
   const ns = namespace || 'local';
-  const base = baseDir || getDefaultContext().baseDir;
+  // State ALWAYS lives under ~/.photon — canonical location regardless of
+  // which process (CLI, Beam, Claude Desktop) or cwd launched the runtime.
+  const canonicalBase = DEFAULT_PHOTON_DIR;
 
-  const newPath = getPhotonStatePath(ns, photonName, name, base);
+  const newPath = getPhotonStatePath(ns, photonName, name, canonicalBase);
 
   // Check legacy paths in order of preference
   if (!fs.existsSync(path.dirname(newPath))) {
@@ -367,7 +371,7 @@ export function getInstanceStatePath(
     }
 
     // Legacy flat: ~/.photon/state/{photon}/{instance}.json
-    const legacyPath = getLegacyStatePath(photonName, name, base);
+    const legacyPath = getLegacyStatePath(photonName, name, canonicalBase);
     if (fs.existsSync(legacyPath)) return legacyPath;
   }
 
@@ -381,15 +385,15 @@ export function getInstanceStatePath(
 export function getInstanceLogPath(
   photonName: string,
   instance: string,
-  baseDir?: string,
+  _baseDir?: string,
   photonFilePath?: string,
   namespace?: string
 ): string {
   const name = instance || 'default';
   const ns = namespace || 'local';
-  const base = baseDir || getDefaultContext().baseDir;
+  const canonicalBase = DEFAULT_PHOTON_DIR;
 
-  const newPath = getPhotonStateLogPath(ns, photonName, name, base);
+  const newPath = getPhotonStateLogPath(ns, photonName, name, canonicalBase);
 
   if (!fs.existsSync(path.dirname(newPath))) {
     if (photonFilePath) {
@@ -399,7 +403,7 @@ export function getInstanceLogPath(
       if (fs.existsSync(oldNsPath)) return oldNsPath;
     }
 
-    const legacyPath = getLegacyStateLogPath(photonName, name, base);
+    const legacyPath = getLegacyStateLogPath(photonName, name, canonicalBase);
     if (fs.existsSync(legacyPath)) return legacyPath;
   }
 

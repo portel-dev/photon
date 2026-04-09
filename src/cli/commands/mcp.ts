@@ -19,8 +19,7 @@ import {
 import { LoggerOptions, normalizeLogLevel, logger } from '../../shared/logger.js';
 import { printError, printWarning, printInfo, printSuccess } from '../../cli-formatter.js';
 import { printHeader } from '../../cli-formatter.js';
-import { resolvePhotonPath } from '../../path-resolver.js';
-import { getDefaultContext } from '../../context.js';
+import { getDefaultContext, resolvePhotonFromAllSources } from '../../context.js';
 import { getBundledPhotonPath, DEFAULT_BUNDLED_PHOTONS, detectRunner } from '../../shared-utils.js';
 import { toEnvVarName } from '../../shared/config-docs.js';
 
@@ -54,17 +53,18 @@ export function parsePhotonSpec(spec: string): { name: string; marketplaceSource
 }
 
 /**
- * Resolve photon path - checks bundled first, then user directory
+ * Resolve photon path - checks bundled first, then all discovery sources
+ * (local workspace > ~/.photon > null)
  */
 async function resolvePhotonPathWithBundled(
   name: string,
-  workingDir: string
+  _workingDir: string
 ): Promise<string | null> {
   const bundledPath = getBundledPhotonPath(name, __dirname);
   if (bundledPath) {
     return bundledPath;
   }
-  return resolvePhotonPath(name, workingDir);
+  return resolvePhotonFromAllSources(name);
 }
 
 function getLogOptionsFromCommand(command: Command | null | undefined): LoggerOptions {
@@ -472,9 +472,19 @@ export function registerMCPCommand(program: Command): void {
         });
 
         // Handle shutdown signals
+        let shuttingDown = false;
         const shutdown = async () => {
+          if (shuttingDown) return;
+          shuttingDown = true;
           console.error('\nShutting down...');
-          await server.stop();
+          // Hard exit if graceful shutdown takes too long
+          const forceExit = setTimeout(() => process.exit(0), 3000);
+          forceExit.unref();
+          try {
+            await server.stop();
+          } catch {
+            // Ignore cleanup errors
+          }
           process.exit(0);
         };
 

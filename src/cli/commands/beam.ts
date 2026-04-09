@@ -16,8 +16,7 @@ import {
 } from '../../shared/error-handler.js';
 import { LoggerOptions, normalizeLogLevel, logger } from '../../shared/logger.js';
 import { validateOrThrow, inRange, isPositive, isInteger } from '../../shared/validation.js';
-import { resolvePhotonPath } from '../../path-resolver.js';
-import { getDefaultContext } from '../../context.js';
+import { getDefaultContext, resolvePhotonFromAllSources } from '../../context.js';
 import { getBundledPhotonPath } from '../../shared-utils.js';
 import { fileURLToPath } from 'url';
 
@@ -83,11 +82,12 @@ function getLogOptionsFromCommand(command: Command | null | undefined): LoggerOp
 }
 
 /**
- * Resolve photon path - checks bundled first, then user directory
+ * Resolve photon path - checks bundled first, then all discovery sources
+ * (local workspace > ~/.photon > null)
  */
 async function resolvePhotonPathWithBundled(
   name: string,
-  workingDir: string
+  _workingDir: string
 ): Promise<string | null> {
   // Check bundled photons first
   const bundledPath = getBundledPhotonPath(name, __dirname);
@@ -95,8 +95,8 @@ async function resolvePhotonPathWithBundled(
     return bundledPath;
   }
 
-  // Fall back to user photons
-  return resolvePhotonPath(name, workingDir);
+  // Fall back to merged discovery (local workspace > global)
+  return resolvePhotonFromAllSources(name);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -161,9 +161,19 @@ export function registerSSECommand(program: Command): void {
         });
 
         // Handle shutdown signals
+        let shuttingDown = false;
         const shutdown = async () => {
+          if (shuttingDown) return;
+          shuttingDown = true;
           console.error('\nShutting down...');
-          await server.stop();
+          // Hard exit if graceful shutdown takes too long
+          const forceExit = setTimeout(() => process.exit(0), 3000);
+          forceExit.unref();
+          try {
+            await server.stop();
+          } catch {
+            // Ignore cleanup errors
+          }
           process.exit(0);
         };
 
@@ -246,6 +256,38 @@ export function registerBeamCommand(program: Command): void {
           }
         }
 
+        // Handle shutdown signals BEFORE startBeam — startBeam continues loading
+        // photons after the HTTP server is listening, so SIGINT can arrive before
+        // startBeam returns. Register handlers early to catch signals during load.
+        let shuttingDown = false;
+        const shutdown = async () => {
+          if (shuttingDown) return;
+          shuttingDown = true;
+
+          console.error('\nShutting down Photon Beam...');
+
+          // Hard exit if graceful shutdown takes too long
+          const forceExit = setTimeout(() => process.exit(0), 3000);
+          forceExit.unref();
+
+          // Gracefully close external MCP clients to prevent ugly tracebacks
+          try {
+            const { stopBeam } = await import('../../auto-ui/beam.js');
+            await stopBeam();
+          } catch {
+            // Ignore cleanup errors
+          }
+
+          process.exit(0);
+        };
+
+        process.on('SIGINT', () => {
+          void shutdown();
+        });
+        process.on('SIGTERM', () => {
+          void shutdown();
+        });
+
         // startBeam handles port finding internally (with retry and status output)
         const startPort = parseInt(options.port, 10);
 
@@ -270,32 +312,6 @@ export function registerBeamCommand(program: Command): void {
             if (err) logger.debug(`Could not auto-open browser: ${err.message}`);
           });
         }
-
-        // Handle shutdown signals (guard against duplicate Ctrl+C)
-        let shuttingDown = false;
-        const shutdown = async () => {
-          if (shuttingDown) return;
-          shuttingDown = true;
-
-          console.error('\nShutting down Photon Beam...');
-
-          // Gracefully close external MCP clients to prevent ugly tracebacks
-          try {
-            const { stopBeam } = await import('../../auto-ui/beam.js');
-            await stopBeam();
-          } catch {
-            // Ignore cleanup errors
-          }
-
-          process.exit(0);
-        };
-
-        process.on('SIGINT', () => {
-          void shutdown();
-        });
-        process.on('SIGTERM', () => {
-          void shutdown();
-        });
       } catch (error) {
         logger.error(`Error: ${getErrorMessage(error)}`);
         process.exit(1);
