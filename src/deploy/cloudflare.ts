@@ -4,17 +4,15 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { detectPM, detectRunner } from '../shared-utils.js';
-import { createRequire } from 'module';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from '../version.js';
 import { logger } from '../shared/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
 
 // Find package root (where templates folder is)
 function getPackageRoot(): string {
@@ -23,7 +21,7 @@ function getPackageRoot(): string {
   while (dir !== path.dirname(dir)) {
     if (existsSync(path.join(dir, 'package.json'))) {
       try {
-        const pkg = JSON.parse(require('fs').readFileSync(path.join(dir, 'package.json'), 'utf-8'));
+        const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf-8'));
         if (pkg.name === '@portel/photon') {
           return dir;
         }

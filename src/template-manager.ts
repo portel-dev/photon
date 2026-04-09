@@ -28,7 +28,7 @@ export class TemplateManager {
   private hashFile: string;
 
   // Current template version - increment when templates are updated
-  private static readonly TEMPLATE_VERSION = '2.1.0';
+  private static readonly TEMPLATE_VERSION = '3.0.0';
 
   constructor(workingDir: string) {
     this.marketplaceDir = path.join(workingDir, '.marketplace');
@@ -95,8 +95,12 @@ export class TemplateManager {
         return value !== undefined && value !== null && value !== '' ? value : defaultValue;
       },
       properName: (desc: string, fallbackName: string): string => {
-        if (desc.includes(' - ')) {
-          return desc.split(' - ')[0];
+        // Use first paragraph only for name extraction
+        const firstPara = desc.split('\n\n')[0];
+        // Match both " - " (hyphen) and " — " (em dash) separators
+        const dashMatch = firstPara.match(/^(.+?)\s+[-\u2014]\s+/);
+        if (dashMatch) {
+          return dashMatch[1];
         }
         return fallbackName
           .split('-')
@@ -104,12 +108,23 @@ export class TemplateManager {
           .join(' ');
       },
       cleanDesc: (desc: string): string => {
-        return desc.includes(' - ') ? desc.split(' - ').slice(1).join(' - ') : desc;
+        const firstPara = desc.split('\n\n')[0];
+        const rest = desc.split('\n\n').slice(1).join('\n\n');
+        // Match both " - " (hyphen) and " — " (em dash) separators
+        const dashIdx = firstPara.search(/\s+[-\u2014]\s+/);
+        if (dashIdx !== -1) {
+          // Strip the "Label - " prefix from the first paragraph, keep the rest
+          const afterDash = firstPara.replace(/^.+?\s+[-\u2014]\s+/, '');
+          return rest ? `${afterDash}\n\n${rest}` : afterDash;
+        }
+        // No dash separator: first paragraph is the label, rest is description
+        return rest || firstPara;
       },
       brief: (desc: string): string => {
         if (!desc) return '-';
-        // First sentence only — natural summary
-        return desc.split(/(?<=[.!?])\s/)[0];
+        // First sentence of first paragraph, newlines collapsed for table safety
+        const firstPara = desc.split('\n\n')[0].replace(/\n/g, ' ');
+        return firstPara.split(/(?<=[.!?])\s/)[0];
       },
     };
 
@@ -298,6 +313,11 @@ export class TemplateManager {
       const currentHash = this.calculateHash(currentContent);
       const tracked = hashes[name];
 
+      // Major version bump forces template replacement even if customized
+      const trackedMajor = tracked ? parseInt(tracked.version?.split('.')[0] || '0') : 0;
+      const currentMajor = parseInt(TemplateManager.TEMPLATE_VERSION.split('.')[0]);
+      const forcedUpdate = currentMajor > trackedMajor;
+
       if (!tracked) {
         // Not tracked yet - assume customized
         hashes[name] = {
@@ -305,6 +325,17 @@ export class TemplateManager {
           hash: currentHash,
           customized: true,
         };
+      } else if (forcedUpdate) {
+        // Major version bump - replace template even if customized
+        await fs.writeFile(templatePath, defaultContent, 'utf-8');
+        hashes[name] = {
+          version: TemplateManager.TEMPLATE_VERSION,
+          hash: defaultHash,
+          customized: false,
+        };
+        logger.info(
+          `✓ Replaced template: _templates/${name} (major version ${trackedMajor} → ${currentMajor})`
+        );
       } else if (currentHash === tracked.hash) {
         // Unchanged from last sync
         if (!tracked.customized && defaultHash !== tracked.hash) {
@@ -364,72 +395,26 @@ export class TemplateManager {
   private getDefaultReadmeTemplate(): string {
     return `# \${marketplaceName}
 
-> **Singular focus. Precise target.**
+\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`A collection of single-file TypeScript [MCP](https://modelcontextprotocol.io/introduction) servers for AI assistants.\n\n\`)}## Photons
 
-\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`**Photons** are single-file TypeScript MCP servers that supercharge AI assistants with focused capabilities. Each photon delivers ONE thing exceptionally well - from filesystem operations to cloud integrations.
+| Photon | Description | Tools | Type |
+|--------|-------------|-------|------|
+\${each(photons, (p) => \`| [**\${properName(p.description, p.name)}**](\${p.name}.md) | \${brief(cleanDesc(p.description))} | \${p.tools ? p.tools.length : 0} | \${p.photonType === 'workflow' ? 'Workflow' : p.photonType === 'streaming' ? 'Streaming' : 'API'}\${(p.features || []).some(f => f === 'custom-ui' || f === 'dashboard') ? ' + UI' : ''} |\n\`)}
 
-Built on the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction), photons are:
-- 📦 **One-command install** via [Photon CLI](https://github.com/portel-dev/photon)
-- 🎯 **Laser-focused** on singular capabilities
-- ⚡ **Zero-config** with auto-dependency management
-- 🔌 **Universal** - works with Claude Desktop, Claude Code, and any MCP client
-
-\`)}\${$if(marketplaceName === 'photons', \`## 🏛️ Official Marketplace
-
-This is the **official Photon marketplace** maintained by Portel. It comes pre-configured with Photon - no manual setup needed.
-
-**Already available to you:**
-- ✅ Pre-installed with Photon
-- ✅ Automatically updated
-- ✅ Production-ready photons
-- ✅ Community-maintained
-
-**Want to contribute?**
-We welcome contributions! Submit pull requests for:
-- 🐛 Bug fixes to existing photons
-- ✨ Enhancements and new features
-- 📦 New photons to add to the marketplace
-- 📝 Documentation improvements
-
-**Repository:** [github.com/portel-dev/photons](https://github.com/portel-dev/photons)
-
-\`, '')}## 📦 Available Photons
-
-| Photon | Focus | Tools | Features |
-|--------|-------|-------|----------|
-\${each(photons, (p) => \`| [**\${properName(p.description, p.name)}**](\${p.name}.md) | \${cleanDesc(p.description)} | \${p.tools ? p.tools.length : 0} | \${(p.features || []).map(f => f === 'generator' || f === 'streaming' ? '⚡' : f === 'custom-ui' || f === 'dashboard' ? '🎨' : f === 'elicitation' ? '💬' : f === 'oauth' ? '🔐' : f === 'channels' ? '📡' : f === 'locks' ? '🔒' : f === 'mcp-bridge' ? '🔌' : f === 'photon-bridge' ? '📦' : '').filter(Boolean).join('') || '-'} |\n\`)}
-
-**Total:** \${photons.length} photons ready to use
-
----
-
-## 🚀 Quick Start
-
-### 1. Install Photon
+## Quick Start
 
 \\\`\\\`\\\`bash
+# Install the CLI
 ${globalInstallCmd('@portel/photon')}
-\\\`\\\`\\\`
 
-### 2. Add Any Photon
-
-\\\`\\\`\\\`bash
+# Add a photon
 photon add filesystem
-photon add git
-photon add aws-s3
-\\\`\\\`\\\`
 
-### 3. Use It
-
-\\\`\\\`\\\`bash
-# Run as MCP server
-photon mcp filesystem
-
-# Get config for your MCP client
+# Get MCP config (paste into your client)
 photon get filesystem --mcp
 \\\`\\\`\\\`
 
-Output (paste directly into your MCP client config):
+Output:
 \\\`\\\`\\\`json
 {
   "mcpServers": {
@@ -441,184 +426,23 @@ Output (paste directly into your MCP client config):
 }
 \\\`\\\`\\\`
 
-Add the output to your MCP client's configuration. **Consult your client's documentation** for setup instructions.
+## Commands
 
-**That's it!** Your AI assistant now has \${photons.length} focused tools at its fingertips.
+\\\`\\\`\\\`bash
+photon add <name>        # Install a photon
+photon get               # List installed photons
+photon get <name> --mcp  # Get MCP config for a photon
+photon search <keyword>  # Search available photons
+photon upgrade           # Upgrade all photons
+\\\`\\\`\\\`
+\${$if(marketplaceName === 'photons', \`
+## Contributing
 
+PRs welcome for bug fixes, enhancements, and new photons.
+\`, '')}
 ---
 
-## 🎨 Claude Code Integration
-
-This marketplace is also available as a **Claude Code plugin**, enabling seamless installation of individual photons directly from Claude Code's plugin manager.
-
-### Install as Claude Code Plugin
-
-\\\`\\\`\\\`bash
-# In Claude Code, run:
-/plugin marketplace add portel-dev/photons
-\\\`\\\`\\\`
-
-Once added, you can install individual photons:
-
-\\\`\\\`\\\`bash
-# Install specific photons you need
-/plugin install filesystem@photons-marketplace
-/plugin install git@photons-marketplace
-/plugin install knowledge-graph@photons-marketplace
-\\\`\\\`\\\`
-
-### Benefits of Claude Code Plugin
-
-- **🎯 Granular Installation**: Install only the photons you need
-- **🔄 Auto-Updates**: Plugin stays synced with marketplace
-- **⚡ Zero Config**: Photon CLI auto-installs on first use
-- **🛡️ Secure**: No credentials shared with AI (interactive setup available)
-- **📦 Individual MCPs**: Each photon is a separate installable plugin
-
-### How This Plugin Is Built
-
-This marketplace doubles as a Claude Code plugin through automatic generation:
-
-\\\`\\\`\\\`bash
-# Generate marketplace AND Claude Code plugin files
-photon maker sync --claude-code
-\\\`\\\`\\\`
-
-This single command:
-1. Scans all \\\`.photon.ts\\\` files
-2. Generates \\\`.marketplace/photons.json\\\` manifest
-3. Creates \\\`.claude-plugin/marketplace.json\\\` for Claude Code
-4. Generates documentation for each photon
-5. Creates auto-install hooks for seamless setup
-
-**Result**: One source of truth, two distribution channels (Photon CLI + Claude Code).
-
----
-
-## ⚛️ What Are Photons?
-
-**Photons** are laser-focused modules - each does ONE thing exceptionally well:
-- 📁 **Filesystem** - File operations
-- 🐙 **Git** - Repository management
-- ☁️ **AWS S3** - Cloud storage
-- 📅 **Google Calendar** - Calendar integration
-- 🕐 **Time** - Timezone operations
-- ... and more
-
-Each photon delivers **singular focus** to a **precise target**.
-
-**Key Features:**
-- 🎯 Each photon does one thing perfectly
-- 📦 \${photons.length} production-ready photons available
-- ⚡ Auto-installs dependencies
-- 🔧 Works out of the box
-- 📄 Single-file design (easy to fork and customize)
-
-## 🎯 The Value Proposition
-
-### Before Photon
-
-For each MCP server:
-1. Find and clone the repository
-2. Install dependencies manually
-3. Configure environment variables
-4. Write MCP client config JSON by hand
-5. Repeat for every server
-
-### With Photon
-
-\\\`\\\`\\\`bash
-# Install from marketplace
-photon add filesystem
-
-# Get MCP config
-photon get filesystem --mcp
-\\\`\\\`\\\`
-
-Output (paste directly into your MCP client config):
-\\\`\\\`\\\`json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "photon",
-      "args": ["mcp", "filesystem"]
-    }
-  }
-}
-\\\`\\\`\\\`
-
-**That's it.** No dependencies, no environment setup, no configuration files.
-
-**Difference:**
-- ✅ One CLI, one command
-- ✅ Zero configuration
-- ✅ Instant installation
-- ✅ Auto-dependencies
-- ✅ Consistent experience
-
-## 💡 Use Cases
-
-**For Claude Users:**
-\\\`\\\`\\\`bash
-photon add filesystem git github-issues
-photon get --mcp  # Get config for all three
-\\\`\\\`\\\`
-Add to Claude Desktop → Now Claude can read files, manage repos, create issues
-
-**For Teams:**
-\\\`\\\`\\\`bash
-photon add postgres mongodb redis
-photon get --mcp
-\\\`\\\`\\\`
-Give Claude access to your data infrastructure
-
-**For Developers:**
-\\\`\\\`\\\`bash
-photon add docker git slack
-photon get --mcp
-\\\`\\\`\\\`
-Automate your workflow through AI
-
-## 🔍 Browse & Search
-
-\\\`\\\`\\\`bash
-# List all photons
-photon get
-
-# Search by keyword
-photon search calendar
-
-# View details
-photon get google-calendar
-
-# Upgrade all
-photon upgrade
-\\\`\\\`\\\`
-
-## 🏢 For Enterprises
-
-Create your own marketplace:
-
-\\\`\\\`\\\`bash
-# 1. Organize photons
-mkdir company-photons && cd company-photons
-
-# 2. Generate marketplace
-photon maker sync
-
-# 3. Share with team
-git push origin main
-
-# Team members use:
-photon marketplace add company/photons
-photon add your-internal-tool
-\\\`\\\`\\\`
-
----
-
-**Built with singular focus. Deployed with precise targeting.**
-
-Made with ⚛️ by [Portel](https://github.com/portel-dev)
+[Photon CLI](https://github.com/portel-dev/photon) · [MCP](https://modelcontextprotocol.io/introduction)
 `;
   }
 
@@ -630,7 +454,7 @@ Made with ⚛️ by [Portel](https://github.com/portel-dev)
 
 \${cleanDesc(description)}
 
-> **\${tools ? tools.length : 0} tools** · \${photonType === 'workflow' ? 'Workflow' : photonType === 'streaming' ? 'Streaming' : 'API'} Photon · v\${version} · \${license || 'MIT'}
+> **\${tools ? tools.length : 0} \${tools && tools.length === 1 ? 'tool' : 'tools'}** · \${photonType === 'workflow' ? 'Workflow' : photonType === 'streaming' ? 'Streaming' : 'API'} Photon · v\${version} · \${license || 'MIT'}
 
 \${$if(features && features.length > 0, \`**Platform Features:** \${features.map(f => \`\\\`\${f}\\\`\`).join(' ')}
 \`, '')}

@@ -6,6 +6,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
 import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
@@ -36,7 +37,6 @@ function getGitHubToken(): string | null {
   _ghToken = process.env.GITHUB_TOKEN || null;
   if (!_ghToken) {
     try {
-      const { execFileSync } = require('child_process');
       _ghToken =
         execFileSync('gh', ['auth', 'token'], {
           encoding: 'utf-8',
@@ -205,10 +205,11 @@ export async function calculatePhotonHash(
 /**
  * Read local installation metadata
  */
-export async function readLocalMetadata(): Promise<LocalMetadata> {
+export async function readLocalMetadata(baseDir?: string): Promise<LocalMetadata> {
+  const metaFile = baseDir ? getMetadataPath(baseDir) : METADATA_FILE;
   try {
-    if (existsSync(METADATA_FILE)) {
-      return await readJSON(METADATA_FILE);
+    if (existsSync(metaFile)) {
+      return await readJSON(metaFile);
     }
   } catch (error) {
     const logger = createLogger({ component: 'marketplace-manager', minimal: true });

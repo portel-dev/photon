@@ -156,8 +156,27 @@ export class PhotonDocExtractor {
    * Extract main description from file-level JSDoc comment
    */
   private extractDescription(): string {
-    // Extract the first JSDoc comment block
-    const jsdocMatch = this.content.match(/\/\*\*([\s\S]*?)\*\//);
+    // Find the class declaration, then look backwards for its JSDoc
+    const classMatch = this.content.match(
+      /(?:export\s+default\s+class|export\s+class|class)\s+\w+/
+    );
+    let jsdocMatch: RegExpMatchArray | null = null;
+
+    if (classMatch && classMatch.index !== undefined) {
+      // Extract text before the class declaration and find the last JSDoc in it
+      const before = this.content.substring(0, classMatch.index);
+      const lastJSDocStart = before.lastIndexOf('/**');
+      if (lastJSDocStart !== -1) {
+        const jsdocSection = before.substring(lastJSDocStart);
+        const m = jsdocSection.match(/\/\*\*([\s\S]*?)\*\/\s*$/);
+        if (m) jsdocMatch = m;
+      }
+    }
+
+    // Fall back to first JSDoc if no class-level comment found
+    if (!jsdocMatch) {
+      jsdocMatch = this.content.match(/\/\*\*([\s\S]*?)\*\//);
+    }
     if (!jsdocMatch) return '';
 
     const jsdocContent = jsdocMatch[1];
@@ -165,20 +184,25 @@ export class PhotonDocExtractor {
     // Strip leading * from each line
     const rawLines = jsdocContent.split('\n').map((line) => line.replace(/^\s*\*\s?/, ''));
 
-    // Collect all intro prose but stop at the first markdown section heading (##)
-    // or @tag. Extended content like Quick Reference sections belongs in the
-    // generated .md documentation, not the card description.
-    const descLines: string[] = [];
+    // Collect paragraphs: blank lines separate them. Stop at @tag or ## heading.
+    const paragraphs: string[][] = [[]];
     for (const raw of rawLines) {
       const line = raw.trim();
-      if (line.startsWith('@') || line.startsWith('#')) break; // @tag or ## heading
-      if (line.length > 0) descLines.push(line);
+      if (line.startsWith('@') || line.startsWith('#')) break;
+      if (line.length === 0) {
+        if (paragraphs[paragraphs.length - 1].length > 0) {
+          paragraphs.push([]);
+        }
+      } else if (!line.startsWith('export ') && !line.startsWith('class ')) {
+        paragraphs[paragraphs.length - 1].push(line);
+      }
     }
 
-    return descLines
-      .filter((line) => !line.startsWith('export ') && !line.startsWith('class '))
-      .join(' ')
-      .trim();
+    // Join lines within each paragraph with space, paragraphs with \n\n
+    return paragraphs
+      .map((p) => p.join(' ').trim())
+      .filter(Boolean)
+      .join('\n\n');
   }
 
   /**
@@ -397,8 +421,16 @@ export class PhotonDocExtractor {
 
       // Find the last /** before the method
       const lastJSDocStart = precedingContent.lastIndexOf('/**');
+
       if (lastJSDocStart === -1) {
-        continue; // Skip methods without JSDoc
+        // Method without JSDoc — still a valid tool, just undocumented
+        tools.push({
+          name: methodName,
+          description: '',
+          params: [],
+          isGenerator,
+        });
+        continue;
       }
 
       // Extract from last /** to the method
@@ -406,7 +438,14 @@ export class PhotonDocExtractor {
       const jsdocMatch = jsdocSection.match(/\/\*\*([\s\S]*?)\*\/\s*$/);
 
       if (!jsdocMatch) {
-        continue; // Skip if JSDoc is malformed
+        // Malformed JSDoc — still count the method as a tool
+        tools.push({
+          name: methodName,
+          description: '',
+          params: [],
+          isGenerator,
+        });
+        continue;
       }
 
       const jsdoc = jsdocMatch[1];
@@ -420,6 +459,14 @@ export class PhotonDocExtractor {
       if (tool) {
         tool.isGenerator = isGenerator;
         tools.push(tool);
+      } else {
+        // JSDoc present but couldn't parse — still count the method
+        tools.push({
+          name: methodName,
+          description: '',
+          params: [],
+          isGenerator,
+        });
       }
     }
 
