@@ -49,7 +49,7 @@ async function resolvePhotonPathWithBundled(name: string): Promise<string | null
   return resolvePhotonFromAllSources(name);
 }
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
-import { isGlobalDaemonRunning, ensureDaemon } from './daemon/manager.js';
+import { ensureDaemon } from './daemon/manager.js';
 import { sendCommand, pingDaemon } from './daemon/client.js';
 import {
   formatOutput as baseFormatOutput,
@@ -1876,22 +1876,20 @@ export async function runMethod(
       // Ensure daemon is running (auto-restarts if binary is stale)
       await ensureDaemon();
 
-      if (!isGlobalDaemonRunning()) {
-        // Wait for daemon to be ready
-        let ready = false;
-        for (let i = 0; i < 10; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          if (await pingDaemon(photonName)) {
-            ready = true;
-            break;
-          }
+      // Wait for daemon to be ready even if pid state was stale and had to be recovered.
+      let ready = false;
+      for (let i = 0; i < 10; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        if (await pingDaemon(photonName)) {
+          ready = true;
+          break;
         }
+      }
 
-        if (!ready) {
-          exitWithError(`Failed to start daemon for ${photonName}`, {
-            suggestion: `Check logs: cat ${getDefaultContext().baseDir}/.data/daemon.log\nOr try: photon daemon restart ${photonName}`,
-          });
-        }
+      if (!ready) {
+        exitWithError(`Failed to start daemon for ${photonName}`, {
+          suggestion: `Check logs: cat ${getDefaultContext().baseDir}/.data/daemon.log\nOr try: photon daemon restart ${photonName}`,
+        });
       }
 
       // Read session-scoped instance set by `photon use` (scoped to this terminal)

@@ -45,7 +45,7 @@ import {
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
 import { pingDaemon } from './daemon/client.js';
-import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
+import { ensureDaemon } from './daemon/manager.js';
 import {
   ChannelManager,
   type ChannelNotificationSink,
@@ -1900,20 +1900,16 @@ export class PhotonServer {
           this.channelManager.setDaemonName(photonName);
           this.log('info', `Stateful photon detected: ${photonName}`);
 
-          if (!isGlobalDaemonRunning()) {
-            this.log('info', `Starting daemon for ${photonName}...`);
-            await startGlobalDaemon(true);
+          this.log('info', `Ensuring daemon for ${photonName}...`);
+          await ensureDaemon(true);
 
-            // Wait for daemon to be ready
-            for (let i = 0; i < 10; i++) {
-              await new Promise((r) => setTimeout(r, 500));
-              if (await pingDaemon(photonName)) {
-                this.log('info', `Daemon ready for ${photonName}`);
-                break;
-              }
+          // Wait for daemon to be ready. This also covers stale pid/socket recovery.
+          for (let i = 0; i < 10; i++) {
+            await new Promise((r) => setTimeout(r, 500));
+            if (await pingDaemon(photonName)) {
+              this.log('info', `Daemon ready for ${photonName}`);
+              break;
             }
-          } else {
-            this.log('info', `Daemon already running for ${photonName}`);
           }
         }
 
@@ -2731,10 +2727,13 @@ export class PhotonServer {
       }
       this.statusClients.clear();
 
-      // Close HTTP server if running
+      // Close HTTP server if running — destroy lingering connections so .close() resolves
       if (this.httpServer) {
         await new Promise<void>((resolve) => {
-          this.httpServer!.close(() => resolve());
+          const server = this.httpServer!;
+          // Destroy all active connections so close() doesn't wait for keep-alive drain
+          server.closeAllConnections?.();
+          server.close(() => resolve());
         });
         this.httpServer = null;
       }

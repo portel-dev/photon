@@ -19,8 +19,9 @@ export function registerDaemonCommands(program: Command): void {
     .action(async () => {
       try {
         const { printInfo, printSuccess } = await import('../../cli-formatter.js');
-        const { ensureDaemon, isGlobalDaemonRunning } = await import('../../daemon/manager.js');
-        if (isGlobalDaemonRunning()) {
+        const { ensureDaemon, isGlobalDaemonReachable } = await import('../../daemon/manager.js');
+        const wasReachable = await isGlobalDaemonReachable();
+        if (wasReachable) {
           printInfo('Daemon is already running.');
           return;
         }
@@ -39,8 +40,9 @@ export function registerDaemonCommands(program: Command): void {
     .action(async () => {
       try {
         const { printInfo, printSuccess } = await import('../../cli-formatter.js');
-        const { stopGlobalDaemon, isGlobalDaemonRunning } = await import('../../daemon/manager.js');
-        if (!isGlobalDaemonRunning()) {
+        const { stopGlobalDaemon, isGlobalDaemonRunning, isGlobalDaemonReachable } =
+          await import('../../daemon/manager.js');
+        if (!isGlobalDaemonRunning() && !(await isGlobalDaemonReachable())) {
           printInfo('Daemon is not running.');
           return;
         }
@@ -75,10 +77,11 @@ export function registerDaemonCommands(program: Command): void {
     .action(async () => {
       try {
         const { printInfo, printSuccess } = await import('../../cli-formatter.js');
-        const { isGlobalDaemonRunning, GLOBAL_PID_FILE, GLOBAL_LOG_FILE } =
+        const { isGlobalDaemonRunning, isGlobalDaemonReachable, GLOBAL_PID_FILE, GLOBAL_LOG_FILE } =
           await import('../../daemon/manager.js');
         const running = isGlobalDaemonRunning();
-        if (running) {
+        const reachable = await isGlobalDaemonReachable();
+        if (reachable) {
           const { readFileSync, existsSync } = await import('fs');
           const pid = existsSync(GLOBAL_PID_FILE)
             ? readFileSync(GLOBAL_PID_FILE, 'utf-8').trim()
@@ -99,6 +102,9 @@ export function registerDaemonCommands(program: Command): void {
             console.log(`  Sessions: ${health.sessions}`);
             console.log(`  Photons loaded: ${health.photonsLoaded}`);
           }
+        } else if (running) {
+          printInfo('Daemon has stale process state but is not responding.');
+          console.log(`  Log: ${GLOBAL_LOG_FILE}`);
         } else {
           printInfo('Daemon is not running.');
         }

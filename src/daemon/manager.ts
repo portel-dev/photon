@@ -82,6 +82,13 @@ export class DaemonManager {
 
   private async _ensureImpl(quiet: boolean): Promise<void> {
     if (this.fsm.state === 'running') {
+      if (!(await this.isSocketAlive())) {
+        this.logger.warn('Daemon marked running but socket is unreachable, recovering stale state');
+        this.cleanupStale();
+        this.resyncFromDisk();
+        await this.start(quiet);
+        return;
+      }
       if (this.isBinaryStale()) {
         this.logger.info('Daemon binary updated since last start, restarting...');
         await this.restart();
@@ -107,8 +114,13 @@ export class DaemonManager {
    */
   async start(quiet = false): Promise<void> {
     if (this.fsm.state === 'running') {
-      if (!quiet) this.logger.debug('Global daemon already running');
-      return;
+      if (await this.isSocketAlive()) {
+        if (!quiet) this.logger.debug('Global daemon already running');
+        return;
+      }
+      this.logger.warn('Daemon marked running but socket is unreachable, recovering stale state');
+      this.cleanupStale();
+      this.resyncFromDisk();
     }
 
     // If somehow stuck in starting/stopping, re-sync from disk
@@ -232,6 +244,10 @@ export class DaemonManager {
     }
     const pid = this.readPid();
     return { running: true, pid: pid ?? undefined, photonName: 'global' };
+  }
+
+  async isReachable(): Promise<boolean> {
+    return this.isSocketAlive();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -378,7 +394,7 @@ export class DaemonManager {
       const timer = setTimeout(() => {
         sock.destroy();
         resolve(false);
-      }, 500);
+      }, 2_000);
       sock.on('connect', () => {
         clearTimeout(timer);
         sock.destroy();
@@ -475,7 +491,7 @@ export class DaemonManager {
     }
 
     // Wait for socket to actually accept connections (not just file existence)
-    const maxWait = 3000;
+    const maxWait = 10_000;
     const interval = 100;
     let waited = 0;
     while (waited < maxWait) {
@@ -486,9 +502,8 @@ export class DaemonManager {
       }
     }
 
-    if (!quiet) {
-      this.logger.warn('Daemon started but socket not ready within timeout');
-    }
+    this.cleanupStale();
+    throw new Error('Daemon started but socket was not ready within 10s');
   }
 
   /**
@@ -533,6 +548,10 @@ export function getGlobalSocketPath(): string {
 
 export function isGlobalDaemonRunning(): boolean {
   return getManager().getStatus().running;
+}
+
+export async function isGlobalDaemonReachable(): Promise<boolean> {
+  return getManager().isReachable();
 }
 
 export async function startGlobalDaemon(quiet = false): Promise<void> {
