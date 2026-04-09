@@ -120,7 +120,12 @@ async function promptUser(message: string, defaultValue?: string): Promise<strin
  */
 function isDaemonConnectionError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
-  return msg.includes('ENOENT') || msg.includes('ECONNREFUSED') || msg.includes('Connection error');
+  return (
+    msg.includes('ENOENT') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('Connection error') ||
+    msg.includes('Connection closed')
+  );
 }
 
 /**

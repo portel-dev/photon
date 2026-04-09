@@ -182,6 +182,19 @@ export class WorkerManager {
         } else if (msg.type === 'crashed') {
           this.logger.error('Worker crashed during init', { photonName, error: msg.error });
           void failSpawn(new Error(msg.error), 'crash');
+        } else if (
+          msg.type === 'resolve_dep' ||
+          msg.type === 'dep_call' ||
+          msg.type === 'publish' ||
+          msg.type === 'subscribe' ||
+          msg.type === 'unsubscribe' ||
+          msg.type === 'log'
+        ) {
+          // Workers send these during initialization (before 'ready'), e.g. when
+          // resolving @photon deps. Route them through the permanent handler so
+          // dep resolution doesn't silently stall waiting for a response.
+          this.handleWorkerMessage(key, msg);
+          resetTimeout(); // Active init work — reset the stall timer
         }
       };
 

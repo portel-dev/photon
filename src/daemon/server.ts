@@ -960,14 +960,8 @@ async function getOrCreateSessionManager(
   // If @worker tagged, spawn in a worker thread instead of in-process
   if (shouldRunInWorker(pathToUse) && !workerManager.has(key)) {
     try {
-      logger.info('Spawning worker thread for @worker photon', { photonName, key });
-      const info = await workerManager.spawn(key, photonName, pathToUse, workingDir);
-      photonPaths.set(key, pathToUse);
-      if (!photonPaths.has(photonName)) photonPaths.set(photonName, pathToUse);
-      if (workingDir) workingDirs.set(key, workingDir);
-      watchPhotonFile(photonName, pathToUse);
-
-      // Wire dep resolver to go through main thread's getOrCreateSessionManager
+      // Wire dep resolver BEFORE spawn so the worker can resolve @photon deps
+      // during initialization (loadFile triggers dep resolution before 'ready').
       if (!workerManager.depResolver) {
         workerManager.depResolver = async (depName, depPath, _consumerPhoton) => {
           const depManager = await getOrCreateSessionManager(depName, depPath, workingDir);
@@ -984,6 +978,13 @@ async function getOrCreateSessionManager(
           return depManager.loader.executeTool(loaded, method, args);
         };
       }
+
+      logger.info('Spawning worker thread for @worker photon', { photonName, key });
+      const info = await workerManager.spawn(key, photonName, pathToUse, workingDir);
+      photonPaths.set(key, pathToUse);
+      if (!photonPaths.has(photonName)) photonPaths.set(photonName, pathToUse);
+      if (workingDir) workingDirs.set(key, workingDir);
+      watchPhotonFile(photonName, pathToUse);
 
       // Return null — caller should check workerManager.has(key) for routing
       // We store a marker so callers know this is a worker photon
