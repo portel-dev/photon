@@ -429,6 +429,64 @@ All clients use the same daemon session ID (`shared-{photonName}`) for stateful 
 
 ---
 
+## Photon Discovery & State Persistence
+
+### Discovery Priority
+
+When resolving a photon by name, the runtime searches multiple sources in priority order:
+
+```
+1. PHOTON_DIR (env var)    — explicit override, always wins
+2. cwd (process.cwd())     — if the directory contains .photon.ts files
+3. ~/.photon               — global installed photons (always included)
+```
+
+For **listing** (Beam sidebar, CLI): results from all applicable sources are merged. Higher-priority sources win on name collision — a photon named `list` in your local workspace shadows the global `list` in `~/.photon`.
+
+For **resolution** (`photon mcp list`, `photon cli list`): the first match in priority order is used. Bundled photons (maker, marketplace, tunnel) are checked before all user sources.
+
+### State Persistence: Always Canonical
+
+State (`@stateful` memory, settings, instance context, event logs) **always** persists to `~/.photon/.data/` regardless of how the process was launched:
+
+```
+~/.photon/.data/{namespace}/{photonName}/state/{instance}/state.json
+```
+
+This is a hard rule. The `PHOTON_DIR` env var and `cwd` workspace detection affect **discovery only** (which photons are available to run). They never affect where state is stored.
+
+**Why:** Without this, the same photon would have split-brain state depending on the launcher. CLI and Beam share state because they run from the same terminal. Claude Desktop would see different data because its `cwd` differs. Anchoring state to `~/.photon` eliminates this class of bugs entirely.
+
+### Local Workspace Development
+
+When you `cd` into a marketplace folder (or set `PHOTON_DIR`), the runtime overlays those photons on top of `~/.photon`:
+
+```bash
+# Global photons only
+cd ~
+photon beam   # discovers ~/.photon/*.photon.ts
+
+# Global + local workspace (local wins on name collision)
+cd ~/Projects/photons
+photon beam   # discovers ./**.photon.ts + ~/.photon/*.photon.ts
+
+# Explicit override (highest priority)
+PHOTON_DIR=~/Projects/my-marketplace photon beam
+```
+
+This makes it easy to develop and test photons locally without installing them globally. The local version shadows the global one, but state is shared because it always goes to `~/.photon/.data/`.
+
+### Environment Variable: PHOTON_DIR
+
+| Aspect | Behavior |
+|--------|----------|
+| **Discovery** | Photons in `$PHOTON_DIR` are discovered alongside `~/.photon`, with `$PHOTON_DIR` taking priority |
+| **State** | Always `~/.photon/.data/` — `PHOTON_DIR` has no effect on state paths |
+| **Config** | `config.json` is read from `$PHOTON_DIR` when set |
+| **When set automatically** | If `cwd` contains `.photon.ts` files, the runtime sets `PHOTON_DIR=cwd` for child processes |
+
+---
+
 ## Communication Patterns
 
 ### Allowed Protocols

@@ -790,9 +790,11 @@ async function testToolExtraction() {
     assert.ok(!fetchTool.isGenerator);
   });
 
-  await test('methods without JSDoc are excluded', async () => {
+  await test('methods without JSDoc are still counted as tools', async () => {
     const meta = await new PhotonDocExtractor(noJsdocPath).extractFullMetadata();
-    assert.equal(meta.tools?.length, 0);
+    assert.equal(meta.tools?.length, 1);
+    assert.equal(meta.tools?.[0].name, 'doStuff');
+    assert.equal(meta.tools?.[0].description, '');
   });
 
   await test('param types come from method signature', async () => {

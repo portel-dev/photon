@@ -20,7 +20,7 @@ const commonOverrides = {
   // `async` on interface/handler methods without await is intentional for API consistency
   '@typescript-eslint/require-await': 'off',
   '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-  '@typescript-eslint/no-require-imports': 'off',
+  '@typescript-eslint/no-require-imports': 'error',
   'no-console': 'off',
 };
 
