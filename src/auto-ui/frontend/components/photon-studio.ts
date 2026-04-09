@@ -15,7 +15,7 @@ import { linter, type Diagnostic } from '@codemirror/lint';
 import { basicSetup } from 'codemirror';
 import { mcpClient } from '../services/mcp-client.js';
 import { showToast } from './toast-manager.js';
-import { confirmDialog, promptDialog } from './confirm-dialog.js';
+import { confirmElicit, promptElicit } from '../utils/elicit.js';
 import {
   createDocblockCompletions,
   photonFormatCompletions,
@@ -1320,7 +1320,7 @@ export class PhotonStudio extends LitElement {
     }
 
     const currentName = seedPlan.symbolName.replace(/^\(alias\)\s*/, '').trim();
-    const nextName = await promptDialog('Rename symbol to:', currentName);
+    const nextName = await promptElicit('Rename symbol to:', currentName);
     if (!nextName || nextName === currentName) return;
 
     const renamePlan = await this._tsWorkerClient
@@ -1805,7 +1805,7 @@ export class PhotonStudio extends LitElement {
   private async _close() {
     if (this._dirty) {
       if (
-        !(await confirmDialog('You have unsaved changes. Close anyway?', {
+        !(await confirmElicit('You have unsaved changes. Close anyway?', {
           confirm: 'Close',
           destructive: true,
         }))

@@ -3,7 +3,7 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
-import { confirmDialog } from './confirm-dialog.js';
+import { confirmElicit } from '../utils/elicit.js';
 import {
   xMark,
   menu,
@@ -2345,6 +2345,9 @@ export class BeamApp extends LitElement {
     // Click outside to close settings menu
     document.addEventListener('click', this._handleDocumentClick);
 
+    // Listen for local elicitation requests (from confirmElicit/promptElicit/elicit)
+    document.addEventListener('beam:elicit-local', this._handleLocalElicit as EventListener);
+
     // Connect via MCP Streamable HTTP (SSE for notifications)
     void this._connectMCP();
 
@@ -2414,6 +2417,7 @@ export class BeamApp extends LitElement {
     window.removeEventListener('message', this._handleBridgeMessage);
     window.removeEventListener('keydown', this._handleKeydown);
     document.removeEventListener('click', this._handleDocumentClick);
+    document.removeEventListener('beam:elicit-local', this._handleLocalElicit as EventListener);
     this._cleanupCollectionSubscriptions();
   }
 
@@ -6456,7 +6460,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const form = this.shadowRoot?.querySelector('invoke-form');
     if (
       form?.isDirty &&
-      !(await confirmDialog('You have unsaved changes. Discard them?', {
+      !(await confirmElicit('You have unsaved changes. Discard them?', {
         confirm: 'Discard',
         destructive: true,
       }))
@@ -6563,7 +6567,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._closeSettingsMenu();
     if (this._selectedPhoton && this._mcpReady) {
       if (
-        await confirmDialog(`Remove ${this._selectedPhoton.name} from this workspace?`, {
+        await confirmElicit(`Remove ${this._selectedPhoton.name} from this workspace?`, {
           confirm: 'Remove',
           destructive: true,
         })
@@ -7018,7 +7022,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleDeletePhoton = async () => {
     this._closeSettingsMenu();
     if (
-      await confirmDialog(`Remove "${this._selectedPhoton?.name}"? It will be moved to trash.`, {
+      await confirmElicit(`Remove "${this._selectedPhoton?.name}"? It will be moved to trash.`, {
         confirm: 'Remove',
         destructive: true,
       })
@@ -7833,12 +7837,30 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
   }
 
+  // ── Local elicitation (non-MCP, from confirmElicit/promptElicit/elicit) ──
+
+  private _localElicitResolve?: (result: { action: 'accept' | 'cancel'; value?: any }) => void;
+
+  private _handleLocalElicit = (e: CustomEvent) => {
+    const { data, resolve } = e.detail;
+    this._localElicitResolve = resolve;
+    this._elicitationData = { ...data };
+    this._showElicitation = true;
+  };
+
   private _handleElicitationSubmit = async (e: CustomEvent) => {
     const { value } = e.detail;
     const elicitationId = (this._elicitationData as any)?.elicitationId;
 
     this._showElicitation = false;
     this._elicitationData = null;
+
+    // Local elicitation (from confirmElicit/promptElicit)
+    if (this._localElicitResolve) {
+      this._localElicitResolve({ action: 'accept', value });
+      this._localElicitResolve = undefined;
+      return;
+    }
 
     // Check if this is a ChatGPT SDK modal request
     const pendingWindow = elicitationId ? this._pendingBridgeCalls.get(elicitationId) : null;
@@ -7870,6 +7892,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._showElicitation = false;
     this._elicitationData = null;
     this._isExecuting = false;
+
+    // Local elicitation (from confirmElicit/promptElicit)
+    if (this._localElicitResolve) {
+      this._localElicitResolve({ action: 'cancel' });
+      this._localElicitResolve = undefined;
+      return;
+    }
 
     // Check if this is a ChatGPT SDK modal request
     const pendingWindow = elicitationId ? this._pendingBridgeCalls.get(elicitationId) : null;

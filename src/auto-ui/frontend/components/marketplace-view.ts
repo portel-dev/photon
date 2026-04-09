@@ -3,7 +3,7 @@ import { customElement, state } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
-import { confirmDialog } from './confirm-dialog.js';
+import { confirmElicit } from '../utils/elicit.js';
 import { templates } from './studio-templates.js';
 import { sparkle, refresh as refreshIcon, check, xMark, file as fileIcon } from '../icons.js';
 import { trapFocus } from '../utils/focus-trap.js';
@@ -1530,7 +1530,7 @@ export class MarketplaceView extends LitElement {
 
   private async _removeSource(name: string) {
     if (
-      !(await confirmDialog(`Remove marketplace "${name}"? This will not uninstall any photons.`, {
+      !(await confirmElicit(`Remove marketplace "${name}"? This will not uninstall any photons.`, {
         confirm: 'Remove',
         destructive: true,
       }))
@@ -1608,7 +1608,7 @@ export class MarketplaceView extends LitElement {
   private async _remove(item: MarketplaceItem) {
     // Confirmation dialog for destructive action
     if (
-      !(await confirmDialog(`Remove "${item.name}"? This will delete the photon files.`, {
+      !(await confirmElicit(`Remove "${item.name}"? This will delete the photon files.`, {
         confirm: 'Remove',
         destructive: true,
       }))
