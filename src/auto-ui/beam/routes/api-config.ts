@@ -11,8 +11,8 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { isLocalRequest, readBody } from '../../../shared/security.js';
 import { generateOpenAPISpec } from '../../openapi-generator.js';
+import { mcpCommand } from '../../../shared-utils.js';
 import type { RouteHandler } from '../types.js';
-import { detectRunner } from '../../../shared-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,6 +80,50 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       res.setHeader('Content-Type', 'application/json');
       res.writeHead(status);
       res.end(JSON.stringify({ error: err.message || String(err) }));
+    }
+    return true;
+  }
+
+  // Create a new photon file from template
+  if (url.pathname === '/api/create-photon' && req.method === 'POST') {
+    if (!isLocalRequest(req)) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return true;
+    }
+    try {
+      const body = await readBody(req);
+      const { filename, template = 'blank' } = JSON.parse(body);
+      if (!filename || !filename.endsWith('.photon.ts')) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Filename must end with .photon.ts' }));
+        return true;
+      }
+      const filePath = path.join(state.workingDir, filename);
+      // Check if already exists
+      try {
+        await fs.access(filePath);
+        res.writeHead(409);
+        res.end(JSON.stringify({ error: `${filename} already exists` }));
+        return true;
+      } catch {
+        // File doesn't exist — good
+      }
+      const name = filename.replace(/\.photon\.ts$/, '');
+      const className = name
+        .split('-')
+        .map((s: string) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join('');
+      const code = generatePhotonTemplate(className, name, template);
+      // Write to temp file then rename — atomic so the watcher never sees an empty file
+      const tmpPath = filePath + '.tmp';
+      await fs.writeFile(tmpPath, code, 'utf-8');
+      await fs.rename(tmpPath, filePath);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ name, filename, path: filePath }));
+    } catch (err: any) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: err.message }));
     }
     return true;
   }
@@ -240,35 +284,21 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
   if (url.pathname === '/api/export/mcp-config') {
     res.setHeader('Content-Type', 'application/json');
 
-    const photonName = url.searchParams.get('photon');
-    if (!photonName) {
-      res.writeHead(400);
-      res.end(JSON.stringify({ error: 'Missing photon query parameter' }));
-      return true;
-    }
+    // Export all loaded photons in both transport formats:
+    // - URL entry for clients that support Streamable HTTP (Cursor, LlamaServer, etc.)
+    // - Per-photon STDIO entries for clients that only support STDIO (Claude Desktop)
+    const beamUrl = `http://${req.headers.host || 'localhost'}/mcp`;
+    const mcpServers: Record<string, { url?: string; command?: string; args?: string[] }> = {
+      'photon-beam': { url: beamUrl },
+    };
 
-    const photon = state.photons.find((p) => p.name === photonName);
-    if (!photon) {
-      res.writeHead(404);
-      res.end(JSON.stringify({ error: `Photon '${photonName}' not found` }));
-      return true;
+    for (const p of state.photons) {
+      if (p.internal) continue;
+      mcpServers[p.name] = mcpCommand(p.name);
     }
 
     res.writeHead(200);
-    res.end(
-      JSON.stringify(
-        {
-          mcpServers: {
-            [`photon-${photonName}`]: {
-              command: detectRunner(),
-              args: ['-y', '@portel/photon', 'mcp', photonName],
-            },
-          },
-        },
-        null,
-        2
-      )
-    );
+    res.end(JSON.stringify({ mcpServers }, null, 2));
     return true;
   }
 
@@ -663,4 +693,111 @@ async function listInstances(
   if (!autoInstance) autoInstance = 'default';
 
   return { instances, autoInstance };
+}
+
+function generatePhotonTemplate(className: string, name: string, template: string): string {
+  switch (template) {
+    case 'api-tool':
+      return `/**
+ * ${className}
+ * @description Add description
+ */
+export default class ${className} {
+  /**
+   * Fetch data from an API endpoint
+   * @param url {string} URL to fetch
+   */
+  async fetch({ url }: { url: string }) {
+    const res = await globalThis.fetch(url);
+    if (!res.ok) throw new Error(\`HTTP \${res.status}: \${res.statusText}\`);
+    return await res.json();
+  }
+
+  /**
+   * Search for something
+   * @param query {string} Search query
+   */
+  async search({ query }: { query: string }) {
+    return { results: [], query };
+  }
+}
+`;
+
+    case 'stateful':
+      return `/**
+ * ${className}
+ * @description Add description
+ * @stateful
+ */
+export default class ${className} {
+  /** Stored items */
+  items: string[] = [];
+
+  /**
+   * Add an item
+   * @param item {string} Item to add
+   */
+  add({ item }: { item: string }) {
+    this.items.push(item);
+    return { added: item, total: this.items.length };
+  }
+
+  /**
+   * List all items
+   */
+  list() {
+    return { items: this.items, total: this.items.length };
+  }
+
+  /**
+   * Remove an item by index
+   * @param index {number} Index to remove
+   */
+  remove({ index }: { index: number }) {
+    const removed = this.items.splice(index, 1);
+    return { removed: removed[0], total: this.items.length };
+  }
+}
+`;
+
+    case 'app':
+      return `/**
+ * ${className}
+ * @description Add description
+ * @stateful
+ * @app
+ * @ui main Main UI
+ */
+export default class ${className} {
+  /**
+   * Get current state
+   * @readOnly
+   */
+  state() {
+    return { message: 'Hello from ${name}!' };
+  }
+
+  /**
+   * Perform an action
+   * @param input {string} Input value
+   */
+  action({ input }: { input: string }) {
+    return { result: input };
+  }
+}
+`;
+
+    default: // hello world
+      return `/**
+ * ${className}
+ * @description Add description
+ */
+export default class ${className} {
+  /** Say hello */
+  hello() {
+    return 'Hello, world!';
+  }
+}
+`;
+  }
 }

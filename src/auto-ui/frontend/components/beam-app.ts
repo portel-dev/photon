@@ -2138,6 +2138,30 @@ export class BeamApp extends LitElement {
     }
   }
 
+  private async _handleCreatePhoton(filename: string, template = 'blank') {
+    try {
+      const res = await fetch('/api/create-photon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, template }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to create photon' }));
+        this._showError('Create failed', err.error);
+        return;
+      }
+      const { name } = await res.json();
+      showToast(`Created ${filename}`, 'success');
+      // Wait for file watcher to pick it up, then select and open studio
+      this._pendingStudioOpen = true;
+      setTimeout(() => {
+        this._sidebar?.scrollPhotonIntoView(name);
+      }, 1500);
+    } catch (err: any) {
+      this._showError('Create failed', err.message);
+    }
+  }
+
   /**
    * Collect static methods from all internal photons for global display
    */
@@ -2862,6 +2886,34 @@ export class BeamApp extends LitElement {
           this._photons = data.photons.map((p: any) =>
             updateFlags.has(p.name) ? { ...p, hasUpdate: true } : p
           );
+          // Check for pending studio open (create-photon or maker flow)
+          if (this._pendingStudioOpen) {
+            const newPhoton = this._photons.find((p) => !p.internal && !prevNames.has(p.name));
+            if (newPhoton) {
+              this._pendingStudioOpen = false;
+              this._selectedPhoton = newPhoton;
+              this._view = 'studio';
+              // Apply template source after Studio opens
+              if (this._pendingTemplateSource) {
+                const tpl = this._pendingTemplateSource;
+                this._pendingTemplateSource = undefined;
+                requestAnimationFrame(() => {
+                  const studio = this.shadowRoot?.querySelector('photon-studio') as any;
+                  if (studio?.applyTemplate) {
+                    studio.applyTemplate({
+                      source: tpl,
+                      id: 'custom',
+                      name: '',
+                      description: '',
+                      icon: '',
+                    });
+                  }
+                });
+              }
+              this._updateRoute(true);
+            }
+          }
+
           // Update selected photon if it was in the list
           if (this._selectedPhoton) {
             const updated = this._photons.find((p) => p.name === this._selectedPhoton?.name);
@@ -2878,29 +2930,7 @@ export class BeamApp extends LitElement {
             if (newUserPhoton) {
               this._selectedPhoton = newUserPhoton;
               this._welcomePhase = 'welcome';
-              if (this._pendingStudioOpen) {
-                this._pendingStudioOpen = false;
-                this._view = 'studio';
-                // Apply template source after Studio opens
-                if (this._pendingTemplateSource) {
-                  const tpl = this._pendingTemplateSource;
-                  this._pendingTemplateSource = undefined;
-                  requestAnimationFrame(() => {
-                    const studio = this.shadowRoot?.querySelector('photon-studio') as any;
-                    if (studio?.applyTemplate) {
-                      studio.applyTemplate({
-                        source: tpl,
-                        id: 'custom',
-                        name: '',
-                        description: '',
-                        icon: '',
-                      });
-                    }
-                  });
-                }
-              } else {
-                this._view = 'list';
-              }
+              this._view = 'list';
               this._updateRoute(true);
             }
           }
@@ -4010,6 +4040,9 @@ export class BeamApp extends LitElement {
             this._view = 'diagnostics';
             this._updateRoute();
           }}
+          @create-photon=${(e: CustomEvent) => {
+            void this._handleCreatePhoton(e.detail.name as string, e.detail.template as string);
+          }}
           @open-studio=${(e: CustomEvent) => {
             const photon = this._photons.find((p: any) => p.name === e.detail.photonName);
             if (photon?.editable && !photon?.isExternalMCP) {
@@ -4093,7 +4126,10 @@ export class BeamApp extends LitElement {
                 </button>
               </div>`
             : ''}
-          ${this._selectedPhoton && !this._selectedMethod && this._mainTab === 'methods'
+          ${this._selectedPhoton &&
+          !this._selectedMethod &&
+          this._mainTab === 'methods' &&
+          this._view !== 'studio'
             ? html`<div class="main-toolbar">
                 <div style="flex: 1; min-width: 0;">${this._renderPhotonToolbar()}</div>
               </div>`
@@ -6294,6 +6330,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
       case 'run-tests':
         void this._runTests();
         break;
+      case 'copy-config-stdio':
+        void this._copyConfigSnippet('stdio');
+        break;
+      case 'copy-config-url':
+        void this._copyConfigSnippet('url');
+        break;
       case 'help':
         this._mainTab = 'help';
         void this._loadPhotonHelp();
@@ -6580,22 +6622,44 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
   };
 
-  private _handleCopyMCPConfig = async () => {
+  private _copyConfigSnippet = async (transport: 'stdio' | 'url') => {
     if (!this._selectedPhoton) return;
+    const name = this._selectedPhoton.name;
     try {
-      const res = await fetch(
-        `/api/export/mcp-config?photon=${encodeURIComponent(this._selectedPhoton.name)}`,
-        {
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      let config: Record<string, unknown>;
+      if (transport === 'url') {
+        const beamUrl = `${location.protocol}//${location.host}/mcp`;
+        config = { mcpServers: { [name]: { url: beamUrl } } };
+      } else {
+        // Fetch from backend — it detects whether `photon` is globally installed
+        const res = await fetch('/api/export/mcp-config', {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const all = await res.json();
+          const entry = all.mcpServers?.[name];
+          if (entry) {
+            config = { mcpServers: { [name]: entry } };
+          } else {
+            // Photon not in backend list (still loading?) — use name directly
+            config = {
+              mcpServers: {
+                [name]: { command: 'npx', args: ['-y', '@portel/photon', 'mcp', name] },
+              },
+            };
+          }
+        } else {
+          config = {
+            mcpServers: { [name]: { command: 'npx', args: ['-y', '@portel/photon', 'mcp', name] } },
+          };
         }
-      );
-      if (!res.ok) throw new Error('Failed to fetch config');
-      const config = await res.json();
+      }
       await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
-      showToast('MCP config copied — paste into Claude Desktop settings', 'success');
+      const label = transport === 'url' ? 'HTTP config' : 'Claude Desktop config';
+      showToast(`${label} copied to clipboard`, 'success');
     } catch (error) {
       console.warn('Copy MCP config failed:', error);
-      showToast('Failed to copy MCP config', 'error');
+      showToast('Failed to copy config', 'error');
     }
   };
 
@@ -7815,16 +7879,18 @@ ${photon.errorMessage || 'Unknown error'}</pre
   };
 
   private _handleOklchThemeReset = () => {
-    this._oklchEnabled = false;
-    // Remove OKLCH overrides — clear all custom properties set on :host
-    const cssVars = beamThemeToCSS(
+    // Clear any existing OKLCH overrides first
+    const oldVars = beamThemeToCSS(
       generateBeamThemeColors({ hue: 0, chroma: 0, lightness: 0.5, theme: 'dark' })
     );
-    for (const prop of Object.keys(cssVars)) {
+    for (const prop of Object.keys(oldVars)) {
       this.style.removeProperty(prop);
     }
-    // Re-apply base theme
-    this._applyTheme();
+    // Re-apply Default Violet preset as the baseline
+    const theme = (this._theme || 'dark') as 'light' | 'dark';
+    const defaultViolet = { hue: 260, chroma: 0.15, lightness: 0.65, theme };
+    this._oklchEnabled = true;
+    this._applyOklchTheme(defaultViolet);
     this._broadcastThemeToIframes();
     showToast('Theme reset to default', 'info');
   };
@@ -8691,6 +8757,17 @@ ${photon.errorMessage || 'Unknown error'}</pre
       toggle: true,
       toggleActive: this._verboseLogging,
     });
+    items.push({
+      id: 'copy-config-stdio',
+      label: 'Copy Config (Claude Desktop)',
+      iconSvg: iconSvgString(iconPaths.clone),
+      dividerBefore: true,
+    });
+    items.push({
+      id: 'copy-config-url',
+      label: 'Copy Config (HTTP)',
+      iconSvg: iconSvgString(iconPaths.clone),
+    });
     if (showInstallApp) {
       items.push({
         id: 'install-app',
@@ -8798,7 +8875,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         this._handleReconfigure();
         break;
       case 'copy-config':
-        void this._handleCopyMCPConfig();
+        void this._copyConfigSnippet('stdio');
         break;
       case 'upgrade':
         void this._handleUpgrade();

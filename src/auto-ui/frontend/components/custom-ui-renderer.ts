@@ -646,8 +646,11 @@ export class CustomUiRenderer extends LitElement {
 
     // Grow iframe when content exceeds the container height (e.g. long forms).
     // We never shrink below the natural CSS height (100% of the container).
-    // Exception: if the body opts into overflow:hidden (full-height app layout),
-    // respect that and never force the iframe to grow beyond the container.
+    // Exceptions — let the iframe scroll internally instead of growing:
+    //   1. The iframe body opts into overflow:hidden (full-height app layout)
+    //   2. The host has an explicit height constraint (app-fill mode set by
+    //      beam-app's appFillStyle), meaning a parent has overflow:hidden
+    //      and growing the iframe would just get clipped with no scrollbar.
     this._contentResizeObserver?.disconnect();
     const body = iframe.contentDocument?.body;
     if (body) {
@@ -655,7 +658,8 @@ export class CustomUiRenderer extends LitElement {
         ? getComputedStyle(iframe.contentDocument.body).overflow
         : '';
       const isFullHeightApp = bodyOverflow === 'hidden';
-      if (!isFullHeightApp) {
+      const hostHasExplicitHeight = this.style.height && this.style.height !== 'auto';
+      if (!isFullHeightApp && !hostHasExplicitHeight) {
         this._contentResizeObserver = new ResizeObserver(() => {
           const scrollH = iframe.contentDocument?.body.scrollHeight ?? 0;
           const containerH = this.offsetHeight || 500;

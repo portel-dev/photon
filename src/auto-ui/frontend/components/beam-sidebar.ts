@@ -18,7 +18,9 @@ import {
   shieldCheck,
   settings as settingsIcon,
   source as sourceIcon,
+  plus,
 } from '../icons.js';
+import { elicit } from '../utils/elicit.js';
 
 interface PhotonItem {
   name: string;
@@ -190,32 +192,32 @@ export class BeamSidebar extends LitElement {
       }
 
       .status-indicator {
-        width: 8px;
-        height: 8px;
+        width: 9px;
+        height: 9px;
         border-radius: 50%;
         flex-shrink: 0;
       }
 
       .status-indicator.connected {
-        background: var(--color-success);
+        background: #22dd44;
         box-shadow:
-          0 0 4px 1px var(--color-success-glow),
-          0 0 8px 2px var(--color-success-glow);
+          0 0 4px 2px rgba(34, 221, 68, 0.6),
+          0 0 10px 4px rgba(34, 221, 68, 0.3);
       }
 
       .status-indicator.reconnecting {
-        background: var(--color-warning);
+        background: #ffbb33;
         box-shadow:
-          0 0 4px 1px var(--color-warning-glow),
-          0 0 8px 2px var(--color-warning-glow);
+          0 0 4px 2px rgba(255, 187, 51, 0.6),
+          0 0 10px 4px rgba(255, 187, 51, 0.3);
         animation: pulse 1s ease-in-out infinite;
       }
 
       .status-indicator.disconnected {
-        background: var(--color-error);
+        background: #ff4444;
         box-shadow:
-          0 0 4px 1px rgba(248, 113, 113, 0.5),
-          0 0 8px 2px rgba(248, 113, 113, 0.3);
+          0 0 4px 2px rgba(255, 68, 68, 0.6),
+          0 0 10px 4px rgba(255, 68, 68, 0.3);
       }
 
       @keyframes pulse {
@@ -266,17 +268,29 @@ export class BeamSidebar extends LitElement {
         background: var(--bg-glass-strong);
       }
 
-      .search-box {
+      .search-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
         margin-top: var(--space-md);
+      }
+
+      .search-box {
+        flex: 1;
         position: relative;
       }
 
+      .create-btn {
+        flex-shrink: 0;
+        margin-top: 0 !important;
+      }
+
       .sidebar-minimize-btn {
-        width: 28px;
-        height: 28px;
+        width: 32px;
+        height: 32px;
         border-radius: var(--radius-sm);
-        background: transparent;
-        border: none;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
         color: var(--t-muted);
         cursor: pointer;
         display: flex;
@@ -289,7 +303,8 @@ export class BeamSidebar extends LitElement {
 
       .sidebar-minimize-btn:hover {
         color: var(--t-primary);
-        background: var(--bg-glass);
+        background: var(--bg-glass-strong);
+        border-color: color-mix(in srgb, var(--accent-primary) 30%, var(--border-glass));
       }
 
       input {
@@ -298,15 +313,16 @@ export class BeamSidebar extends LitElement {
 
       .section-header {
         font-family: var(--font-display);
-        padding: var(--space-sm) var(--space-md);
-        font-size: var(--text-xs);
+        padding: var(--space-xs) var(--space-md);
+        font-size: 10px;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
+        letter-spacing: 0.12em;
         color: var(--t-muted);
-        margin-top: var(--space-sm);
-        border-left: 2px solid var(--accent-primary);
-        background: var(--bg-glass-strong);
+        opacity: 0.75;
+        margin-top: var(--space-md);
+        border-left: none;
+        background: color-mix(in srgb, var(--t-muted) 8%, transparent);
         cursor: pointer;
         user-select: none;
         display: flex;
@@ -315,18 +331,17 @@ export class BeamSidebar extends LitElement {
       }
 
       .section-header:hover {
+        opacity: 1;
         color: var(--t-primary);
-        background: var(--bg-panel);
       }
 
       .section-header.attention {
         color: var(--color-warning);
-        border-left-color: var(--color-warning);
       }
 
       .section-header.attention:hover {
         color: var(--color-warning);
-        opacity: 0.85;
+        opacity: 1;
       }
 
       .section-label {
@@ -385,12 +400,12 @@ export class BeamSidebar extends LitElement {
         border-left: 2px solid var(--accent-primary);
         color: var(--accent-primary);
         font-weight: 500;
-        align-items: stretch;
+        align-items: center;
         padding-top: calc(var(--space-sm) + 2px);
         padding-bottom: calc(var(--space-sm) + 2px);
       }
 
-      .photon-item.flash-highlight {
+      .photon-item.flash-highlight:not(.active) {
         animation: flash-highlight 0.6s ease-out;
       }
 
@@ -403,7 +418,7 @@ export class BeamSidebar extends LitElement {
         }
       }
 
-      .photon-item.warmth {
+      .photon-item.warmth:not(.active) {
         animation: warmth-fade 5s ease-out forwards;
       }
 
@@ -429,12 +444,27 @@ export class BeamSidebar extends LitElement {
         color: var(--t-primary);
         flex-shrink: 0;
         letter-spacing: 0.5px;
+        transition:
+          width 0.25s ease,
+          height 0.25s ease,
+          font-size 0.25s ease;
       }
 
       .photon-icon.emoji-icon {
         background: transparent;
         font-size: 20px;
         overflow: hidden;
+      }
+
+      /* Scale icon up when the row is expanded with view tabs */
+      .photon-item.active .photon-icon {
+        width: 42px;
+        height: 42px;
+        font-size: 15px;
+      }
+
+      .photon-item.active .photon-icon.emoji-icon {
+        font-size: 30px;
       }
 
       .photon-item.internal {
@@ -496,7 +526,6 @@ export class BeamSidebar extends LitElement {
         display: flex;
         align-items: center;
         gap: 4px;
-        margin-left: calc(28px + var(--space-sm));
       }
 
       .photon-view-tab {
@@ -630,6 +659,16 @@ export class BeamSidebar extends LitElement {
 
       .approval-badge-btn {
         position: relative;
+      }
+
+      .approval-badge-btn.disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      .approval-badge-btn.disabled:hover {
+        color: var(--t-muted);
+        background: none;
       }
 
       .approval-badge {
@@ -921,8 +960,13 @@ export class BeamSidebar extends LitElement {
   @state()
   private _collapsedSections: Set<string> = new Set();
 
-  @state()
+  /** Live recency list — saved to localStorage but NOT used for rendering.
+   *  Only applied on next page load via _initialRecentOrder. */
   private _recentPhotons: string[] = [];
+
+  /** Snapshot of recency order captured at page load — used for sorting.
+   *  Stays stable during the session so the sidebar doesn't jump around. */
+  private _initialRecentOrder: string[] = [];
 
   @state()
   private _notificationWarmth: Map<string, number> = new Map();
@@ -949,7 +993,10 @@ export class BeamSidebar extends LitElement {
   private _loadRecent() {
     try {
       const stored = localStorage.getItem(BeamSidebar.RECENT_KEY);
-      if (stored) this._recentPhotons = JSON.parse(stored);
+      if (stored) {
+        this._recentPhotons = JSON.parse(stored);
+        this._initialRecentOrder = [...this._recentPhotons];
+      }
     } catch {
       // ignore
     }
@@ -1085,9 +1132,10 @@ export class BeamSidebar extends LitElement {
     return this._filteredExternalMCPs.filter((m) => !m.hasMcpApp);
   }
 
-  /** Sort items by recency — recently used items float to the top */
+  /** Sort items by recency — uses the order snapshot from page load,
+   *  so the list stays stable during the session and only reorders on refresh. */
   private _sortByRecency<T extends { name: string }>(items: T[]): T[] {
-    const recentIndex = new Map(this._recentPhotons.map((name, i) => [name, i]));
+    const recentIndex = new Map(this._initialRecentOrder.map((name, i) => [name, i]));
     return [...items].sort((a, b) => {
       const aIdx = recentIndex.get(a.name);
       const bIdx = recentIndex.get(b.name);
@@ -1134,11 +1182,11 @@ export class BeamSidebar extends LitElement {
             <button
               class="sidebar-minimize-btn"
               @click=${() => this.dispatchEvent(new CustomEvent('toggle-focus'))}
-              title="Minimize sidebar"
+              title="Hide sidebar"
             >
               <svg
-                width="14"
-                height="14"
+                width="18"
+                height="18"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1146,20 +1194,31 @@ export class BeamSidebar extends LitElement {
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
-                <polyline points="13 15 9 12 13 9" />
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <path d="M9 3v18" />
+                <path d="m16 15-3-3 3-3" />
               </svg>
             </button>
           </div>
-          <div class="search-box" role="search">
-            <input
-              type="search"
-              placeholder="Search photons... (⌘K)"
-              .value=${this._searchQuery}
-              @input=${(e: Event) => this._handleSearch(e)}
-              @keydown=${(e: Event) => this._handleSearchKeydown(e as KeyboardEvent)}
-              aria-label="Search photons"
-            />
+          <div class="search-row">
+            <div class="search-box" role="search">
+              <input
+                type="search"
+                placeholder="Search photons... (⌘K)"
+                .value=${this._searchQuery}
+                @input=${(e: Event) => this._handleSearch(e)}
+                @keydown=${(e: Event) => this._handleSearchKeydown(e as KeyboardEvent)}
+                aria-label="Search photons"
+              />
+            </div>
+            <button
+              class="sidebar-minimize-btn create-btn"
+              @click=${() => this._createPhoton()}
+              title="Create new photon"
+              aria-label="Create new photon"
+            >
+              ${plus}
+            </button>
           </div>
           <div class="filter-row" role="group" aria-label="Filter options">
             <button
@@ -1269,22 +1328,22 @@ export class BeamSidebar extends LitElement {
       </nav>
 
       <div class="sidebar-footer">
-        ${this.pendingApprovals > 0
-          ? html`
-              <button
-                class="footer-link approval-badge-btn"
-                @click=${() =>
-                  this.dispatchEvent(
-                    new CustomEvent('show-approvals', { bubbles: true, composed: true })
-                  )}
-                title="Pending approvals (${this.pendingApprovals})"
-                aria-label="Show pending approvals"
-              >
-                ${shieldCheck}
-                <span class="approval-badge">${this.pendingApprovals}</span>
-              </button>
-            `
-          : ''}
+        <button
+          class="footer-link approval-badge-btn ${this.pendingApprovals === 0 ? 'disabled' : ''}"
+          @click=${() =>
+            this.pendingApprovals > 0 &&
+            this.dispatchEvent(
+              new CustomEvent('show-approvals', { bubbles: true, composed: true })
+            )}
+          title="${this.pendingApprovals > 0
+            ? `Pending approvals (${this.pendingApprovals})`
+            : 'No pending approvals'}"
+          aria-label="Show pending approvals"
+          ?disabled=${this.pendingApprovals === 0}
+        >
+          ${shieldCheck}
+          <span class="approval-badge">${this.pendingApprovals}</span>
+        </button>
         <button
           class="footer-link"
           @click=${() => this._showShortcuts()}
@@ -1320,6 +1379,47 @@ export class BeamSidebar extends LitElement {
 
   private _showShortcuts() {
     this.dispatchEvent(new CustomEvent('show-shortcuts', { bubbles: true, composed: true }));
+  }
+
+  private async _createPhoton() {
+    const result = await elicit({
+      ask: 'form',
+      icon: '\u2728',
+      message: 'Create a new photon',
+      description:
+        'Give your photon a name and we\u2019ll set up everything for you. ' +
+        'Use lowercase letters and hyphens \u2014 like my-api or weather-bot.',
+      submitLabel: 'Create',
+      cancelLabel: 'Cancel',
+      fields: [
+        { name: 'name', label: 'Name', placeholder: 'e.g. my-api', required: true },
+        {
+          name: 'template',
+          label: 'Template',
+          type: 'text',
+          enum: ['Hello World', 'API Tool', 'Stateful', 'App'],
+          default: 'Hello World',
+        },
+      ],
+    });
+    if (result.action === 'cancel') return;
+    const form = result.value as { name?: string; template?: string };
+    if (!form?.name?.trim()) return;
+    let filename = form.name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9.-]/g, '-');
+    if (!filename.endsWith('.photon.ts')) {
+      filename = filename.replace(/\.photon$/, '') + '.photon.ts';
+    }
+    const template = (form.template || 'Blank').toLowerCase().replace(/\s+/g, '-');
+    this.dispatchEvent(
+      new CustomEvent('create-photon', {
+        detail: { name: filename, template },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _openStudio(photonName: string) {
@@ -1419,15 +1519,15 @@ export class BeamSidebar extends LitElement {
         @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(photon)}
         title="${photon.description || photon.name}${photon.path ? `\n${photon.path}` : ''}"
       >
+        <div
+          class="photon-icon ${isEmoji ? 'emoji-icon' : ''}"
+          style="${initialsStyle}"
+          aria-hidden="true"
+        >
+          ${displayIcon}
+        </div>
         <div class="photon-item-body">
           <div class="photon-main-row">
-            <div
-              class="photon-icon ${isEmoji ? 'emoji-icon' : ''}"
-              style="${initialsStyle}"
-              aria-hidden="true"
-            >
-              ${displayIcon}
-            </div>
             <div class="photon-info">
               <div class="photon-name">${photon.name}</div>
               ${photon.internal ? html`<span class="internal-badge">System</span>` : ''}
@@ -1476,9 +1576,9 @@ export class BeamSidebar extends LitElement {
           ? `\n⚠️ ${mcp.errorMessage}`
           : ''}"
       >
+        <div class="photon-icon external-mcp-icon" aria-hidden="true">${displayIcon}</div>
         <div class="photon-item-body">
           <div class="photon-main-row">
-            <div class="photon-icon external-mcp-icon" aria-hidden="true">${displayIcon}</div>
             <div class="photon-info">
               <div class="photon-name">${mcp.name}</div>
             </div>

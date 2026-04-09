@@ -649,11 +649,7 @@ export class ContextBar extends LitElement {
                 Reconfigure
               </button>`
             : ''}
-          ${this.showCopyConfig
-            ? html`<button class="action-btn" @click=${() => this._emit('copy-config')}>
-                ${clipboard} Copy MCP Config
-              </button>`
-            : ''}
+          ${''}<!-- Copy MCP Config moved to overflow menu -->
           ${this.overflowItems.length > 0
             ? html`<overflow-menu
                 .items=${this.overflowItems}

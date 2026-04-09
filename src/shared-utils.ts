@@ -106,6 +106,28 @@ export function detectRunner(): 'bunx' | 'npx' {
 }
 
 /**
+ * Build the MCP server command+args for a photon.
+ * Prefers `photon` if globally installed (shorter, no registry fetch),
+ * otherwise falls back to npx/bunx.
+ */
+let _photonOnPath: boolean | null = null;
+export function mcpCommand(photonName: string): { command: string; args: string[] } {
+  if (_photonOnPath === null) {
+    try {
+      execSync('photon --version', { stdio: 'ignore' });
+      _photonOnPath = true;
+    } catch {
+      _photonOnPath = false;
+    }
+  }
+  if (_photonOnPath) {
+    return { command: 'photon', args: ['mcp', photonName] };
+  }
+  const runner = detectRunner();
+  return { command: runner, args: ['-y', '@portel/photon', 'mcp', photonName] };
+}
+
+/**
  * Get the install command for a global package.
  */
 export function globalInstallCmd(pkg: string): string {

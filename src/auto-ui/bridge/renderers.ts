@@ -228,8 +228,6 @@ export function generateRenderersScript(): string {
   // ─── Badge ───
   renderers.badge = function(container, data, opts) {
     opts = opts || {};
-    var text = typeof data === 'string' ? data : (data.status || data.label || data.text || data.value || JSON.stringify(data));
-    var variant = opts.variant || _badgeVariant(text);
     var badgeColors = {
       success: { bg: 'rgba(52,211,153,0.15)', text: '#34d399' },
       error:   { bg: 'rgba(248,113,113,0.15)', text: '#f87171' },
@@ -237,8 +235,18 @@ export function generateRenderersScript(): string {
       info:    { bg: 'rgba(108,158,255,0.15)', text: '#6c9eff' },
       neutral: { bg: colors.bgAlt, text: colors.textMuted }
     };
-    var c = badgeColors[variant] || badgeColors.neutral;
-    container.innerHTML = '<span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:500;background:' + c.bg + ';color:' + c.text + '">' + esc(text) + '</span>';
+    function renderOne(item) {
+      var text = typeof item === 'string' ? item : (item.status || item.label || item.text || item.value || JSON.stringify(item));
+      var variant = opts.variant || _badgeVariant(text);
+      var c = badgeColors[variant] || badgeColors.neutral;
+      var namePrefix = (typeof item === 'object' && item !== null && (item.name || item.title)) ? '<span style="font-size:12px;color:' + colors.textMuted + ';margin-right:4px">' + esc(item.name || item.title) + '</span>' : '';
+      return namePrefix + '<span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:500;background:' + c.bg + ';color:' + c.text + '">' + esc(text) + '</span>';
+    }
+    if (Array.isArray(data)) {
+      container.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' + data.map(renderOne).join('') + '</div>';
+    } else {
+      container.innerHTML = renderOne(data);
+    }
   };
 
   // ─── List ───

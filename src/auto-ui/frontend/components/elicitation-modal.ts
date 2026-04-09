@@ -6,6 +6,14 @@ import { trapFocus } from '../utils/focus-trap.js';
 export interface ElicitationData {
   ask: 'text' | 'password' | 'select' | 'confirm' | 'number' | 'oauth' | 'url' | 'form';
   message?: string;
+  /** Subtitle/description shown below the title */
+  description?: string;
+  /** Custom icon/emoji shown above the title */
+  icon?: string;
+  /** Custom label for the submit button (default: "Submit") */
+  submitLabel?: string;
+  /** Custom label for the cancel button (default: "Cancel") */
+  cancelLabel?: string;
   placeholder?: string;
   default?: any;
   options?: ElicitationOption[];
@@ -107,11 +115,29 @@ export class ElicitationModal extends LitElement {
         animation-delay: 0.05s;
       }
 
+      .modal-icon {
+        font-size: 2.5rem;
+        text-align: center;
+        margin-bottom: var(--space-sm);
+        line-height: 1;
+      }
+
       h3 {
-        margin: 0 0 var(--space-lg) 0;
+        margin: 0 0 var(--space-sm) 0;
         font-size: var(--text-xl);
         font-weight: 600;
         color: var(--t-primary);
+      }
+
+      .modal-description {
+        margin: 0 0 var(--space-lg) 0;
+        font-size: var(--text-md);
+        color: var(--t-muted);
+        line-height: 1.5;
+      }
+
+      h3:not(.has-description) {
+        margin-bottom: var(--space-lg);
       }
 
       .actions {
@@ -638,7 +664,13 @@ export class ElicitationModal extends LitElement {
         aria-label="${this.data?.message || 'Input required'}"
         @click=${(e: Event) => e.stopPropagation()}
       >
-        <h3>${this.data.message || 'Input Required'}</h3>
+        ${this.data.icon ? html`<div class="modal-icon">${this.data.icon}</div>` : nothing}
+        <h3 class="${this.data.description ? 'has-description' : ''}">
+          ${this.data.message || 'Input Required'}
+        </h3>
+        ${this.data.description
+          ? html`<p class="modal-description">${this.data.description}</p>`
+          : nothing}
         ${this._renderContent()}
       </div>
     `;
@@ -681,8 +713,12 @@ export class ElicitationModal extends LitElement {
         />
       </div>
       <div class="actions">
-        <button class="btn-secondary" @click=${() => this._cancel()}>Cancel</button>
-        <button class="btn-primary" @click=${() => this._submit()}>Submit</button>
+        <button class="btn-secondary" @click=${() => this._cancel()}>
+          ${this.data?.cancelLabel || 'Cancel'}
+        </button>
+        <button class="btn-primary" @click=${() => this._submit()}>
+          ${this.data?.submitLabel || 'Submit'}
+        </button>
       </div>
     `;
   }
