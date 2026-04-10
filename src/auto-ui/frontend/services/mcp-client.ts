@@ -106,7 +106,8 @@ type MCPEventType =
   | 'auth-required' // MCP OAuth: server requires authentication
   | 'auth-changed' // MCP OAuth: auth state changed (login/logout)
   | 'auth-error' // MCP OAuth: auth flow error
-  | 'render'; // Streaming render event (generator yield / this.render())
+  | 'render' // Streaming render event (generator yield / this.render())
+  | 'canvas'; // Canvas two-stream UI+data events
 
 // Pending operation for offline queue
 interface PendingOperation {
@@ -1207,6 +1208,10 @@ class MCPClientService {
 
       case 'beam/render':
         this.emit('render', notification.params);
+        break;
+
+      case 'beam/canvas':
+        this.emit('canvas', notification.params);
         break;
 
       case 'photon/board-update':

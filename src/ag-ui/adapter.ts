@@ -285,6 +285,37 @@ export function createAGUIOutputHandler(
       return;
     }
 
+    // Canvas UI stream → CUSTOM event with HTML layout
+    if (yieldValue.emit === 'canvas:ui') {
+      broadcast(
+        wrapNotification({
+          type: AGUIEventType.CUSTOM,
+          name: 'canvas:ui',
+          value: { html: yieldValue.html },
+          timestamp: ts,
+        })
+      );
+      return;
+    }
+
+    // Canvas data stream → STATE_DELTA (JSON Patch targeting slot)
+    if (yieldValue.emit === 'canvas:data') {
+      broadcast(
+        wrapNotification({
+          type: AGUIEventType.STATE_DELTA,
+          delta: [
+            {
+              op: 'replace',
+              path: `/canvas/${yieldValue.slot}`,
+              value: yieldValue.data,
+            },
+          ],
+          timestamp: ts,
+        })
+      );
+      return;
+    }
+
     // Any other emit → CUSTOM event
     if (yieldValue.emit) {
       broadcast(

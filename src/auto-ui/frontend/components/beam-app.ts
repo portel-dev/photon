@@ -251,6 +251,7 @@ export class BeamApp extends LitElement {
       :host(.view-result) .result-empty,
       :host(.view-form) result-viewer,
       :host(.view-form) custom-ui-renderer,
+      :host(.view-form) canvas-renderer,
       :host(.view-form) .result-empty {
         display: none !important;
       }
@@ -2229,6 +2230,7 @@ export class BeamApp extends LitElement {
   @state() private _runningTests = false;
   @state() private _selectedMethod: any = null;
   @state() private _lastResult: any = null;
+  @state() private _canvasActive = false; // true when canvas:ui/data streams are active
   @state() private _customUiRevision = 0; // bumped on tools-changed to invalidate custom UI iframes
   @state() private _customFormatUri: string | null = null;
   @state() private _lastFormParams: Record<string, any> = {};
@@ -2872,6 +2874,31 @@ export class BeamApp extends LitElement {
           }
           this.requestUpdate();
         }
+      });
+
+      // Handle canvas events — two-stream AI-generated UI (canvas:ui + canvas:data)
+      mcpClient.on('canvas', (data: any) => {
+        if (!data?.photon || !data?.method) return;
+        const currentPhoton = this._selectedPhoton?.name;
+        const currentMethod = this._selectedMethod?.name;
+        if (data.photon !== currentPhoton || data.method !== currentMethod) return;
+
+        // Lazily create canvas-renderer on first canvas event
+        if (!this._canvasActive) {
+          this._canvasActive = true;
+          this.requestUpdate();
+        }
+
+        // Forward to canvas-renderer iframe after render
+        void this.updateComplete.then(() => {
+          const canvas = this.shadowRoot?.querySelector('canvas-renderer') as any;
+          if (!canvas) return;
+          if (data.type === 'ui') {
+            canvas.pushUI(data.html);
+          } else if (data.type === 'data') {
+            canvas.pushData(data.slot, data.data);
+          }
+        });
       });
 
       // Handle photons list update from SSE
@@ -5611,6 +5638,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleMethodSelect(e: CustomEvent) {
     // Teardown any active custom-ui-renderer before switching methods
     this._teardownActiveCustomUI();
+    this._canvasActive = false;
     this._lastFormParams = {};
     // Preserve shared params in view mode (they come from URL and need to survive method selection)
     if (this._viewMode === 'full') {
@@ -6110,19 +6138,25 @@ ${photon.errorMessage || 'Unknown error'}</pre
                       </div>
                     </div>`
                   : ''}
-                <result-viewer
-                  .result=${opts.result}
-                  .outputFormat=${opts.method?.outputFormat}
-                  .layoutHints=${opts.method?.layoutHints}
-                  .photonName=${opts.photon?.name}
-                  .theme=${this._theme}
-                  .live=${this._currentCollectionName !== null}
-                  .resultKey=${opts.photon && opts.method
-                    ? `${opts.photon.name}/${opts.method.name}`
-                    : undefined}
-                  @share=${() => this._handleShareResult()}
-                  @checklist-action=${(e: CustomEvent) => this._handleChecklistAction(e)}
-                ></result-viewer>
+                ${this._canvasActive
+                  ? html`<canvas-renderer
+                      .photon=${opts.photon?.name || ''}
+                      .method=${opts.method?.name || ''}
+                      .theme=${this._theme}
+                    ></canvas-renderer>`
+                  : html`<result-viewer
+                      .result=${opts.result}
+                      .outputFormat=${opts.method?.outputFormat}
+                      .layoutHints=${opts.method?.layoutHints}
+                      .photonName=${opts.photon?.name}
+                      .theme=${this._theme}
+                      .live=${this._currentCollectionName !== null}
+                      .resultKey=${opts.photon && opts.method
+                        ? `${opts.photon.name}/${opts.method.name}`
+                        : undefined}
+                      @share=${() => this._handleShareResult()}
+                      @checklist-action=${(e: CustomEvent) => this._handleChecklistAction(e)}
+                    ></result-viewer>`}
               `
           : html`
               <div class="empty-state-inline result-empty">
@@ -7598,7 +7632,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
    */
   private _forwardToIframes(message: any): void {
     const iframes: HTMLIFrameElement[] = [];
-    this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach((renderer) => {
+    this.shadowRoot?.querySelectorAll('custom-ui-renderer, canvas-renderer').forEach((renderer) => {
       const iframe = renderer.shadowRoot?.querySelector('iframe');
       if (iframe) iframes.push(iframe);
     });

@@ -237,6 +237,22 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       else if (m.method === 'photon/notifications/emit') {
         listeners.emit.forEach(function(cb) { cb(m.params); });
       }
+      // Canvas slot reconciler messages
+      else if (m.method === 'canvas/ui') {
+        var html = m.params && m.params.html;
+        if (html) {
+          document.body.innerHTML = html;
+          _canvasReconciler.scanSlots();
+        }
+      }
+      else if (m.method === 'canvas/data') {
+        var slot = m.params && m.params.slot;
+        var data = m.params && m.params.data;
+        if (slot) {
+          _canvasReconciler.bufferData(slot, data);
+          _canvasReconciler.tryRender(slot);
+        }
+      }
       return;
     }
 
@@ -873,6 +889,72 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   }
 
   _injectMotionStyles();
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CANVAS SLOT RECONCILER
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Two-stream merge: canvas/ui (HTML with data-slot placeholders) and
+  // canvas/data (JSON targeting named slots). Order-independent — either
+  // stream can arrive first; the reconciler buffers and renders when both
+  // a slot element and its data are available.
+  //
+  //   <div data-slot="revenue" data-format="chart:line"></div>
+  //   { slot: "revenue", data: [...] }
+  //   → photon.render(el, data, "chart:line")
+
+  var _canvasReconciler = (function() {
+    var slots = {};  // { [name]: { el, format, data, version } }
+
+    return {
+      scanSlots: function() {
+        var els = document.querySelectorAll('[data-slot]');
+        // Mark all existing slots as stale, then refresh
+        var seen = {};
+        for (var i = 0; i < els.length; i++) {
+          var name = els[i].getAttribute('data-slot');
+          if (!name) continue;
+          seen[name] = true;
+          var existing = slots[name] || {};
+          slots[name] = {
+            el: els[i],
+            format: els[i].getAttribute('data-format') || 'json',
+            data: existing.data !== undefined ? existing.data : null,
+            version: existing.version || 0
+          };
+          // Show loading state
+          if (slots[name].data === null) {
+            els[i].classList.add('photon-loading');
+          }
+          // If data was buffered before UI arrived, render now
+          if (slots[name].data !== null) {
+            this.tryRender(name);
+          }
+        }
+        // Prune orphaned slots (present in old UI but not new)
+        for (var key in slots) {
+          if (!seen[key]) delete slots[key];
+        }
+      },
+
+      bufferData: function(name, data) {
+        if (!slots[name]) {
+          slots[name] = { el: null, format: null, data: data, version: 1 };
+        } else {
+          slots[name].data = data;
+          slots[name].version++;
+        }
+      },
+
+      tryRender: function(name) {
+        var s = slots[name];
+        if (!s || !s.el || s.data === null) return;
+        s.el.classList.remove('photon-loading');
+        window.photon.render(s.el, s.data, s.format);
+        s.el.setAttribute('data-rendered', 'true');
+      }
+    };
+  })();
 
   // ═══════════════════════════════════════════════════════════════════════════
   // DECLARATIVE DATA BINDING (Datastar-inspired, metadata-driven)

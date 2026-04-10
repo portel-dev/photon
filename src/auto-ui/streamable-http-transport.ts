@@ -1940,6 +1940,37 @@ const handlers: Record<string, RequestHandler> = {
           return;
         }
 
+        // Forward canvas:ui events — AI-generated UI layout with data-slot placeholders
+        if (yieldValue?.emit === 'canvas:ui') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'beam/canvas',
+            params: {
+              type: 'ui',
+              photon: photonName,
+              method: methodName,
+              html: yieldValue.html || '',
+            },
+          });
+          return;
+        }
+
+        // Forward canvas:data events — data targeting named slots
+        if (yieldValue?.emit === 'canvas:data') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'beam/canvas',
+            params: {
+              type: 'data',
+              photon: photonName,
+              method: methodName,
+              slot: yieldValue.slot,
+              data: yieldValue.data,
+            },
+          });
+          return;
+        }
+
         // Forward render:clear events — clear the render zone
         if (yieldValue?.emit === 'render:clear') {
           ctx.broadcast({
