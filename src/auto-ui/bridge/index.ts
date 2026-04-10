@@ -444,6 +444,9 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     get method() { return ctx.method; },
     get hostContext() { return hostContext; },
 
+    // List of all supported format names (lazy — loaded when renderers bundle is ready)
+    get formats() { return window._photonRenderers ? window._photonRenderers.formats : []; },
+
     sendSizeChanged: sendSizeChanged,
     setupAutoResize: setupAutoResize,
     parseSizeMeta: parseSizeMeta,

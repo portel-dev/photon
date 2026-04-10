@@ -278,7 +278,7 @@ export function generateRenderersScript(): string {
   };
 
   // ─── Chart (lazy-loads Chart.js) ───
-  renderers['chart'] = renderers['chart:bar'] = renderers['chart:hbar'] = renderers['chart:line'] = renderers['chart:pie'] = renderers['chart:area'] = renderers['chart:donut'] = function(container, data, opts, formatKey) {
+  renderers['chart'] = renderers['chart:bar'] = renderers['chart:hbar'] = renderers['chart:line'] = renderers['chart:pie'] = renderers['chart:area'] = renderers['chart:donut'] = renderers['chart:radar'] = function(container, data, opts, formatKey) {
     opts = opts || {};
     var items = Array.isArray(data) ? data : (data.data || data.items || data.rows || [data]);
     if (!items.length || typeof items[0] !== 'object') { container.innerHTML = '<p style="color:' + colors.textMuted + '">No chart data</p>'; return; }
@@ -1441,6 +1441,400 @@ export function generateRenderersScript(): string {
     render();
   };
 
+  // ─── Ring ───
+  renderers.ring = function(container, data, opts) {
+    opts = opts || {};
+    var value = typeof data === 'number' ? data : (data.value || 0);
+    var label = opts.label || data.label || '';
+    var variant = opts.variant || data.variant || 'info';
+    var max = opts.max != null ? opts.max : (data.max || 100);
+    var pct = Math.max(0, Math.min(100, (value / max) * 100));
+    var size = opts.size || 120;
+    var thickness = opts.thickness || 12;
+    var r = (size - thickness) / 2;
+    var cx = size / 2, cy = size / 2;
+    var c = 2 * Math.PI * r;
+    var offset = c - (pct / 100) * c;
+    
+    var colorMap = {
+      info: colors.accent,
+      success: '#34d399',
+      warning: '#fbbf24',
+      destructive: '#f87171',
+      error: '#f87171'
+    };
+    var ringColor = colorMap[variant] || colorMap.info;
+
+    var h = '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto">';
+    h += '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" style="transform:rotate(-90deg)">';
+    h += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="transparent" stroke="' + colors.bgAlt + '" stroke-width="' + thickness + '" />';
+    if (pct > 0) {
+      h += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="transparent" stroke="' + ringColor + '" stroke-width="' + thickness + '" stroke-dasharray="' + c + '" stroke-dashoffset="' + offset + '" stroke-linecap="round" style="transition:stroke-dashoffset 0.5s ease" />';
+    }
+    h += '</svg>';
+    h += '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:' + colors.text + '">';
+    h += '<span style="font-size:' + (size * 0.22) + 'px;font-weight:700">' + formatValue(value) + '</span>';
+    if (label) h += '<span style="font-size:11px;color:' + colors.textMuted + ';margin-top:2px">' + esc(label) + '</span>';
+    h += '</div></div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Alert ───
+  renderers.alert = function(container, data, opts) {
+    opts = opts || {};
+    var d = typeof data === 'string' ? { description: data } : data;
+    var title = d.title || d.heading || '';
+    var desc = d.description || d.text || d.message || '';
+    var variant = (opts.variant || d.variant || 'info').toLowerCase();
+    var icon = d.icon || '';
+    var alertColors = { success: '#34d399', error: '#f87171', warning: '#fbbf24', info: colors.accent, destructive: '#f87171' };
+    var ac = alertColors[variant] || colors.accent;
+    var bg = ac + '15'; 
+    
+    var h = '<div style="display:flex;gap:12px;padding:16px;background:' + bg + ';border:1px solid ' + ac + '40;border-radius:8px">';
+    if (icon) {
+      h += '<div style="flex-shrink:0;font-size:20px;color:' + ac + '">' + esc(icon) + '</div>';
+    }
+    h += '<div>';
+    if (title) h += '<div style="font-weight:600;font-size:14px;color:' + colors.text + ';margin-bottom:4px">' + esc(title) + '</div>';
+    if (desc) h += '<div style="font-size:13px;color:' + colors.textMuted + ';line-height:1.5">' + esc(desc) + '</div>';
+    h += '</div></div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Sparkline ───
+  renderers.sparkline = function(container, data, opts) {
+    opts = opts || {};
+    var items = Array.isArray(data) ? data : (data.data || []);
+    if (!items.length) { container.innerHTML = ''; return; }
+    
+    var variant = opts.variant || data.variant || 'info';
+    var colorMap = { info: colors.accent, success: '#34d399', warning: '#fbbf24', error: '#f87171', destructive: '#f87171' };
+    var color = colorMap[variant] || colorMap.info;
+    
+    var w = container.clientWidth || 100;
+    var h = opts.height || data.height || 40;
+    var min = Math.min.apply(null, items);
+    var max = Math.max.apply(null, items);
+    var range = max - min || 1;
+    
+    var points = items.map(function(val, i) {
+      var x = i === 0 ? 0 : i === items.length - 1 ? w : (i / (items.length - 1)) * w;
+      var y = h - ((val - min) / range) * h;
+      return x + ',' + y;
+    }).join(' ');
+    
+    var fill = opts.fill != null ? opts.fill : data.fill;
+    
+    var svg = '<svg width="100%" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">';
+    if (fill) {
+      svg += '<polygon points="0,' + h + ' ' + points + ' ' + w + ',' + h + '" fill="' + color + '33" />';
+    }
+    svg += '<polyline points="' + points + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />';
+    svg += '</svg>';
+    
+    container.innerHTML = svg;
+  };
+
+  // ─── Empty State ───
+  renderers['empty-state'] = renderers.empty = function(container, data) {
+    var d = typeof data === 'string' ? { title: data } : (data || {});
+    var title = d.title || d.heading || d.message || 'No Data';
+    var desc = d.description || d.text || d.detail || '';
+    var icon = d.icon || '\\u2205'; 
+    var action = d.action || d.button || '';
+    
+    var h = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;text-align:center;background:' + colors.bgAlt + ';border:1px dashed ' + colors.border + ';border-radius:12px">';
+    h += '<div style="font-size:32px;color:' + colors.textMuted + ';margin-bottom:16px;opacity:0.5">' + esc(icon) + '</div>';
+    h += '<div style="font-size:16px;font-weight:600;color:' + colors.text + ';margin-bottom:4px">' + esc(title) + '</div>';
+    if (desc) h += '<div style="font-size:13px;color:' + colors.textMuted + ';max-width:300px;margin:0 auto 16px">' + esc(desc) + '</div>';
+    if (action) h += '<button style="background:' + colors.accent + ';color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer">' + esc(action) + '</button>';
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Accordion ───
+  renderers.accordion = renderers.collapse = function(container, data) {
+    var items = Array.isArray(data) ? data : (data.items || []);
+    if (!items.length) { container.innerHTML = ''; return; }
+    
+    var h = '<div style="border-radius:8px;overflow:hidden;border:1px solid ' + colors.border + '">';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var title = item.title || item.label || item.question || ('Item ' + (i + 1));
+      var content = item.content || item.answer || item.body || item.details || '';
+      var isOpen = !!item.open || !!item.expanded;
+      
+      h += '<div style="border-bottom:' + (i < items.length - 1 ? '1px solid ' + colors.border : 'none') + '">';
+      h += '<div class="_acc_trigger" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:' + colors.bgAlt + ';cursor:pointer;font-size:14px;font-weight:600;color:' + colors.text + ';user-select:none">';
+      h += '<span>' + esc(title) + '</span>';
+      h += '<span class="_acc_icon" style="transform:' + (isOpen ? 'rotate(180deg)' : 'rotate(0)') + ';transition:transform 0.2s ease;color:' + colors.textMuted + '">\\u25BC</span>';
+      h += '</div>';
+      h += '<div class="_acc_content" style="display:' + (isOpen ? 'block' : 'none') + ';padding:16px;font-size:13px;color:' + colors.textMuted + ';background:' + colors.bg + ';border-top:1px solid ' + colors.border + '">';
+      h += (typeof content === 'string' ? esc(content).replace(/\\n/g, '<br>') : '<pre style="margin:0;font-family:monospace;font-size:12px">' + esc(JSON.stringify(content, null, 2)) + '</pre>');
+      h += '</div></div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+    
+    var triggers = container.querySelectorAll('._acc_trigger');
+    for (var j = 0; j < triggers.length; j++) {
+      triggers[j].onclick = function(e) {
+        var t = e.currentTarget;
+        var c = t.nextElementSibling;
+        var icon = t.querySelector('._acc_icon');
+        var isHidden = c.style.display === 'none';
+        c.style.display = isHidden ? 'block' : 'none';
+        icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0)';
+      };
+    }
+  };
+
+  // ─── Feed (Activity Stream) ───
+  renderers.feed = renderers.activity = function(container, data) {
+    var items = Array.isArray(data) ? data : (data.items || []);
+    if (!items.length) { container.innerHTML = ''; return; }
+    
+    var h = '<div style="display:flex;flex-direction:column;gap:16px">';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var user = item.user || item.author || item.name || 'System';
+      var action = item.action || item.event || 'performed an action';
+      var target = item.target || item.object || '';
+      var ts = item.timestamp || item.time || item.date || '';
+      var avatar = item.avatar || item.image || '';
+      var details = item.details || item.message || item.body || '';
+      
+      h += '<div style="display:flex;gap:12px">';
+      // Avatar
+      if (avatar) {
+        h += '<img src="' + esc(avatar) + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid ' + colors.border + '" />';
+      } else {
+        h += '<div style="width:32px;height:32px;border-radius:50%;background:' + colors.bgAlt + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:600;color:' + colors.text + ';font-size:12px;border:1px solid ' + colors.border + '">' + esc(user.charAt(0).toUpperCase()) + '</div>';
+      }
+      // Content
+      h += '<div style="flex:1;min-width:0">';
+      h += '<div style="font-size:13px;color:' + colors.text + ';margin-bottom:2px">';
+      h += '<span style="font-weight:600">' + esc(user) + '</span> ';
+      h += '<span style="color:' + colors.textMuted + '">' + esc(action) + '</span> ';
+      if (target) h += '<span style="font-weight:500">' + esc(target) + '</span>';
+      h += '</div>';
+      if (ts) h += '<div style="font-size:11px;color:' + colors.textMuted + ';margin-bottom:4px">' + esc(_formatDate(ts)) + '</div>';
+      if (details) {
+        h += '<div style="background:' + colors.bgAlt + ';border:1px solid ' + colors.border + ';border-radius:8px;padding:8px 12px;font-size:13px;color:' + colors.textMuted + ';margin-top:6px">';
+        h += (typeof details === 'string' ? esc(details).replace(/\\n/g, '<br>') : '<pre style="margin:0;font-size:11px">' + esc(JSON.stringify(details, null, 2)) + '</pre>');
+        h += '</div>';
+      }
+      h += '</div></div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Tabs ───
+  renderers.tabs = function(container, data) {
+    var items = Array.isArray(data) ? data : (data.items || data.tabs || []);
+    if (!Array.isArray(data) && typeof data === 'object' && !data.items && !data.tabs) {
+      items = Object.keys(data).map(function(k) { return { title: k, content: data[k] }; });
+    }
+    if (!items.length) { container.innerHTML = ''; return; }
+    
+    var navId = '_tabs_' + Math.random().toString(36).slice(2, 8);
+    var h = '<div id="' + navId + '">';
+    h += '<div style="display:flex;gap:24px;border-bottom:1px solid ' + colors.border + ';margin-bottom:16px;overflow-x:auto">';
+    for (var i = 0; i < items.length; i++) {
+        var title = items[i].title || items[i].label || items[i].name || ('Tab ' + (i+1));
+        var isActive = i === 0;
+        h += '<div class="_tab_trigger" data-idx="' + i + '" style="padding:8px 4px;font-size:13px;font-weight:600;cursor:pointer;user-select:none;white-space:nowrap;border-bottom:2px solid ' + (isActive ? colors.accent : 'transparent') + ';color:' + (isActive ? colors.accent : colors.textMuted) + ';transition:all 0.2s">' + esc(title) + '</div>';
+    }
+    h += '</div>';
+    h += '<div class="_tab_panels">';
+    for (var j = 0; j < items.length; j++) {
+        var c = items[j].content || items[j].body || items[j].data || items[j];
+        var isJSON = typeof c === 'object';
+        h += '<div class="_tab_panel" data-idx="' + j + '" style="display:' + (j === 0 ? 'block' : 'none') + '">';
+        if (!isJSON) {
+          h += '<div style="font-size:13px;color:' + colors.text + ';line-height:1.5">' + esc(String(c)).replace(/\\n/g, '<br>') + '</div>';
+        } else {
+          h += '<pre style="font-size:12px;background:' + colors.bgAlt + ';padding:12px;border-radius:6px;color:' + colors.text + ';overflow:auto;max-height:400px;margin:0">' + esc(JSON.stringify(c, null, 2)) + '</pre>';
+        }
+        h += '</div>';
+    }
+    h += '</div></div>';
+    container.innerHTML = h;
+    
+    var root = document.getElementById(navId);
+    if (!root) return;
+    var triggers = root.querySelectorAll('._tab_trigger');
+    var panels = root.querySelectorAll('._tab_panel');
+    var switchTab = function(idx) {
+        for (var k = 0; k < triggers.length; k++) {
+            var isActive = (k === idx);
+            triggers[k].style.borderBottomColor = isActive ? colors.accent : 'transparent';
+            triggers[k].style.color = isActive ? colors.accent : colors.textMuted;
+            panels[k].style.display = isActive ? 'block' : 'none';
+        }
+    };
+    for (var l = 0; l < triggers.length; l++) {
+        triggers[l].onclick = function(e) {
+            switchTab(parseInt(e.currentTarget.getAttribute('data-idx')));
+        };
+    }
+  };
+
+  // ─── Tree ───
+  renderers.tree = function(container, data) {
+    if (!data) { container.innerHTML = ''; return; }
+    
+    var uid = 0;
+    function renderNode(node, label, depth) {
+      if (node == null) return '';
+      uid++;
+      var isObj = typeof node === 'object';
+      var isArr = Array.isArray(node);
+      var isEmpty = isObj && Object.keys(node).length === 0;
+      var h = '<div style="margin-left:' + (depth > 0 ? 16 : 0) + 'px;font-size:13px;font-family:inherit;line-height:1.8">';
+      if (!isObj || isEmpty) {
+         h += '<span style="color:' + colors.textMuted + '">';
+         if (label !== null) h += esc(label) + ': ';
+         h += '</span>';
+         if (isEmpty) h += '<span style="color:' + colors.textMuted + ';font-style:italic">' + (isArr ? '[]' : '{}') + '</span>';
+         else {
+             var valColor = typeof node === 'number' ? '#ff9e64' : typeof node === 'string' ? '#a5d6ff' : typeof node === 'boolean' ? '#ff7b72' : colors.text;
+             h += '<span style="color:' + valColor + '">' + formatValue(node) + '</span>';
+         }
+      } else {
+         var _id = '_tree_' + uid;
+         h += '<div style="display:flex;align-items:center;cursor:pointer;user-select:none" onclick="var e=document.getElementById(\\''+_id+'\\');var s=e.style.display===\\'none\\';e.style.display=s?\\'block\\':\\'none\\';this.children[0].style.transform=s?\\'rotate(90deg)\\':\\'rotate(0deg)\\';">';
+         h += '<span style="display:inline-block;width:12px;text-align:center;font-size:10px;color:' + colors.textMuted + ';transform:rotate(90deg);transition:transform 0.1s;margin-right:4px">\\u25B6</span>'; 
+         if (label !== null) h += '<span style="font-weight:600;color:' + colors.text + '">' + esc(label) + '</span>';
+         h += '<span style="color:' + colors.textMuted + ';font-size:11px;margin-left:6px">' + (isArr ? '[' + node.length + ']' : '{...}') + '</span>';
+         h += '</div>';
+         
+         h += '<div id="' + _id + '">';
+         if (isArr) {
+            for (var i = 0; i < node.length; i++) h += renderNode(node[i], i, depth + 1);
+         } else {
+            for (var k in node) h += renderNode(node[k], k, depth + 1);
+         }
+         h += '</div>';
+      }
+      h += '</div>';
+      return h;
+    }
+    
+    container.innerHTML = '<div style="background:' + colors.bgAlt + ';padding:12px;border-radius:8px;border:1px solid ' + colors.border + ';overflow:auto;max-height:500px">' + renderNode(data, null, 0) + '</div>';
+  };
+
+  // ─── DataTable (Searchable + Paginated) ───
+  renderers.datatable = function(container, data, opts) {
+    opts = opts || {};
+    var rows = Array.isArray(data) ? data : (data.rows || data.items || data.data || [data]);
+    if (!rows.length) { renderers.table(container, rows, opts); return; }
+    
+    var cols = Object.keys(rows[0]).filter(function(k) { return typeof rows[0][k] !== 'function'; });
+    if (opts.columns) cols = opts.columns;
+    
+    var sortCol = null, sortDir = 1;
+    var query = '';
+    var page = 0;
+    var pageSize = opts.pageSize || 10;
+    
+    var wrapperId = '_dt_' + Math.random().toString(36).slice(2, 8);
+    var h = '<div id="' + wrapperId + '">';
+    h += '<div style="display:flex;justify-content:space-between;margin-bottom:12px;align-items:center">';
+    h += '<input type="search" placeholder="Search..." class="_dt_search" style="padding:6px 12px;border-radius:6px;border:1px solid ' + colors.border + ';background:' + colors.bgAlt + ';color:' + colors.text + ';font-size:13px;width:200px" />';
+    h += '<div class="_dt_info" style="font-size:12px;color:' + colors.textMuted + '"></div>';
+    h += '</div>';
+    h += '<div style="overflow-x:auto;border:1px solid ' + colors.border + ';border-radius:8px">';
+    h += '<table style="width:100%;border-collapse:collapse;font-size:13px;color:' + colors.text + '">';
+    h += '<thead><tr style="background:' + colors.bgAlt + '">';
+    for (var i = 0; i < cols.length; i++) {
+        h += '<th data-col="' + esc(cols[i]) + '" style="cursor:pointer;text-align:left;padding:10px 12px;border-bottom:2px solid ' + colors.border + ';font-weight:600;white-space:nowrap;color:' + colors.textMuted + ';font-size:12px;user-select:none">';
+        h += esc(formatLabel(cols[i])) + '<span class="_dt_sort" style="margin-left:4px;font-size:10px"></span></th>';
+    }
+    h += '</tr></thead><tbody class="_dt_body"></tbody></table></div>';
+    
+    h += '<div style="display:flex;justify-content:flex-end;margin-top:12px;align-items:center;gap:12px">';
+    h += '<button class="_dt_prev" style="padding:4px 10px;background:' + colors.bgAlt + ';border:1px solid ' + colors.border + ';border-radius:4px;color:' + colors.text + ';cursor:pointer;font-size:12px" disabled>&larr; Prev</button>';
+    h += '<span class="_dt_pageStr" style="font-size:12px;color:' + colors.textMuted + '"></span>';
+    h += '<button class="_dt_next" style="padding:4px 10px;background:' + colors.bgAlt + ';border:1px solid ' + colors.border + ';border-radius:4px;color:' + colors.text + ';cursor:pointer;font-size:12px">Next &rarr;</button>';
+    h += '</div></div>';
+    container.innerHTML = h;
+    
+    var root = document.getElementById(wrapperId);
+    var searchEl = root.querySelector('._dt_search');
+    var bodyEl = root.querySelector('._dt_body');
+    var infoEl = root.querySelector('._dt_info');
+    var prevEl = root.querySelector('._dt_prev');
+    var nextEl = root.querySelector('._dt_next');
+    var pageStrEl = root.querySelector('._dt_pageStr');
+    var ths = root.querySelectorAll('thead th');
+    
+    function renderView() {
+        var filtered = rows;
+        if (query) {
+            var q = query.toLowerCase();
+            filtered = rows.filter(function(r) {
+                for (var c=0; c<cols.length; c++) {
+                    var v = r[cols[c]];
+                    if (v != null && String(v).toLowerCase().indexOf(q) !== -1) return true;
+                }
+                return false;
+            });
+        }
+        if (sortCol) {
+            filtered.sort(function(a,b) {
+                var va = a[sortCol], vb = b[sortCol];
+                if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * sortDir;
+                return String(va || '').localeCompare(String(vb || '')) * sortDir;
+            });
+        }
+        
+        var totalPages = Math.ceil(filtered.length / pageSize) || 1;
+        if (page >= totalPages) page = totalPages - 1;
+        if (page < 0) page = 0;
+        var start = page * pageSize;
+        var viewRows = filtered.slice(start, start + pageSize);
+        
+        var bh = '';
+        for (var r=0; r<viewRows.length; r++) {
+            bh += '<tr style="border-bottom:1px solid ' + colors.border + ';background:' + (r%2===0 ? colors.bg : 'rgba(0,0,0,0.02)') + '">';
+            for(var c=0; c<cols.length; c++) {
+               bh += '<td style="padding:8px 12px">' + formatValue(viewRows[r][cols[c]]) + '</td>';
+            }
+            bh += '</tr>';
+        }
+        if (!viewRows.length) bh = '<tr><td colspan="' + cols.length + '" style="padding:20px;text-align:center;color:' + colors.textMuted + '">No matching records found.</td></tr>';
+        bodyEl.innerHTML = bh;
+        
+        infoEl.textContent = filtered.length + ' entries';
+        pageStrEl.textContent = 'Page ' + (page+1) + ' of ' + totalPages;
+        prevEl.disabled = page === 0;
+        nextEl.disabled = page >= totalPages - 1;
+        prevEl.style.opacity = prevEl.disabled ? '0.5' : '1';
+        nextEl.style.opacity = nextEl.disabled ? '0.5' : '1';
+        
+        for (var l=0; l<ths.length; l++) {
+            var arrow = ths[l].getAttribute('data-col') === sortCol ? (sortDir===1 ? '\\u25B2' : '\\u25BC') : '';
+            ths[l].querySelector('._dt_sort').textContent = arrow;
+        }
+    }
+    
+    searchEl.oninput = function(e) { query = e.target.value; page = 0; renderView(); };
+    prevEl.onclick = function() { if (page > 0) { page--; renderView(); } };
+    nextEl.onclick = function() { page++; renderView(); };
+    for (var lh=0; lh<ths.length; lh++) {
+        ths[lh].onclick = function(e) {
+            var col = e.currentTarget.getAttribute('data-col');
+            if (sortCol === col) sortDir *= -1; else { sortCol = col; sortDir = 1; }
+            renderView();
+        }
+    }
+    
+    renderView();
+  };
+
   // ── Public API ──
 
   window._photonRenderers = {
@@ -1459,3 +1853,275 @@ export function generateRenderersScript(): string {
   };
 })();`;
 }
+
+/**
+ * Format catalog — format name → expected data shape.
+ * Used by AI to generate valid canvas data for each slot format.
+ *
+ * Usage:
+ *   import { FORMAT_CATALOG, SUPPORTED_FORMATS } from './renderers.js';
+ */
+export interface FormatSpec {
+  data: string; // TypeScript-style data shape description
+  example: unknown; // Minimal working example
+}
+
+export const FORMAT_CATALOG: Record<string, FormatSpec> = {
+  // ── Data Display ──
+  table: {
+    data: 'Array<object>',
+    example: [
+      { name: 'Alice', role: 'Eng' },
+      { name: 'Bob', role: 'PM' },
+    ],
+  },
+  list: {
+    data: 'Array<{ name, subtitle?, status?, badge? }>',
+    example: [{ name: 'Task 1', subtitle: 'In progress', status: 'active' }],
+  },
+  card: {
+    data: '{ key: value, ... }',
+    example: { name: 'Server-1', status: 'healthy', uptime: '99.9%' },
+  },
+  kv: { data: '{ key: value, ... }', example: { host: 'prod-01', region: 'us-east', cpu: '42%' } },
+  json: { data: 'any', example: { debug: true, nested: { key: 'value' } } },
+  text: { data: 'string', example: 'Hello world' },
+  markdown: { data: 'string (markdown)', example: '# Title\n\nSome **bold** text' },
+  code: {
+    data: 'string | { code, language? }',
+    example: { code: 'console.log("hi")', language: 'javascript' },
+  },
+  metric: {
+    data: '{ value, trend?, period?, label? }',
+    example: { value: '$142K', trend: '+12%', period: 'this month' },
+  },
+  gauge: {
+    data: '{ value, max?, min?, label?, unit? }',
+    example: { value: 73, max: 100, label: 'CPU', unit: '%' },
+  },
+  progress: {
+    data: '{ value, max?, label? } (value 0-1 or 0-100)',
+    example: { value: 0.65, label: 'Upload' },
+  },
+  badge: { data: 'string', example: 'active' },
+  chips: { data: 'Array<string>', example: ['React', 'TypeScript', 'Node.js'] },
+
+  // ── Charts ──
+  'chart:bar': {
+    data: 'Array<{ label, value }>',
+    example: [
+      { month: 'Jan', revenue: 42000 },
+      { month: 'Feb', revenue: 48000 },
+    ],
+  },
+  'chart:hbar': {
+    data: 'Array<{ label, value }>',
+    example: [
+      { lang: 'TypeScript', stars: 95000 },
+      { lang: 'Rust', stars: 87000 },
+    ],
+  },
+  'chart:line': {
+    data: 'Array<{ x, y }>',
+    example: [
+      { date: 'Mon', requests: 1200 },
+      { date: 'Tue', requests: 1500 },
+    ],
+  },
+  'chart:pie': {
+    data: 'Array<{ label, value }>',
+    example: [
+      { source: 'Organic', users: 4500 },
+      { source: 'Paid', users: 2100 },
+    ],
+  },
+  'chart:area': {
+    data: 'Array<{ x, y }>',
+    example: [
+      { time: '9am', load: 0.4 },
+      { time: '12pm', load: 0.8 },
+    ],
+  },
+  'chart:donut': {
+    data: 'Array<{ label, value }>',
+    example: [
+      { status: 'Pass', count: 42 },
+      { status: 'Fail', count: 3 },
+    ],
+  },
+  'chart:radar': {
+    data: 'Array<{ axis, value }>',
+    example: [
+      { skill: 'Frontend', level: 8 },
+      { skill: 'Backend', level: 9 },
+    ],
+  },
+  sparkline: { data: 'Array<number>', example: [10, 25, 18, 30, 22, 35, 28] },
+  ring: { data: '{ value, max?, label? }', example: { value: 75, max: 100, label: 'Progress' } },
+
+  // ── Composite Layouts ──
+  tabs: {
+    data: 'Array<{ title, content }> | { tabName: content }',
+    example: [
+      { title: 'Overview', content: 'Main info here' },
+      { title: 'Details', content: 'Extra details' },
+    ],
+  },
+  accordion: {
+    data: 'Array<{ title, content }>',
+    example: [
+      { title: 'FAQ 1', content: 'Answer 1' },
+      { title: 'FAQ 2', content: 'Answer 2' },
+    ],
+  },
+
+  // ── Timeline & Steps ──
+  timeline: {
+    data: 'Array<{ time, event, details? }>',
+    example: [
+      { time: '10:00', event: 'Deploy started' },
+      { time: '10:05', event: 'Tests passed' },
+    ],
+  },
+  steps: {
+    data: 'Array<{ label, status? }>',
+    example: [
+      { label: 'Build', status: 'complete' },
+      { label: 'Test', status: 'active' },
+      { label: 'Deploy', status: 'pending' },
+    ],
+  },
+  checklist: {
+    data: 'Array<{ name|title, done|completed|checked }>',
+    example: [
+      { name: 'Write tests', done: true },
+      { name: 'Deploy', done: false },
+    ],
+  },
+
+  // ── Cards & Content ──
+  'stat-group': {
+    data: 'Array<{ label, value, change? }>',
+    example: [
+      { label: 'Revenue', value: '$42K', change: '+12%' },
+      { label: 'Users', value: '1.2K' },
+    ],
+  },
+  'feature-grid': {
+    data: 'Array<{ icon, title, description }>',
+    example: [{ icon: '🚀', title: 'Fast', description: 'Sub-ms response times' }],
+  },
+  profile: {
+    data: '{ name, avatar?, role?, bio?, stats? }',
+    example: { name: 'Jane', role: 'Engineer', bio: 'Full-stack dev', stats: { commits: 847 } },
+  },
+  quote: {
+    data: '{ text, author?, source? }',
+    example: { text: 'Ship it.', author: 'Reid Hoffman' },
+  },
+  hero: {
+    data: '{ title, subtitle?, image?, cta? }',
+    example: { title: 'Welcome', subtitle: 'Get started in seconds' },
+  },
+  banner: {
+    data: '{ title, description?, variant? }',
+    example: { title: 'New release', description: 'v2.0 is here', variant: 'info' },
+  },
+  alert: {
+    data: '{ title?, description, variant?, icon? }',
+    example: { description: 'Deployment complete', variant: 'success' },
+  },
+
+  // ── Media ──
+  image: {
+    data: '{ url, alt?, caption? } | string (url)',
+    example: { url: 'https://example.com/photo.jpg', alt: 'Screenshot' },
+  },
+  carousel: {
+    data: 'Array<{ url, caption? }>',
+    example: [{ url: 'https://example.com/1.jpg' }, { url: 'https://example.com/2.jpg' }],
+  },
+  gallery: {
+    data: 'Array<{ url, caption? }>',
+    example: [{ url: 'https://example.com/1.jpg', caption: 'Photo 1' }],
+  },
+  qr: { data: 'string (url or text)', example: 'https://example.com' },
+  embed: { data: '{ url, type? }', example: { url: 'https://youtube.com/embed/xxx' } },
+
+  // ── Structured ──
+  invoice: {
+    data: '{ items: Array<{ name, qty, price }>, total?, tax? }',
+    example: { items: [{ name: 'Widget', qty: 2, price: 9.99 }], total: 19.98 },
+  },
+  comparison: {
+    data: 'Array<{ name, ...features }>',
+    example: [
+      { name: 'Plan A', price: '$10', storage: '10GB' },
+      { name: 'Plan B', price: '$20', storage: '50GB' },
+    ],
+  },
+  diff: {
+    data: '{ before, after } | string (unified diff)',
+    example: { before: 'old text', after: 'new text' },
+  },
+  log: {
+    data: 'Array<{ timestamp?, level?, message }>',
+    example: [{ timestamp: '10:00:01', level: 'info', message: 'Started' }],
+  },
+  kanban: {
+    data: '{ columns: Array<{ title, items: Array<{ title, description? }> }> }',
+    example: {
+      columns: [
+        { title: 'Todo', items: [{ title: 'Task 1' }] },
+        { title: 'Done', items: [] },
+      ],
+    },
+  },
+  heatmap: {
+    data: 'Array<Array<number>> | { rows, cols, values }',
+    example: [
+      [1, 2, 3],
+      [4, 5, 6],
+      [7, 8, 9],
+    ],
+  },
+  calendar: {
+    data: 'Array<{ date, title, color? }>',
+    example: [
+      { date: '2026-04-10', title: 'Launch' },
+      { date: '2026-04-15', title: 'Review' },
+    ],
+  },
+  network: {
+    data: '{ nodes: Array<{ id, label? }>, edges: Array<{ from, to }> }',
+    example: {
+      nodes: [
+        { id: 'a', label: 'API' },
+        { id: 'b', label: 'DB' },
+      ],
+      edges: [{ from: 'a', to: 'b' }],
+    },
+  },
+  tree: {
+    data: 'object (nested) | Array',
+    example: { src: { components: { 'App.tsx': null }, utils: { 'helper.ts': null } } },
+  },
+  datatable: {
+    data: 'Array<object> (with search/sort/pagination)',
+    example: [
+      { id: 1, name: 'Item A', price: 10 },
+      { id: 2, name: 'Item B', price: 20 },
+    ],
+  },
+  feed: {
+    data: 'Array<{ user, action, target?, timestamp? }>',
+    example: [{ user: 'Alice', action: 'deployed', target: 'prod', timestamp: '2m ago' }],
+  },
+  'empty-state': {
+    data: '{ title?, description?, icon? }',
+    example: { title: 'No results', description: 'Try a different query', icon: '🔍' },
+  },
+};
+
+/** Flat list of supported format names */
+export const SUPPORTED_FORMATS: string[] = Object.keys(FORMAT_CATALOG);
