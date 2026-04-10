@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.20.1](https://github.com/portel-dev/photon/compare/v1.20.0...v1.20.1) (2026-04-10)
+
+### Features
+
+* add hideCloseButton property to photon-studio component ([39a4b80](https://github.com/portel-dev/photon/commit/39a4b80d9f290a90bd82754e409e9c3ba7d11a82))
+* photon creation flow, MCP config export, and UI refinements ([8098d8f](https://github.com/portel-dev/photon/commit/8098d8f5b0013097e0546c1592a9b17ad057564a))
+* wire up pending approvals for deferred elicitations ([6fff785](https://github.com/portel-dev/photon/commit/6fff78544c92e17dcadf9d73af02aee6b59f8459))
+
+### Bug Fixes
+
+* daemon stop→start race condition and worker spawn ceiling timeout ([07d5a35](https://github.com/portel-dev/photon/commit/07d5a35086c55fa3e81f9b18b9ad43e427e4445e))
+* emit progress messages during worker initialization phases ([55e748e](https://github.com/portel-dev/photon/commit/55e748e802653849f0b37427c381c00fb7f735c7))
+* log stale symlink cleanup during photon discovery ([a40eaea](https://github.com/portel-dev/photon/commit/a40eaea7d24cb3bddbc001304cc689a14d4db996))
+* update photon-core to v2.18.1 for broken symlink cleanup ([76dccee](https://github.com/portel-dev/photon/commit/76dccee7c290441e3b7a9aa6d3825b264f148c9f))
+* wire hideCloseButton on studio embed and default to source tab ([4f9c5b5](https://github.com/portel-dev/photon/commit/4f9c5b50e0611ebdd4d905421831f70420f40780))
+* worker dep resolution during spawn and client retry on connection close ([a242d40](https://github.com/portel-dev/photon/commit/a242d40387620ef2d9210d93769f3b37771240db))
+
 ## [1.20.0](https://github.com/portel-dev/photon/compare/v1.19.0...v1.20.0) (2026-04-08)
 
 ### Features
