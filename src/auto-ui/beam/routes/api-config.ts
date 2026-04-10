@@ -154,15 +154,6 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
-  // Format catalog: format name → data shape + example, queryable by AI for canvas generation
-  if (url.pathname === '/api/formats') {
-    const { FORMAT_CATALOG } = await import('../../bridge/renderers.js');
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'public, max-age=300');
-    res.end(JSON.stringify(FORMAT_CATALOG));
-    return true;
-  }
-
   // Platform Bridge API: Generate platform compatibility script
   // Uses the unified bridge architecture based on @modelcontextprotocol/ext-apps SDK
   if (url.pathname === '/api/platform-bridge') {

@@ -194,4 +194,16 @@ export default class CanvasDemo {
 
     return { status: 'rendered', updates: values.length };
   }
+
+  /**
+   * List all supported canvas formats with their expected data shapes
+   * @readOnly
+   * @format table
+   */
+  catalog() {
+    return Object.entries((this as any).formats).map(([name, spec]: [string, any]) => ({
+      format: name,
+      data: spec.data,
+    }));
+  }
 }

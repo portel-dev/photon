@@ -16,7 +16,7 @@ import type {
 } from './types/photon-instance.js';
 import { createRequire } from 'module';
 import * as path from 'path';
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { startToolSpan } from './telemetry/otel.js';
 import { spawn } from 'child_process';
@@ -852,6 +852,9 @@ export class PhotonLoader {
       // Developers just `import { Array } from '@portel/photon-core'` and use normally
       this.wireReactiveCollections(instance);
 
+      // Inject format catalog — this.formats
+      this.injectFormatCatalog(instance);
+
       // Inject @mcp dependencies from source (this.github, this.fs, etc.)
       if (tsContent) {
         await this.injectMCPDependencies(instance, tsContent, name);
@@ -1434,6 +1437,9 @@ export class PhotonLoader {
     instance._photonResolver = (photonName: string, instanceName?: string) => {
       return this.resolveAndLoadPhoton(photonName, absolutePath, instanceName);
     };
+
+    // Inject format catalog — this.formats
+    this.injectFormatCatalog(instance);
 
     // Wire reactive collections
     this.wireReactiveCollections(instance);
@@ -3878,6 +3884,30 @@ Run: photon mcp ${mcpName} --config
    * }
    * ```
    */
+  private _formatCatalogCache: Record<string, unknown> | null = null;
+
+  private injectFormatCatalog(instance: Record<string, unknown>): void {
+    if (instance.formats) return;
+    // Eagerly load once per loader, cached across all photon instances
+    if (!this._formatCatalogCache) {
+      try {
+        const loaderDir = path.dirname(fileURLToPath(import.meta.url));
+        const renderersPath = path.join(loaderDir, 'auto-ui', 'bridge', 'renderers.js');
+        const esmRequire = createRequire(import.meta.url);
+        this._formatCatalogCache = esmRequire(renderersPath).FORMAT_CATALOG;
+      } catch (e) {
+        this.logger.debug('Failed to load format catalog', { error: (e as Error)?.message });
+        this._formatCatalogCache = {};
+      }
+    }
+    Object.defineProperty(instance, 'formats', {
+      value: this._formatCatalogCache,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  }
+
   private wireReactiveCollections(instance: Record<string, unknown>): void {
     // Get the emit function if available
     const emit =
