@@ -24,6 +24,7 @@ import {
   resolvePhotonPath,
   type ListedPhoton,
 } from '@portel/photon-core';
+import { logger } from './shared/logger.js';
 
 export interface PhotonContext {
   /** Base directory for photon files (~/.photon or PHOTON_DIR override) */
@@ -129,14 +130,20 @@ export function getLocalWorkspace(): string | null {
  * is set), those photons overlay the global ones for development/testing.
  */
 export async function discoverPhotons(): Promise<ListedPhoton[]> {
+  const cleanupHandler = (name: string, symlinkPath: string) => {
+    logger.info(`🧹 Removed stale symlink for "${name}" (target no longer exists): ${symlinkPath}`);
+  };
+
   // Always start with global ~/.photon photons
-  const globalPhotons = await listPhotonFilesWithNamespace(HOME_PHOTON_DIR);
+  const globalPhotons = await listPhotonFilesWithNamespace(HOME_PHOTON_DIR, {
+    onCleanup: cleanupHandler,
+  });
 
   const localDir = getLocalWorkspace();
   if (!localDir) return globalPhotons;
 
   // Local/PHOTON_DIR photons take priority
-  const localPhotons = await listPhotonFilesWithNamespace(localDir);
+  const localPhotons = await listPhotonFilesWithNamespace(localDir, { onCleanup: cleanupHandler });
   const localNames = new Set(localPhotons.map((p) => p.name));
 
   // Merge: local first, then global (skip global duplicates)
