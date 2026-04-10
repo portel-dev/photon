@@ -6099,7 +6099,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               </div>
             `
           : ''}
-        ${opts.result !== null
+        ${opts.result !== null || this._canvasActive
           ? this._customFormatUri
             ? html`
                 <custom-ui-renderer

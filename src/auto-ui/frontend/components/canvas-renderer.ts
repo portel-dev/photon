@@ -246,6 +246,40 @@ export class CanvasRenderer extends LitElement {
     // Mark ready and flush buffered messages
     this._iframeReady = true;
     this._flushBuffer();
+
+    // Auto-resize iframe to match content height
+    this._startAutoResize(iframe);
+  }
+
+  private _resizeObserver: any = null;
+
+  private _startAutoResize(iframe: HTMLIFrameElement): void {
+    const resize = () => {
+      try {
+        const height = iframe.contentDocument?.body?.scrollHeight;
+        if (height && height > 0) {
+          iframe.style.height = `${height + 16}px`;
+          this.style.minHeight = `${height + 16}px`;
+        }
+      } catch (_) {
+        // cross-origin — skip
+      }
+    };
+
+    // Observe body mutations to auto-resize when content changes
+    try {
+      const body = iframe.contentDocument?.body;
+      if (body) {
+        this._resizeObserver = new MutationObserver(resize);
+        this._resizeObserver.observe(body, { childList: true, subtree: true, attributes: true });
+      }
+    } catch (_) {
+      // cross-origin — skip
+    }
+
+    // Also resize on interval for chart renders that happen async
+    const interval = setInterval(resize, 500);
+    setTimeout(() => clearInterval(interval), 10000);
   }
 
   updated(changedProperties: Map<string, unknown>) {
