@@ -259,6 +259,112 @@ export default class Canvas {
   }
 
   /**
+   * Describe the current canvas layout in natural language.
+   * Useful for AI agents to understand spatial arrangement without a screenshot.
+   * @readOnly
+   */
+  async describe() {
+    await this._load();
+    const els = Object.values(this._scene);
+    if (els.length === 0) {
+      return {
+        description: 'The canvas is empty.',
+        count: 0,
+      };
+    }
+
+    // Sort by z-order (back to front)
+    const sorted = [...els].sort((a, b) => a.z - b.z);
+
+    // Compute canvas bounds
+    const maxX = Math.max(...els.map((e) => e.x + e.w));
+    const maxY = Math.max(...els.map((e) => e.y + e.h));
+
+    // Describe each element with spatial context
+    const descriptions = sorted.map((el) => {
+      const cx = el.x + el.w / 2;
+      const cy = el.y + el.h / 2;
+      const hPos = cx < maxX * 0.33 ? 'left' : cx > maxX * 0.66 ? 'right' : 'center';
+      const vPos = cy < maxY * 0.33 ? 'top' : cy > maxY * 0.66 ? 'bottom' : 'middle';
+      const pos = vPos === 'middle' && hPos === 'center' ? 'center' : `${vPos}-${hPos}`;
+      const size = `${el.w}x${el.h}`;
+      const lock = el.locked ? ` [locked by ${el.locked}]` : '';
+      const label = el.label || el.id;
+      return `- "${label}" (${el.format}, ${size}) at ${pos}, placed by ${el.createdBy || 'unknown'}${lock}`;
+    });
+
+    // Detect spatial patterns
+    const patterns: string[] = [];
+    const xGroups = this._groupBy(els, (e) => Math.round(e.y / 50) * 50);
+    const rows = Object.values(xGroups).filter((g) => g.length > 1);
+    if (rows.length > 0) {
+      patterns.push(`${rows.length} row(s) of aligned elements`);
+    }
+    const yGroups = this._groupBy(els, (e) => Math.round(e.x / 50) * 50);
+    const cols = Object.values(yGroups).filter((g) => g.length > 1);
+    if (cols.length > 0) {
+      patterns.push(`${cols.length} column(s) of aligned elements`);
+    }
+
+    const summary =
+      `Canvas has ${els.length} element(s) spanning ${maxX}x${maxY}px.` +
+      (patterns.length > 0 ? ' Layout: ' + patterns.join(', ') + '.' : '') +
+      ` Turn: ${this._turn.agent}.`;
+
+    return {
+      description: summary,
+      elements: descriptions,
+      bounds: { width: maxX, height: maxY },
+      turn: this._turn,
+      count: els.length,
+    };
+  }
+
+  private _groupBy<T>(items: T[], keyFn: (item: T) => number): Record<number, T[]> {
+    const groups: Record<number, T[]> = {};
+    for (const item of items) {
+      const key = keyFn(item);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(item);
+    }
+    return groups;
+  }
+
+  /**
+   * Request a screenshot from the canvas UI.
+   * Returns the latest captured screenshot as a base64 data URL.
+   * The UI captures the screenshot and sends it back via the capture method.
+   * @readOnly
+   */
+  async screenshot() {
+    await this._load();
+
+    // Emit request — client will capture and call 'capture' with the data
+    this.emit({ emit: 'canvas:screenshot-request' });
+
+    // Return the last captured screenshot if available
+    const last = await this.memory.get<string>('last-screenshot');
+    return {
+      available: !!last,
+      dataUrl: last || null,
+      hint: last
+        ? 'Screenshot available. Pass the dataUrl to a multimodal model.'
+        : 'Screenshot requested. Call screenshot() again after a moment to retrieve it.',
+    };
+  }
+
+  /**
+   * Store a screenshot captured by the canvas UI.
+   * Called by the client after a screenshot-request event.
+   * @internal
+   * @param dataUrl Base64 data URL of the captured image
+   */
+  async capture({ dataUrl }: { dataUrl: string }) {
+    await this.memory.set('last-screenshot', dataUrl);
+    return { stored: true };
+  }
+
+  /**
    * List all available render formats with expected data shapes
    * @readOnly
    * @format table

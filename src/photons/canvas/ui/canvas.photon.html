@@ -896,8 +896,85 @@
       clearAll();
     } else if (event.emit === 'turn:change' && event.turn) {
       updateTurnBanner(event.turn);
+    } else if (event.emit === 'canvas:screenshot-request') {
+      captureScreenshot();
     }
   });
+
+  // ── Screenshot Capture ──
+
+  function captureScreenshot() {
+    // Calculate bounds of all elements
+    var minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+    for (var id in elements) {
+      var el = elements[id];
+      minX = Math.min(minX, el.x);
+      minY = Math.min(minY, el.y);
+      maxX = Math.max(maxX, el.x + el.w);
+      maxY = Math.max(maxY, el.y + el.h);
+    }
+    if (minX === Infinity) return; // empty canvas
+
+    var pad = 20;
+    var w = maxX - minX + pad * 2;
+    var h = maxY - minY + pad * 2;
+
+    var canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Background
+    ctx.fillStyle = '#1a1b26';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw each element as a simple rectangle with label
+    var sorted = Object.values(elements).sort(function(a, b) { return a.z - b.z; });
+    for (var i = 0; i < sorted.length; i++) {
+      var el = sorted[i];
+      var ex = el.x - minX + pad;
+      var ey = el.y - minY + pad;
+
+      // Card background
+      ctx.fillStyle = '#1e2030';
+      ctx.fillRect(ex, ey, el.w, el.h);
+
+      // Agent color bar
+      var color = agentColor(el.createdBy || 'ai');
+      ctx.fillStyle = color;
+      ctx.fillRect(ex, ey, 3, el.h);
+
+      // Title bar
+      ctx.fillStyle = '#252738';
+      ctx.fillRect(ex, ey, el.w, 24);
+
+      // Label text
+      ctx.fillStyle = '#e6e6e6';
+      ctx.font = '11px sans-serif';
+      ctx.fillText((el.label || el.id).substring(0, 30), ex + 8, ey + 16);
+
+      // Format badge
+      ctx.fillStyle = '#666';
+      ctx.font = '9px monospace';
+      ctx.fillText(el.format, ex + el.w - ctx.measureText(el.format).width - 8, ey + 16);
+
+      // Border
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ex, ey, el.w, el.h);
+
+      // Lock icon
+      if (el.locked) {
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = '10px sans-serif';
+        ctx.fillText('\uD83D\uDD12', ex + el.w - 18, ey + el.h - 6);
+      }
+    }
+
+    var dataUrl = canvas.toDataURL('image/png');
+    window.photon.callTool('capture', { dataUrl: dataUrl });
+  }
 
   // Reconcile on load — fetch latest scene in case events were missed
   setTimeout(function() {
