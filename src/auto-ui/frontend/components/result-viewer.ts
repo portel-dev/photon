@@ -94,7 +94,8 @@ type LayoutType =
   | 'slides'
   | 'checklist'
   | 'article'
-  | 'magazine';
+  | 'magazine'
+  | 'ring';
 
 interface LayoutHints {
   title?: string;
@@ -122,6 +123,8 @@ interface LayoutHints {
   group?: string;
   // Composable container hints
   inner?: string;
+  // Table column format pipes: "amount:currency,percent:percent,name:truncate(20)"
+  columnFormats?: string;
 }
 
 // Chart palette for dark/light themes
@@ -419,6 +422,67 @@ export class ResultViewer extends LitElement {
 
       .smart-table tr:hover td {
         background: var(--bg-glass);
+      }
+
+      /* Row expansion */
+      .row-expand-th {
+        width: 32px;
+        padding: 0 !important;
+      }
+      .row-expand-td {
+        width: 32px;
+        padding: 4px 6px !important;
+        text-align: center;
+      }
+      .row-expand-chevron {
+        display: inline-block;
+        font-size: 0.6em;
+        color: var(--t-muted);
+        transition: transform 0.2s ease;
+      }
+      .row-expand-chevron.open {
+        transform: rotate(90deg);
+      }
+      .row-expanded td {
+        border-bottom: none;
+      }
+      .detail-row td {
+        padding: 0 !important;
+        border-bottom: 1px solid var(--border-glass);
+      }
+      .detail-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: var(--space-xs) var(--space-md);
+        padding: var(--space-sm) var(--space-md) var(--space-sm) 40px;
+        background: var(--bg-glass);
+        animation: detail-slide-down 0.2s ease-out;
+      }
+      .detail-field {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .detail-key {
+        font-size: var(--text-xs);
+        font-weight: 600;
+        color: var(--t-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .detail-value {
+        font-size: var(--text-md);
+        color: var(--t-primary);
+      }
+      @keyframes detail-slide-down {
+        from {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
       /* Key-Value Table (single object) */
@@ -2213,6 +2277,28 @@ export class ResultViewer extends LitElement {
       }
 
       /* ═══════════════════════════════════════════════════════════════
+         Ring (Circular Progress)
+         ═══════════════════════════════════════════════════════════════ */
+      .ring-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 12px;
+      }
+      .ring-container svg circle {
+        transition:
+          stroke-dashoffset 0.6s ease-out,
+          stroke 0.3s ease-out;
+      }
+      .ring-label {
+        font-size: var(--text-md);
+        color: var(--t-muted);
+        margin-top: var(--space-xs);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
          Timeline Component
          ═══════════════════════════════════════════════════════════════ */
       .timeline-container {
@@ -2776,6 +2862,13 @@ export class ResultViewer extends LitElement {
 
   // The detected ID field for the current result (shared across diff, animation, warmth)
   private _activeIdField = 'id';
+
+  // Column format pipe cache (invalidated when layoutHints changes)
+  private _columnPipes: Map<string, { pipe: string; arg?: string }> | null = null;
+
+  // Expandable table rows
+  @state()
+  private _expandedRows = new Set<string>();
 
   // Chart.js instance for reactive updates
   private _chartInstance: any = null;
@@ -4080,6 +4173,14 @@ export class ResultViewer extends LitElement {
             data.total !== undefined ||
             data.current !== undefined)
         );
+      case 'ring':
+        // Number, or object with value/progress field
+        return (
+          typeof data === 'number' ||
+          (typeof data === 'object' &&
+            !Array.isArray(data) &&
+            (data.value !== undefined || data.progress !== undefined))
+        );
       case 'chart':
         // Need array or object (not a plain string)
         return typeof data !== 'string';
@@ -4152,6 +4253,8 @@ export class ResultViewer extends LitElement {
         return this._renderMetric(filteredData);
       case 'gauge':
         return this._renderGauge(filteredData);
+      case 'ring':
+        return this._renderRing(filteredData);
       case 'timeline':
         return this._renderTimeline(filteredData);
       case 'dashboard':
@@ -4252,10 +4355,14 @@ export class ResultViewer extends LitElement {
     const endIndex = Math.min(startIndex + this._pageSize, totalItems);
     const pageData = sortedData.slice(startIndex, endIndex);
 
+    // Detect ID field for row expansion
+    const idField = this._detectIdField(originalData);
+
     return html`
       <table class="smart-table">
         <thead>
           <tr>
+            <th class="row-expand-th"></th>
             ${columns.map(
               (col) =>
                 html`<th
@@ -4274,15 +4381,46 @@ export class ResultViewer extends LitElement {
           </tr>
         </thead>
         <tbody class="motion-stagger">
-          ${pageData.map(
-            (row) => html`
-              <tr class="${this._getItemAnimationClass(row)} ${this._getItemWarmthClass(row)}">
+          ${pageData.map((row, idx) => {
+            const rowId = String(row[idField] ?? `__idx_${startIndex + idx}`);
+            const isExpanded = this._expandedRows.has(rowId);
+            return html`
+              <tr
+                class="${this._getItemAnimationClass(row)} ${this._getItemWarmthClass(
+                  row
+                )} ${isExpanded ? 'row-expanded' : ''}"
+                @click=${() => this._toggleRowExpansion(rowId)}
+                style="cursor: pointer;"
+              >
+                <td class="row-expand-td">
+                  <span class="row-expand-chevron ${isExpanded ? 'open' : ''}">▶</span>
+                </td>
                 ${columns.map(
                   (col) => html`<td>${this._formatCellValue(row[col], col, true)}</td>`
                 )}
               </tr>
-            `
-          )}
+              ${isExpanded
+                ? html`<tr class="detail-row">
+                    <td colspan="${columns.length + 1}">
+                      <div class="detail-panel">
+                        ${Object.entries(row)
+                          .filter(([k]) => k !== '__meta')
+                          .map(
+                            ([k, v]) => html`
+                              <div class="detail-field">
+                                <span class="detail-key">${this._formatColumnName(k)}</span>
+                                <span class="detail-value"
+                                  >${this._formatCellValue(v, k, true)}</span
+                                >
+                              </div>
+                            `
+                          )}
+                      </div>
+                    </td>
+                  </tr>`
+                : ''}
+            `;
+          })}
         </tbody>
       </table>
       ${totalItems > this._pageSize ? this._renderPagination(totalItems, totalPages) : ''}
@@ -4297,6 +4435,16 @@ export class ResultViewer extends LitElement {
       this._sortDirection = 'asc';
     }
     this._currentPage = 0; // Reset to first page when sorting
+  }
+
+  private _toggleRowExpansion(rowId: string) {
+    const next = new Set(this._expandedRows);
+    if (next.has(rowId)) {
+      next.delete(rowId);
+    } else {
+      next.add(rowId);
+    }
+    this._expandedRows = next;
   }
 
   private _renderPagination(totalItems: number, totalPages: number): TemplateResult {
@@ -4992,6 +5140,11 @@ export class ResultViewer extends LitElement {
 
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
+
+    // Invalidate column pipe cache when hints change
+    if (changedProperties.has('layoutHints')) {
+      this._columnPipes = null;
+    }
 
     // Unwrap _photonType objects before diff logic — this avoids mutating during render()
     if (
@@ -9148,9 +9301,76 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     return formatLabel(name);
   }
 
+  private _getColumnPipes(): Map<string, { pipe: string; arg?: string }> {
+    if (this._columnPipes) return this._columnPipes;
+    this._columnPipes = new Map();
+    const raw = this.layoutHints?.columnFormats;
+    if (!raw) return this._columnPipes;
+    for (const part of raw.split(',')) {
+      const trimmed = part.trim();
+      const colonIdx = trimmed.indexOf(':');
+      if (colonIdx <= 0) continue;
+      const col = trimmed.slice(0, colonIdx).trim();
+      const pipeSpec = trimmed.slice(colonIdx + 1).trim();
+      const pipeMatch = pipeSpec.match(/^(\w+)(?:\((\d+)\))?$/);
+      if (col && pipeMatch) {
+        this._columnPipes.set(col, { pipe: pipeMatch[1], arg: pipeMatch[2] });
+      }
+    }
+    return this._columnPipes;
+  }
+
+  private _applyPipe(value: any, pipe: string, arg?: string): string {
+    if (value === null || value === undefined) return '—';
+    switch (pipe) {
+      case 'currency':
+        return typeof value === 'number'
+          ? value.toLocaleString(undefined, { style: 'currency', currency: arg || 'USD' })
+          : String(value);
+      case 'percent': {
+        if (typeof value === 'number') {
+          const pct = Math.abs(value) <= 1 ? value * 100 : value;
+          const digits = arg ? parseInt(arg, 10) : 1;
+          return `${pct.toFixed(digits)}%`;
+        }
+        return String(value);
+      }
+      case 'date': {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString();
+      }
+      case 'truncate': {
+        const max = parseInt(arg || '30', 10);
+        const str = String(value);
+        return str.length > max ? str.slice(0, max) + '\u2026' : str;
+      }
+      case 'number':
+        return typeof value === 'number' ? value.toLocaleString() : String(value);
+      case 'compact': {
+        if (typeof value !== 'number') return String(value);
+        if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(1) + 'B';
+        if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(1) + 'M';
+        if (Math.abs(value) >= 1e3) return (value / 1e3).toFixed(1) + 'K';
+        return value.toLocaleString();
+      }
+      default:
+        return String(value);
+    }
+  }
+
   private _formatCellValue(value: any, key: string, highlight = false): TemplateResult | string {
     if (value === null || value === undefined) return '—';
     if (typeof value === 'boolean') return value ? '✓' : '✗';
+
+    // Check for column format pipe (from @columnFormats hint)
+    const pipes = this._getColumnPipes();
+    if (pipes.size > 0) {
+      const pipe = pipes.get(key);
+      if (pipe) {
+        const formatted = this._applyPipe(value, pipe.pipe, pipe.arg);
+        return highlight ? this._highlightText(formatted) : formatted;
+      }
+    }
 
     // Check for image URLs - make them clickable for fullscreen
     if (this._isImageUrl(value)) {
@@ -9707,6 +9927,113 @@ ${str}</pre
         (typeof sample[k] === 'string' && /^\d{4}-\d{2}-\d{2}/.test(sample[k]))
     );
 
+    // ── Histogram: bin numeric data into a bar chart ──
+    if (chartType === 'histogram') {
+      const field = this.layoutHints?.x || numericKeys[0];
+      if (!field) return null;
+      const values = items.map((i: any) => i[field]).filter((v: any) => typeof v === 'number');
+      if (values.length === 0) return null;
+      const binCount = Math.min(20, Math.max(5, Math.ceil(Math.sqrt(values.length))));
+      const minVal = Math.min(...values);
+      const maxVal = Math.max(...values);
+      const binWidth = (maxVal - minVal) / binCount || 1;
+      const bins = Array(binCount).fill(0);
+      for (const v of values) {
+        const idx = Math.min(binCount - 1, Math.floor((v - minVal) / binWidth));
+        bins[idx]++;
+      }
+      const labels = bins.map((_: number, i: number) => `${(minVal + i * binWidth).toFixed(1)}`);
+      return {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: this._formatColumnName(field),
+              data: bins,
+              backgroundColor: this._hexToRgba(palette[0], 0.7),
+              borderColor: palette[0],
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          animation: { duration: 600, easing: 'easeOutQuart' as const },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              titleColor: '#e2e8f0',
+              bodyColor: '#e2e8f0',
+              borderColor: 'rgba(99, 102, 241, 0.3)',
+              borderWidth: 1,
+              cornerRadius: 8,
+              padding: 10,
+            },
+          },
+          scales: {
+            x: { grid: { color: gridColor }, ticks: { color: textColor, maxRotation: 45 } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor }, beginAtZero: true },
+          },
+        },
+      };
+    }
+
+    // ── Scatter: build {x, y} point data ──
+    if (chartType === 'scatter') {
+      const xField = this.layoutHints?.x || numericKeys[0];
+      const yField = this.layoutHints?.y || numericKeys[1];
+      if (!xField || !yField) return null;
+      return {
+        type: 'scatter',
+        data: {
+          datasets: [
+            {
+              label: `${this._formatColumnName(xField)} vs ${this._formatColumnName(yField)}`,
+              data: items.map((item: any) => ({ x: item[xField], y: item[yField] })),
+              backgroundColor: this._hexToRgba(palette[0], 0.7),
+              borderColor: palette[0],
+              pointRadius: 5,
+              pointHoverRadius: 8,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          animation: { duration: 600, easing: 'easeOutQuart' as const },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              titleColor: '#e2e8f0',
+              bodyColor: '#e2e8f0',
+              borderColor: 'rgba(99, 102, 241, 0.3)',
+              borderWidth: 1,
+              cornerRadius: 8,
+              padding: 10,
+            },
+          },
+          scales: {
+            x: {
+              type: 'linear' as const,
+              title: { display: true, text: this._formatColumnName(xField), color: textColor },
+              grid: { color: gridColor },
+              ticks: { color: textColor },
+            },
+            y: {
+              type: 'linear' as const,
+              title: { display: true, text: this._formatColumnName(yField), color: textColor },
+              grid: { color: gridColor },
+              ticks: { color: textColor },
+            },
+          },
+        },
+      };
+    }
+
     // Resolve label/x/y from hints or auto-detect
     const labelField =
       this.layoutHints?.label || this.layoutHints?.x || dateKeys[0] || stringKeys[0];
@@ -9717,6 +10044,53 @@ ${str}</pre
         : numericKeys;
 
     if (!labelField || valueFields.length === 0) return null;
+
+    // ── Radar: single item with many numeric fields → labels are field names ──
+    if (chartType === 'radar' && items.length === 1) {
+      const labels = valueFields.map((f) => this._formatColumnName(f));
+      return {
+        type: 'radar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: items[0][stringKeys[0]] || 'Values',
+              data: valueFields.map((f) => items[0][f] ?? 0),
+              backgroundColor: this._hexToRgba(palette[0], 0.2),
+              borderColor: palette[0],
+              borderWidth: 2,
+              pointRadius: 4,
+              pointHoverRadius: 6,
+              fill: true,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          animation: { duration: 600, easing: 'easeOutQuart' as const },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              titleColor: '#e2e8f0',
+              bodyColor: '#e2e8f0',
+              borderColor: 'rgba(99, 102, 241, 0.3)',
+              borderWidth: 1,
+              cornerRadius: 8,
+              padding: 10,
+            },
+          },
+          scales: {
+            r: {
+              grid: { color: gridColor },
+              pointLabels: { color: textColor },
+              ticks: { color: textColor, backdropColor: 'transparent' },
+            },
+          },
+        },
+      };
+    }
 
     const labels = items.map((item: any) => {
       const val = item[labelField];
@@ -9744,9 +10118,17 @@ ${str}</pre
       borderColor: palette[i % palette.length],
       borderWidth: chartType === 'pie' || chartType === 'doughnut' ? 0 : 2,
       tension: 0.3,
-      fill: chartType === 'line' && valueFields.length === 1 ? 'origin' : false,
-      pointRadius: chartType === 'scatter' ? 5 : 3,
-      pointHoverRadius: chartType === 'scatter' ? 8 : 5,
+      fill:
+        chartType === 'radar'
+          ? true
+          : chartType === 'line' && valueFields.length === 1
+            ? 'origin'
+            : false,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+      ...(chartType === 'radar'
+        ? { backgroundColor: this._hexToRgba(palette[i % palette.length], 0.2) }
+        : {}),
     }));
 
     const isPolar = chartType === 'pie' || chartType === 'doughnut' || chartType === 'radar';
@@ -9780,19 +10162,28 @@ ${str}</pre
             padding: 10,
           },
         },
-        scales: isPolar
-          ? {}
-          : {
-              x: {
-                grid: { color: gridColor },
-                ticks: { color: textColor, maxRotation: 45 },
-              },
-              y: {
-                grid: { color: gridColor },
-                ticks: { color: textColor },
-                beginAtZero: chartType === 'bar',
-              },
-            },
+        scales:
+          chartType === 'radar'
+            ? {
+                r: {
+                  grid: { color: gridColor },
+                  pointLabels: { color: textColor },
+                  ticks: { color: textColor, backdropColor: 'transparent' },
+                },
+              }
+            : isPolar
+              ? {}
+              : {
+                  x: {
+                    grid: { color: gridColor },
+                    ticks: { color: textColor, maxRotation: 45 },
+                  },
+                  y: {
+                    grid: { color: gridColor },
+                    ticks: { color: textColor },
+                    beginAtZero: chartType === 'bar',
+                  },
+                },
       },
     };
   }
@@ -9824,10 +10215,18 @@ ${str}</pre
     const numericKeys = keys.filter((k) => typeof sample[k] === 'number');
     const hasDate = this._hasDateLikeFields(sample);
 
+    const stringKeys = keys.filter((k) => typeof sample[k] === 'string');
+
     // Time series → line
     if (hasDate && numericKeys.length >= 1) return 'line';
+    // All-numeric fields with no string labels → scatter
+    if (numericKeys.length >= 2 && stringKeys.length === 0 && items.length > 1) return 'scatter';
     // 2 fields (label + value) with few items → pie
     if (keys.length === 2 && numericKeys.length === 1 && items.length <= 8) return 'pie';
+    // Single item with many numeric fields (scores/ratings) → radar
+    if (items.length === 1 && numericKeys.length >= 5) return 'radar';
+    // Few items with many numeric dimensions + a label → radar
+    if (items.length <= 5 && numericKeys.length >= 4 && stringKeys.length === 1) return 'radar';
     // Default → bar
     return 'bar';
   }
@@ -10011,6 +10410,80 @@ ${str}</pre
       const b = Math.round(8 + (68 - 8) * t);
       return `rgb(${r}, ${g}, ${b})`;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Ring (Circular Progress) Rendering
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _renderRing(data: any): TemplateResult {
+    let value: number;
+    let max = 100;
+    let label: string | undefined;
+
+    if (typeof data === 'number') {
+      value = data;
+    } else if (data && typeof data === 'object') {
+      if ('progress' in data && typeof data.progress === 'number') {
+        value = data.progress * 100;
+      } else {
+        value = data.value ?? 0;
+      }
+      max = parseFloat(this.layoutHints?.max ?? String(data.max ?? 100));
+      label = data.label || this.layoutHints?.title;
+    } else {
+      return html`<div class="empty-state">No ring data</div>`;
+    }
+
+    const normalized = Math.max(0, Math.min(1, value / max));
+    const cx = 60;
+    const cy = 60;
+    const r = 50;
+    const circumference = 2 * Math.PI * r;
+    const dashOffset = circumference * (1 - normalized);
+    const color = this._getGaugeColor(normalized);
+    const displayValue =
+      data?.progress !== undefined ? `${Math.round(value)}%` : String(Math.round(value));
+
+    return html`
+      <div class="ring-container ${this._objectJustChanged ? 'value-flash' : ''}">
+        <svg viewBox="0 0 120 120" width="120" height="120">
+          <circle
+            cx="${cx}"
+            cy="${cy}"
+            r="${r}"
+            fill="none"
+            stroke="${this.theme === 'light' ? '#e2e8f0' : '#334155'}"
+            stroke-width="8"
+          />
+          <circle
+            cx="${cx}"
+            cy="${cy}"
+            r="${r}"
+            fill="none"
+            stroke="${color}"
+            stroke-width="8"
+            stroke-dasharray="${circumference}"
+            stroke-dashoffset="${dashOffset}"
+            stroke-linecap="round"
+            transform="rotate(-90 ${cx} ${cy})"
+          />
+          <text
+            x="${cx}"
+            y="${cy}"
+            text-anchor="middle"
+            dominant-baseline="central"
+            font-size="20"
+            font-weight="700"
+            font-variant-numeric="tabular-nums"
+            fill="${this.theme === 'light' ? '#1e293b' : '#e2e8f0'}"
+          >
+            ${displayValue}
+          </text>
+        </svg>
+        ${label ? html`<div class="ring-label">${label}</div>` : ''}
+      </div>
+    `;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

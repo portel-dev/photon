@@ -474,6 +474,17 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       };
     },
 
+    // Show a toast notification in the host UI
+    // Usage: photon.showToast('Saved!', 'success', 3000)
+    showToast: function(message, type, duration) {
+      postToHost({
+        type: 'photon:toast',
+        message: message || '',
+        toastType: type || 'info',
+        duration: duration || 3000
+      });
+    },
+
     // Render a QR code into a container element (convenience shortcut)
     // Usage: photon.renderQR(element, 'https://example.com', { size: 256 })
     renderQR: function(container, text, opts) {

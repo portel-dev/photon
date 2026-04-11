@@ -7746,6 +7746,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
         }
       }
 
+      // Handle toast notifications from @ui template iframes
+      if (msg.type === 'photon:toast') {
+        const validTypes = ['success', 'error', 'info', 'warning'] as const;
+        const toastType = validTypes.includes(msg.toastType) ? msg.toastType : 'info';
+        showToast(msg.message || 'Notification', toastType, msg.duration || 3000);
+      }
+
       // Handle custom UI notifying what resource it's viewing
       // This enables on-demand channel subscriptions
       // photonId: hash of photon path (from selected photon)
