@@ -104,8 +104,12 @@ export class DaemonManager {
       return;
     }
 
-    // starting/stopping — wait for it to settle, then check again
-    // (This handles the edge case of external state changes)
+    // starting/stopping — wait for it to settle, then re-sync and retry
+    await this.waitForDaemon(quiet);
+    this.resyncFromDisk();
+    if ((this.fsm.state as DaemonState) === 'stopped') {
+      await this.start(quiet);
+    }
   }
 
   /**

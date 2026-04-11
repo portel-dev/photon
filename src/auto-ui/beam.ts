@@ -126,6 +126,7 @@ import {
 import { ensureDaemon } from '../daemon/manager.js';
 import { SchemaExtractor, type ConstructorParam } from '@portel/photon-core';
 import { generateServerCard } from '../server-card.js';
+import { resolveUIAssetPath, readUIContent } from './ui-resolver.js';
 import {
   handleStreamableHTTP,
   broadcastNotification,
@@ -1050,65 +1051,35 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     const photonBaseName = path.basename(photon.path, '.photon.ts');
     const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
 
-    let uiPath: string;
+    let resolved;
     if (asset?.resolvedPath) {
-      uiPath = asset.resolvedPath;
+      resolved = {
+        path: asset.resolvedPath,
+        isPhotonTemplate:
+          asset.resolvedPath.endsWith('.photon.html') || asset.resolvedPath.endsWith('.photon.tsx'),
+        isPhotonMarkdown: asset.resolvedPath.endsWith('.photon.md'),
+      };
     } else {
-      // Priority: .photon.html > .photon.tsx > .photon.md > .html > .tsx
-      const uiBase = path.join(photonDir, photonBaseName, 'ui');
-      const candidates = [
-        path.join(uiBase, `${uiId}.photon.html`),
-        path.join(uiBase, `${uiId}.photon.tsx`),
-        path.join(uiBase, `${uiId}.photon.md`),
-        path.join(uiBase, `${uiId}.html`),
-        path.join(uiBase, `${uiId}.tsx`),
-      ];
-      uiPath = candidates[candidates.length - 1]; // default fallback
-      for (const candidate of candidates) {
-        try {
-          await fs.access(candidate);
-          uiPath = candidate;
-          break;
-        } catch {
-          // try next
-        }
-      }
+      resolved = await resolveUIAssetPath(photonDir, photonBaseName, uiId);
     }
 
-    const isPhotonTemplate =
-      uiPath.endsWith('.photon.html') ||
-      uiPath.endsWith('.photon.tsx') ||
-      uiPath.endsWith('.photon.md');
+    const isPhotonTemplate = resolved.isPhotonTemplate || resolved.isPhotonMarkdown;
 
     try {
-      let content: string;
-      if (uiPath.endsWith('.tsx')) {
-        const { compileTsxCached } = await import('../tsx-compiler.js');
-        content = await compileTsxCached(uiPath);
-      } else {
-        content = await readText(uiPath);
-      }
+      const content = await readUIContent(resolved.path);
       return { content, isPhotonTemplate };
     } catch {
       // Fall through to check custom format renderers
     }
 
     // Check for custom format renderer in assets/formats/
-    // Convention: format-<name> maps to assets/formats/<name>.html or .tsx
     if (uiId.startsWith('format-')) {
       const formatName = uiId.slice('format-'.length);
       const formatsDir = path.join(photonDir, photonBaseName, 'assets', 'formats');
-      // Try .html first, then .tsx
       for (const ext of ['.html', '.tsx']) {
         const formatPath = path.join(formatsDir, `${formatName}${ext}`);
         try {
-          let content: string;
-          if (ext === '.tsx') {
-            const { compileTsxCached } = await import('../tsx-compiler.js');
-            content = await compileTsxCached(formatPath);
-          } else {
-            content = await readText(formatPath);
-          }
+          const content = await readUIContent(formatPath);
           return { content, isPhotonTemplate: false };
         } catch {
           // try next

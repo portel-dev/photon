@@ -2919,6 +2919,16 @@ export class ResultViewer extends LitElement {
     // Clean up all chart instances
     this._chartInstances.forEach((chart) => chart.destroy());
     this._chartInstances.clear();
+    // Clean up slides timers and event listeners
+    for (const timer of this._slidesRefreshTimers) clearInterval(timer);
+    this._slidesRefreshTimers = [];
+    this._slidesBoundElements.forEach((el) => {
+      const cleanup = (el as any)._renderCleanup;
+      if (typeof cleanup === 'function') cleanup();
+    });
+    this._slidesBoundElements.clear();
+    this._slidesResizeObserver?.disconnect();
+    this._slidesResizeObserver = null;
   }
 
   private _handleGlobalKeydown = (e: KeyboardEvent) => {

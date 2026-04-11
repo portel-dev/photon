@@ -39,6 +39,38 @@ export function generateRenderersScript(): string {
   }
   var colors = getColors();
 
+  // Shared semantic color map — used by badge, banner, ring, alert, sparkline, etc.
+  var VARIANT_COLORS = {
+    success: '#34d399',
+    error: '#f87171',
+    warning: '#fbbf24',
+    destructive: '#f87171',
+    info: colors.accent,
+    neutral: colors.textMuted
+  };
+
+  // Factory for lazy-loading CDN scripts with queued callbacks
+  function _makeLoader(url, cssUrl) {
+    var loading = false, loaded = false, queue = [];
+    return function(cb) {
+      if (loaded) { cb(); return; }
+      queue.push(cb);
+      if (loading) return;
+      loading = true;
+      if (cssUrl) {
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = cssUrl;
+        document.head.appendChild(link);
+      }
+      var s = document.createElement('script');
+      s.src = url;
+      s.onload = function() { loaded = true; queue.forEach(function(fn) { fn(); }); queue = []; };
+      s.onerror = function() { queue.forEach(function(fn) { fn(); }); queue = []; };
+      document.head.appendChild(s);
+    };
+  }
+
   function esc(s) {
     if (typeof s !== 'string') return String(s == null ? '' : s);
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -451,18 +483,7 @@ export function generateRenderersScript(): string {
   }
 
   // ─── QR code ───
-  var _qrLoading = false, _qrLoaded = false, _qrQueue = [];
-  function _loadQRJS(cb) {
-    if (_qrLoaded) { cb(); return; }
-    _qrQueue.push(cb);
-    if (_qrLoading) return;
-    _qrLoading = true;
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
-    s.onload = function() { _qrLoaded = true; _qrQueue.forEach(function(fn) { fn(); }); _qrQueue = []; };
-    s.onerror = function() { _qrQueue.forEach(function(fn) { fn(); }); _qrQueue = []; };
-    document.head.appendChild(s);
-  }
+  var _loadQRJS = _makeLoader('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js');
 
   renderers.qr = function(container, data) {
     var text = typeof data === 'object' && data !== null
@@ -483,18 +504,7 @@ export function generateRenderersScript(): string {
     });
   };
 
-  var _chartLoading = false, _chartLoaded = false, _chartQueue = [];
-  function _loadChartJS(cb) {
-    if (_chartLoaded) { cb(); return; }
-    _chartQueue.push(cb);
-    if (_chartLoading) return;
-    _chartLoading = true;
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
-    s.onload = function() { _chartLoaded = true; _chartQueue.forEach(function(fn) { fn(); }); _chartQueue = []; };
-    s.onerror = function() { _chartQueue.forEach(function(fn) { fn(); }); _chartQueue = []; };
-    document.head.appendChild(s);
-  }
+  var _loadChartJS = _makeLoader('https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js');
 
   // ─── Steps/Stepper ───
   renderers.steps = renderers.stepper = function(container, data) {
@@ -631,8 +641,7 @@ export function generateRenderersScript(): string {
     var message = d.message || d.text || d.title || '';
     var type = (d.type || d.variant || d.severity || 'info').toLowerCase();
     var icon = d.icon || '';
-    var bannerColors = { success: '#34d399', error: '#f87171', warning: '#fbbf24', info: colors.accent };
-    var bc = bannerColors[type] || colors.accent;
+    var bc = VARIANT_COLORS[type] || VARIANT_COLORS.info;
     var h = '<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:' + bc + '18;border:1px solid ' + bc + '44;border-radius:8px;border-left:4px solid ' + bc + '">';
     if (icon) h += '<span style="font-size:18px;flex-shrink:0">' + esc(icon) + '</span>';
     h += '<span style="font-size:13px;color:' + colors.text + '">' + esc(message) + '</span>';
@@ -1055,24 +1064,10 @@ export function generateRenderersScript(): string {
   };
 
   // ─── Map (Leaflet) ───
-  var _leafletLoading = false, _leafletLoaded = false, _leafletQueue = [];
-  function _loadLeaflet(cb) {
-    if (_leafletLoaded) { cb(); return; }
-    _leafletQueue.push(cb);
-    if (_leafletLoading) return;
-    _leafletLoading = true;
-    // Load CSS
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9/dist/leaflet.min.css';
-    document.head.appendChild(link);
-    // Load JS
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9/dist/leaflet.min.js';
-    s.onload = function() { _leafletLoaded = true; _leafletQueue.forEach(function(fn) { fn(); }); _leafletQueue = []; };
-    s.onerror = function() { _leafletQueue.forEach(function(fn) { fn(); }); _leafletQueue = []; };
-    document.head.appendChild(s);
-  }
+  var _loadLeaflet = _makeLoader(
+    'https://cdn.jsdelivr.net/npm/leaflet@1.9/dist/leaflet.min.js',
+    'https://cdn.jsdelivr.net/npm/leaflet@1.9/dist/leaflet.min.css'
+  );
 
   renderers.map = function(container, data) {
     var items = Array.isArray(data) ? data : [data];
@@ -1198,18 +1193,7 @@ export function generateRenderersScript(): string {
   };
 
   // ─── Network/Graph (force-directed via vis-network) ───
-  var _visLoading = false, _visLoaded = false, _visQueue = [];
-  function _loadVisNetwork(cb) {
-    if (_visLoaded) { cb(); return; }
-    _visQueue.push(cb);
-    if (_visLoading) return;
-    _visLoading = true;
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/vis-network@9/standalone/umd/vis-network.min.js';
-    s.onload = function() { _visLoaded = true; _visQueue.forEach(function(fn) { fn(); }); _visQueue = []; };
-    s.onerror = function() { _visQueue.forEach(function(fn) { fn(); }); _visQueue = []; };
-    document.head.appendChild(s);
-  }
+  var _loadVisNetwork = _makeLoader('https://cdn.jsdelivr.net/npm/vis-network@9/standalone/umd/vis-network.min.js');
 
   renderers.network = renderers.graph = function(container, data) {
     var nodes = data.nodes || [];
@@ -1456,14 +1440,7 @@ export function generateRenderersScript(): string {
     var c = 2 * Math.PI * r;
     var offset = c - (pct / 100) * c;
     
-    var colorMap = {
-      info: colors.accent,
-      success: '#34d399',
-      warning: '#fbbf24',
-      destructive: '#f87171',
-      error: '#f87171'
-    };
-    var ringColor = colorMap[variant] || colorMap.info;
+    var ringColor = VARIANT_COLORS[variant] || VARIANT_COLORS.info;
 
     var h = '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto">';
     h += '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" style="transform:rotate(-90deg)">';
@@ -1487,8 +1464,7 @@ export function generateRenderersScript(): string {
     var desc = d.description || d.text || d.message || '';
     var variant = (opts.variant || d.variant || 'info').toLowerCase();
     var icon = d.icon || '';
-    var alertColors = { success: '#34d399', error: '#f87171', warning: '#fbbf24', info: colors.accent, destructive: '#f87171' };
-    var ac = alertColors[variant] || colors.accent;
+    var ac = VARIANT_COLORS[variant] || VARIANT_COLORS.info;
     var bg = ac + '15'; 
     
     var h = '<div style="display:flex;gap:12px;padding:16px;background:' + bg + ';border:1px solid ' + ac + '40;border-radius:8px">';
@@ -1509,8 +1485,7 @@ export function generateRenderersScript(): string {
     if (!items.length) { container.innerHTML = ''; return; }
     
     var variant = opts.variant || data.variant || 'info';
-    var colorMap = { info: colors.accent, success: '#34d399', warning: '#fbbf24', error: '#f87171', destructive: '#f87171' };
-    var color = colorMap[variant] || colorMap.info;
+    var color = VARIANT_COLORS[variant] || VARIANT_COLORS.info;
     
     var w = container.clientWidth || 100;
     var h = opts.height || data.height || 40;
@@ -1842,6 +1817,8 @@ export function generateRenderersScript(): string {
       if (!container) return;
       // Refresh colors from CSS vars on every render so theme changes are reflected
       colors = getColors();
+      VARIANT_COLORS.info = colors.accent;
+      VARIANT_COLORS.neutral = colors.textMuted;
       format = format || 'json';
       var key = format.toLowerCase();
       // Try exact match, then prefix match (chart:bar → chart)

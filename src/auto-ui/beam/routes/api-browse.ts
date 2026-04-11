@@ -18,6 +18,7 @@ import * as path from 'path';
 import { isPathWithin } from '../../../shared/security.js';
 import { logger } from '../../../shared/logger.js';
 import type { RouteHandler } from '../types.js';
+import { resolveUIAssetPath, upgradeToSibling, readUIContent } from '../../ui-resolver.js';
 
 export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => {
   // File browser API
@@ -217,11 +218,6 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
 
     // Resolve UI template path. Prefer .photon.html (declarative mode) over .html.
-    let uiPath: string;
-    let isPhotonTemplate = false;
-
-    let isPhotonMarkdown = false;
-
     // Verify resolvedPath actually exists before trusting it.
     // asset-discovery resolves @ui paths relative to the asset folder, but photon
     // authors sometimes write paths relative to the photon file directory, yielding
@@ -234,67 +230,21 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
           .catch(() => false)
       : false;
 
+    let resolved;
     if (asset && asset.resolvedPath && resolvedPathValid) {
-      uiPath = asset.resolvedPath;
-      isPhotonTemplate = uiPath.endsWith('.photon.html') || uiPath.endsWith('.photon.tsx');
-      isPhotonMarkdown = uiPath.endsWith('.photon.md');
-      // If asset points to .html, check if a higher-priority sibling exists
-      if (!isPhotonTemplate && !isPhotonMarkdown && uiPath.endsWith('.html')) {
-        const siblings = [
-          uiPath.replace(/\.html$/, '.photon.html'),
-          uiPath.replace(/\.html$/, '.photon.tsx'),
-          uiPath.replace(/\.html$/, '.photon.md'),
-        ];
-        for (const sibling of siblings) {
-          try {
-            await fs.access(sibling);
-            uiPath = sibling;
-            isPhotonTemplate = sibling.endsWith('.photon.html') || sibling.endsWith('.photon.tsx');
-            isPhotonMarkdown = sibling.endsWith('.photon.md');
-            break;
-          } catch {
-            // try next
-          }
-        }
-      }
+      resolved = await upgradeToSibling(asset.resolvedPath);
     } else {
-      // Priority: .photon.html > .photon.tsx > .photon.md > .html > .tsx
-      const uiBase = path.join(photonDir, photonBaseName, 'ui');
-      const candidates = [
-        { path: path.join(uiBase, `${uiId}.photon.html`), template: true, md: false },
-        { path: path.join(uiBase, `${uiId}.photon.tsx`), template: true, md: false },
-        { path: path.join(uiBase, `${uiId}.photon.md`), template: false, md: true },
-        { path: path.join(uiBase, `${uiId}.html`), template: false, md: false },
-        { path: path.join(uiBase, `${uiId}.tsx`), template: false, md: false },
-      ];
-      uiPath = candidates[candidates.length - 1].path; // default fallback
-      for (const c of candidates) {
-        try {
-          await fs.access(c.path);
-          uiPath = c.path;
-          isPhotonTemplate = c.template;
-          isPhotonMarkdown = c.md;
-          break;
-        } catch {
-          // try next
-        }
-      }
+      resolved = await resolveUIAssetPath(photonDir, photonBaseName, uiId);
     }
 
     try {
-      let uiContent: string;
-      if (uiPath.endsWith('.tsx')) {
-        const { compileTsxCached } = await import('../../../tsx-compiler.js');
-        uiContent = await compileTsxCached(uiPath);
-      } else {
-        uiContent = await fs.readFile(uiPath, 'utf-8');
-      }
-      res.setHeader('Content-Type', isPhotonMarkdown ? 'text/markdown' : 'text/html');
+      const uiContent = await readUIContent(resolved.path);
+      res.setHeader('Content-Type', resolved.isPhotonMarkdown ? 'text/markdown' : 'text/html');
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      if (isPhotonTemplate || isPhotonMarkdown) {
+      if (resolved.isPhotonTemplate || resolved.isPhotonMarkdown) {
         res.setHeader('X-Photon-Template', 'true');
       }
-      if (isPhotonMarkdown) {
+      if (resolved.isPhotonMarkdown) {
         res.setHeader('X-Photon-Markdown', 'true');
       }
       res.writeHead(200);
