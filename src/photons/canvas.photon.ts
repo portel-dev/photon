@@ -410,6 +410,192 @@ export default class Canvas {
   }
 
   /**
+   * Export the current canvas as a standalone photon.
+   * Compiles the scene graph into a .photon.ts (data methods) and
+   * .photon.html (CSS grid layout with format renderers).
+   *
+   * @param name Photon name for the exported file (e.g. 'my-dashboard')
+   * @param description One-line description of the exported photon
+   * @readOnly
+   */
+  async export({ name, description }: { name: string; description?: string }) {
+    await this._load();
+    const els = Object.values(this._scene);
+    if (els.length === 0) {
+      return { error: 'Canvas is empty — nothing to export' };
+    }
+
+    const desc = description || `Exported from canvas on ${new Date().toISOString().split('T')[0]}`;
+    const sorted = [...els].sort((a, b) => a.z - b.z);
+
+    // ── Detect layout: rows and columns ──
+    const rows = this._detectRows(sorted);
+
+    // ── Generate .photon.ts ──
+    const methodEntries = sorted.map((el) => {
+      const safeName = el.id.replace(/[^a-zA-Z0-9]/g, '_');
+      const dataStr = JSON.stringify(el.data, null, 4);
+      return [
+        `  /**`,
+        `   * ${el.label || el.id}`,
+        `   * @format ${el.format}`,
+        `   * @readOnly`,
+        `   */`,
+        `  ${safeName}() {`,
+        `    return ${dataStr};`,
+        `  }`,
+      ].join('\n');
+    });
+
+    const tsFile = [
+      `/**`,
+      ` * ${name}`,
+      ` *`,
+      ` * ${desc}`,
+      ` *`,
+      ` * @description ${desc}`,
+      ` * @ui main`,
+      ` */`,
+      `export default class ${this._toPascalCase(name)} {`,
+      `  /**`,
+      `   * Dashboard view`,
+      `   * @ui main`,
+      `   * @readOnly`,
+      `   */`,
+      `  main() {`,
+      `    return {`,
+      ...sorted.map((el) => {
+        const safeName = el.id.replace(/[^a-zA-Z0-9]/g, '_');
+        return `      ${safeName}: this.${safeName}(),`;
+      }),
+      `    };`,
+      `  }`,
+      ``,
+      ...methodEntries,
+      `}`,
+      ``,
+    ].join('\n');
+
+    // ── Generate .photon.html with CSS grid ──
+    const gridCells = rows
+      .map((row, ri) =>
+        row
+          .map((el) => {
+            const safeName = el.id.replace(/[^a-zA-Z0-9]/g, '_');
+            return [
+              `  <div class="cell" data-method="${safeName}" data-format="${el.format}">`,
+              `    <div class="cell-label">${el.label || el.id}</div>`,
+              `    <div class="cell-body" id="${safeName}"></div>`,
+              `  </div>`,
+            ].join('\n');
+          })
+          .join('\n')
+      )
+      .join('\n');
+
+    // Compute grid template from row structure
+    const maxCols = Math.max(...rows.map((r) => r.length));
+    const colTemplate = `repeat(${maxCols}, 1fr)`;
+    const rowTemplate = rows.map(() => 'auto').join(' ');
+
+    const htmlFile = [
+      `<style>`,
+      `  * { box-sizing: border-box; margin: 0; padding: 0; }`,
+      `  body {`,
+      `    font-family: var(--font-family-sans, -apple-system, BlinkMacSystemFont, sans-serif);`,
+      `    background: var(--color-surface, #1a1b26);`,
+      `    color: var(--color-on-surface, #e6e6e6);`,
+      `    padding: 16px;`,
+      `  }`,
+      `  .grid {`,
+      `    display: grid;`,
+      `    grid-template-columns: ${colTemplate};`,
+      `    grid-template-rows: ${rowTemplate};`,
+      `    gap: 12px;`,
+      `  }`,
+      `  .cell {`,
+      `    background: var(--color-surface-container, #1e2030);`,
+      `    border: 1px solid var(--color-outline-variant, #333);`,
+      `    border-radius: 8px;`,
+      `    padding: 12px;`,
+      `    min-height: 120px;`,
+      `  }`,
+      `  .cell-label {`,
+      `    font-size: 11px;`,
+      `    color: var(--color-on-surface-muted, #999);`,
+      `    margin-bottom: 8px;`,
+      `    text-transform: uppercase;`,
+      `    letter-spacing: 0.5px;`,
+      `  }`,
+      `  .cell-body { min-height: 0; }`,
+      `</style>`,
+      ``,
+      `<div class="grid">`,
+      gridCells,
+      `</div>`,
+      ``,
+      `<script>`,
+      `(function() {`,
+      `  window.photon.onResult(function(result) {`,
+      `    if (!result) return;`,
+      `    var cells = document.querySelectorAll('.cell');`,
+      `    for (var i = 0; i < cells.length; i++) {`,
+      `      var method = cells[i].getAttribute('data-method');`,
+      `      var format = cells[i].getAttribute('data-format');`,
+      `      var body = cells[i].querySelector('.cell-body');`,
+      `      if (method && result[method] && body) {`,
+      `        window.photon.render(body, result[method], format);`,
+      `      }`,
+      `    }`,
+      `  });`,
+      `})();`,
+      `</script>`,
+    ].join('\n');
+
+    return {
+      name,
+      files: {
+        [`${name}.photon.ts`]: tsFile,
+        [`${name}/ui/main.html`]: htmlFile,
+      },
+      elements: sorted.length,
+      grid: `${maxCols} columns x ${rows.length} rows`,
+    };
+  }
+
+  private _detectRows(
+    els: Array<{ x: number; y: number; w: number; h: number; [k: string]: any }>
+  ): Array<Array<(typeof els)[number]>> {
+    if (els.length === 0) return [];
+    // Group elements into rows by y-proximity (within 50px = same row)
+    const sorted = [...els].sort((a, b) => a.y - b.y || a.x - b.x);
+    const rows: Array<Array<(typeof els)[number]>> = [];
+    let currentRow: Array<(typeof els)[number]> = [sorted[0]];
+    let rowY = sorted[0].y;
+
+    for (let i = 1; i < sorted.length; i++) {
+      if (Math.abs(sorted[i].y - rowY) < 50) {
+        currentRow.push(sorted[i]);
+      } else {
+        rows.push(currentRow.sort((a, b) => a.x - b.x));
+        currentRow = [sorted[i]];
+        rowY = sorted[i].y;
+      }
+    }
+    rows.push(currentRow.sort((a, b) => a.x - b.x));
+    return rows;
+  }
+
+  private _toPascalCase(str: string): string {
+    return str
+      .replace(/[^a-zA-Z0-9]+/g, ' ')
+      .split(' ')
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join('');
+  }
+
+  /**
    * List all available render formats with expected data shapes
    * @readOnly
    * @format table

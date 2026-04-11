@@ -275,6 +275,33 @@
     background: rgba(255,255,255,0.1);
   }
 
+  /* ── Export Button ── */
+  .export-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 80px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--color-surface-container-high, #252738);
+    color: var(--color-on-surface-muted, #999);
+    border: 1px solid var(--color-outline-variant, #333);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10000;
+    transition: transform 0.15s, border-color 0.15s;
+  }
+
+  .export-btn:hover {
+    transform: scale(1.1);
+    border-color: var(--color-primary, #6366f1);
+    color: var(--color-primary, #6366f1);
+  }
+
   /* ── Empty State ── */
   .empty-state {
     position: absolute;
@@ -304,6 +331,7 @@
   <div class="hint">Click + to add elements, or let AI place them</div>
 </div>
 
+<button class="export-btn" id="exportBtn" title="Export as photon">&#x2B07;</button>
 <button class="insert-btn" id="insertBtn" title="Add element">+</button>
 
 <div class="format-picker" id="formatPicker">
@@ -315,6 +343,7 @@
 (function() {
   'use strict';
 
+  var exportBtn = document.getElementById('exportBtn');
   var surface = document.getElementById('surface');
   var emptyEl = document.getElementById('empty');
   var insertBtn = document.getElementById('insertBtn');
@@ -1016,6 +1045,50 @@
     var dataUrl = canvas.toDataURL('image/png');
     window.photon.callTool('capture', { dataUrl: dataUrl });
   }
+
+  // ── Export Button ──
+
+  exportBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    var count = Object.keys(elements).length;
+    if (count === 0) return;
+
+    // Inline name input
+    var name = 'my-dashboard';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = name;
+    input.placeholder = 'photon name...';
+    input.style.cssText = 'position:fixed;bottom:76px;right:80px;width:200px;padding:8px 10px;background:var(--color-surface-container,#1e2030);border:1px solid var(--color-primary,#6366f1);border-radius:6px;color:var(--color-on-surface,#e6e6e6);font-size:13px;z-index:10002;outline:none;';
+    document.body.appendChild(input);
+    input.focus();
+    input.select();
+
+    function doExport() {
+      var val = input.value.trim() || name;
+      input.remove();
+      window.photon.callTool('export', { name: val }).then(function(result) {
+        if (result && result.files) {
+          // Download the files as a JSON blob
+          var blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = val + '.photon.json';
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      }).catch(function() {});
+    }
+
+    input.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); doExport(); }
+      if (ev.key === 'Escape') { input.remove(); }
+    });
+    input.addEventListener('blur', function() {
+      setTimeout(function() { if (document.body.contains(input)) input.remove(); }, 200);
+    });
+  });
 
   // Load registered custom components
   setTimeout(function() {
