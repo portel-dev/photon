@@ -487,6 +487,26 @@ export default class Canvas {
   }
 
   /**
+   * Get the full timeline with scene data for animated playback.
+   * Each frame contains the complete scene state so the client can
+   * compute Magic Move transitions between consecutive frames.
+   * @readOnly
+   * @internal
+   */
+  async playback() {
+    const timeline =
+      (await this.memory.get<
+        Array<{ ts: number; action: string; scene: Record<string, any>; elementCount: number }>
+      >('timeline')) || [];
+
+    return timeline.map((entry, i) => ({
+      index: i,
+      action: entry.action,
+      elements: Object.values(entry.scene),
+    }));
+  }
+
+  /**
    * Save a named checkpoint at the current state.
    * Checkpoints appear in the timeline with a label for easy reference.
    *

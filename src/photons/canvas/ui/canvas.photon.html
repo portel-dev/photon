@@ -326,7 +326,7 @@
   .timeline-bar .tl-label {
     white-space: nowrap;
     font-weight: 500;
-    min-width: 60px;
+    min-width: 50px;
   }
 
   .timeline-bar input[type="range"] {
@@ -351,7 +351,7 @@
   .timeline-bar .tl-action {
     font-family: var(--font-family-mono, monospace);
     font-size: 10px;
-    max-width: 200px;
+    max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -371,6 +371,49 @@
   .timeline-bar .tl-btn:hover {
     border-color: var(--color-primary, #6366f1);
     color: var(--color-primary, #6366f1);
+  }
+
+  .timeline-bar .tl-btn.playing {
+    border-color: var(--color-primary, #6366f1);
+    color: var(--color-primary, #6366f1);
+    background: rgba(99, 102, 241, 0.15);
+  }
+
+  .tl-speed {
+    font-size: 10px;
+    opacity: 0.6;
+    cursor: pointer;
+    min-width: 30px;
+    text-align: center;
+  }
+
+  .tl-speed:hover { opacity: 1; }
+
+  /* ── Magic Move Transitions ── */
+  .ce.magic-move {
+    transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+                top 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+                width 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.4s ease;
+  }
+
+  .ce.magic-enter {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  .ce.magic-enter-active {
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+
+  .ce.magic-exit {
+    opacity: 0;
+    transform: scale(0.9);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
   }
 
   /* ── Empty State ── */
@@ -411,6 +454,8 @@
 </div>
 
 <div class="timeline-bar" id="timelineBar">
+  <button class="tl-btn" id="tlPlay" title="Play/Pause">&#9654;</button>
+  <span class="tl-speed" id="tlSpeed" title="Click to cycle speed">1x</span>
   <span class="tl-label" id="tlLabel">0 / 0</span>
   <input type="range" id="tlSlider" min="0" max="0" value="0">
   <span class="tl-action" id="tlAction"></span>
@@ -1178,16 +1223,25 @@
     });
   });
 
-  // ── Timeline Scrubber ──
+  // ── Timeline Scrubber + Magic Move Playback ──
 
   var timelineBar = document.getElementById('timelineBar');
+  var tlPlay = document.getElementById('tlPlay');
+  var tlSpeedEl = document.getElementById('tlSpeed');
   var tlSlider = document.getElementById('tlSlider');
   var tlLabel = document.getElementById('tlLabel');
   var tlAction = document.getElementById('tlAction');
   var tlRestore = document.getElementById('tlRestore');
   var tlCheckpoint = document.getElementById('tlCheckpoint');
-  var timelineData = []; // cached timeline entries
-  var tlPreviewing = false; // true when scrubbing (not yet restored)
+
+  var timelineData = []; // from history()
+  var playbackFrames = null; // from playback() — full scene data per frame
+  var isPlaying = false;
+  var playTimer = null;
+  var playSpeed = 1; // 0.5x, 1x, 2x, 4x
+  var SPEEDS = [0.5, 1, 2, 4];
+  var speedIdx = 1;
+  var FRAME_DURATION = 1200; // ms per frame at 1x
 
   function loadTimeline() {
     window.photon.callTool('history', {}).then(function(result) {
@@ -1195,7 +1249,7 @@
       timelineData = result;
       timelineBar.classList.add('visible');
       tlSlider.max = String(result.length - 1);
-      tlSlider.value = String(result.length - 1); // latest
+      tlSlider.value = String(result.length - 1);
       updateTimelineLabel(result.length - 1);
     }).catch(function() {});
   }
@@ -1210,16 +1264,157 @@
   tlSlider.addEventListener('input', function() {
     var idx = parseInt(tlSlider.value, 10);
     updateTimelineLabel(idx);
-    tlPreviewing = true;
+    if (playbackFrames && playbackFrames[idx]) {
+      magicMoveToFrame(playbackFrames[idx].elements);
+    }
   });
+
+  // ── Play/Pause ──
+
+  tlPlay.addEventListener('click', function() {
+    if (isPlaying) {
+      stopPlayback();
+    } else {
+      startPlayback();
+    }
+  });
+
+  function startPlayback() {
+    // Load full playback data first
+    window.photon.callTool('playback', {}).then(function(frames) {
+      if (!Array.isArray(frames) || frames.length < 2) return;
+      playbackFrames = frames;
+      isPlaying = true;
+      tlPlay.innerHTML = '&#9646;&#9646;'; // pause icon
+      tlPlay.classList.add('playing');
+
+      // Start from beginning or current position
+      var startIdx = parseInt(tlSlider.value, 10);
+      if (startIdx >= frames.length - 1) startIdx = 0;
+      tlSlider.value = String(startIdx);
+
+      advanceFrame();
+    }).catch(function() {});
+  }
+
+  function stopPlayback() {
+    isPlaying = false;
+    if (playTimer) clearTimeout(playTimer);
+    playTimer = null;
+    tlPlay.innerHTML = '&#9654;'; // play icon
+    tlPlay.classList.remove('playing');
+  }
+
+  function advanceFrame() {
+    if (!isPlaying || !playbackFrames) return;
+    var idx = parseInt(tlSlider.value, 10);
+    if (idx >= playbackFrames.length - 1) {
+      stopPlayback();
+      return;
+    }
+
+    var nextIdx = idx + 1;
+    tlSlider.value = String(nextIdx);
+    updateTimelineLabel(nextIdx);
+
+    // Magic Move to next frame
+    magicMoveToFrame(playbackFrames[nextIdx].elements);
+
+    // Schedule next frame
+    var delay = Math.round(FRAME_DURATION / playSpeed);
+    playTimer = setTimeout(advanceFrame, delay);
+  }
+
+  // ── Speed Control ──
+
+  tlSpeedEl.addEventListener('click', function() {
+    speedIdx = (speedIdx + 1) % SPEEDS.length;
+    playSpeed = SPEEDS[speedIdx];
+    tlSpeedEl.textContent = playSpeed + 'x';
+  });
+
+  // ── Magic Move Engine ──
+
+  function magicMoveToFrame(frameElements) {
+    var frameMap = {};
+    for (var i = 0; i < frameElements.length; i++) {
+      frameMap[frameElements[i].id] = frameElements[i];
+    }
+
+    // Enable transitions on all existing elements
+    for (var id in containers) {
+      containers[id].classList.add('magic-move');
+    }
+
+    // Elements that exist in frame but not on canvas → appear
+    for (var fid in frameMap) {
+      var fel = frameMap[fid];
+      if (!containers[fid]) {
+        // Create container with enter animation
+        var container = createContainer(fel);
+        container.classList.add('magic-move', 'magic-enter');
+        containers[fid] = container;
+        surface.appendChild(container);
+        // Position it
+        container.style.left = fel.x + 'px';
+        container.style.top = fel.y + 'px';
+        container.style.width = fel.w + 'px';
+        container.style.height = fel.h + 'px';
+        container.style.zIndex = fel.z;
+        // Trigger enter animation
+        requestAnimationFrame(function(c) {
+          return function() {
+            c.classList.remove('magic-enter');
+            c.classList.add('magic-enter-active');
+          };
+        }(container));
+      }
+      // Update element data + position (CSS transition handles the animation)
+      elements[fid] = fel;
+      upsertElement(fel);
+    }
+
+    // Elements on canvas but not in frame → exit
+    for (var eid in elements) {
+      if (!(eid in frameMap)) {
+        var exitContainer = containers[eid];
+        if (exitContainer) {
+          exitContainer.classList.add('magic-exit');
+          // Remove after animation
+          (function(removeId, removeContainer) {
+            setTimeout(function() {
+              delete elements[removeId];
+              removeContainer.remove();
+              delete containers[removeId];
+            }, 350);
+          })(eid, exitContainer);
+        } else {
+          delete elements[eid];
+        }
+      }
+    }
+
+    updateEmpty();
+
+    // Clean up transition classes after animation completes
+    setTimeout(function() {
+      for (var cid in containers) {
+        containers[cid].classList.remove('magic-move', 'magic-enter-active');
+      }
+    }, 700);
+  }
+
+  // ── Restore ──
 
   tlRestore.addEventListener('click', function() {
     var idx = parseInt(tlSlider.value, 10);
+    stopPlayback();
     window.photon.callTool('restore', { index: idx }).then(function() {
-      tlPreviewing = false;
-      loadTimeline(); // refresh
+      loadTimeline();
     }).catch(function() {});
   });
+
+  // ── Checkpoint ──
 
   tlCheckpoint.addEventListener('click', function() {
     var label = 'manual checkpoint';
@@ -1247,6 +1442,17 @@
     input.addEventListener('blur', function() {
       setTimeout(function() { if (document.body.contains(input)) input.remove(); }, 200);
     });
+  });
+
+  // ── Spacebar to play/pause ──
+  document.addEventListener('keydown', function(e) {
+    if (e.key === ' ' && document.activeElement && document.activeElement.tagName !== 'INPUT') {
+      if (timelineData.length > 1) {
+        e.preventDefault();
+        if (isPlaying) stopPlayback();
+        else startPlayback();
+      }
+    }
   });
 
   // Load registered custom components
