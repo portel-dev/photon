@@ -1054,47 +1054,65 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     if (asset?.resolvedPath) {
       uiPath = asset.resolvedPath;
     } else {
-      // Prefer .photon.html, then .photon.md, fall back to .html
-      const photonHtmlPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.photon.html`);
-      const photonMdPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.photon.md`);
-      try {
-        await fs.access(photonHtmlPath);
-        uiPath = photonHtmlPath;
-      } catch {
+      // Priority: .photon.html > .photon.tsx > .photon.md > .html > .tsx
+      const uiBase = path.join(photonDir, photonBaseName, 'ui');
+      const candidates = [
+        path.join(uiBase, `${uiId}.photon.html`),
+        path.join(uiBase, `${uiId}.photon.tsx`),
+        path.join(uiBase, `${uiId}.photon.md`),
+        path.join(uiBase, `${uiId}.html`),
+        path.join(uiBase, `${uiId}.tsx`),
+      ];
+      uiPath = candidates[candidates.length - 1]; // default fallback
+      for (const candidate of candidates) {
         try {
-          await fs.access(photonMdPath);
-          uiPath = photonMdPath;
+          await fs.access(candidate);
+          uiPath = candidate;
+          break;
         } catch {
-          uiPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.html`);
+          // try next
         }
       }
     }
 
-    const isPhotonTemplate = uiPath.endsWith('.photon.html') || uiPath.endsWith('.photon.md');
+    const isPhotonTemplate =
+      uiPath.endsWith('.photon.html') ||
+      uiPath.endsWith('.photon.tsx') ||
+      uiPath.endsWith('.photon.md');
 
     try {
-      const content = await readText(uiPath);
+      let content: string;
+      if (uiPath.endsWith('.tsx')) {
+        const { compileTsxCached } = await import('../tsx-compiler.js');
+        content = await compileTsxCached(uiPath);
+      } else {
+        content = await readText(uiPath);
+      }
       return { content, isPhotonTemplate };
     } catch {
       // Fall through to check custom format renderers
     }
 
     // Check for custom format renderer in assets/formats/
-    // Convention: format-<name> maps to assets/formats/<name>.html
+    // Convention: format-<name> maps to assets/formats/<name>.html or .tsx
     if (uiId.startsWith('format-')) {
       const formatName = uiId.slice('format-'.length);
-      const formatPath = path.join(
-        photonDir,
-        photonBaseName,
-        'assets',
-        'formats',
-        `${formatName}.html`
-      );
-      try {
-        const content = await readText(formatPath);
-        return { content, isPhotonTemplate: false };
-      } catch {
-        // Not found
+      const formatsDir = path.join(photonDir, photonBaseName, 'assets', 'formats');
+      // Try .html first, then .tsx
+      for (const ext of ['.html', '.tsx']) {
+        const formatPath = path.join(formatsDir, `${formatName}${ext}`);
+        try {
+          let content: string;
+          if (ext === '.tsx') {
+            const { compileTsxCached } = await import('../tsx-compiler.js');
+            content = await compileTsxCached(formatPath);
+          } else {
+            content = await readText(formatPath);
+          }
+          return { content, isPhotonTemplate: false };
+        } catch {
+          // try next
+        }
       }
     }
 

@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { printError } from '../../cli-formatter.js';
 import { fileURLToPath } from 'url';
 import { SchemaExtractor } from '@portel/photon-core';
+import { compileTsxSync } from '../../tsx-compiler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -133,11 +134,13 @@ function discoverUITemplates(
         ? directPath
         : null;
     if (resolvedPath) {
-      templates.set(id, {
-        id,
-        html: fs.readFileSync(resolvedPath, 'utf-8'),
-        relativePath: uiPath,
-      });
+      let html: string;
+      if (resolvedPath.endsWith('.tsx')) {
+        html = compileTsxSync(resolvedPath);
+      } else {
+        html = fs.readFileSync(resolvedPath, 'utf-8');
+      }
+      templates.set(id, { id, html, relativePath: uiPath });
     }
   }
   return templates;

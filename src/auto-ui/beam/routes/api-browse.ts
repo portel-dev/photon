@@ -236,48 +236,59 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
 
     if (asset && asset.resolvedPath && resolvedPathValid) {
       uiPath = asset.resolvedPath;
-      isPhotonTemplate = uiPath.endsWith('.photon.html');
+      isPhotonTemplate = uiPath.endsWith('.photon.html') || uiPath.endsWith('.photon.tsx');
       isPhotonMarkdown = uiPath.endsWith('.photon.md');
-      // If asset points to .html, check if a .photon.html or .photon.md sibling exists
+      // If asset points to .html, check if a higher-priority sibling exists
       if (!isPhotonTemplate && !isPhotonMarkdown && uiPath.endsWith('.html')) {
-        const photonSibling = uiPath.replace(/\.html$/, '.photon.html');
-        const mdSibling = uiPath.replace(/\.html$/, '.photon.md');
-        try {
-          await fs.access(photonSibling);
-          uiPath = photonSibling;
-          isPhotonTemplate = true;
-        } catch {
+        const siblings = [
+          uiPath.replace(/\.html$/, '.photon.html'),
+          uiPath.replace(/\.html$/, '.photon.tsx'),
+          uiPath.replace(/\.html$/, '.photon.md'),
+        ];
+        for (const sibling of siblings) {
           try {
-            await fs.access(mdSibling);
-            uiPath = mdSibling;
-            isPhotonMarkdown = true;
+            await fs.access(sibling);
+            uiPath = sibling;
+            isPhotonTemplate = sibling.endsWith('.photon.html') || sibling.endsWith('.photon.tsx');
+            isPhotonMarkdown = sibling.endsWith('.photon.md');
+            break;
           } catch {
-            // No sibling — use the .html as-is
+            // try next
           }
         }
       }
     } else {
-      // Try .photon.html first, then .photon.md, fall back to .html
-      const photonHtmlPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.photon.html`);
-      const photonMdPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.photon.md`);
-      const plainHtmlPath = path.join(photonDir, photonBaseName, 'ui', `${uiId}.html`);
-      try {
-        await fs.access(photonHtmlPath);
-        uiPath = photonHtmlPath;
-        isPhotonTemplate = true;
-      } catch {
+      // Priority: .photon.html > .photon.tsx > .photon.md > .html > .tsx
+      const uiBase = path.join(photonDir, photonBaseName, 'ui');
+      const candidates = [
+        { path: path.join(uiBase, `${uiId}.photon.html`), template: true, md: false },
+        { path: path.join(uiBase, `${uiId}.photon.tsx`), template: true, md: false },
+        { path: path.join(uiBase, `${uiId}.photon.md`), template: false, md: true },
+        { path: path.join(uiBase, `${uiId}.html`), template: false, md: false },
+        { path: path.join(uiBase, `${uiId}.tsx`), template: false, md: false },
+      ];
+      uiPath = candidates[candidates.length - 1].path; // default fallback
+      for (const c of candidates) {
         try {
-          await fs.access(photonMdPath);
-          uiPath = photonMdPath;
-          isPhotonMarkdown = true;
+          await fs.access(c.path);
+          uiPath = c.path;
+          isPhotonTemplate = c.template;
+          isPhotonMarkdown = c.md;
+          break;
         } catch {
-          uiPath = plainHtmlPath;
+          // try next
         }
       }
     }
 
     try {
-      const uiContent = await fs.readFile(uiPath, 'utf-8');
+      let uiContent: string;
+      if (uiPath.endsWith('.tsx')) {
+        const { compileTsxCached } = await import('../../../tsx-compiler.js');
+        uiContent = await compileTsxCached(uiPath);
+      } else {
+        uiContent = await fs.readFile(uiPath, 'utf-8');
+      }
       res.setHeader('Content-Type', isPhotonMarkdown ? 'text/markdown' : 'text/html');
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       if (isPhotonTemplate || isPhotonMarkdown) {

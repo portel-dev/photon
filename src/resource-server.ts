@@ -335,7 +335,12 @@ export class ResourceServer {
       if (!ui || !ui.resolvedPath) {
         throw new Error(`UI asset not found: ${uri}`);
       }
-      content = await readText(ui.resolvedPath);
+      if (ui.resolvedPath.endsWith('.tsx')) {
+        const { compileTsxCached } = await import('./tsx-compiler.js');
+        content = await compileTsxCached(ui.resolvedPath);
+      } else {
+        content = await readText(ui.resolvedPath);
+      }
     }
 
     // Wrap .photon.html fragments in a full HTML document.
