@@ -58,47 +58,47 @@ export class BeamApp extends LitElement {
     theme,
     css`
       :host {
-        /* ===== Dark Theme (Default) ===== */
-        --bg-app: hsl(220, 15%, 10%);
-        --bg-glass: hsla(220, 15%, 14%, 0.6);
-        --bg-glass-strong: hsla(220, 15%, 14%, 0.85);
-        --bg-panel: hsl(220, 15%, 12%);
-        --t-primary: hsl(220, 10%, 95%);
-        --t-muted: hsl(220, 10%, 65%);
-        --border-glass: hsla(220, 10%, 80%, 0.1);
-        --accent-primary: hsl(260, 100%, 65%);
-        --accent-secondary: hsl(190, 100%, 50%);
-        --glow-primary: hsla(260, 100%, 65%, 0.3);
+        /* ===== Dark Theme (Default) — Precision Optics ===== */
+        --bg-app: #0b1018;
+        --bg-glass: hsla(215, 25%, 12%, 0.6);
+        --bg-glass-strong: hsla(215, 25%, 12%, 0.85);
+        --bg-panel: #131b28;
+        --t-primary: #f0ede6;
+        --t-muted: #6b8a8a;
+        --border-glass: hsla(210, 20%, 50%, 0.12);
+        --accent-primary: #ffb000;
+        --accent-secondary: #78e6ff;
+        --glow-primary: rgba(255, 176, 0, 0.3);
 
         /* Semantic status colors */
-        --color-error: #ff4444;
-        --color-error-glow: rgba(255, 68, 68, 0.6);
-        --color-error-bg: rgba(255, 68, 68, 0.1);
-        --color-success: #00e676;
-        --color-success-glow: rgba(0, 230, 118, 0.6);
-        --color-success-bg: rgba(0, 230, 118, 0.15);
-        --color-warning: #ffab00;
-        --color-warning-bg: rgba(255, 171, 0, 0.15);
-        --color-warning-glow: rgba(255, 171, 0, 0.6);
+        --color-error: #ff6b6b;
+        --color-error-glow: rgba(255, 107, 107, 0.6);
+        --color-error-bg: rgba(255, 107, 107, 0.1);
+        --color-success: #58d68d;
+        --color-success-glow: rgba(88, 214, 141, 0.6);
+        --color-success-bg: rgba(88, 214, 141, 0.15);
+        --color-warning: #ffb347;
+        --color-warning-bg: rgba(255, 179, 71, 0.15);
+        --color-warning-glow: rgba(255, 179, 71, 0.6);
         --color-info: var(--accent-secondary);
 
         /* CLI preview */
-        --cli-bg: hsl(220, 15%, 6%);
-        --cli-border: hsl(220, 10%, 20%);
-        --cli-text: hsl(142, 76%, 57%);
-        --cli-muted: hsl(220, 10%, 40%);
-        --cli-hover-bg: hsl(220, 15%, 10%);
+        --cli-bg: #080c12;
+        --cli-border: #1e2d3d;
+        --cli-text: #58d68d;
+        --cli-muted: #4a6565;
+        --cli-hover-bg: #0b1018;
 
         /* Initials icon (marketplace cards) */
-        --initials-bg-sat: 35%;
-        --initials-bg-lum: 22%;
-        --initials-fg-sat: 60%;
-        --initials-fg-lum: 75%;
+        --initials-bg-sat: 25%;
+        --initials-bg-lum: 18%;
+        --initials-fg-sat: 50%;
+        --initials-fg-lum: 70%;
 
         /* Shadow tokens (dark defaults) */
-        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-        --shadow-md: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
-        --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.3);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 4px 24px -1px rgba(0, 0, 0, 0.3);
+        --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.35);
 
         display: flex;
         height: 100vh;
@@ -109,52 +109,52 @@ export class BeamApp extends LitElement {
         overflow: visible; /* Allow focus rings and shadows to display */
       }
 
-      /* ===== Light Theme - "Warm, Soft, Professional" ===== */
+      /* ===== Light Theme — Mineral Paper ===== */
       :host([data-theme='light']) {
-        --bg-app: #eae4dd;
-        --bg-glass: rgba(255, 253, 250, 0.75);
-        --bg-glass-strong: rgba(255, 253, 250, 0.9);
-        --bg-panel: #f8f5f1;
-        --t-primary: #2c2420;
-        --t-muted: #6b5e54;
-        --border-glass: rgba(120, 90, 60, 0.2);
-        --accent-primary: hsl(215, 55%, 45%);
-        --accent-secondary: hsl(165, 45%, 35%);
-        --glow-primary: hsla(215, 55%, 45%, 0.15);
+        --bg-app: #eef1f5;
+        --bg-glass: rgba(255, 255, 255, 0.75);
+        --bg-glass-strong: rgba(255, 255, 255, 0.9);
+        --bg-panel: #ffffff;
+        --t-primary: #0d1420;
+        --t-muted: #5f6b7a;
+        --border-glass: rgba(100, 120, 150, 0.15);
+        --accent-primary: #d98a00;
+        --accent-secondary: #0ea5c6;
+        --glow-primary: rgba(217, 138, 0, 0.15);
 
-        /* Semantic status colors — light theme (same vivid LED colors) */
-        --color-error: #e53935;
-        --color-error-glow: rgba(229, 57, 53, 0.5);
-        --color-error-bg: rgba(229, 57, 53, 0.08);
-        --color-success: #00c853;
-        --color-success-glow: rgba(0, 200, 83, 0.55);
-        --color-success-bg: rgba(0, 200, 83, 0.1);
-        --color-warning: #ff8f00;
-        --color-warning-bg: rgba(255, 143, 0, 0.1);
-        --color-warning-glow: rgba(255, 143, 0, 0.5);
+        /* Semantic status colors — light theme */
+        --color-error: #d64545;
+        --color-error-glow: rgba(214, 69, 69, 0.5);
+        --color-error-bg: rgba(214, 69, 69, 0.08);
+        --color-success: #1f9d68;
+        --color-success-glow: rgba(31, 157, 104, 0.55);
+        --color-success-bg: rgba(31, 157, 104, 0.1);
+        --color-warning: #d98a00;
+        --color-warning-bg: rgba(217, 138, 0, 0.1);
+        --color-warning-glow: rgba(217, 138, 0, 0.5);
         --color-info: var(--accent-secondary);
 
         /* CLI preview — light theme */
-        --cli-bg: hsl(30, 15%, 95%);
+        --cli-bg: #f5f7fa;
         --cli-border: var(--border-glass);
-        --cli-text: hsl(142, 45%, 32%);
+        --cli-text: #1f9d68;
         --cli-muted: var(--t-muted);
-        --cli-hover-bg: hsl(30, 15%, 91%);
+        --cli-hover-bg: #e8ecf2;
 
-        /* Light-mode shadows — warm, visible but not harsh */
-        --shadow-sm: 0px 1px 3px rgba(80, 60, 40, 0.1), 0px 1px 2px rgba(80, 60, 40, 0.08);
-        --shadow-md: 0px 2px 6px rgba(80, 60, 40, 0.1), 0px 4px 8px rgba(80, 60, 40, 0.06);
-        --shadow-lg: 0px 4px 8px rgba(80, 60, 40, 0.1), 0px 10px 20px rgba(80, 60, 40, 0.06);
+        /* Light-mode shadows — cool, clean */
+        --shadow-sm: 0px 1px 3px rgba(0, 20, 50, 0.06), 0px 1px 2px rgba(0, 20, 50, 0.04);
+        --shadow-md: 0px 2px 6px rgba(0, 20, 50, 0.06), 0px 4px 8px rgba(0, 20, 50, 0.04);
+        --shadow-lg: 0px 4px 8px rgba(0, 20, 50, 0.06), 0px 10px 20px rgba(0, 20, 50, 0.04);
 
         /* Initials icon (marketplace cards) */
-        --initials-bg-sat: 30%;
-        --initials-bg-lum: 90%;
-        --initials-fg-sat: 50%;
+        --initials-bg-sat: 20%;
+        --initials-bg-lum: 92%;
+        --initials-fg-sat: 40%;
         --initials-fg-lum: 35%;
 
-        /* Parameter tags — warm chip style for light backgrounds */
-        --param-tag-bg: hsla(25, 20%, 55%, 0.12);
-        --param-tag-color: hsl(20, 15%, 40%);
+        /* Parameter tags — cool chip style for light backgrounds */
+        --param-tag-bg: rgba(100, 120, 150, 0.1);
+        --param-tag-color: #3a4a5c;
       }
 
       /* Skip to main content link — WCAG 2.4.1 */
@@ -712,9 +712,9 @@ export class BeamApp extends LitElement {
       }
 
       .photon-badge.app {
-        background: hsla(260, 100%, 65%, 0.15);
-        border-color: hsla(260, 100%, 65%, 0.3);
-        color: hsl(260, 100%, 75%);
+        background: rgba(255, 176, 0, 0.15);
+        border-color: rgba(255, 176, 0, 0.3);
+        color: #ffca4d;
       }
 
       .photon-badge.update {

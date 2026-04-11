@@ -23,9 +23,9 @@ export const theme = css`
     --radius-full: 9999px;
 
     /* Typography - same for all themes */
-    --font-display: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
+    --font-display: 'Sora', 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'Berkeley Mono', 'JetBrains Mono', 'Fira Code', monospace;
 
     /* Type scale */
     --text-3xl: 2rem;
@@ -52,17 +52,17 @@ export const theme = css`
   /* Shared Utility Classes */
   .glass {
     background: var(--bg-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
     border: 1px solid var(--border-glass);
+    border-top-color: color-mix(in srgb, var(--border-glass) 100%, white 8%);
+    border-left-color: color-mix(in srgb, var(--border-glass) 100%, white 5%);
     box-shadow: var(--shadow-md);
   }
 
   .glass-panel {
     background: var(--bg-glass-strong);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
     border: 1px solid var(--border-glass);
+    border-top-color: color-mix(in srgb, var(--border-glass) 100%, white 8%);
+    border-left-color: color-mix(in srgb, var(--border-glass) 100%, white 5%);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-sm);
     color: inherit;

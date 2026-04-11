@@ -148,7 +148,7 @@ export class OverflowMenu extends LitElement {
       border: 1px solid ${borderGlass};
       border-radius: ${radiusMd};
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      font-family: 'Inter', sans-serif;
+      font-family: 'DM Sans', sans-serif;
       padding: 4px 0;
     `;
 

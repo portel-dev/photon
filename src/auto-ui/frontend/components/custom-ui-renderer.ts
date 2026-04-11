@@ -13,17 +13,17 @@ import { mcpClient } from '../services/mcp-client.js';
 function getBeamThemeTokens(themeMode: 'light' | 'dark'): Record<string, string> {
   const tokens = getThemeTokens(themeMode);
   if (themeMode === 'dark') {
-    tokens['--color-surface'] = 'hsl(220, 15%, 10%)'; // --bg-app
-    tokens['--color-surface-container'] = 'hsl(220, 15%, 12%)'; // --bg-panel
-    tokens['--color-surface-container-high'] = 'hsl(220, 15%, 14%)';
-    tokens['--color-surface-container-highest'] = 'hsl(220, 15%, 16%)';
-    tokens['--bg'] = 'hsl(220, 15%, 10%)';
+    tokens['--color-surface'] = '#0B1018'; // --bg-app
+    tokens['--color-surface-container'] = '#131B28'; // --bg-panel
+    tokens['--color-surface-container-high'] = '#1A2433';
+    tokens['--color-surface-container-highest'] = '#212D3E';
+    tokens['--bg'] = '#0B1018';
   } else {
-    tokens['--color-surface'] = '#eae4dd'; // light --bg-app
-    tokens['--color-surface-container'] = '#f8f5f1'; // light --bg-panel
-    tokens['--color-surface-container-high'] = '#f0ebe5';
-    tokens['--color-surface-container-highest'] = '#e8e2db';
-    tokens['--bg'] = '#eae4dd';
+    tokens['--color-surface'] = '#EEF1F5'; // light --bg-app
+    tokens['--color-surface-container'] = '#FFFFFF'; // light --bg-panel
+    tokens['--color-surface-container-high'] = '#E4EAF1';
+    tokens['--color-surface-container-highest'] = '#D8E0EA';
+    tokens['--bg'] = '#EEF1F5';
   }
   return tokens;
 }

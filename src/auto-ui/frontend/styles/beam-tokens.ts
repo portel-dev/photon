@@ -3,7 +3,7 @@
  * These extend the core theme tokens with Beam's display font and type scale.
  */
 export const beamTypographyTokens: Record<string, string> = {
-  '--font-display': "'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+  '--font-display': "'Sora', 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif",
   '--text-3xl': '2rem',
   '--text-2xl': '1.5rem',
   '--text-xl': '1.25rem',
