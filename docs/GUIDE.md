@@ -1,5 +1,7 @@
 # Photon MCP Developer Guide
 
+> **New to Photon?** Start with [Getting Started](getting-started.md) instead — you'll be running your first photon in 5 minutes. This page is the comprehensive reference for when you need to look something up.
+
 Complete guide to creating `.photon.ts` files and understanding how Photon works.
 
 ## Table of Contents

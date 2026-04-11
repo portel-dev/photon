@@ -431,12 +431,12 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 
 | Guide | |
 |---|---|
-| [Getting Started](./docs/GUIDE.md) | Create your first photon, step by step |
-| [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) | Complete JSDoc tag reference with examples |
-| [Naming Conventions](./docs/guides/NAMING-CONVENTIONS.md) | How to name methods so they read naturally as CLI commands |
+| [Getting Started](./docs/getting-started.md) | Install, build, and run your first photon in 5 minutes |
+| [Core Concepts](./docs/concepts.md) | The 5 ideas behind Photon |
+| [Output Formats](./docs/formats.md) | Visual gallery of every `@format` type |
 | [Troubleshooting](./docs/TROUBLESHOOTING.md) | Common issues and solutions |
 
-**Build more:**
+**Go deeper:**
 
 | Topic | |
 |---|---|
@@ -457,7 +457,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | [Best Practices](./docs/guides/BEST-PRACTICES.md) | Patterns for production photons |
 | [Comparison](./docs/COMPARISON.md) | Benchmarks vs official MCP implementations |
 
-**Reference:** [Architecture](./docs/internals/ARCHITECTURE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
+**Reference:** [Complete Developer Guide](./docs/GUIDE.md) · [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) · [Naming Conventions](./docs/guides/NAMING-CONVENTIONS.md) · [Architecture](./docs/internals/ARCHITECTURE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
 
 ---
 
