@@ -17,8 +17,10 @@ export default class Canvas {
   emit!: (data: any) => void;
   formats!: Record<string, { data: string; example: unknown }>;
   memory!: {
-    get<T>(key: string): Promise<T | null>;
-    set<T>(key: string, value: T): Promise<void>;
+    get<T>(key: string, scope?: string): Promise<T | null>;
+    set<T>(key: string, value: T, scope?: string): Promise<void>;
+    delete(key: string, scope?: string): Promise<boolean>;
+    keys(scope?: string): Promise<string[]>;
   };
 
   /** Scene graph: element ID → element */
@@ -50,7 +52,10 @@ export default class Canvas {
     since: number;
   } = { agent: 'human', since: Date.now() };
 
-  /** Load scene from persistent storage */
+  /** Max snapshots to keep per canvas */
+  private static MAX_SNAPSHOTS = 100;
+
+  /** Load scene from persistent storage (or from fork data) */
   private async _load() {
     if (this._loaded) return;
     this._loaded = true;
@@ -68,15 +73,67 @@ export default class Canvas {
     } catch {
       // First run or corrupted — start fresh
     }
+
+    // Check for fork data in global scope (written by another instance's fork())
+    if (Object.keys(this._scene).length === 0) {
+      try {
+        const globalKeys = await this.memory.keys('global');
+        for (const key of globalKeys) {
+          // Match fork data addressed to this instance
+          if (key.startsWith('canvas-fork:')) {
+            const forkData = await this.memory.get<{
+              scene: Record<string, any>;
+              nextZ: number;
+              turn: { agent: string; since: number };
+            }>(key, 'global');
+            if (forkData && forkData.scene) {
+              this._scene = forkData.scene;
+              this._nextZ = forkData.nextZ || 1;
+              this._turn = forkData.turn || this._turn;
+              await this.memory.delete(key, 'global'); // consume
+              await this._save('forked');
+              break;
+            }
+          }
+        }
+      } catch {
+        // Fork check failed — continue with empty scene
+      }
+    }
   }
 
-  /** Save scene to persistent storage */
-  private async _save() {
+  /** Save scene to persistent storage + auto-snapshot */
+  private async _save(action?: string) {
     await this.memory.set('scene', {
       scene: this._scene,
       nextZ: this._nextZ,
       turn: this._turn,
     });
+
+    // Auto-snapshot: record every mutation
+    const timeline =
+      (await this.memory.get<
+        Array<{
+          ts: number;
+          action: string;
+          scene: Record<string, any>;
+          elementCount: number;
+        }>
+      >('timeline')) || [];
+
+    timeline.push({
+      ts: Date.now(),
+      action: action || 'edit',
+      scene: JSON.parse(JSON.stringify(this._scene)),
+      elementCount: Object.keys(this._scene).length,
+    });
+
+    // Trim old snapshots
+    if (timeline.length > Canvas.MAX_SNAPSHOTS) {
+      timeline.splice(0, timeline.length - Canvas.MAX_SNAPSHOTS);
+    }
+
+    await this.memory.set('timeline', timeline);
   }
 
   /**
@@ -140,7 +197,8 @@ export default class Canvas {
       updatedAt: Date.now(),
     };
     this._scene[id] = element;
-    await this._save();
+    const action = existing ? `update ${id}` : `add ${id}`;
+    await this._save(action);
 
     // Emit scene change — flows through SSE → bridge → onEmit
     this.emit({
@@ -159,7 +217,7 @@ export default class Canvas {
     await this._load();
     const existed = id in this._scene;
     delete this._scene[id];
-    await this._save();
+    await this._save(`remove ${id}`);
 
     this.emit({
       emit: 'scene:remove',
@@ -178,7 +236,7 @@ export default class Canvas {
     const count = Object.keys(this._scene).length;
     this._scene = {};
     this._nextZ = 1;
-    await this._save();
+    await this._save('clear');
 
     this.emit({
       emit: 'scene:clear',
@@ -235,7 +293,7 @@ export default class Canvas {
     }
     el.locked = agent;
     el.updatedAt = Date.now();
-    await this._save();
+    await this._save(`lock ${id}`);
 
     this.emit({ emit: 'scene:put', element: el });
     return el;
@@ -252,7 +310,7 @@ export default class Canvas {
     if (!el) return { error: 'Element not found', id };
     delete el.locked;
     el.updatedAt = Date.now();
-    await this._save();
+    await this._save(`unlock ${id}`);
 
     this.emit({ emit: 'scene:put', element: el });
     return el;
@@ -407,6 +465,131 @@ export default class Canvas {
       html: spec.html,
       defaults: spec.defaults || {},
     }));
+  }
+
+  /**
+   * View the canvas timeline — a history of every change.
+   * Each entry has a timestamp, action label, and element count.
+   * @readOnly
+   */
+  async history() {
+    const timeline =
+      (await this.memory.get<Array<{ ts: number; action: string; elementCount: number }>>(
+        'timeline'
+      )) || [];
+
+    return timeline.map((entry, i) => ({
+      index: i,
+      time: new Date(entry.ts).toISOString(),
+      action: entry.action,
+      elements: entry.elementCount,
+    }));
+  }
+
+  /**
+   * Save a named checkpoint at the current state.
+   * Checkpoints appear in the timeline with a label for easy reference.
+   *
+   * @param label Name for this checkpoint (e.g. 'before reorganizing')
+   */
+  async checkpoint({ label }: { label: string }) {
+    await this._load();
+    await this._save(`checkpoint: ${label}`);
+
+    this.emit({
+      emit: 'timeline:checkpoint',
+      label,
+      ts: Date.now(),
+    });
+
+    return { checkpointed: label, elements: Object.keys(this._scene).length };
+  }
+
+  /**
+   * Restore the canvas to a previous point in the timeline.
+   * Replaces the current scene with the snapshot at that index.
+   *
+   * @param index Timeline index to restore (from history())
+   */
+  async restore({ index }: { index: number }) {
+    const timeline =
+      (await this.memory.get<
+        Array<{ ts: number; action: string; scene: Record<string, any>; elementCount: number }>
+      >('timeline')) || [];
+
+    if (index < 0 || index >= timeline.length) {
+      return { error: `Invalid index ${index}. Timeline has ${timeline.length} entries.` };
+    }
+
+    const snapshot = timeline[index];
+    this._scene = JSON.parse(JSON.stringify(snapshot.scene));
+    this._nextZ = Math.max(0, ...Object.values(this._scene).map((e: any) => e.z || 0)) + 1;
+    await this._save(`restore to #${index} (${snapshot.action})`);
+
+    // Emit full scene refresh
+    this.emit({
+      emit: 'scene:restore',
+      elements: Object.values(this._scene),
+    });
+
+    return {
+      restored: index,
+      action: snapshot.action,
+      time: new Date(snapshot.ts).toISOString(),
+      elements: Object.keys(this._scene).length,
+    };
+  }
+
+  /**
+   * Fork the canvas at a timeline point into a new instance.
+   * Creates a new canvas instance with the scene from that snapshot.
+   *
+   * @param name New instance name (e.g. 'dashboard-v2')
+   * @param index Timeline index to fork from (defaults to current state)
+   */
+  async fork({ name, index }: { name: string; index?: number }) {
+    await this._load();
+
+    let forkScene: Record<string, any>;
+    let forkAction: string;
+
+    if (index !== undefined) {
+      const timeline =
+        (await this.memory.get<Array<{ ts: number; action: string; scene: Record<string, any> }>>(
+          'timeline'
+        )) || [];
+
+      if (index < 0 || index >= timeline.length) {
+        return { error: `Invalid index ${index}. Timeline has ${timeline.length} entries.` };
+      }
+      forkScene = timeline[index].scene;
+      forkAction = `forked from #${index}`;
+    } else {
+      forkScene = this._scene;
+      forkAction = 'forked from current';
+    }
+
+    // Store fork data in global scope so the target instance can find it
+    const forkData = {
+      scene: JSON.parse(JSON.stringify(forkScene)),
+      nextZ: Math.max(0, ...Object.values(forkScene).map((e: any) => e.z || 0)) + 1,
+      turn: { agent: 'human', since: Date.now() },
+    };
+
+    await this.memory.set(`canvas-fork:${name}`, forkData, 'global');
+
+    this.emit({
+      emit: 'timeline:fork',
+      name,
+      elements: Object.keys(forkScene).length,
+    });
+
+    return {
+      forked: name,
+      from: forkAction,
+      elements: Object.keys(forkScene).length,
+      hint: `Open canvas/${name} to use the forked canvas`,
+    };
   }
 
   /**

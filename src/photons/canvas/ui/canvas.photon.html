@@ -302,6 +302,77 @@
     color: var(--color-primary, #6366f1);
   }
 
+  /* ── Timeline Bar ── */
+  .timeline-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 36px;
+    background: var(--color-surface-container-high, #252738);
+    border-top: 1px solid var(--color-outline-variant, #333);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    z-index: 10003;
+    font-size: 11px;
+    color: var(--color-on-surface-muted, #999);
+    display: none; /* hidden until timeline has data */
+  }
+
+  .timeline-bar.visible { display: flex; }
+
+  .timeline-bar .tl-label {
+    white-space: nowrap;
+    font-weight: 500;
+    min-width: 60px;
+  }
+
+  .timeline-bar input[type="range"] {
+    flex: 1;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--color-outline-variant, #333);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  .timeline-bar input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--color-primary, #6366f1);
+    cursor: pointer;
+  }
+
+  .timeline-bar .tl-action {
+    font-family: var(--font-family-mono, monospace);
+    font-size: 10px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .timeline-bar .tl-btn {
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--color-outline-variant, #333);
+    background: transparent;
+    color: var(--color-on-surface-muted, #999);
+    cursor: pointer;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .timeline-bar .tl-btn:hover {
+    border-color: var(--color-primary, #6366f1);
+    color: var(--color-primary, #6366f1);
+  }
+
   /* ── Empty State ── */
   .empty-state {
     position: absolute;
@@ -337,6 +408,14 @@
 <div class="format-picker" id="formatPicker">
   <input type="text" placeholder="Search formats..." id="formatSearch">
   <div id="formatList"></div>
+</div>
+
+<div class="timeline-bar" id="timelineBar">
+  <span class="tl-label" id="tlLabel">0 / 0</span>
+  <input type="range" id="tlSlider" min="0" max="0" value="0">
+  <span class="tl-action" id="tlAction"></span>
+  <button class="tl-btn" id="tlRestore">Restore</button>
+  <button class="tl-btn" id="tlCheckpoint">Checkpoint</button>
 </div>
 
 <script>
@@ -964,10 +1043,19 @@
       clearAll();
     } else if (event.emit === 'turn:change' && event.turn) {
       updateTurnBanner(event.turn);
+    } else if (event.emit === 'scene:restore' && event.elements) {
+      // Full scene replacement from timeline restore
+      clearAll();
+      for (var ri = 0; ri < event.elements.length; ri++) {
+        upsertElement(event.elements[ri]);
+      }
+      loadTimeline();
     } else if (event.emit === 'canvas:screenshot-request') {
       captureScreenshot();
     } else if (event.emit === 'component:registered' && event.name) {
       customComponents[event.name] = { html: event.html, defaults: event.defaults };
+    } else if (event.emit === 'timeline:checkpoint') {
+      loadTimeline();
     }
   });
 
@@ -1090,6 +1178,77 @@
     });
   });
 
+  // ── Timeline Scrubber ──
+
+  var timelineBar = document.getElementById('timelineBar');
+  var tlSlider = document.getElementById('tlSlider');
+  var tlLabel = document.getElementById('tlLabel');
+  var tlAction = document.getElementById('tlAction');
+  var tlRestore = document.getElementById('tlRestore');
+  var tlCheckpoint = document.getElementById('tlCheckpoint');
+  var timelineData = []; // cached timeline entries
+  var tlPreviewing = false; // true when scrubbing (not yet restored)
+
+  function loadTimeline() {
+    window.photon.callTool('history', {}).then(function(result) {
+      if (!Array.isArray(result) || result.length === 0) return;
+      timelineData = result;
+      timelineBar.classList.add('visible');
+      tlSlider.max = String(result.length - 1);
+      tlSlider.value = String(result.length - 1); // latest
+      updateTimelineLabel(result.length - 1);
+    }).catch(function() {});
+  }
+
+  function updateTimelineLabel(idx) {
+    var entry = timelineData[idx];
+    if (!entry) return;
+    tlLabel.textContent = (idx + 1) + ' / ' + timelineData.length;
+    tlAction.textContent = entry.action + ' (' + entry.elements + ' els)';
+  }
+
+  tlSlider.addEventListener('input', function() {
+    var idx = parseInt(tlSlider.value, 10);
+    updateTimelineLabel(idx);
+    tlPreviewing = true;
+  });
+
+  tlRestore.addEventListener('click', function() {
+    var idx = parseInt(tlSlider.value, 10);
+    window.photon.callTool('restore', { index: idx }).then(function() {
+      tlPreviewing = false;
+      loadTimeline(); // refresh
+    }).catch(function() {});
+  });
+
+  tlCheckpoint.addEventListener('click', function() {
+    var label = 'manual checkpoint';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = label;
+    input.placeholder = 'Checkpoint name...';
+    input.style.cssText = 'position:fixed;bottom:44px;right:12px;width:200px;padding:6px 8px;background:var(--color-surface-container,#1e2030);border:1px solid var(--color-primary,#6366f1);border-radius:4px;color:var(--color-on-surface,#e6e6e6);font-size:12px;z-index:10004;outline:none;';
+    document.body.appendChild(input);
+    input.focus();
+    input.select();
+
+    function doCheckpoint() {
+      var val = input.value.trim() || label;
+      input.remove();
+      window.photon.callTool('checkpoint', { label: val }).then(function() {
+        loadTimeline();
+      }).catch(function() {});
+    }
+
+    input.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); doCheckpoint(); }
+      if (ev.key === 'Escape') { input.remove(); }
+    });
+    input.addEventListener('blur', function() {
+      setTimeout(function() { if (document.body.contains(input)) input.remove(); }, 200);
+    });
+  });
+
   // Load registered custom components
   setTimeout(function() {
     window.photon.callTool('listComponents', {}).then(function(result) {
@@ -1120,6 +1279,9 @@
       }
     }).catch(function() {});
   }, 500);
+
+  // Load timeline after scene is ready
+  setTimeout(function() { loadTimeline(); }, 800);
 
 })();
 </script>
