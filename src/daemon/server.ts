@@ -38,6 +38,14 @@ import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security
 import { audit } from '../shared/audit.js';
 import { WorkerManager } from './worker-manager.js';
 import fastJsonPatch, { type Operation } from 'fast-json-patch';
+import {
+  getOwnerFilePath,
+  isPidAlive,
+  readOwnerRecord,
+  removeOwnerRecord,
+  waitForPidExit,
+  writeOwnerRecord,
+} from './ownership.js';
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const jsonPatchCompare = fastJsonPatch.compare;
 
@@ -53,6 +61,30 @@ const logger: Logger = createLogger({
 if (!socketPath) {
   logger.error('Missing required argument: socketPath');
   process.exit(1);
+}
+
+const pidFile = path.join(path.dirname(socketPath), 'daemon.pid');
+const ownerFile = getOwnerFilePath(socketPath);
+let daemonOwnershipConfirmed = false;
+
+async function isSocketResponsive(target: string): Promise<boolean> {
+  if (process.platform === 'win32' || !fs.existsSync(target)) return false;
+  return new Promise((resolve) => {
+    const client = net.createConnection(target);
+    const timer = setTimeout(() => {
+      client.destroy();
+      resolve(false);
+    }, 1000);
+    client.on('connect', () => {
+      clearTimeout(timer);
+      client.destroy();
+      resolve(true);
+    });
+    client.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1005,6 +1037,7 @@ async function getOrCreateSessionManager(
       key,
       photonPath: pathToUse,
       workingDir,
+      ownerPid: daemonOwnershipConfirmed ? process.pid : null,
     });
 
     manager = new SessionManager(
@@ -3350,7 +3383,11 @@ function startupWatchPhotons(): void {
           const manager = await getOrCreateSessionManager(p.name, p.path);
           if (manager) {
             await manager.getOrLoadInstance('');
-            logger.info('Eager-loaded lifecycle photon', { name: p.name });
+            logger.info('Eager-loaded lifecycle photon', {
+              name: p.name,
+              photonPath: p.path,
+              ownerPid: process.pid,
+            });
           }
         } catch (err) {
           logger.warn('Failed to eager-load lifecycle photon', {
@@ -3361,6 +3398,13 @@ function startupWatchPhotons(): void {
       }
     };
     setTimeout(() => {
+      if (!daemonOwnershipConfirmed) {
+        logger.warn('Skipping eager lifecycle load before exclusive ownership confirmation', {
+          socketPath,
+          currentPid: process.pid,
+        });
+        return;
+      }
       eagerLoad().catch(() => {});
     }, 1000);
   }
@@ -3460,7 +3504,11 @@ function startServer(): void {
   });
 
   server.listen(socketPath, () => {
-    logger.info('Global Photon daemon listening', { socketPath, pid: process.pid });
+    logger.info('Global Photon daemon listening', {
+      socketPath,
+      pid: process.pid,
+      ownerPid: process.pid,
+    });
   });
 
   server.on('error', (error: any) => {
@@ -3483,6 +3531,75 @@ function startServer(): void {
       error: reason instanceof Error ? getErrorMessage(reason) : String(reason),
       stack: reason instanceof Error ? reason.stack : undefined,
     });
+  });
+}
+
+async function claimExclusiveOwnership(): Promise<void> {
+  const owner = readOwnerRecord(ownerFile);
+  if (owner && owner.socketPath === socketPath && owner.pid !== process.pid) {
+    if (isPidAlive(owner.pid)) {
+      logger.warn('Sibling daemon detected for socket', {
+        socketPath,
+        currentPid: process.pid,
+        ownerPid: owner.pid,
+        action: 'terminate-stale-owner',
+      });
+      try {
+        process.kill(owner.pid, 'SIGTERM');
+      } catch {
+        // Ignore races with process exit
+      }
+
+      const exited = await waitForPidExit(owner.pid, 5000);
+      if (!exited) {
+        logger.error('Failed to gain exclusive daemon ownership', {
+          socketPath,
+          currentPid: process.pid,
+          ownerPid: owner.pid,
+          action: 'startup-rejected',
+        });
+        throw new Error(`Could not terminate sibling daemon ${owner.pid}`);
+      }
+    } else {
+      logger.warn('Removing stale daemon owner record', {
+        socketPath,
+        currentPid: process.pid,
+        ownerPid: owner.pid,
+      });
+    }
+
+    removeOwnerRecord(ownerFile);
+  }
+
+  if (process.platform !== 'win32' && fs.existsSync(socketPath)) {
+    const responsive = await isSocketResponsive(socketPath);
+    if (!responsive) {
+      logger.warn('Removing stale daemon socket before listen', {
+        socketPath,
+        currentPid: process.pid,
+      });
+      try {
+        fs.unlinkSync(socketPath);
+      } catch {
+        // Ignore races with other cleanup
+      }
+    }
+  }
+
+  writeOwnerRecord(ownerFile, {
+    pid: process.pid,
+    socketPath,
+    claimedAt: Date.now(),
+  });
+  fs.writeFileSync(pidFile, process.pid.toString());
+  daemonOwnershipConfirmed = true;
+
+  logger.info('Daemon ownership claimed', {
+    socketPath,
+    currentPid: process.pid,
+    ownerPid: process.pid,
+    pidFile,
+    ownerFile,
   });
 }
 
@@ -3538,13 +3655,28 @@ function shutdown(): void {
     webhookServer.close();
   }
 
+  if (daemonOwnershipConfirmed) {
+    const owner = readOwnerRecord(ownerFile);
+    if (owner?.pid === process.pid && owner.socketPath === socketPath) {
+      removeOwnerRecord(ownerFile, process.pid);
+    }
+
+    try {
+      const pidContent = fs.readFileSync(pidFile, 'utf-8').trim();
+      if (parseInt(pidContent, 10) === process.pid) {
+        fs.unlinkSync(pidFile);
+      }
+    } catch {
+      // Ignore missing pid file
+    }
+  }
+
   // Only delete the socket if we still own it.
   // After `daemon stop` + `daemon start`, a new daemon may have already created
   // a new socket at this path. Deleting it would orphan the new daemon's listener.
   if (fs.existsSync(socketPath) && process.platform !== 'win32') {
     let weOwnSocket = true;
     try {
-      const pidFile = getDefaultContext().pidFile;
       const pidContent = fs.readFileSync(pidFile, 'utf-8').trim();
       const filePid = parseInt(pidContent, 10);
       if (!isNaN(filePid) && filePid !== process.pid) {
@@ -3574,10 +3706,14 @@ function shutdown(): void {
 }
 
 // Main execution
-(() => {
+void (async () => {
+  await claimExclusiveOwnership();
   startupWatchPhotons();
   startServer();
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();
   startHealthMonitor();
-})();
+})().catch((err) => {
+  logger.error('Daemon startup failed', { error: getErrorMessage(err) });
+  process.exit(1);
+});

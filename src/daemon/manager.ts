@@ -18,6 +18,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { DaemonStateMachine, type DaemonState } from './state-machine.js';
+import { getOwnerFilePath, isPidAlive as checkPidAlive, readOwnerRecord } from './ownership.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { getDefaultContext, type PhotonContext } from '../context.js';
@@ -114,7 +115,7 @@ export class DaemonManager {
    */
   async start(quiet = false): Promise<void> {
     if (this.fsm.state === 'running') {
-      if (await this.isSocketAlive()) {
+      if ((await this.isSocketAlive()) && this.hasExclusiveOwner()) {
         if (!quiet) this.logger.debug('Global daemon already running');
         return;
       }
@@ -133,7 +134,7 @@ export class DaemonManager {
     }
 
     // Socket answers → daemon is alive and healthy
-    if (await this.isSocketAlive()) {
+    if ((await this.isSocketAlive()) && this.hasExclusiveOwner()) {
       // Sync FSM to running
       if (this.fsm.state === 'stopped') {
         this.fsm.transition('starting');
@@ -154,7 +155,7 @@ export class DaemonManager {
 
     try {
       // Re-check after acquiring lock — another process may have started it
-      if (await this.isSocketAlive()) {
+      if ((await this.isSocketAlive()) && this.hasExclusiveOwner()) {
         if (this.fsm.state === 'stopped') {
           this.fsm.transition('starting');
           this.fsm.transition('running');
@@ -258,6 +259,10 @@ export class DaemonManager {
     return path.join(this.ctx.baseDir, 'daemon.lock');
   }
 
+  private get ownerFile(): string {
+    return getOwnerFilePath(this.ctx.socketPath);
+  }
+
   /**
    * Acquire a cross-process startup lock using atomic O_EXCL file creation.
    * Returns true if lock acquired, false if another process holds it.
@@ -340,7 +345,7 @@ export class DaemonManager {
       await new Promise((resolve) => setTimeout(resolve, interval));
       waited += interval;
 
-      if (await this.isSocketAlive()) {
+      if ((await this.isSocketAlive()) && this.hasExclusiveOwner()) {
         if (this.fsm.state === 'stopped') {
           this.fsm.transition('starting');
           this.fsm.transition('running');
@@ -367,7 +372,7 @@ export class DaemonManager {
     if (!fs.existsSync(this.ctx.pidFile)) return false;
     try {
       const pid = parseInt(fs.readFileSync(this.ctx.pidFile, 'utf-8').trim(), 10);
-      process.kill(pid, 0);
+      if (!checkPidAlive(pid)) throw new Error('dead pid');
       return true;
     } catch {
       try {
@@ -408,22 +413,24 @@ export class DaemonManager {
   }
 
   private cleanupStale(): void {
-    if (fs.existsSync(this.ctx.pidFile)) {
+    for (const pid of this.getTrackedPids()) {
       try {
-        const pid = parseInt(fs.readFileSync(this.ctx.pidFile, 'utf-8').trim(), 10);
-        try {
-          process.kill(pid, 'SIGTERM');
-        } catch {
-          // Process already dead
-        }
+        process.kill(pid, 'SIGTERM');
       } catch {
-        // Can't read PID file
+        // Process already dead
       }
+    }
+    if (fs.existsSync(this.ctx.pidFile)) {
       try {
         fs.unlinkSync(this.ctx.pidFile);
       } catch {
         // Ignore
       }
+    }
+    try {
+      fs.unlinkSync(this.ownerFile);
+    } catch {
+      // Ignore
     }
     if (fs.existsSync(this.ctx.socketPath) && process.platform !== 'win32') {
       try {
@@ -435,33 +442,41 @@ export class DaemonManager {
   }
 
   private killProcess(): void {
-    if (!fs.existsSync(this.ctx.pidFile)) return;
+    const pids = this.getTrackedPids();
+    if (pids.length === 0) return;
     try {
-      const pid = parseInt(fs.readFileSync(this.ctx.pidFile, 'utf-8').trim(), 10);
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch (killError: any) {
-        if (killError.code !== 'ESRCH') throw killError;
+      for (const pid of pids) {
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch (killError: any) {
+          if (killError.code !== 'ESRCH') throw killError;
+        }
       }
       // Wait for the process to actually exit before cleaning up filesystem state.
       // Without this, a quick stop→start sequence can race: the new daemon creates
       // its socket, then the old daemon's SIGTERM handler deletes it.
-      const deadline = Date.now() + 3000;
-      while (Date.now() < deadline) {
-        try {
-          process.kill(pid, 0); // throws ESRCH when process is gone
-          // Still alive — spin briefly
-          const waitMs = 50;
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
-        } catch {
-          break; // Process exited
+      for (const pid of pids) {
+        const deadline = Date.now() + 3000;
+        while (Date.now() < deadline) {
+          try {
+            process.kill(pid, 0); // throws ESRCH when process is gone
+            const waitMs = 50;
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+          } catch {
+            break; // Process exited
+          }
         }
       }
       fs.unlinkSync(this.ctx.pidFile);
+      try {
+        fs.unlinkSync(this.ownerFile);
+      } catch {
+        // Ignore missing owner file
+      }
       if (fs.existsSync(this.ctx.socketPath) && process.platform !== 'win32') {
         fs.unlinkSync(this.ctx.socketPath);
       }
-      this.logger.debug('Stopped global daemon', { pid });
+      this.logger.debug('Stopped global daemon', { pids });
     } catch (error) {
       this.logger.debug('Error stopping global daemon', { error: getErrorMessage(error) });
     }
@@ -496,12 +511,16 @@ export class DaemonManager {
       stdio: ['ignore', logStream, logStream],
       env: { ...process.env, PHOTON_DAEMON: 'true' },
     });
+    const childPid = child.pid;
+    if (childPid === undefined) {
+      throw new Error('Daemon process started without a PID');
+    }
 
     child.unref();
-    fs.writeFileSync(this.ctx.pidFile, child.pid!.toString());
+    fs.writeFileSync(this.ctx.pidFile, childPid.toString());
 
     if (!quiet) {
-      this.logger.info('Started global Photon daemon', { pid: child.pid });
+      this.logger.info('Started global Photon daemon', { pid: childPid });
     }
 
     // Wait for socket to actually accept connections (not just file existence)
@@ -511,7 +530,7 @@ export class DaemonManager {
     while (waited < maxWait) {
       await new Promise((resolve) => setTimeout(resolve, interval));
       waited += interval;
-      if (await this.isSocketAlive()) {
+      if ((await this.isSocketAlive()) && this.hasExclusiveOwner(childPid)) {
         return;
       }
     }
@@ -535,6 +554,32 @@ export class DaemonManager {
     }
     // Replace (can't directly set state, so we replace the instance)
     (this as any).fsm = newFsm;
+  }
+
+  private hasExclusiveOwner(expectedPid?: number): boolean {
+    const owner = readOwnerRecord(this.ownerFile);
+    if (!owner || owner.socketPath !== this.ctx.socketPath) return false;
+    if (!checkPidAlive(owner.pid)) return false;
+    if (expectedPid !== undefined && owner.pid !== expectedPid) return false;
+    return true;
+  }
+
+  private getTrackedPids(): number[] {
+    const pids = new Set<number>();
+
+    try {
+      const pid = parseInt(fs.readFileSync(this.ctx.pidFile, 'utf-8').trim(), 10);
+      if (!isNaN(pid)) pids.add(pid);
+    } catch {
+      // Ignore missing pid file
+    }
+
+    const owner = readOwnerRecord(this.ownerFile);
+    if (owner?.socketPath === this.ctx.socketPath) {
+      pids.add(owner.pid);
+    }
+
+    return [...pids].filter((pid) => Number.isInteger(pid) && pid > 0);
   }
 }
 

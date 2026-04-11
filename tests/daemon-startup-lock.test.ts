@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { DaemonManager } from '../src/daemon/manager.js';
+import { getOwnerFilePath } from '../src/daemon/ownership.js';
 
 (async () => {
   console.log('🧪 Daemon startup lock tests...\n');
@@ -21,6 +22,7 @@ import { DaemonManager } from '../src/daemon/manager.js';
   const pidFile = path.join(tmpDir, 'daemon.pid');
   const logFile = path.join(tmpDir, 'daemon.log');
   const lockFile = path.join(tmpDir, 'daemon.lock');
+  const ownerFile = getOwnerFilePath(socketPath);
 
   const ctx = {
     baseDir: tmpDir,
@@ -87,6 +89,7 @@ import { DaemonManager } from '../src/daemon/manager.js';
   }
 
   // Cleanup
+  assert.equal(fs.existsSync(ownerFile), false, 'owner file should not exist in lock-only tests');
   fs.rmSync(tmpDir, { recursive: true, force: true });
 
   console.log('\n✅ All daemon startup lock tests passed!\n');
