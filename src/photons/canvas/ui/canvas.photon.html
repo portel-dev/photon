@@ -208,6 +208,73 @@
   .format-item .fi-name { font-weight: 500; }
   .format-item .fi-shape { font-size: 11px; opacity: 0.5; font-family: var(--font-family-mono, monospace); }
 
+  /* ── Locked Elements ── */
+  .ce.locked {
+    opacity: 0.85;
+  }
+
+  .ce.locked .ce-bar {
+    cursor: default;
+  }
+
+  .ce-lock {
+    font-size: 10px;
+    opacity: 0.6;
+  }
+
+  /* ── Agent Colors ── */
+  .ce[data-agent="ai"] .ce-bar { border-left: 3px solid #6366f1; }
+  .ce[data-agent="human"] .ce-bar { border-left: 3px solid #22c55e; }
+  .ce[data-agent="agent-1"] .ce-bar { border-left: 3px solid #f59e0b; }
+  .ce[data-agent="agent-2"] .ce-bar { border-left: 3px solid #ec4899; }
+  .ce[data-agent="agent-3"] .ce-bar { border-left: 3px solid #06b6d4; }
+
+  /* ── Turn Banner ── */
+  .turn-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 6px 16px;
+    font-size: 12px;
+    z-index: 10002;
+    transition: background 0.2s;
+  }
+
+  .turn-banner[data-turn="human"] {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+  }
+
+  .turn-banner[data-turn="ai"] {
+    background: rgba(99, 102, 241, 0.15);
+    color: #a5b4fc;
+  }
+
+  .turn-banner .turn-msg {
+    opacity: 0.7;
+    font-style: italic;
+  }
+
+  .turn-banner .turn-pass {
+    margin-left: 12px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 11px;
+  }
+
+  .turn-banner .turn-pass:hover {
+    background: rgba(255,255,255,0.1);
+  }
+
   /* ── Empty State ── */
   .empty-state {
     position: absolute;
@@ -223,6 +290,12 @@
 
   .empty-state .hint { font-size: 14px; opacity: 0.6; }
 </style>
+
+<div class="turn-banner" id="turnBanner" data-turn="human">
+  <span id="turnAgent">human's turn</span>
+  <span class="turn-msg" id="turnMsg"></span>
+  <button class="turn-pass" id="turnPass">Pass to AI</button>
+</div>
 
 <div class="canvas-surface" id="surface"></div>
 
@@ -248,11 +321,52 @@
   var formatPicker = document.getElementById('formatPicker');
   var formatSearch = document.getElementById('formatSearch');
   var formatList = document.getElementById('formatList');
+  var turnBanner = document.getElementById('turnBanner');
+  var turnAgentEl = document.getElementById('turnAgent');
+  var turnMsgEl = document.getElementById('turnMsg');
+  var turnPassBtn = document.getElementById('turnPass');
 
   // ── Scene State (local mirror) ──
   var elements = {};   // id → { ...CanvasElement }
   var containers = {}; // id → HTMLElement
   var selected = null; // currently selected element ID
+  var currentTurn = { agent: 'human', message: '', since: 0 };
+
+  // ── Agent color map (deterministic for unknown agents) ──
+  var AGENT_COLORS = {
+    ai: '#6366f1',
+    human: '#22c55e',
+    'agent-1': '#f59e0b',
+    'agent-2': '#ec4899',
+    'agent-3': '#06b6d4',
+  };
+  var EXTRA_COLORS = ['#f97316', '#8b5cf6', '#14b8a6', '#e11d48', '#84cc16'];
+
+  function agentColor(name) {
+    if (AGENT_COLORS[name]) return AGENT_COLORS[name];
+    // Deterministic hash for unknown agents
+    var hash = 0;
+    for (var i = 0; i < (name || '').length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+    return EXTRA_COLORS[Math.abs(hash) % EXTRA_COLORS.length];
+  }
+
+  // ── Turn Banner ──
+
+  function updateTurnBanner(turn) {
+    if (!turn) return;
+    currentTurn = turn;
+    var isHuman = turn.agent === 'human';
+    turnBanner.setAttribute('data-turn', isHuman ? 'human' : 'ai');
+    turnBanner.style.borderBottom = '2px solid ' + agentColor(turn.agent);
+    turnAgentEl.textContent = turn.agent + "'s turn";
+    turnMsgEl.textContent = turn.message || '';
+    turnPassBtn.textContent = isHuman ? 'Pass to AI' : 'Take control';
+  }
+
+  turnPassBtn.addEventListener('click', function() {
+    var next = currentTurn.agent === 'human' ? 'ai' : 'human';
+    window.photon.callTool('pass', { to: next });
+  });
 
   // ── Rendering ──
 
@@ -279,6 +393,24 @@
 
     var formatEl = container.querySelector('.ce-format');
     if (formatEl) formatEl.textContent = el.format;
+
+    // Agent color on title bar
+    var agent = el.createdBy || 'ai';
+    container.setAttribute('data-agent', agent);
+    var bar = container.querySelector('.ce-bar');
+    if (bar && !AGENT_COLORS[agent]) {
+      bar.style.borderLeftColor = agentColor(agent);
+    }
+
+    // Lock state
+    var lockEl = container.querySelector('.ce-lock');
+    if (el.locked) {
+      container.classList.add('locked');
+      if (lockEl) lockEl.textContent = '\uD83D\uDD12 ' + el.locked;
+    } else {
+      container.classList.remove('locked');
+      if (lockEl) lockEl.textContent = '';
+    }
 
     // Re-render content
     var body = container.querySelector('.ce-body');
@@ -330,15 +462,20 @@
     fmt.className = 'ce-format';
     fmt.textContent = el.format;
 
+    var lockIcon = document.createElement('span');
+    lockIcon.className = 'ce-lock';
+
     var del = document.createElement('span');
     del.className = 'ce-delete';
     del.textContent = '\u00d7';
     del.addEventListener('click', function(e) {
       e.stopPropagation();
+      if (elements[el.id] && elements[el.id].locked) return; // locked — no delete
       window.photon.callTool('remove', { id: el.id });
     });
 
     bar.appendChild(label);
+    bar.appendChild(lockIcon);
     bar.appendChild(fmt);
     bar.appendChild(del);
 
@@ -433,13 +570,14 @@
 
     handle.addEventListener('pointerdown', function(e) {
       if (e.button !== 0) return;
+      var el = elements[id];
+      if (el && el.locked) return; // locked — no drag
       e.preventDefault();
       e.stopPropagation();
       pushUndo();
       dragging = true;
       startX = e.clientX;
       startY = e.clientY;
-      var el = elements[id];
       origX = el ? el.x : 0;
       origY = el ? el.y : 0;
       handle.setPointerCapture(e.pointerId);
@@ -479,6 +617,8 @@
 
     handle.addEventListener('pointerdown', function(e) {
       if (e.button !== 0) return;
+      var el = elements[id];
+      if (el && el.locked) return; // locked — no resize
       e.preventDefault();
       e.stopPropagation();
       pushUndo();
@@ -613,8 +753,9 @@
     // Don't handle if typing in an input
     if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
 
-    // Delete/Backspace — remove selected
+    // Delete/Backspace — remove selected (unless locked)
     if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+      if (elements[selected] && elements[selected].locked) return;
       pushUndo();
       window.photon.callTool('remove', { id: selected });
       return;
@@ -738,6 +879,9 @@
         upsertElement(result.elements[i]);
       }
     }
+    if (result && result.turn) {
+      updateTurnBanner(result.turn);
+    }
     updateEmpty();
   });
 
@@ -750,6 +894,8 @@
       removeElement(event.id);
     } else if (event.emit === 'scene:clear') {
       clearAll();
+    } else if (event.emit === 'turn:change' && event.turn) {
+      updateTurnBanner(event.turn);
     }
   });
 

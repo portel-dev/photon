@@ -34,6 +34,7 @@ export default class Canvas {
       h: number;
       z: number;
       label?: string;
+      locked?: string; // agent name that locked this element
       createdBy?: string;
       updatedAt: number;
     }
@@ -41,6 +42,13 @@ export default class Canvas {
 
   private _nextZ = 1;
   private _loaded = false;
+
+  /** Turn state: who has control */
+  private _turn: {
+    agent: string;
+    message?: string;
+    since: number;
+  } = { agent: 'human', since: Date.now() };
 
   /** Load scene from persistent storage */
   private async _load() {
@@ -50,10 +58,12 @@ export default class Canvas {
       const saved = await this.memory.get<{
         scene: Record<string, any>;
         nextZ: number;
+        turn?: { agent: string; message?: string; since: number };
       }>('scene');
       if (saved) {
         this._scene = saved.scene || {};
         this._nextZ = saved.nextZ || 1;
+        if (saved.turn) this._turn = saved.turn;
       }
     } catch {
       // First run or corrupted — start fresh
@@ -65,6 +75,7 @@ export default class Canvas {
     await this.memory.set('scene', {
       scene: this._scene,
       nextZ: this._nextZ,
+      turn: this._turn,
     });
   }
 
@@ -75,7 +86,7 @@ export default class Canvas {
    */
   async main() {
     await this._load();
-    return { elements: Object.values(this._scene) };
+    return { elements: Object.values(this._scene), turn: this._turn };
   }
 
   /**
@@ -185,7 +196,66 @@ export default class Canvas {
     return {
       elements: Object.values(this._scene),
       count: Object.keys(this._scene).length,
+      turn: this._turn,
     };
+  }
+
+  /**
+   * Pass control to another agent or back to the human.
+   * The recipient sees a status banner with the optional message.
+   *
+   * @param to Who gets control next (e.g. 'human', 'ai', agent name)
+   * @param message Optional message explaining what to do next
+   */
+  async pass({ to, message }: { to: string; message?: string }) {
+    await this._load();
+    this._turn = { agent: to, message, since: Date.now() };
+    await this._save();
+
+    this.emit({
+      emit: 'turn:change',
+      turn: this._turn,
+    });
+
+    return this._turn;
+  }
+
+  /**
+   * Lock an element so only the specified agent can modify it.
+   *
+   * @param id Element to lock
+   * @param agent Agent name claiming the lock
+   */
+  async lock({ id, agent }: { id: string; agent: string }) {
+    await this._load();
+    const el = this._scene[id];
+    if (!el) return { error: 'Element not found', id };
+    if (el.locked && el.locked !== agent) {
+      return { error: `Locked by ${el.locked}`, id };
+    }
+    el.locked = agent;
+    el.updatedAt = Date.now();
+    await this._save();
+
+    this.emit({ emit: 'scene:put', element: el });
+    return el;
+  }
+
+  /**
+   * Unlock an element, allowing anyone to modify it.
+   *
+   * @param id Element to unlock
+   */
+  async unlock({ id }: { id: string }) {
+    await this._load();
+    const el = this._scene[id];
+    if (!el) return { error: 'Element not found', id };
+    delete el.locked;
+    el.updatedAt = Date.now();
+    await this._save();
+
+    this.emit({ emit: 'scene:put', element: el });
+    return el;
   }
 
   /**
