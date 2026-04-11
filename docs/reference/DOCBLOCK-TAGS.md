@@ -124,7 +124,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@param` | Describes a tool parameter. | `@param name User's full name` |
 | `@returns` | Describes the return value. Can include `{@label}`. | `@returns The greeting message {@label Say Hello}` |
 | `@example` | Provides a code example. | `@example await tool.greet({ name: 'World' })` |
-| `@format` | Hints the output format for CLI/Web interfaces. Values: `table`, `list`, `card`, `grid`, `tree`, `json`, `markdown`, `mermaid`, `code`, `slides`, `chart:bar`, `chart:hbar`, `metric`, `gauge`, `stat-group`, `heatmap`, `calendar`, `map`, `network`, `cron`, `timeline`, `steps`, `kanban`, `comparison`, `diff`, `log`, `embed`, `image`, `carousel`, `gallery`, `masonry`, `hero`, `banner`, `quote`, `profile`, `feature-grid`, `invoice`, `dashboard`, `panels`, `tabs`, `qr`, etc. | `@format table` |
+| `@format` | Hints the output format for CLI/Web interfaces. Values: `table`, `list`, `card`, `grid`, `tree`, `json`, `markdown`, `mermaid`, `code`, `slides`, `chart:bar`, `chart:hbar`, `chart:scatter`, `chart:radar`, `chart:histogram`, `metric`, `gauge`, `ring`, `stat-group`, `heatmap`, `calendar`, `map`, `network`, `cron`, `timeline`, `steps`, `kanban`, `comparison`, `diff`, `log`, `embed`, `image`, `carousel`, `gallery`, `masonry`, `hero`, `banner`, `quote`, `profile`, `feature-grid`, `invoice`, `dashboard`, `panels`, `tabs`, `qr`, etc. | `@format table` |
 | `@export` | Declares supported export formats for `_meta.format` client requests. Comma-separated. If absent, `json` and `yaml` are always available. | `@export csv,json,yaml,markdown` |
 | `@icon` | Sets the tool icon (emoji, icon name, or image path). | `@icon 🧮` or `@icon ./calc.png` |
 | `@icons` | Declares icon image variants with size/theme. | `@icons ./calc-48.png 48x48 dark` |
@@ -594,7 +594,7 @@ The `@format` tag on methods supports multiple format types:
 | Value | Description |
 |-------|-------------|
 | `primitive` | Single value (string, number, boolean) |
-| `table` | Array of objects as a table |
+| `table` | Array of objects as a table (sortable, paginated, with expandable row details) |
 | `list` | Array as a styled list (iOS-inspired) |
 | `grid` | Array as a visual grid |
 | `tree` | Hierarchical/nested data |
@@ -656,11 +656,13 @@ The `@format` tag on methods supports multiple format types:
 | `chart:line` | Line chart |
 | `chart:pie` | Pie chart |
 | `chart:area` | Area chart (line with fill) |
-| `chart:scatter` | Scatter plot |
+| `chart:scatter` | Scatter plot (auto-detected when data has 2+ numeric fields and no string fields) |
 | `chart:donut` | Donut chart |
-| `chart:radar` | Radar/spider chart |
+| `chart:radar` | Radar/spider chart (auto-detected for single items with 5+ numeric fields, or few items with many dimensions) |
+| `chart:histogram` | Histogram — bins numeric values into a bar chart (explicit only, no auto-detection) |
 | `metric` | KPI display (big number + label + delta) |
-| `gauge` | Circular gauge/progress indicator |
+| `gauge` | Semicircular gauge/progress indicator |
+| `ring` | Full-circle progress ring (SVG) with center value text |
 | `progress` | Animated progress bar with percentage |
 | `badge` | Colored status badge (auto-detects variant from text) |
 | `timeline` | Vertical timeline of events |
@@ -674,6 +676,12 @@ The `@format` tag on methods supports multiple format types:
 | `map` | Interactive map with markers |
 | `network` / `graph` | Node-edge graph diagram |
 | `cron` | Human-readable cron expression display |
+
+**`ring` data shape:** A number (0-100), `{ value, max?, label? }`, or `{ progress }` (0-1 normalized). Color gradient: green → yellow → red based on value/max ratio.
+
+**`chart:histogram` data shape:** Array of objects with at least one numeric field. The runtime bins the values using `sqrt(n)` buckets and renders as a bar chart. Use `{@x fieldName}` hint to specify which field to bin.
+
+**`chart:scatter` data shape:** Array of objects with 2+ numeric fields. First two numeric fields map to x/y axes. Use `{@x fieldName, @y fieldName}` hints to specify axes explicitly.
 
 **`stat-group` data shape:**
 ```json
@@ -871,6 +879,46 @@ async cpuUsage(): Promise<{ value: number; max: number; label: string }>
 |------|-------------|
 | `@min N` | Minimum gauge value (default: 0) |
 | `@max N` | Maximum gauge value (default: 100) |
+
+### Ring Layout Hints
+
+```typescript
+/**
+ * Upload progress
+ * @format ring {@max 100, @title Upload}
+ */
+async uploadProgress(): Promise<{ value: number; label: string }>
+```
+
+| Hint | Description |
+|------|-------------|
+| `@max N` | Maximum ring value (default: 100) |
+| `@title label` | Label displayed below the ring |
+
+### Table Column Format Pipes
+
+Apply per-column formatting to table cells using the `@columnFormats` hint:
+
+```typescript
+/**
+ * Sales report
+ * @format table {@columnFormats revenue:currency,margin:percent,name:truncate(25),count:compact}
+ */
+async salesReport(): Promise<{ name: string; revenue: number; margin: number; count: number }[]>
+```
+
+**Syntax:** `@columnFormats field1:pipe,field2:pipe(arg)` — comma-separated `fieldName:pipeName` pairs.
+
+| Pipe | Description | Example |
+|------|-------------|---------|
+| `currency` | Locale currency format (default USD). Pass currency code as arg: `currency(EUR)` | `$1,234.00` |
+| `percent` | Percentage (values ≤1 are multiplied by 100). Arg = decimal places | `75.0%` |
+| `date` | Locale date format | `3/20/2026` |
+| `truncate(N)` | Truncate to N characters with ellipsis | `Long text…` |
+| `number` | Locale number with grouping | `1,234,567` |
+| `compact` | Compact notation (K/M/B) | `1.2M` |
+
+**Note:** Table rows are expandable — clicking any row reveals a detail panel showing all fields as key-value pairs. This is automatic and requires no configuration.
 
 ### Timeline Layout Hints
 

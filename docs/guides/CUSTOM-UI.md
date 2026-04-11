@@ -152,6 +152,9 @@ onTeardown(handler: () => void): () => void;
 // Model context update (MCP Apps Extension)
 updateModelContext(opts: { content?: string; structuredContent?: any }): Promise<void>;
 
+// Toast notifications (displayed in host UI)
+showToast(message: string, type?: 'info' | 'success' | 'warning' | 'error', duration?: number): void;
+
 // Safe area insets (for mobile-aware layouts)
 readonly safeAreaInsets: { top: number; bottom: number; left: number; right: number };
 ```
@@ -239,6 +242,15 @@ photon.onResult((result) => {
 photon.onThemeChange((theme) => {
   document.body.className = theme;
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TOAST NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Show a toast in the host Beam UI (not inside the iframe)
+photon.showToast('Changes saved!', 'success');
+photon.showToast('Upload failed', 'error', 5000);
+photon.showToast('Processing...', 'info', 2000);
 ```
 
 ---

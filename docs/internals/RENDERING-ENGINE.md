@@ -134,10 +134,10 @@ A block is the smallest renderable unit. Every existing `@format` is a block:
 
 - `text` — rendered markdown/HTML
 - `code` — syntax-highlighted code
-- `table` — structured data table
-- `chart:bar`, `chart:line` — data visualization
+- `table` — structured data table (sortable, paginated, expandable rows, column format pipes)
+- `chart:bar`, `chart:line`, `chart:scatter`, `chart:radar`, `chart:histogram` — data visualization
 - `mermaid` — diagrams
-- `metric`, `gauge` — single-value displays
+- `metric`, `gauge`, `ring` — single-value displays
 - `photon-output` — live output from any photon method call
 - `image`, `video` — media
 

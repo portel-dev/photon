@@ -573,6 +573,33 @@ Use these *within* `@param` descriptions for validation and UI generation.
  async report() {
    return "# System Status\n- CPU: 10%\n- RAM: 4GB";
  }
+
+ /**
+  * Sales by region with formatted columns
+  * @format table {@columnFormats revenue:currency,margin:percent,region:truncate(15)}
+  */
+ async sales() {
+   return [
+     { region: "North America", revenue: 142830, margin: 0.23 },
+     { region: "Europe", revenue: 98450, margin: 0.18 },
+   ];
+ }
+
+ /**
+  * Skill assessment
+  * @format chart:radar
+  */
+ async skills() {
+   return [{ name: "Alice", communication: 8, coding: 9, design: 6, leadership: 7, testing: 8 }];
+ }
+
+ /**
+  * Upload progress
+  * @format ring
+  */
+ async progress() {
+   return { value: 73, max: 100, label: "Upload" };
+ }
  ```
 
 ---
