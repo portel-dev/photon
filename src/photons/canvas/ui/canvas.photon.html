@@ -104,16 +104,14 @@
     min-height: 0;
   }
 
-  /* ── Resize Handle ── */
+  /* ── Resize Handles (all corners) ── */
   .ce-resize {
     position: absolute;
-    right: 0;
-    bottom: 0;
-    width: 16px;
-    height: 16px;
-    cursor: nwse-resize;
+    width: 12px;
+    height: 12px;
     opacity: 0;
     transition: opacity 0.1s;
+    z-index: 2;
   }
 
   .ce:hover .ce-resize,
@@ -122,14 +120,22 @@
   .ce-resize::after {
     content: '';
     position: absolute;
-    right: 3px;
-    bottom: 3px;
-    width: 8px;
-    height: 8px;
-    border-right: 2px solid var(--color-primary, #6366f1);
-    border-bottom: 2px solid var(--color-primary, #6366f1);
-    border-radius: 0 0 2px 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 1px;
   }
+
+  .ce-resize-se { right: 0; bottom: 0; cursor: nwse-resize; }
+  .ce-resize-se::after { right: 2px; bottom: 2px; border-right: 2px solid var(--color-primary, #6366f1); border-bottom: 2px solid var(--color-primary, #6366f1); }
+
+  .ce-resize-sw { left: 0; bottom: 0; cursor: nesw-resize; }
+  .ce-resize-sw::after { left: 2px; bottom: 2px; border-left: 2px solid var(--color-primary, #6366f1); border-bottom: 2px solid var(--color-primary, #6366f1); }
+
+  .ce-resize-ne { right: 0; top: 0; cursor: nesw-resize; }
+  .ce-resize-ne::after { right: 2px; top: 2px; border-right: 2px solid var(--color-primary, #6366f1); border-top: 2px solid var(--color-primary, #6366f1); }
+
+  .ce-resize-nw { left: 0; top: 0; cursor: nwse-resize; }
+  .ce-resize-nw::after { left: 2px; top: 2px; border-left: 2px solid var(--color-primary, #6366f1); border-top: 2px solid var(--color-primary, #6366f1); }
 
   /* ── Insert Button ── */
   .insert-btn {
@@ -336,17 +342,49 @@
     bar.appendChild(fmt);
     bar.appendChild(del);
 
+    // Double-click label to rename
+    label.addEventListener('dblclick', function(e) {
+      e.stopPropagation();
+      var current = label.textContent;
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.value = current;
+      input.style.cssText = 'background:transparent;border:1px solid var(--color-primary,#6366f1);color:inherit;font:inherit;width:100%;padding:0 2px;border-radius:3px;outline:none;';
+      label.textContent = '';
+      label.appendChild(input);
+      input.focus();
+      input.select();
+
+      function commit() {
+        var val = input.value.trim() || current;
+        label.textContent = val;
+        if (val !== current) {
+          window.photon.callTool('put', { id: el.id, label: val });
+        }
+      }
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+        if (ev.key === 'Escape') { input.value = current; input.blur(); }
+      });
+    });
+
     // Body
     var body = document.createElement('div');
     body.className = 'ce-body';
 
-    // Resize handle
-    var resize = document.createElement('div');
-    resize.className = 'ce-resize';
+    // Resize handles (all 4 corners)
+    var corners = ['se', 'sw', 'ne', 'nw'];
+    var resizeHandles = {};
+    for (var ci = 0; ci < corners.length; ci++) {
+      var rh = document.createElement('div');
+      rh.className = 'ce-resize ce-resize-' + corners[ci];
+      resizeHandles[corners[ci]] = rh;
+      div.appendChild(rh);
+    }
 
     div.appendChild(bar);
     div.appendChild(body);
-    div.appendChild(resize);
 
     // ── Selection ──
     div.addEventListener('pointerdown', function() {
@@ -356,8 +394,10 @@
     // ── Drag (title bar) ──
     setupDrag(bar, el.id);
 
-    // ── Resize (corner handle) ──
-    setupResize(resize, el.id);
+    // ── Resize (all corners) ──
+    for (var ri = 0; ri < corners.length; ri++) {
+      setupCornerResize(resizeHandles[corners[ri]], el.id, corners[ri]);
+    }
 
     return div;
   }
@@ -376,8 +416,11 @@
         if (elements[k].z > maxZ) maxZ = elements[k].z;
       }
       if (elements[id] && elements[id].z <= maxZ) {
-        elements[id].z = maxZ + 1;
-        containers[id].style.zIndex = elements[id].z;
+        var newZ = maxZ + 1;
+        elements[id].z = newZ;
+        containers[id].style.zIndex = newZ;
+        // Sync z-order to server
+        window.photon.callTool('put', { id: id, z: newZ });
       }
     }
   }
@@ -392,6 +435,7 @@
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      pushUndo();
       dragging = true;
       startX = e.clientX;
       startY = e.clientY;
@@ -427,20 +471,23 @@
     });
   }
 
-  // ── Resize Logic ──
+  // ── Resize Logic (all corners) ──
 
-  function setupResize(handle, id) {
+  function setupCornerResize(handle, id, corner) {
     var resizing = false;
-    var startX, startY, origW, origH;
+    var startX, startY, origX, origY, origW, origH;
 
     handle.addEventListener('pointerdown', function(e) {
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      pushUndo();
       resizing = true;
       startX = e.clientX;
       startY = e.clientY;
       var el = elements[id];
+      origX = el ? el.x : 0;
+      origY = el ? el.y : 0;
       origW = el ? el.w : 300;
       origH = el ? el.h : 200;
       handle.setPointerCapture(e.pointerId);
@@ -450,12 +497,13 @@
       if (!resizing) return;
       var dx = e.clientX - startX;
       var dy = e.clientY - startY;
-      var newW = Math.max(120, origW + dx);
-      var newH = Math.max(80, origH + dy);
+      var result = calcCornerResize(corner, origX, origY, origW, origH, dx, dy);
       var container = containers[id];
       if (container) {
-        container.style.width = newW + 'px';
-        container.style.height = newH + 'px';
+        container.style.left = result.x + 'px';
+        container.style.top = result.y + 'px';
+        container.style.width = result.w + 'px';
+        container.style.height = result.h + 'px';
       }
     });
 
@@ -464,29 +512,130 @@
       resizing = false;
       var dx = e.clientX - startX;
       var dy = e.clientY - startY;
-      var newW = Math.max(120, origW + dx);
-      var newH = Math.max(80, origH + dy);
-      // Sync to server
-      window.photon.callTool('put', { id: id, w: newW, h: newH });
+      var result = calcCornerResize(corner, origX, origY, origW, origH, dx, dy);
+      window.photon.callTool('put', { id: id, x: result.x, y: result.y, w: result.w, h: result.h });
     });
   }
 
-  // ── Deselect on surface click ──
+  function calcCornerResize(corner, ox, oy, ow, oh, dx, dy) {
+    var x = ox, y = oy, w = ow, h = oh;
+    if (corner === 'se') {
+      w = Math.max(120, ow + dx);
+      h = Math.max(80, oh + dy);
+    } else if (corner === 'sw') {
+      w = Math.max(120, ow - dx);
+      h = Math.max(80, oh + dy);
+      x = ox + ow - w;
+    } else if (corner === 'ne') {
+      w = Math.max(120, ow + dx);
+      h = Math.max(80, oh - dy);
+      y = oy + oh - h;
+    } else if (corner === 'nw') {
+      w = Math.max(120, ow - dx);
+      h = Math.max(80, oh - dy);
+      x = ox + ow - w;
+      y = oy + oh - h;
+    }
+    return { x: Math.max(0, x), y: Math.max(0, y), w: w, h: h };
+  }
+
+  // ── Deselect + Pan on surface click ──
+  var panning = false;
+  var panStartX, panStartY, panScrollX, panScrollY;
+
   surface.addEventListener('pointerdown', function(e) {
-    if (e.target === surface) {
+    if (e.target === surface || e.target === emptyEl || e.target.closest('.empty-state')) {
       if (selected && containers[selected]) {
         containers[selected].classList.remove('selected');
       }
       selected = null;
+
+      // Start panning
+      if (e.button === 0) {
+        panning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        panScrollX = surface.scrollLeft;
+        panScrollY = surface.scrollTop;
+        surface.style.cursor = 'grabbing';
+        surface.setPointerCapture(e.pointerId);
+      }
     }
   });
 
-  // ── Delete with keyboard ──
+  surface.addEventListener('pointermove', function(e) {
+    if (!panning) return;
+    var dx = e.clientX - panStartX;
+    var dy = e.clientY - panStartY;
+    surface.scrollLeft = panScrollX - dx;
+    surface.scrollTop = panScrollY - dy;
+  });
+
+  surface.addEventListener('pointerup', function() {
+    if (panning) {
+      panning = false;
+      surface.style.cursor = 'default';
+    }
+  });
+
+  // ── Undo/Redo History ──
+  var undoStack = [];  // snapshots of scene state
+  var redoStack = [];
+  var MAX_HISTORY = 50;
+
+  function snapshotScene() {
+    return JSON.stringify(elements);
+  }
+
+  function pushUndo() {
+    undoStack.push(snapshotScene());
+    if (undoStack.length > MAX_HISTORY) undoStack.shift();
+    redoStack = []; // new action clears redo
+  }
+
+  function restoreSnapshot(snapshot) {
+    var state = JSON.parse(snapshot);
+    // Remove elements not in snapshot
+    for (var id in elements) {
+      if (!(id in state)) {
+        window.photon.callTool('remove', { id: id });
+      }
+    }
+    // Upsert elements from snapshot
+    for (var sid in state) {
+      var el = state[sid];
+      window.photon.callTool('put', el);
+    }
+  }
+
+  // ── Keyboard shortcuts ──
   document.addEventListener('keydown', function(e) {
+    // Don't handle if typing in an input
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+
+    // Delete/Backspace — remove selected
     if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
-      // Don't delete if typing in search
-      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      pushUndo();
       window.photon.callTool('remove', { id: selected });
+      return;
+    }
+
+    // Ctrl/Cmd+Z — Undo
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      if (undoStack.length === 0) return;
+      redoStack.push(snapshotScene());
+      restoreSnapshot(undoStack.pop());
+      return;
+    }
+
+    // Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y — Redo
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'Z' || e.key === 'y')) {
+      e.preventDefault();
+      if (redoStack.length === 0) return;
+      undoStack.push(snapshotScene());
+      restoreSnapshot(redoStack.pop());
+      return;
     }
   });
 
@@ -552,6 +701,7 @@
   }
 
   function insertElement(format) {
+    pushUndo();
     // Place near center of visible area
     var scrollX = surface.scrollLeft || 0;
     var scrollY = surface.scrollTop || 0;

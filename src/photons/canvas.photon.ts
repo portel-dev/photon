@@ -16,6 +16,10 @@ export default class Canvas {
   // Injected by runtime — declared for capability detection
   emit!: (data: any) => void;
   formats!: Record<string, { data: string; example: unknown }>;
+  memory!: {
+    get<T>(key: string): Promise<T | null>;
+    set<T>(key: string, value: T): Promise<void>;
+  };
 
   /** Scene graph: element ID → element */
   private _scene: Record<
@@ -36,13 +40,41 @@ export default class Canvas {
   > = {};
 
   private _nextZ = 1;
+  private _loaded = false;
+
+  /** Load scene from persistent storage */
+  private async _load() {
+    if (this._loaded) return;
+    this._loaded = true;
+    try {
+      const saved = await this.memory.get<{
+        scene: Record<string, any>;
+        nextZ: number;
+      }>('scene');
+      if (saved) {
+        this._scene = saved.scene || {};
+        this._nextZ = saved.nextZ || 1;
+      }
+    } catch {
+      // First run or corrupted — start fresh
+    }
+  }
+
+  /** Save scene to persistent storage */
+  private async _save() {
+    await this.memory.set('scene', {
+      scene: this._scene,
+      nextZ: this._nextZ,
+    });
+  }
 
   /**
    * Open the canvas
    * @ui canvas
    * @readOnly
    */
-  main() {
+  async main() {
+    await this._load();
     return { elements: Object.values(this._scene) };
   }
 
@@ -60,7 +92,7 @@ export default class Canvas {
    * @param z Z-order layer (higher = on top)
    * @param label Human-readable label shown on the element
    */
-  put({
+  async put({
     id,
     format,
     data,
@@ -81,6 +113,7 @@ export default class Canvas {
     z?: number;
     label?: string;
   }) {
+    await this._load();
     const existing = this._scene[id];
     const element = {
       id,
@@ -96,6 +129,7 @@ export default class Canvas {
       updatedAt: Date.now(),
     };
     this._scene[id] = element;
+    await this._save();
 
     // Emit scene change — flows through SSE → bridge → onEmit
     this.emit({
@@ -110,9 +144,11 @@ export default class Canvas {
    * Remove an element from the canvas
    * @param id Element identifier to remove
    */
-  remove({ id }: { id: string }) {
+  async remove({ id }: { id: string }) {
+    await this._load();
     const existed = id in this._scene;
     delete this._scene[id];
+    await this._save();
 
     this.emit({
       emit: 'scene:remove',
@@ -126,10 +162,12 @@ export default class Canvas {
    * Clear all elements from the canvas
    * @destructive
    */
-  clear() {
+  async clear() {
+    await this._load();
     const count = Object.keys(this._scene).length;
     this._scene = {};
     this._nextZ = 1;
+    await this._save();
 
     this.emit({
       emit: 'scene:clear',
@@ -142,7 +180,8 @@ export default class Canvas {
    * Get the full scene graph — all elements with positions, sizes, and data
    * @readOnly
    */
-  scene() {
+  async scene() {
+    await this._load();
     return {
       elements: Object.values(this._scene),
       count: Object.keys(this._scene).length,

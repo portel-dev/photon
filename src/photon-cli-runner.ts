@@ -1745,8 +1745,10 @@ export async function runMethod(
     const nonInteractive = args.includes('-y');
 
     // Check for --format <type> flag (maps to _meta.format)
+    // Only treat as framework flag if the method doesn't have a 'format' parameter
+    const methodHasFormat = method.params.some((p: any) => p.name === 'format');
     let cliFormat: string | undefined;
-    const formatIndex = args.indexOf('--format');
+    const formatIndex = methodHasFormat ? -1 : args.indexOf('--format');
     if (formatIndex !== -1 && args[formatIndex + 1]) {
       cliFormat = args[formatIndex + 1];
     }
