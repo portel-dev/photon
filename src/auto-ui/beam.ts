@@ -112,7 +112,7 @@ const __dirname = path.dirname(__filename);
 import { withTimeout } from '../async/index.js';
 // WebSocket removed - now using MCP Streamable HTTP (SSE) only
 import { resolvePhotonPath, type ListedPhoton } from '../path-resolver.js';
-import { discoverPhotons } from '../context.js';
+import { discoverLocalPhotons } from '../context.js';
 import { PhotonLoader } from '../loader.js';
 import { logger, createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
@@ -595,8 +595,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     logger.warn(`Asset repair check failed: ${getErrorMessage(error)}`);
   }
 
-  // Discover all photons: local workspace (cwd) photons overlay ~/.photon global ones
-  const scannedPhotonList = await discoverPhotons();
+  // Discover photons from baseDir only — beam scopes to the current project
+  const scannedPhotonList = await discoverLocalPhotons();
 
   // Deduplicate aliases that resolve to the same underlying file (for example,
   // a marketplace photon and a local alias/symlink that both point at the same

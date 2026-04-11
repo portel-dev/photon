@@ -2798,12 +2798,15 @@ export class PhotonLoader {
     if (realCurrentPhotonPath === currentPhotonPath) return;
     if (path.dirname(realCurrentPhotonPath) !== path.dirname(resolvedPath)) return;
 
-    const linkPath = path.join(this.baseDir, path.basename(resolvedPath));
+    // Symlink into the directory where the current photon's symlink lives
+    // (e.g. ~/.photon/), NOT this.baseDir which may be a different workspace.
+    const symlinkDir = path.dirname(currentPhotonPath);
+    const linkPath = path.join(symlinkDir, path.basename(resolvedPath));
     await this.createSymlinkIfMissing(resolvedPath, linkPath);
 
     const depName = path.basename(resolvedPath).replace(/\.photon\.(ts|js)$/, '');
     const sourceAssetDir = path.join(path.dirname(resolvedPath), depName);
-    const targetAssetDir = path.join(this.baseDir, depName);
+    const targetAssetDir = path.join(symlinkDir, depName);
     if (existsSync(sourceAssetDir)) {
       await this.createSymlinkIfMissing(sourceAssetDir, targetAssetDir, 'dir');
     }

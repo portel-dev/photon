@@ -73,12 +73,13 @@ export function getDefaultContext(): PhotonContext {
   const cwd = process.cwd();
   let baseDir: string;
 
-  if (isPhotonDirectory(cwd)) {
-    // cwd is a marketplace or photon workspace — use it and update env for downstream
+  if (process.env.PHOTON_DIR) {
+    // Explicit PHOTON_DIR always wins — once set, all downstream code respects it
+    baseDir = path.resolve(process.env.PHOTON_DIR);
+  } else if (isPhotonDirectory(cwd)) {
+    // cwd is a marketplace or photon workspace — use it and set env for downstream
     baseDir = cwd;
     process.env.PHOTON_DIR = cwd;
-  } else if (process.env.PHOTON_DIR) {
-    baseDir = path.resolve(process.env.PHOTON_DIR);
   } else {
     baseDir = HOME_PHOTON_DIR;
   }
@@ -148,6 +149,19 @@ export async function discoverPhotons(): Promise<ListedPhoton[]> {
 
   // Merge: local first, then global (skip global duplicates)
   return [...localPhotons, ...globalPhotons.filter((p) => !localNames.has(p.name))];
+}
+
+/**
+ * Discover photons from baseDir only — no global merge.
+ * Used by Beam to scope the sidebar to the current project.
+ * Relies on PHOTON_DIR being set at the entry point.
+ */
+export async function discoverLocalPhotons(): Promise<ListedPhoton[]> {
+  const cleanupHandler = (name: string, symlinkPath: string) => {
+    logger.info(`🧹 Removed stale symlink for "${name}" (target no longer exists): ${symlinkPath}`);
+  };
+
+  return listPhotonFilesWithNamespace(getDefaultContext().baseDir, { onCleanup: cleanupHandler });
 }
 
 /**
