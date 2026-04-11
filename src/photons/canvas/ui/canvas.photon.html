@@ -1,0 +1,624 @@
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font-family-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+    background: var(--color-surface, #1a1b26);
+    color: var(--color-on-surface, #e6e6e6);
+    overflow: hidden;
+    height: 100vh;
+    user-select: none;
+  }
+
+  /* ── Canvas Surface ── */
+  .canvas-surface {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    cursor: default;
+  }
+
+  /* ── Grid dots background ── */
+  .canvas-surface::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    width: 4000px;
+    height: 4000px;
+    background-image: radial-gradient(circle, var(--color-outline-variant, #333) 1px, transparent 1px);
+    background-size: 24px 24px;
+    pointer-events: none;
+    opacity: 0.3;
+  }
+
+  /* ── Canvas Element ── */
+  .ce {
+    position: absolute;
+    background: var(--color-surface-container, #1e2030);
+    border: 1px solid var(--color-outline-variant, #333);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: box-shadow 0.15s ease;
+  }
+
+  .ce:hover {
+    border-color: var(--color-primary, #6366f1);
+  }
+
+  .ce.selected {
+    border-color: var(--color-primary, #6366f1);
+    box-shadow: 0 0 0 2px var(--color-primary, #6366f1);
+  }
+
+  /* ── Title Bar ── */
+  .ce-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: var(--color-surface-container-high, #252738);
+    cursor: grab;
+    font-size: 11px;
+    color: var(--color-on-surface-muted, #999);
+    min-height: 28px;
+    flex-shrink: 0;
+  }
+
+  .ce-bar:active { cursor: grabbing; }
+
+  .ce-bar .ce-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ce-bar .ce-format {
+    opacity: 0.5;
+    font-size: 10px;
+    font-family: var(--font-family-mono, monospace);
+  }
+
+  .ce-bar .ce-delete {
+    opacity: 0;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+    line-height: 1;
+    transition: opacity 0.1s;
+  }
+
+  .ce:hover .ce-delete,
+  .ce.selected .ce-delete { opacity: 0.6; }
+  .ce-delete:hover { opacity: 1 !important; background: var(--color-error, #ef4444); color: #fff; }
+
+  /* ── Body (rendered content) ── */
+  .ce-body {
+    flex: 1;
+    overflow: auto;
+    padding: 8px;
+    min-height: 0;
+  }
+
+  /* ── Resize Handle ── */
+  .ce-resize {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  .ce:hover .ce-resize,
+  .ce.selected .ce-resize { opacity: 1; }
+
+  .ce-resize::after {
+    content: '';
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--color-primary, #6366f1);
+    border-bottom: 2px solid var(--color-primary, #6366f1);
+    border-radius: 0 0 2px 0;
+  }
+
+  /* ── Insert Button ── */
+  .insert-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--color-primary, #6366f1);
+    color: #fff;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10000;
+    transition: transform 0.15s;
+  }
+
+  .insert-btn:hover { transform: scale(1.1); }
+
+  /* ── Format Picker ── */
+  .format-picker {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    width: 260px;
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--color-surface-container, #1e2030);
+    border: 1px solid var(--color-outline-variant, #333);
+    border-radius: 12px;
+    padding: 8px;
+    z-index: 10001;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    display: none;
+  }
+
+  .format-picker.open { display: block; }
+
+  .format-picker input {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--color-surface, #1a1b26);
+    border: 1px solid var(--color-outline-variant, #333);
+    border-radius: 6px;
+    color: var(--color-on-surface, #e6e6e6);
+    font-size: 13px;
+    margin-bottom: 6px;
+    outline: none;
+  }
+
+  .format-picker input:focus { border-color: var(--color-primary, #6366f1); }
+
+  .format-item {
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .format-item:hover { background: var(--color-surface-container-high, #252738); }
+
+  .format-item .fi-name { font-weight: 500; }
+  .format-item .fi-shape { font-size: 11px; opacity: 0.5; font-family: var(--font-family-mono, monospace); }
+
+  /* ── Empty State ── */
+  .empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--color-on-surface-muted, #888);
+    pointer-events: none;
+  }
+
+  .empty-state .hint { font-size: 14px; opacity: 0.6; }
+</style>
+
+<div class="canvas-surface" id="surface"></div>
+
+<div class="empty-state" id="empty">
+  <div style="font-size: 48px; opacity: 0.3;">+</div>
+  <div class="hint">Click + to add elements, or let AI place them</div>
+</div>
+
+<button class="insert-btn" id="insertBtn" title="Add element">+</button>
+
+<div class="format-picker" id="formatPicker">
+  <input type="text" placeholder="Search formats..." id="formatSearch">
+  <div id="formatList"></div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  var surface = document.getElementById('surface');
+  var emptyEl = document.getElementById('empty');
+  var insertBtn = document.getElementById('insertBtn');
+  var formatPicker = document.getElementById('formatPicker');
+  var formatSearch = document.getElementById('formatSearch');
+  var formatList = document.getElementById('formatList');
+
+  // ── Scene State (local mirror) ──
+  var elements = {};   // id → { ...CanvasElement }
+  var containers = {}; // id → HTMLElement
+  var selected = null; // currently selected element ID
+
+  // ── Rendering ──
+
+  function upsertElement(el) {
+    elements[el.id] = el;
+
+    var container = containers[el.id];
+    if (!container) {
+      container = createContainer(el);
+      containers[el.id] = container;
+      surface.appendChild(container);
+    }
+
+    // Update position/size
+    container.style.left = el.x + 'px';
+    container.style.top = el.y + 'px';
+    container.style.width = el.w + 'px';
+    container.style.height = el.h + 'px';
+    container.style.zIndex = el.z;
+
+    // Update label
+    var labelEl = container.querySelector('.ce-label');
+    if (labelEl) labelEl.textContent = el.label || el.id;
+
+    var formatEl = container.querySelector('.ce-format');
+    if (formatEl) formatEl.textContent = el.format;
+
+    // Re-render content
+    var body = container.querySelector('.ce-body');
+    if (body && el.data !== undefined && el.data !== null) {
+      window.photon.render(body, el.data, el.format);
+    }
+
+    updateEmpty();
+  }
+
+  function removeElement(id) {
+    delete elements[id];
+    if (containers[id]) {
+      containers[id].remove();
+      delete containers[id];
+    }
+    if (selected === id) selected = null;
+    updateEmpty();
+  }
+
+  function clearAll() {
+    for (var id in containers) containers[id].remove();
+    elements = {};
+    containers = {};
+    selected = null;
+    updateEmpty();
+  }
+
+  function updateEmpty() {
+    emptyEl.style.display = Object.keys(elements).length === 0 ? 'flex' : 'none';
+  }
+
+  // ── Create Element Container ──
+
+  function createContainer(el) {
+    var div = document.createElement('div');
+    div.className = 'ce';
+    div.setAttribute('data-id', el.id);
+
+    // Title bar
+    var bar = document.createElement('div');
+    bar.className = 'ce-bar';
+
+    var label = document.createElement('span');
+    label.className = 'ce-label';
+    label.textContent = el.label || el.id;
+
+    var fmt = document.createElement('span');
+    fmt.className = 'ce-format';
+    fmt.textContent = el.format;
+
+    var del = document.createElement('span');
+    del.className = 'ce-delete';
+    del.textContent = '\u00d7';
+    del.addEventListener('click', function(e) {
+      e.stopPropagation();
+      window.photon.callTool('remove', { id: el.id });
+    });
+
+    bar.appendChild(label);
+    bar.appendChild(fmt);
+    bar.appendChild(del);
+
+    // Body
+    var body = document.createElement('div');
+    body.className = 'ce-body';
+
+    // Resize handle
+    var resize = document.createElement('div');
+    resize.className = 'ce-resize';
+
+    div.appendChild(bar);
+    div.appendChild(body);
+    div.appendChild(resize);
+
+    // ── Selection ──
+    div.addEventListener('pointerdown', function() {
+      selectElement(el.id);
+    });
+
+    // ── Drag (title bar) ──
+    setupDrag(bar, el.id);
+
+    // ── Resize (corner handle) ──
+    setupResize(resize, el.id);
+
+    return div;
+  }
+
+  function selectElement(id) {
+    // Deselect previous
+    if (selected && containers[selected]) {
+      containers[selected].classList.remove('selected');
+    }
+    selected = id;
+    if (containers[id]) {
+      containers[id].classList.add('selected');
+      // Bring to front
+      var maxZ = 0;
+      for (var k in elements) {
+        if (elements[k].z > maxZ) maxZ = elements[k].z;
+      }
+      if (elements[id] && elements[id].z <= maxZ) {
+        elements[id].z = maxZ + 1;
+        containers[id].style.zIndex = elements[id].z;
+      }
+    }
+  }
+
+  // ── Drag Logic ──
+
+  function setupDrag(handle, id) {
+    var dragging = false;
+    var startX, startY, origX, origY;
+
+    handle.addEventListener('pointerdown', function(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      var el = elements[id];
+      origX = el ? el.x : 0;
+      origY = el ? el.y : 0;
+      handle.setPointerCapture(e.pointerId);
+      selectElement(id);
+    });
+
+    handle.addEventListener('pointermove', function(e) {
+      if (!dragging) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      var newX = Math.max(0, origX + dx);
+      var newY = Math.max(0, origY + dy);
+      var container = containers[id];
+      if (container) {
+        container.style.left = newX + 'px';
+        container.style.top = newY + 'px';
+      }
+    });
+
+    handle.addEventListener('pointerup', function(e) {
+      if (!dragging) return;
+      dragging = false;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      var newX = Math.max(0, origX + dx);
+      var newY = Math.max(0, origY + dy);
+      // Sync to server
+      window.photon.callTool('put', { id: id, x: newX, y: newY });
+    });
+  }
+
+  // ── Resize Logic ──
+
+  function setupResize(handle, id) {
+    var resizing = false;
+    var startX, startY, origW, origH;
+
+    handle.addEventListener('pointerdown', function(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      resizing = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      var el = elements[id];
+      origW = el ? el.w : 300;
+      origH = el ? el.h : 200;
+      handle.setPointerCapture(e.pointerId);
+    });
+
+    handle.addEventListener('pointermove', function(e) {
+      if (!resizing) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      var newW = Math.max(120, origW + dx);
+      var newH = Math.max(80, origH + dy);
+      var container = containers[id];
+      if (container) {
+        container.style.width = newW + 'px';
+        container.style.height = newH + 'px';
+      }
+    });
+
+    handle.addEventListener('pointerup', function(e) {
+      if (!resizing) return;
+      resizing = false;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      var newW = Math.max(120, origW + dx);
+      var newH = Math.max(80, origH + dy);
+      // Sync to server
+      window.photon.callTool('put', { id: id, w: newW, h: newH });
+    });
+  }
+
+  // ── Deselect on surface click ──
+  surface.addEventListener('pointerdown', function(e) {
+    if (e.target === surface) {
+      if (selected && containers[selected]) {
+        containers[selected].classList.remove('selected');
+      }
+      selected = null;
+    }
+  });
+
+  // ── Delete with keyboard ──
+  document.addEventListener('keydown', function(e) {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+      // Don't delete if typing in search
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      window.photon.callTool('remove', { id: selected });
+    }
+  });
+
+  // ── Format Picker ──
+
+  var pickerOpen = false;
+
+  insertBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    pickerOpen = !pickerOpen;
+    formatPicker.classList.toggle('open', pickerOpen);
+    if (pickerOpen) {
+      formatSearch.value = '';
+      renderFormatList('');
+      formatSearch.focus();
+    }
+  });
+
+  document.addEventListener('pointerdown', function(e) {
+    if (pickerOpen && !formatPicker.contains(e.target) && e.target !== insertBtn) {
+      pickerOpen = false;
+      formatPicker.classList.remove('open');
+    }
+  });
+
+  formatSearch.addEventListener('input', function() {
+    renderFormatList(formatSearch.value.toLowerCase());
+  });
+
+  function renderFormatList(filter) {
+    var formats = window.photon.formats || [];
+    var catalog = {};
+    // formats might be array of names or object catalog
+    if (Array.isArray(formats)) {
+      formats.forEach(function(f) { catalog[f] = { data: '' }; });
+    } else {
+      catalog = formats;
+    }
+
+    var html = '';
+    var keys = Object.keys(catalog).sort();
+    for (var i = 0; i < keys.length; i++) {
+      var name = keys[i];
+      if (filter && name.indexOf(filter) === -1) continue;
+      var spec = catalog[name] || {};
+      html += '<div class="format-item" data-format="' + name + '">'
+        + '<span class="fi-name">' + name + '</span>'
+        + '<span class="fi-shape">' + (spec.data || '').substring(0, 30) + '</span>'
+        + '</div>';
+    }
+    formatList.innerHTML = html || '<div style="padding:8px;opacity:0.5">No formats found</div>';
+
+    // Bind clicks
+    var items = formatList.querySelectorAll('.format-item');
+    for (var j = 0; j < items.length; j++) {
+      items[j].addEventListener('click', function() {
+        var fmt = this.getAttribute('data-format');
+        insertElement(fmt);
+        pickerOpen = false;
+        formatPicker.classList.remove('open');
+      });
+    }
+  }
+
+  function insertElement(format) {
+    // Place near center of visible area
+    var scrollX = surface.scrollLeft || 0;
+    var scrollY = surface.scrollTop || 0;
+    var viewW = surface.clientWidth;
+    var viewH = surface.clientHeight;
+    var x = scrollX + Math.round(viewW / 2) - 150 + Math.round(Math.random() * 40 - 20);
+    var y = scrollY + Math.round(viewH / 2) - 100 + Math.round(Math.random() * 40 - 20);
+
+    var id = 'el_' + Date.now();
+
+    // Get example data from catalog
+    var catalog = window.photon.formats || {};
+    var spec = catalog[format];
+    var data = spec && spec.example ? spec.example : null;
+
+    window.photon.callTool('put', {
+      id: id,
+      format: format,
+      x: x,
+      y: y,
+      w: 300,
+      h: 200,
+      data: data,
+      label: format,
+    });
+  }
+
+  // ── Event Subscriptions ──
+
+  // Initial scene from main() result
+  window.photon.onResult(function(result) {
+    if (result && result.elements) {
+      for (var i = 0; i < result.elements.length; i++) {
+        upsertElement(result.elements[i]);
+      }
+    }
+    updateEmpty();
+  });
+
+  // Live updates from AI or other agents
+  window.photon.onEmit(function(event) {
+    if (!event) return;
+    if (event.emit === 'scene:put' && event.element) {
+      upsertElement(event.element);
+    } else if (event.emit === 'scene:remove' && event.id) {
+      removeElement(event.id);
+    } else if (event.emit === 'scene:clear') {
+      clearAll();
+    }
+  });
+
+  // Reconcile on load — fetch latest scene in case events were missed
+  setTimeout(function() {
+    window.photon.callTool('scene', {}).then(function(result) {
+      if (result && result.elements) {
+        // Clear and re-render from server truth
+        for (var id in containers) {
+          if (!result.elements.find(function(e) { return e.id === id; })) {
+            removeElement(id);
+          }
+        }
+        for (var i = 0; i < result.elements.length; i++) {
+          upsertElement(result.elements[i]);
+        }
+      }
+    }).catch(function() {});
+  }, 500);
+
+})();
+</script>

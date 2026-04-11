@@ -17,12 +17,12 @@ import * as path from 'path';
  * Default bundled photons that ship with the runtime.
  * Available in CLI, STDIO, and Beam.
  */
-export const DEFAULT_BUNDLED_PHOTONS = ['maker', 'marketplace'];
+export const DEFAULT_BUNDLED_PHOTONS = ['maker', 'marketplace', 'canvas'];
 
 /**
  * Extended bundled photons for Beam (includes tunnel for port forwarding UI)
  */
-export const BEAM_BUNDLED_PHOTONS = ['maker', 'marketplace', 'tunnel'];
+export const BEAM_BUNDLED_PHOTONS = ['maker', 'marketplace', 'tunnel', 'canvas'];
 
 /**
  * Get path to a bundled photon (ships with runtime)
