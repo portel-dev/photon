@@ -7930,11 +7930,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
     for (const prop of Object.keys(oldVars)) {
       this.style.removeProperty(prop);
     }
-    // Re-apply Default Violet preset as the baseline
+    // Re-apply Amber preset as the baseline
     const theme = (this._theme || 'dark') as 'light' | 'dark';
-    const defaultViolet = { hue: 260, chroma: 0.15, lightness: 0.65, theme };
+    const defaultAmber = { hue: 75, chroma: 0.14, lightness: 0.7, theme };
     this._oklchEnabled = true;
-    this._applyOklchTheme(defaultViolet);
+    this._applyOklchTheme(defaultAmber);
     this._broadcastThemeToIframes();
     showToast('Theme reset to default', 'info');
   };

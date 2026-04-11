@@ -172,16 +172,16 @@ export class ThemeSettings extends LitElement {
       .chroma-slider {
         background: linear-gradient(
           to right,
-          oklch(0.65 0 var(--hue-val, 260)),
-          oklch(0.65 0.3 var(--hue-val, 260))
+          oklch(0.65 0 var(--hue-val, 75)),
+          oklch(0.65 0.3 var(--hue-val, 75))
         );
       }
 
       .lightness-slider {
         background: linear-gradient(
           to right,
-          oklch(0.2 0.1 var(--hue-val, 260)),
-          oklch(0.9 0.1 var(--hue-val, 260))
+          oklch(0.2 0.1 var(--hue-val, 75)),
+          oklch(0.9 0.1 var(--hue-val, 75))
         );
       }
 
@@ -291,10 +291,10 @@ export class ThemeSettings extends LitElement {
   @property({ type: String })
   currentTheme: Theme = 'dark';
 
-  @state() private _hue = 260;
-  @state() private _chroma = 0.15;
-  @state() private _lightness = 0.65;
-  @state() private _presetName: string | undefined = 'Default Violet';
+  @state() private _hue = 75;
+  @state() private _chroma = 0.14;
+  @state() private _lightness = 0.7;
+  @state() private _presetName: string | undefined = 'Amber';
 
   private _previousConfig: ThemeConfigState | null = null;
 
@@ -396,10 +396,10 @@ export class ThemeSettings extends LitElement {
   private _reset() {
     // Remove OKLCH config, revert to built-in theme
     localStorage.removeItem(THEME_CONFIG_KEY);
-    this._hue = 260;
-    this._chroma = 0.15;
-    this._lightness = 0.65;
-    this._presetName = 'Default Violet';
+    this._hue = 75;
+    this._chroma = 0.14;
+    this._lightness = 0.7;
+    this._presetName = 'Amber';
 
     this.dispatchEvent(new CustomEvent('oklch-theme-reset', { bubbles: true, composed: true }));
   }
