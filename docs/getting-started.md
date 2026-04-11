@@ -54,7 +54,7 @@ photon
 Open the browser. Your todo photon appears in the sidebar. Click **add**, type a task, hit execute. Click **list** to see a formatted table.
 
 <div align="center">
-<img src="../assets/beam-dashboard.png" alt="Beam dashboard showing photons" width="100%">
+<img src="../assets/beam-form-result.png" alt="Beam: auto-generated form and result" width="100%">
 </div>
 
 ### CLI

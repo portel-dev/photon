@@ -4,6 +4,10 @@ Add `@format` to any method to control how its return value is displayed. Withou
 
 Every format works on all three surfaces — Beam renders rich HTML, the CLI renders ASCII/text, and MCP returns structured data with format hints for the client.
 
+<div align="center">
+<img src="../assets/beam-formats-showcase.png" alt="Photon format rendering: metrics, gauges, progress bars, and charts" width="100%">
+</div>
+
 ---
 
 ## Tables
