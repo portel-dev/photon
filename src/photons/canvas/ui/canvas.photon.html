@@ -330,6 +330,35 @@
   var elements = {};   // id → { ...CanvasElement }
   var containers = {}; // id → HTMLElement
   var selected = null; // currently selected element ID
+  var customComponents = {}; // name → { html, defaults }
+
+  // ── Custom HTML Rendering ──
+
+  function renderCustomHTML(container, html, css) {
+    var iframe = container.querySelector('iframe.ce-custom');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.className = 'ce-custom';
+      iframe.style.cssText = 'width:100%;height:100%;border:none;background:transparent;';
+      iframe.setAttribute('sandbox', 'allow-scripts');
+      container.innerHTML = '';
+      container.appendChild(iframe);
+    }
+    var doc = iframe.contentDocument || iframe.contentWindow.document;
+    var styleBlock = css ? '<style>' + css + '</style>' : '';
+    doc.open();
+    doc.write('<!DOCTYPE html><html><head><meta charset="utf-8">' +
+      '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#e6e6e6;background:transparent;padding:4px;font-size:13px}</style>' +
+      styleBlock + '</head><body>' + html + '</body></html>');
+    doc.close();
+  }
+
+  function bindTemplate(tpl, data) {
+    if (!data || typeof data !== 'object') return tpl;
+    return tpl.replace(/\{\{(\w+)\}\}/g, function(_, key) {
+      return data[key] !== undefined ? String(data[key]) : '';
+    });
+  }
   var currentTurn = { agent: 'human', message: '', since: 0 };
 
   // ── Agent color map (deterministic for unknown agents) ──
@@ -415,7 +444,17 @@
     // Re-render content
     var body = container.querySelector('.ce-body');
     if (body && el.data !== undefined && el.data !== null) {
-      window.photon.render(body, el.data, el.format);
+      if (el.format === '_custom' && el.data.html) {
+        // AI-generated custom HTML — render in sandboxed iframe
+        renderCustomHTML(body, el.data.html, el.data.css);
+      } else if (customComponents[el.format]) {
+        // Registered custom component — template with data binding
+        var tpl = customComponents[el.format].html;
+        var rendered = bindTemplate(tpl, el.data);
+        renderCustomHTML(body, rendered);
+      } else {
+        window.photon.render(body, el.data, el.format);
+      }
     }
 
     updateEmpty();
@@ -898,6 +937,8 @@
       updateTurnBanner(event.turn);
     } else if (event.emit === 'canvas:screenshot-request') {
       captureScreenshot();
+    } else if (event.emit === 'component:registered' && event.name) {
+      customComponents[event.name] = { html: event.html, defaults: event.defaults };
     }
   });
 
@@ -975,6 +1016,20 @@
     var dataUrl = canvas.toDataURL('image/png');
     window.photon.callTool('capture', { dataUrl: dataUrl });
   }
+
+  // Load registered custom components
+  setTimeout(function() {
+    window.photon.callTool('listComponents', {}).then(function(result) {
+      if (Array.isArray(result)) {
+        for (var i = 0; i < result.length; i++) {
+          var c = result[i];
+          if (c.name && c.html) {
+            customComponents[c.name] = { html: c.html, defaults: c.defaults || {} };
+          }
+        }
+      }
+    }).catch(function() {});
+  }, 100);
 
   // Reconcile on load — fetch latest scene in case events were missed
   setTimeout(function() {

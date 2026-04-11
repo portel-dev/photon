@@ -365,6 +365,51 @@ export default class Canvas {
   }
 
   /**
+   * Register a custom component that can be used as a format on the canvas.
+   * Once registered, use the component name as the format in put().
+   *
+   * @param name Component name (used as format value in put)
+   * @param html HTML template string. Use {{key}} placeholders for data binding.
+   * @param defaults Default data values for the component
+   */
+  async registerComponent({
+    name,
+    html,
+    defaults,
+  }: {
+    name: string;
+    html: string;
+    defaults?: Record<string, any>;
+  }) {
+    await this._load();
+    const components = (await this.memory.get<Record<string, any>>('components')) || {};
+    components[name] = { html, defaults: defaults || {} };
+    await this.memory.set('components', components);
+
+    this.emit({
+      emit: 'component:registered',
+      name,
+      html,
+      defaults: defaults || {},
+    });
+
+    return { registered: name };
+  }
+
+  /**
+   * List registered custom components with their templates
+   * @readOnly
+   */
+  async listComponents() {
+    const components = (await this.memory.get<Record<string, any>>('components')) || {};
+    return Object.entries(components).map(([name, spec]: [string, any]) => ({
+      name,
+      html: spec.html,
+      defaults: spec.defaults || {},
+    }));
+  }
+
+  /**
    * List all available render formats with expected data shapes
    * @readOnly
    * @format table
