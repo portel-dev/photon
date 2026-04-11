@@ -17,6 +17,7 @@ Build rich interactive UIs for your photons. A global named after your photon fi
 - [Examples](#examples)
 - [Using Auto UI Renderers (photon.render)](#using-auto-ui-renderers-photonrender)
 - [Declarative Templates (.photon.html)](#declarative-templates-photonhtml)
+- [TSX Views (.tsx)](#tsx-views-tsx)
 
 ---
 
@@ -656,7 +657,11 @@ photon.render(container: HTMLElement, data: any, format: string, opts?: object):
 | `chart:pie` | `Array<object>` | Pie chart |
 | `chart:area` | `Array<object>` | Area chart (line with fill) |
 | `chart:donut` | `Array<object>` | Donut chart |
+| `chart:radar` | `Array<object>` | Radar chart displaying multivariate data |
+| `sparkline` | `Array<number>` | Minimalist inline line chart without axes |
+| `ring` | `{ value, max?, label? }` | Circular progress indicator |
 | `timeline` | `Array<{ time, event, details? }>` | Chronological event list with dots and lines |
+| `alert` | `{ title?, description, variant?, icon? }` | Callout box for important information |
 | `badge` | `string` | Colored status badge (auto-detects variant) |
 | `list` | `Array<{ name, subtitle?, status? }>` | iOS-style list rows with optional badges |
 | `kv` / `card` | `object` | Key-value pairs in alternating rows |
@@ -677,6 +682,12 @@ photon.render(container: HTMLElement, data: any, format: string, opts?: object):
 | `masonry` | `Array<{ src, caption? }>` | Pinterest-style masonry image grid |
 | `hero` | `{ title, subtitle?, image?, cta?, url? }` | Full-width hero section |
 | `banner` | `{ message, type?, icon? }` | Dismissable notification banner |
+| `empty` / `empty-state` | `{ title?, description?, icon?, action? }` | Centralized empty state placeholder |
+| `accordion` | `Array<{ title, content }>` | Collapsible list of items |
+| `feed` | `Array<{ user, action, target?, timestamp?, details? }>` | Rich activity stream with avatars and details |
+| `tabs` | `Array<{ title, content }>` or `object` | Tabbed navigation panels |
+| `tree` | `object` or `Array` | Collapsible JSON-like structural tree viewer |
+| `datatable` | `Array<object>` | Interactive table with search, sort, and pagination |
 | `quote` | `{ text, author?, source?, avatar? }` | Styled pull-quote with attribution |
 | `profile` | `{ name, avatar?, role?, bio?, stats? }` | User profile card with avatar and stats |
 | `feature-grid` | `Array<{ icon, title, description }>` | Marketing feature grid |
@@ -789,8 +800,10 @@ Where Datastar uses explicit `@get('/url')` actions, photon auto-resolves method
 |-----------|------|-------------|
 | `dashboard.html` | **Full control** | Bridge injected, you write all JavaScript |
 | `dashboard.photon.html` | **Declarative** | Auto-wrapped with base CSS, data attributes bind to methods |
+| `dashboard.tsx` | **Component** | TSX compiled with built-in JSX runtime, bundled into HTML |
+| `dashboard.photon.tsx` | **Declarative + TSX** | Declarative mode with TSX components |
 
-When both exist, `.photon.html` takes priority.
+Priority: `.photon.html` > `.photon.tsx` > `.html` > `.tsx`
 
 ### Quick Start
 
@@ -957,7 +970,107 @@ Elements automatically get the `photon-loading` CSS class while a method call is
 ### When to Use Each Mode
 
 - **`.photon.html`** — Dashboards, status displays, simple data views, action buttons. No JavaScript needed.
-- **`.html`** — Interactive UIs, custom event handling, complex layouts, React/Vue apps.
+- **`.html`** — Interactive UIs, custom event handling, complex layouts.
+- **`.tsx`** — Component-based UIs with TypeScript, composition, and imports. Best for complex views.
+
+---
+
+## TSX Views (.tsx)
+
+Write view files as TSX components. A built-in JSX runtime (~1KB) maps `h()` calls directly to DOM elements — no React, no Preact, no virtual DOM.
+
+### Quick Start
+
+```
+my-app/
+  my-app.photon.ts
+  my-app/
+    ui/
+      dashboard.tsx      # ← TSX view
+```
+
+```tsx
+// my-app/ui/dashboard.tsx
+
+function Card({ title, value }: { title: string; value: number }) {
+  return (
+    <div style={{ padding: '16px', borderRadius: '8px', background: 'var(--color-surface, #1e1e2e)' }}>
+      <div style={{ fontSize: '13px', color: 'var(--color-muted, #888)' }}>{title}</div>
+      <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{value.toLocaleString()}</div>
+    </div>
+  );
+}
+
+function Dashboard({ items }: { items: Array<{ title: string; value: number }> }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', padding: '24px' }}>
+      {items.map(item => <Card title={item.title} value={item.value} />)}
+    </div>
+  );
+}
+
+// Mount to the auto-provided #root div
+render(<Dashboard items={[{ title: 'Users', value: 42 }]} />, '#root');
+```
+
+Link it in your photon:
+
+```ts
+/**
+ * @ui dashboard ./ui/dashboard.tsx
+ */
+export default class MyApp {
+  /** @ui dashboard */
+  async dashboard() {
+    return { items: [{ title: 'Users', value: 42 }] };
+  }
+}
+```
+
+### Built-in JSX Runtime
+
+Available globally in every TSX view (no imports needed):
+
+| Function | Description |
+|----------|-------------|
+| `h(type, props, ...children)` | JSX factory — returns real DOM nodes |
+| `Fragment` | Document fragment for `<>...</>` syntax |
+| `render(element, container)` | Mount element to a container (selector string or DOM node) |
+
+Supports: `className`, `htmlFor`, `style` objects, `onClick`/`on*` event handlers, `dangerouslySetInnerHTML`, boolean attributes.
+
+### Using React or Preact Instead
+
+Add a `tsconfig.json` in your `ui/` folder to override the built-in runtime:
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  }
+}
+```
+
+Then install the framework in your photon's directory (`npm i preact`). The TSX compiler will use it instead of the built-in runtime.
+
+### Bridge Integration
+
+TSX views run in the same iframe sandbox as HTML views. The photon bridge is injected automatically:
+
+```tsx
+// Listen for tool results from the bridge
+window.addEventListener('message', (event) => {
+  if (event.data?.method === 'ui/notifications/tool-result') {
+    const data = event.data.params.result;
+    render(<Dashboard items={data.items} />, '#root');
+  }
+});
+```
+
+### How It Works
+
+TSX files are compiled on-demand via esbuild when first requested (not at startup). The result is cached by file mtime, so edits are picked up on the next request. The compiled output is a self-contained HTML document with all imports bundled inline — no external dependencies at runtime.
 
 ---
 
