@@ -283,7 +283,68 @@ export class SessionManager {
   }
 
   /**
-   * Stop cleanup and destroy all sessions
+   * Gracefully destroy all sessions and instances.
+   * Calls onShutdown() on all loaded instances in parallel with a 5s ceiling.
+   * Use this during daemon shutdown to give photons a chance to clean up
+   * resources (sockets, timers, file handles).
+   */
+  async destroyGraceful(): Promise<void> {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
+    this.logger.info('Graceful shutdown starting', {
+      activeSessions: this.sessions.size,
+      loadedInstances: this.instances.size,
+    });
+
+    // Call onShutdown on all unique instances in parallel with a 5s ceiling
+    const SHUTDOWN_TIMEOUT_MS = 5000;
+    const shutdownPromises: Promise<void>[] = [];
+
+    for (const [name, loaded] of this.instances) {
+      const instance = loaded?.instance ?? loaded;
+      if (instance && typeof instance.onShutdown === 'function') {
+        const shutdownPromise = (async () => {
+          try {
+            await instance.onShutdown({ reason: 'shutdown' });
+          } catch (err) {
+            this.logger.warn('onShutdown failed during graceful destroy', {
+              instanceName: name || 'default',
+              error: getErrorMessage(err),
+            });
+          }
+        })();
+        shutdownPromises.push(shutdownPromise);
+      }
+    }
+
+    if (shutdownPromises.length > 0) {
+      await Promise.race([
+        Promise.allSettled(shutdownPromises),
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            this.logger.warn('Graceful shutdown timed out, proceeding with cleanup', {
+              timeout: SHUTDOWN_TIMEOUT_MS,
+              pendingInstances: shutdownPromises.length,
+            });
+            resolve();
+          }, SHUTDOWN_TIMEOUT_MS)
+        ),
+      ]);
+    }
+
+    this.sessions.clear();
+    this.instances.clear();
+    this.inflightLoads.clear();
+
+    this.logger.info('Graceful shutdown complete');
+  }
+
+  /**
+   * Stop cleanup and destroy all sessions (sync, no lifecycle hooks).
+   * Use destroyGraceful() for normal shutdown.
    */
   destroy(): void {
     if (this.cleanupInterval) {

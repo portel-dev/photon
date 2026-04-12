@@ -72,7 +72,15 @@ export interface DaemonRequest {
  * Response from daemon server to CLI client
  */
 export interface DaemonResponse {
-  type: 'result' | 'error' | 'pong' | 'prompt' | 'channel_message' | 'refresh_needed' | 'emit';
+  type:
+    | 'result'
+    | 'error'
+    | 'pong'
+    | 'prompt'
+    | 'channel_message'
+    | 'refresh_needed'
+    | 'emit'
+    | 'shutdown';
   id: string;
   success?: boolean;
   data?: unknown;
@@ -96,6 +104,8 @@ export interface DaemonResponse {
   eventId?: string;
   /** Tool execution duration in milliseconds */
   durationMs?: number;
+  /** Shutdown reason (when type === 'shutdown') */
+  reason?: string;
 }
 
 /**
@@ -167,6 +177,9 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'publish',
     'lock',
     'unlock',
+    'assign_lock',
+    'transfer_lock',
+    'query_lock',
     'schedule',
     'unschedule',
     'list_jobs',
@@ -187,7 +200,9 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
   }
 
   // Lock operations require a lock name
-  if (['lock', 'unlock'].includes(req.type as string)) {
+  if (
+    ['lock', 'unlock', 'assign_lock', 'transfer_lock', 'query_lock'].includes(req.type as string)
+  ) {
     if (typeof req.lockName !== 'string') return false;
   }
 
@@ -219,9 +234,16 @@ export function isValidDaemonResponse(obj: unknown): obj is DaemonResponse {
   const res = obj as Partial<DaemonResponse>;
   if (typeof res.id !== 'string') return false;
   if (
-    !['result', 'error', 'pong', 'prompt', 'channel_message', 'refresh_needed', 'emit'].includes(
-      res.type as string
-    )
+    ![
+      'result',
+      'error',
+      'pong',
+      'prompt',
+      'channel_message',
+      'refresh_needed',
+      'emit',
+      'shutdown',
+    ].includes(res.type as string)
   )
     return false;
   return true;

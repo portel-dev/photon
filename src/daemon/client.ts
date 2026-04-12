@@ -116,9 +116,21 @@ async function promptUser(message: string, defaultValue?: string): Promise<strin
 }
 
 /**
+ * Error thrown when the daemon sends a shutdown signal during a request.
+ * Callers can catch this to distinguish a graceful shutdown from a crash.
+ */
+export class DaemonShutdownError extends Error {
+  constructor(reason?: string) {
+    super(`Daemon is shutting down${reason ? `: ${reason}` : ''}`);
+    this.name = 'DaemonShutdownError';
+  }
+}
+
+/**
  * Check if an error indicates the daemon is unreachable (crashed or not started)
  */
 function isDaemonConnectionError(error: unknown): boolean {
+  if (error instanceof DaemonShutdownError) return true;
   const msg = error instanceof Error ? error.message : String(error);
   return (
     msg.includes('ENOENT') ||
@@ -349,6 +361,15 @@ async function sendCommandDirect(
                 reject(new Error(response.error || 'Unknown error'));
               }
             }
+
+            // Handle shutdown signal (can arrive at any time, not tied to requestId)
+            if (response.type === 'shutdown') {
+              responseReceived = true;
+              clearTimeout(currentTimeout);
+              cliProgress.done();
+              client.destroy();
+              reject(new DaemonShutdownError(response.reason));
+            }
           } catch (error) {
             logger.warn('Failed to parse daemon response', { error: getErrorMessage(error) });
           }
@@ -468,6 +489,18 @@ export async function subscribeChannel(
                 }
                 handler(response.message, response.eventId);
               }
+            }
+
+            // Handle shutdown signal — trigger immediate reconnect
+            if (response.type === 'shutdown') {
+              if (subscribed && options?.reconnect && !cancelled) {
+                logger.debug(`Daemon shutting down, reconnecting ${channel}...`);
+                client.destroy();
+                scheduleReconnect();
+              } else if (!subscribed) {
+                reject(new DaemonShutdownError(response.reason));
+              }
+              return;
             }
 
             if (response.type === 'error' && response.id === subscribeId) {

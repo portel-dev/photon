@@ -164,6 +164,13 @@ workerManager.onPublish = (channel, message) => {
   workerManager.dispatchToWorkers(channel, message);
 };
 
+// Track connected sockets for graceful shutdown broadcast
+const connectedSockets = new Set<net.Socket>();
+/** Reference to the daemon server for closing the listener during shutdown */
+let daemonServer: net.Server | null = null;
+/** Whether the daemon is shutting down (reject new commands) */
+let isShuttingDown = false;
+
 // Map of compositeKey -> SessionManager (lazy initialized)
 const sessionManagers = new Map<string, SessionManager>();
 const photonPaths = new Map<string, string>(); // compositeKey -> photonPath
@@ -1332,6 +1339,16 @@ async function handleRequest(
 
   if (request.type === 'ping') {
     return { type: 'pong', id: request.id };
+  }
+
+  // Reject new commands during shutdown (allow ping for health checks)
+  if (isShuttingDown && request.type !== 'shutdown') {
+    return {
+      type: 'error',
+      id: request.id,
+      error: 'Daemon is shutting down',
+      suggestion: 'Retry after the daemon restarts',
+    };
   }
 
   if (request.type === 'status') {
@@ -3448,6 +3465,7 @@ function startupWatchPhotons(): void {
 function startServer(): void {
   const server = net.createServer((socket) => {
     logger.info('Client connected');
+    connectedSockets.add(socket);
 
     let buffer = '';
 
@@ -3490,18 +3508,23 @@ function startServer(): void {
 
     socket.on('end', () => {
       logger.info('Client disconnected');
+      connectedSockets.delete(socket);
       cleanupSocketSubscriptions(socket);
     });
 
     socket.on('error', (error) => {
       logger.warn('Socket error', { error: getErrorMessage(error) });
+      connectedSockets.delete(socket);
       cleanupSocketSubscriptions(socket);
     });
 
     socket.on('close', () => {
+      connectedSockets.delete(socket);
       cleanupSocketSubscriptions(socket);
     });
   });
+
+  daemonServer = server;
 
   server.listen(socketPath, () => {
     logger.info('Global Photon daemon listening', {
@@ -3604,105 +3627,138 @@ async function claimExclusiveOwnership(): Promise<void> {
 }
 
 function shutdown(): void {
+  // Guard against multiple shutdown calls (e.g. SIGTERM + SIGINT in quick succession)
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
   logger.info('Shutting down global daemon');
 
-  if (idleTimer) {
-    clearTimeout(idleTimer);
+  // Step 1: Close the listener — stop accepting new connections
+  if (daemonServer) {
+    daemonServer.close();
   }
 
-  clearInterval(lockCleanupInterval);
-  clearInterval(staleMapCleanupInterval);
+  // Step 2: Broadcast shutdown signal to all connected sockets
+  const shutdownMessage =
+    JSON.stringify({
+      type: 'shutdown',
+      id: 'daemon-shutdown',
+      reason: 'daemon-shutting-down',
+    }) + '\n';
 
-  for (const timer of jobTimers.values()) {
-    clearTimeout(timer);
-  }
-  jobTimers.clear();
-  scheduledJobs.clear();
-  activeLocks.clear();
-  channelEventBuffers.clear();
-  eventLogSeq.clear();
-  stateKeysCache.clear();
-
-  // Resolve any pending prompts so promises don't hang
-  for (const [_id, pending] of pendingPrompts.entries()) {
-    pending.resolve(null);
-  }
-  pendingPrompts.clear();
-  socketPromptIds.clear();
-
-  // Close file watchers and debounce timers
-  for (const photonPath of fileWatchers.keys()) {
-    unwatchPhotonFile(photonPath);
-  }
-
-  // Clean up poll-based watchers (bun fallback)
-  for (const timer of pollTimers) {
-    clearInterval(timer);
-  }
-  pollTimers.clear();
-
-  // Terminate all worker threads
-  void workerManager.terminateAll().catch((err) => {
-    logger.warn('Error terminating workers during shutdown', { error: getErrorMessage(err) });
-  });
-
-  for (const manager of sessionManagers.values()) {
-    manager.destroy();
-  }
-  sessionManagers.clear();
-
-  if (webhookServer) {
-    webhookServer.close();
-  }
-
-  if (daemonOwnershipConfirmed) {
-    const owner = readOwnerRecord(ownerFile);
-    if (owner?.pid === process.pid && owner.socketPath === socketPath) {
-      removeOwnerRecord(ownerFile, process.pid);
-    }
-
+  for (const socket of connectedSockets) {
     try {
-      const pidContent = fs.readFileSync(pidFile, 'utf-8').trim();
-      if (parseInt(pidContent, 10) === process.pid) {
-        fs.unlinkSync(pidFile);
-      }
+      socket.write(shutdownMessage);
     } catch {
-      // Ignore missing pid file
+      // Socket may already be closed
     }
   }
 
-  // Only delete the socket if we still own it.
-  // After `daemon stop` + `daemon start`, a new daemon may have already created
-  // a new socket at this path. Deleting it would orphan the new daemon's listener.
-  if (fs.existsSync(socketPath) && process.platform !== 'win32') {
-    let weOwnSocket = true;
-    try {
-      const pidContent = fs.readFileSync(pidFile, 'utf-8').trim();
-      const filePid = parseInt(pidContent, 10);
-      if (!isNaN(filePid) && filePid !== process.pid) {
-        // PID file points to a different process — new daemon already started
-        weOwnSocket = false;
-        logger.info('Socket belongs to new daemon, skipping cleanup', {
-          ourPid: process.pid,
-          newPid: filePid,
-        });
-      }
-    } catch {
-      // PID file missing (deleted by stop) — another process may own the socket now.
-      // If the socket still exists, it likely belongs to a new daemon. Don't delete.
-      weOwnSocket = false;
+  // Step 3: Async cleanup with grace period for shutdown message flush
+  void (async () => {
+    // Give sockets 500ms to receive the shutdown message
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    if (idleTimer) {
+      clearTimeout(idleTimer);
     }
 
-    if (weOwnSocket) {
+    clearInterval(lockCleanupInterval);
+    clearInterval(staleMapCleanupInterval);
+
+    for (const timer of jobTimers.values()) {
+      clearTimeout(timer);
+    }
+    jobTimers.clear();
+    scheduledJobs.clear();
+    activeLocks.clear();
+    channelEventBuffers.clear();
+    eventLogSeq.clear();
+    stateKeysCache.clear();
+
+    // Resolve any pending prompts so promises don't hang
+    for (const [_id, pending] of pendingPrompts.entries()) {
+      pending.resolve(null);
+    }
+    pendingPrompts.clear();
+    socketPromptIds.clear();
+
+    // Close file watchers and debounce timers
+    for (const photonPath of fileWatchers.keys()) {
+      unwatchPhotonFile(photonPath);
+    }
+
+    // Clean up poll-based watchers (bun fallback)
+    for (const timer of pollTimers) {
+      clearInterval(timer);
+    }
+    pollTimers.clear();
+
+    // Terminate all worker threads FIRST (before session destroy,
+    // so @photon deps in workers still respond during onShutdown)
+    try {
+      await workerManager.terminateAll();
+    } catch (err) {
+      logger.warn('Error terminating workers during shutdown', { error: getErrorMessage(err) });
+    }
+
+    // Gracefully destroy all session managers (calls onShutdown on instances)
+    await Promise.allSettled(Array.from(sessionManagers.values()).map((m) => m.destroyGraceful()));
+    sessionManagers.clear();
+
+    if (webhookServer) {
+      webhookServer.close();
+    }
+
+    if (daemonOwnershipConfirmed) {
+      const owner = readOwnerRecord(ownerFile);
+      if (owner?.pid === process.pid && owner.socketPath === socketPath) {
+        removeOwnerRecord(ownerFile, process.pid);
+      }
+
       try {
-        fs.unlinkSync(socketPath);
+        const pidContent = fs.readFileSync(pidFile, 'utf-8').trim();
+        if (parseInt(pidContent, 10) === process.pid) {
+          fs.unlinkSync(pidFile);
+        }
       } catch {
-        // Ignore cleanup errors
+        // Ignore missing pid file
       }
     }
-  }
 
-  process.exit(0);
+    // Only delete the socket if we still own it.
+    // After `daemon stop` + `daemon start`, a new daemon may have already created
+    // a new socket at this path. Deleting it would orphan the new daemon's listener.
+    if (fs.existsSync(socketPath) && process.platform !== 'win32') {
+      let weOwnSocket = true;
+      try {
+        const pidContent = fs.readFileSync(pidFile, 'utf-8').trim();
+        const filePid = parseInt(pidContent, 10);
+        if (!isNaN(filePid) && filePid !== process.pid) {
+          // PID file points to a different process — new daemon already started
+          weOwnSocket = false;
+          logger.info('Socket belongs to new daemon, skipping cleanup', {
+            ourPid: process.pid,
+            newPid: filePid,
+          });
+        }
+      } catch {
+        // PID file missing (deleted by stop) — another process may own the socket now.
+        // If the socket still exists, it likely belongs to a new daemon. Don't delete.
+        weOwnSocket = false;
+      }
+
+      if (weOwnSocket) {
+        try {
+          fs.unlinkSync(socketPath);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    }
+
+    process.exit(0);
+  })();
 }
 
 // Main execution
