@@ -3357,6 +3357,7 @@ async function doReloadPhoton(
           worker: true,
         });
         logger.info('Worker photon reloaded', { photonName });
+        workerManager.resetCrashHistory(key);
       } else {
         publishToChannel(`system:${photonName}`, {
           event: 'photon-reload-failed',

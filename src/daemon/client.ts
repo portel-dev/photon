@@ -141,8 +141,25 @@ function isDaemonConnectionError(error: unknown): boolean {
 }
 
 /**
+ * Check if an error is transient (worth retrying without daemon restart)
+ */
+function isTransientError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    msg.includes('Request timeout') ||
+    msg.includes('ECONNRESET') ||
+    msg.includes('EPIPE') ||
+    msg.includes('Daemon is shutting down')
+  );
+}
+
+/** Methods that are safe to retry (read-only runtime tools) */
+const RETRYABLE_METHODS = new Set(['_instances', '_use', '_settings', '_runs', '_run_info']);
+
+/**
  * Send command to daemon with auto-restart on connection failure.
- * If the daemon is unreachable, restarts it and retries once.
+ * Retries on connection errors (restart daemon + retry) and on transient
+ * errors for read-only methods (retry without restart).
  */
 export async function sendCommand(
   photonName: string,
@@ -159,6 +176,7 @@ export async function sendCommand(
   }
 ): Promise<any> {
   const maxRetries = options?.maxRetries ?? 1;
+  const isRetryable = RETRYABLE_METHODS.has(method);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -177,6 +195,13 @@ export async function sendCommand(
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
         logger.info(`Daemon unreachable (${photonName}/${method}), retrying...`);
         await ensureDaemon();
+        continue;
+      }
+      // Retry transient errors for read-only methods only
+      if (isTransientError(error) && isRetryable && attempt < maxRetries) {
+        const delay = Math.min(500 * Math.pow(2, attempt), 2000);
+        logger.info(`Transient error on ${method}, retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
       throw error;

@@ -22,6 +22,12 @@ export interface WorkerInfo {
   ready: boolean;
   crashCount: number;
   lastCrash?: number;
+  /** Sliding window of crash timestamps (last 5 minutes) for backoff decisions */
+  crashTimestamps: number[];
+  /** If set, the worker is in backoff and should not be respawned until this time */
+  backoffUntil?: number;
+  /** Guard against double-counting crash from error + exit events in the same cycle */
+  crashHandled: boolean;
   /** Channels this worker is subscribed to */
   subscribedChannels: Set<string>;
 }
@@ -111,6 +117,8 @@ export class WorkerManager {
       tools: [],
       ready: false,
       crashCount: 0,
+      crashTimestamps: [],
+      crashHandled: false,
       subscribedChannels: new Set(),
     };
 
@@ -203,8 +211,11 @@ export class WorkerManager {
       worker.on('error', (err) => {
         if (settled) return;
         this.logger.error('Worker thread error', { photonName, error: getErrorMessage(err) });
-        info.crashCount++;
-        info.lastCrash = Date.now();
+        // Record crash once (exit event may also fire for same failure)
+        if (!info.crashHandled) {
+          info.crashHandled = true;
+          this.recordCrash(info);
+        }
         void failSpawn(err, 'error');
       });
 
@@ -213,10 +224,16 @@ export class WorkerManager {
         clearTimeout(ceilingTimeout);
         if (code !== 0) {
           this.logger.warn('Worker exited unexpectedly', { photonName, code });
-          info.crashCount++;
-          info.lastCrash = Date.now();
+          // Only count if error handler didn't already handle this cycle
+          if (!info.crashHandled) {
+            this.recordCrash(info);
+          }
           info.ready = false;
+          // Schedule auto-respawn if not in backoff
+          this.scheduleRespawn(key, info);
         }
+        // Reset crash guard for next lifecycle
+        info.crashHandled = false;
         // Clean up pending calls for this worker
         for (const [id, pending] of this.pendingCalls) {
           if (pending.resolved) continue;
@@ -240,6 +257,14 @@ export class WorkerManager {
   ): Promise<{ success: boolean; data?: unknown; error?: string; durationMs?: number }> {
     const info = this.workers.get(key);
     if (!info?.ready) {
+      // Check if in backoff cooldown
+      if (info?.backoffUntil && Date.now() < info.backoffUntil) {
+        const waitSec = Math.ceil((info.backoffUntil - Date.now()) / 1000);
+        return {
+          success: false,
+          error: `Worker ${key} crashed repeatedly, in cooldown for ${waitSec}s`,
+        };
+      }
       return { success: false, error: `Worker ${key} not ready` };
     }
 
@@ -372,8 +397,10 @@ export class WorkerManager {
       case 'crashed': {
         this.logger.error('Worker reported crash', { key, error: msg.error });
         if (info) {
-          info.crashCount++;
-          info.lastCrash = Date.now();
+          if (!info.crashHandled) {
+            info.crashHandled = true;
+            this.recordCrash(info);
+          }
           info.ready = false;
         }
         break;
@@ -487,6 +514,74 @@ export class WorkerManager {
         error: getErrorMessage(err),
       };
       info.worker.postMessage(msg);
+    }
+  }
+
+  /** Record a crash event in the sliding window */
+  private recordCrash(info: WorkerInfo): void {
+    const now = Date.now();
+    info.crashCount++;
+    info.lastCrash = now;
+    info.crashTimestamps.push(now);
+    // Keep only crashes from the last 5 minutes
+    const WINDOW_MS = 5 * 60 * 1000;
+    info.crashTimestamps = info.crashTimestamps.filter((t) => now - t < WINDOW_MS);
+  }
+
+  /** Schedule auto-respawn with exponential backoff, or enter cooldown if too many crashes */
+  private scheduleRespawn(key: string, info: WorkerInfo): void {
+    const MAX_CRASHES_IN_WINDOW = 3;
+    const COOLDOWN_MS = 60_000;
+
+    const recentCrashes = info.crashTimestamps.length;
+
+    if (recentCrashes >= MAX_CRASHES_IN_WINDOW) {
+      info.backoffUntil = Date.now() + COOLDOWN_MS;
+      this.logger.warn('Worker crash limit reached, entering cooldown', {
+        photonName: info.photonName,
+        recentCrashes,
+        cooldownMs: COOLDOWN_MS,
+      });
+      // After cooldown, clear backoff so next call can attempt spawn
+      setTimeout(() => {
+        if (info.backoffUntil && Date.now() >= info.backoffUntil) {
+          info.backoffUntil = undefined;
+          this.logger.info('Worker cooldown expired, ready for respawn', {
+            photonName: info.photonName,
+          });
+        }
+      }, COOLDOWN_MS);
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s... up to 30s
+    const delay = Math.min(1000 * Math.pow(2, recentCrashes - 1), 30_000);
+    this.logger.info('Scheduling worker respawn', {
+      photonName: info.photonName,
+      delayMs: delay,
+      attempt: recentCrashes,
+    });
+
+    setTimeout(() => {
+      if (info.ready || info.backoffUntil) return; // Already recovered or in cooldown
+      this.logger.info('Auto-respawning worker', { photonName: info.photonName });
+      void this.spawn(key, info.photonName, info.photonPath, info.workingDir).catch((err) => {
+        this.logger.warn('Worker respawn failed', {
+          photonName: info.photonName,
+          error: getErrorMessage(err),
+        });
+      });
+    }, delay);
+  }
+
+  /** Reset crash history for a worker (e.g. after hot-reload with new code) */
+  resetCrashHistory(key: string): void {
+    const info = this.workers.get(key);
+    if (info) {
+      info.crashCount = 0;
+      info.crashTimestamps = [];
+      info.backoffUntil = undefined;
+      info.crashHandled = false;
     }
   }
 }
