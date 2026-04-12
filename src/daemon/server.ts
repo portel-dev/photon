@@ -171,6 +171,44 @@ let daemonServer: net.Server | null = null;
 /** Whether the daemon is shutting down (reject new commands) */
 let isShuttingDown = false;
 
+// ════════════════════════════════════════════════════════════════════════════════
+// IN-FLIGHT EXECUTION TRACKING (for drain before hot-reload)
+// ════════════════════════════════════════════════════════════════════════════════
+
+interface ExecutionTracker {
+  count: number;
+  /** Resolve function for the drain promise (set when reload is waiting) */
+  drainResolve?: () => void;
+}
+
+/** Tracks active executeTool calls per composite key */
+const activeExecutions = new Map<string, ExecutionTracker>();
+
+/** Per-key mutex to prevent concurrent reloads (format-on-save race) */
+const reloadMutex = new Map<string, Promise<any>>();
+
+function trackExecution(key: string): void {
+  const tracker = activeExecutions.get(key);
+  if (tracker) {
+    tracker.count++;
+  } else {
+    activeExecutions.set(key, { count: 1 });
+  }
+}
+
+function untrackExecution(key: string): void {
+  const tracker = activeExecutions.get(key);
+  if (!tracker) return;
+  tracker.count--;
+  if (tracker.count <= 0 && tracker.drainResolve) {
+    tracker.drainResolve();
+    tracker.drainResolve = undefined;
+  }
+  if (tracker.count <= 0) {
+    activeExecutions.delete(key);
+  }
+}
+
 // Map of compositeKey -> SessionManager (lazy initialized)
 const sessionManagers = new Map<string, SessionManager>();
 const photonPaths = new Map<string, string>(); // compositeKey -> photonPath
@@ -614,6 +652,7 @@ async function runJob(jobId: string): Promise<void> {
 
   logger.info('Running scheduled job', { jobId, method: job.method, photon: job.photonName });
 
+  trackExecution(key);
   try {
     const session = await sessionManager.getOrCreateSession('scheduler', 'scheduler');
     await sessionManager.loader.executeTool(session.instance, job.method, job.args || {});
@@ -644,6 +683,8 @@ async function runJob(jobId: string): Promise<void> {
       method: job.method,
       error: getErrorMessage(error),
     });
+  } finally {
+    untrackExecution(key);
   }
 
   scheduleJob(job);
@@ -663,16 +704,17 @@ function unscheduleJob(jobId: string): boolean {
   return existed;
 }
 
-/** Update persisted schedule file (from ScheduleProvider) after job execution */
+/** Update persisted schedule file after job execution */
 function updatePersistedSchedule(
   jobId: string,
   photonName: string,
   updates: { executionCount?: number; lastExecutionAt?: string }
 ): void {
-  // Only for jobs loaded from schedule files (format: photonName:sched:uuid)
-  const match = jobId.match(/^[^:]+:sched:(.+)$/);
-  if (!match) return;
-  const taskId = match[1];
+  // Handle both ScheduleProvider jobs (photonName:sched:uuid) and IPC jobs (photonName:*:ipc:uuid)
+  const schedMatch = jobId.match(/^[^:]+:sched:(.+)$/);
+  const ipcMatch = jobId.match(/^[^:]+(?::[^:]+)?:ipc:(.+)$/);
+  if (!schedMatch && !ipcMatch) return;
+  const taskId = schedMatch ? schedMatch[1] : ipcMatch![1];
 
   const schedulesDir = path.join(
     process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
@@ -688,6 +730,168 @@ function updatePersistedSchedule(
     fs.writeFileSync(filePath, JSON.stringify(task, null, 2));
   } catch {
     // File may have been removed — ignore
+  }
+}
+
+/** Persist an IPC-created schedule job to disk for daemon restart recovery */
+function persistIpcSchedule(job: ScheduledJob & { photonName: string; workingDir?: string }): void {
+  const schedulesDir = path.join(
+    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
+    job.photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
+  );
+
+  try {
+    fs.mkdirSync(schedulesDir, { recursive: true });
+  } catch {
+    // Directory may already exist
+  }
+
+  // Extract taskId from job ID (format: photonName:dirHash:ipc:taskId or photonName:ipc:taskId)
+  const match = job.id.match(/:ipc:(.+)$/);
+  const taskId = match ? match[1] : job.id;
+  const filePath = path.join(schedulesDir, `${taskId}.json`);
+
+  const persisted = {
+    id: job.id,
+    method: job.method,
+    args: job.args || {},
+    cron: job.cron,
+    photonName: job.photonName,
+    workingDir: job.workingDir,
+    source: 'ipc',
+    status: 'active',
+    createdAt: new Date(job.createdAt).toISOString(),
+    createdBy: job.createdBy,
+    executionCount: job.runCount,
+    lastExecutionAt: job.lastRun ? new Date(job.lastRun).toISOString() : null,
+  };
+
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(persisted, null, 2));
+    logger.debug('Persisted IPC schedule', { jobId: job.id, path: filePath });
+  } catch (err) {
+    logger.warn('Failed to persist IPC schedule', {
+      jobId: job.id,
+      error: getErrorMessage(err),
+    });
+  }
+}
+
+/** Delete a persisted IPC schedule file */
+function deletePersistedIpcSchedule(jobId: string, photonName: string): void {
+  const match = jobId.match(/:ipc:(.+)$/);
+  if (!match) return;
+  const taskId = match[1];
+
+  const schedulesDir = path.join(
+    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
+    photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
+  );
+  const filePath = path.join(schedulesDir, `${taskId}.json`);
+
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      logger.debug('Deleted persisted IPC schedule', { jobId, path: filePath });
+    }
+  } catch {
+    // Ignore — file may already be gone
+  }
+}
+
+/** Load all persisted schedules from disk on daemon startup */
+function loadAllPersistedSchedules(): void {
+  const baseDir =
+    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules');
+
+  if (!fs.existsSync(baseDir)) return;
+
+  let loadedCount = 0;
+  let skippedCount = 0;
+  const TTL_DAYS = 30;
+  const ttlMs = TTL_DAYS * 24 * 60 * 60 * 1000;
+
+  try {
+    const photonDirs = fs.readdirSync(baseDir, { withFileTypes: true });
+    for (const dir of photonDirs) {
+      if (!dir.isDirectory()) continue;
+
+      const schedulesPath = path.join(baseDir, dir.name);
+      const files = fs.readdirSync(schedulesPath).filter((f) => f.endsWith('.json'));
+
+      for (const file of files) {
+        const filePath = path.join(schedulesPath, file);
+        try {
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const task = JSON.parse(content);
+
+          // Skip non-IPC jobs (ScheduleProvider handles its own)
+          if (task.source !== 'ipc') continue;
+
+          // Validate required fields
+          if (!task.id || !task.method || !task.cron || !task.photonName) {
+            logger.warn('Skipping invalid persisted schedule', { file: filePath });
+            skippedCount++;
+            continue;
+          }
+
+          // TTL check: skip jobs not executed in 30+ days
+          const lastExec = task.lastExecutionAt ? new Date(task.lastExecutionAt).getTime() : 0;
+          const created = task.createdAt ? new Date(task.createdAt).getTime() : 0;
+          const lastActivity = Math.max(lastExec, created);
+          if (lastActivity > 0 && Date.now() - lastActivity > ttlMs) {
+            logger.info('Removing expired schedule (TTL)', {
+              jobId: task.id,
+              lastActivity: new Date(lastActivity).toISOString(),
+            });
+            try {
+              fs.unlinkSync(filePath);
+            } catch {
+              /* ignore */
+            }
+            skippedCount++;
+            continue;
+          }
+
+          // Skip if already registered (ScheduleProvider may have loaded it)
+          if (scheduledJobs.has(task.id)) continue;
+
+          const job: ScheduledJob & { photonName: string; workingDir?: string } = {
+            id: task.id,
+            method: task.method,
+            args: task.args || {},
+            cron: task.cron,
+            runCount: task.executionCount || 0,
+            createdAt: created || Date.now(),
+            createdBy: task.createdBy,
+            photonName: task.photonName,
+            workingDir: task.workingDir,
+          };
+
+          if (scheduleJob(job)) {
+            loadedCount++;
+          } else {
+            logger.warn('Failed to schedule persisted job (invalid cron?)', { jobId: task.id });
+            skippedCount++;
+          }
+        } catch (err) {
+          logger.warn('Failed to load persisted schedule file', {
+            file: filePath,
+            error: getErrorMessage(err),
+          });
+          skippedCount++;
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn('Failed to scan schedules directory', {
+      dir: baseDir,
+      error: getErrorMessage(err),
+    });
+  }
+
+  if (loadedCount > 0 || skippedCount > 0) {
+    logger.info('Loaded persisted schedules', { loaded: loadedCount, skipped: skippedCount });
   }
 }
 
@@ -812,6 +1016,8 @@ function startWebhookServer(port: number): void {
         resolvedMethod = mapped;
       }
 
+      const webhookKey = compositeKey(photonName);
+      trackExecution(webhookKey);
       try {
         const session = await sessionManager.getOrCreateSession('webhook', 'webhook');
         const result = await sessionManager.loader.executeTool(
@@ -838,6 +1044,8 @@ function startWebhookServer(port: number): void {
         });
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: getErrorMessage(error) }));
+      } finally {
+        untrackExecution(webhookKey);
       }
     })();
   });
@@ -1013,8 +1221,13 @@ async function getOrCreateSessionManager(
           const depKey = compositeKey(depName, workingDir);
           const depManager = sessionManagers.get(depKey);
           if (!depManager) throw new Error(`Dependency ${depName} not loaded`);
-          const loaded = await depManager.getOrLoadInstance('');
-          return depManager.loader.executeTool(loaded, method, args);
+          trackExecution(depKey);
+          try {
+            const loaded = await depManager.getOrLoadInstance('');
+            return await depManager.loader.executeTool(loaded, method, args);
+          } finally {
+            untrackExecution(depKey);
+          }
         };
       }
 
@@ -1105,8 +1318,14 @@ async function getOrCreateSessionManager(
                 prop !== 'off'
               ) {
                 return async (params: any) => {
-                  const latest = depManager.getCurrentInstance(depInstanceKey) ?? loaded;
-                  return depManager.loader.executeTool(latest, prop, params || {});
+                  const depExecKey = compositeKey(depName, workingDir);
+                  trackExecution(depExecKey);
+                  try {
+                    const latest = depManager.getCurrentInstance(depInstanceKey) ?? loaded;
+                    return await depManager.loader.executeTool(latest, prop, params || {});
+                  } finally {
+                    untrackExecution(depExecKey);
+                  }
                 };
               }
 
@@ -1673,9 +1892,17 @@ async function handleRequest(
       };
     }
 
-    const existing = scheduledJobs.get(request.jobId!);
+    // Generate IPC job ID with workingDir hash to prevent cross-project collisions
+    const dirHash = request.workingDir
+      ? crypto.createHash('sha256').update(request.workingDir).digest('hex').slice(0, 8)
+      : '';
+    const ipcJobId = dirHash
+      ? `${photonName}:${dirHash}:ipc:${request.jobId!}`
+      : `${photonName}:ipc:${request.jobId!}`;
+
+    const existing = scheduledJobs.get(ipcJobId);
     const job: ScheduledJob & { photonName: string; workingDir?: string } = {
-      id: request.jobId!,
+      id: ipcJobId,
       method: request.method!,
       args: request.args,
       cron: request.cron!,
@@ -1687,6 +1914,9 @@ async function handleRequest(
     };
 
     const scheduled = scheduleJob(job);
+    if (scheduled) {
+      persistIpcSchedule(job);
+    }
     return {
       type: 'result',
       id: request.id,
@@ -1700,8 +1930,28 @@ async function handleRequest(
   // Handle job unscheduling
   if (request.type === 'unschedule') {
     const jobId = request.jobId!;
-    const unscheduled = unscheduleJob(jobId);
-    return { type: 'result', id: request.id, success: true, data: { unscheduled, jobId } };
+    // Try exact match first, then look for IPC-prefixed version
+    let actualJobId = jobId;
+    if (!scheduledJobs.has(jobId)) {
+      // Search for IPC-prefixed job
+      for (const key of scheduledJobs.keys()) {
+        if (key.endsWith(`:ipc:${jobId}`)) {
+          actualJobId = key;
+          break;
+        }
+      }
+    }
+    const job = scheduledJobs.get(actualJobId);
+    const unscheduled = unscheduleJob(actualJobId);
+    if (unscheduled && job) {
+      deletePersistedIpcSchedule(actualJobId, job.photonName);
+    }
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { unscheduled, jobId: actualJobId },
+    };
   }
 
   // Handle list jobs
@@ -2047,12 +2297,18 @@ async function handleRequest(
         const preSnapshot = await snapshotState(targetInst, photonName);
 
         const startTime = Date.now();
-        const result = await sessionManager.loader.executeTool(
-          targetInst,
-          request.method,
-          request.args || {},
-          { outputHandler }
-        );
+        trackExecution(cmdKey);
+        let result: any;
+        try {
+          result = await sessionManager.loader.executeTool(
+            targetInst,
+            request.method,
+            request.args || {},
+            { outputHandler }
+          );
+        } finally {
+          untrackExecution(cmdKey);
+        }
         const durationMs = Date.now() - startTime;
 
         setPromptHandler(null);
@@ -2163,12 +2419,18 @@ async function handleRequest(
       const preSnapshot = await snapshotState(session.instance, photonName);
 
       const startTime = Date.now();
-      const result = await sessionManager.loader.executeTool(
-        session.instance,
-        request.method,
-        request.args || {},
-        { outputHandler }
-      );
+      trackExecution(cmdKey);
+      let result: any;
+      try {
+        result = await sessionManager.loader.executeTool(
+          session.instance,
+          request.method,
+          request.args || {},
+          { outputHandler }
+        );
+      } finally {
+        untrackExecution(cmdKey);
+      }
       const durationMs = Date.now() - startTime;
 
       setPromptHandler(null);
@@ -3052,8 +3314,37 @@ async function reloadPhoton(
   newPhotonPath: string,
   workingDir?: string
 ): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
+  const key = compositeKey(photonName, workingDir);
+
+  // Reload mutex: prevent concurrent reloads for the same photon
+  // (format-on-save can trigger two rapid file change events)
+  const existing = reloadMutex.get(key);
+  if (existing) {
+    logger.debug('Reload already in progress, waiting...', { photonName, key });
+    await existing;
+  }
+
+  let mutexResolve: () => void;
+  const mutexPromise = new Promise<void>((resolve) => {
+    mutexResolve = resolve;
+  });
+  reloadMutex.set(key, mutexPromise);
+
   try {
-    const key = compositeKey(photonName, workingDir);
+    return await doReloadPhoton(photonName, newPhotonPath, workingDir, key);
+  } finally {
+    reloadMutex.delete(key);
+    mutexResolve!();
+  }
+}
+
+async function doReloadPhoton(
+  photonName: string,
+  newPhotonPath: string,
+  workingDir: string | undefined,
+  key: string
+): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
+  try {
     logger.info('Hot-reloading photon', { photonName, key, path: newPhotonPath });
 
     // If running in a worker, delegate reload to the worker
@@ -3107,6 +3398,33 @@ async function reloadPhoton(
         error: errorMessage,
       });
       return { success: false, error: errorMessage };
+    }
+
+    // Drain: wait for in-flight executions to complete before swapping instances
+    const DRAIN_TIMEOUT_MS = 2000;
+    const tracker = activeExecutions.get(key);
+    if (tracker && tracker.count > 0) {
+      logger.info('Draining in-flight executions before reload', {
+        photonName,
+        activeCount: tracker.count,
+      });
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          tracker.drainResolve = resolve;
+        }),
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            logger.warn('Drain timeout, proceeding with reload', {
+              photonName,
+              activeCount: tracker.count,
+              timeoutMs: DRAIN_TIMEOUT_MS,
+            });
+            resolve();
+          }, DRAIN_TIMEOUT_MS)
+        ),
+      ]);
+      // Clean up drain resolve if it was set but not called
+      tracker.drainResolve = undefined;
     }
 
     const sessions = sessionManager.getSessions();
@@ -3766,6 +4084,7 @@ void (async () => {
   await claimExclusiveOwnership();
   startupWatchPhotons();
   startServer();
+  loadAllPersistedSchedules();
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();
   startHealthMonitor();
