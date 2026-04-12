@@ -4089,6 +4089,13 @@ void (async () => {
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();
   startHealthMonitor();
+
+  // Notify photons that any locks from a prior daemon session are gone
+  publishToChannel('system:*', {
+    event: 'locks-reset',
+    reason: 'daemon-startup',
+    timestamp: Date.now(),
+  });
 })().catch((err) => {
   logger.error('Daemon startup failed', { error: getErrorMessage(err) });
   process.exit(1);
