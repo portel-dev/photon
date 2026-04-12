@@ -22,6 +22,7 @@ import { registerMakerCommands } from './commands/maker.js';
 import { registerMarketplaceCommands } from './commands/marketplace.js';
 import { registerInfoCommand } from './commands/info.js';
 import { registerPackageCommands } from './commands/package.js';
+import { registerPublishCommand } from './commands/publish.js';
 import { registerPackageAppCommand } from './commands/package-app.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerRunCommand } from './commands/run.js';
@@ -73,6 +74,7 @@ Package Management:
   upgrade [name]          Upgrade photon(s) to latest version
   search <query>          Search marketplaces for photons
   info [name]             Show installed photons and details
+  publish                 Publish your photons as a marketplace (wizard)
 
 Maintenance:
   update                  Update Photon CLI to the latest version
@@ -107,6 +109,7 @@ Run 'photon <command> --help' for detailed usage.
   registerMarketplaceCommands(program);
   registerInfoCommand(program);
   registerPackageCommands(program);
+  registerPublishCommand(program);
   registerPackageAppCommand(program);
   registerDoctorCommand(program);
   registerRunCommand(program);
