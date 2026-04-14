@@ -565,19 +565,15 @@ async function main() {
 
   // P5.3 — Observable by default
 
-  await check(
-    'I5',
-    'P5.3',
-    '@stateful tag is detected and stored on photon',
-    'Runtime',
-    async () => {
-      const { PhotonLoader } = await import('../dist/loader.js');
-      const loader = new PhotonLoader();
-      const mcp = await loader.loadFile(STATEFUL_PHOTON);
-      assert.ok((mcp as any).stateful === true, 'Photon should have stateful flag');
-      assert.ok(typeof mcp.instance.emit === 'function', 'Instance should have emit injected');
-    }
-  );
+  await check('I5', 'P5.3', 'Returned objects carry __meta audit data', 'Runtime', async () => {
+    const { PhotonLoader } = await import('../dist/loader.js');
+    const loader = new PhotonLoader();
+    const mcp = await loader.loadFile(STATEFUL_PHOTON);
+    const result = await loader.executeTool(mcp, 'store', { key: 'audit', value: 'test' });
+    assert.ok(result.__meta !== undefined, 'Expected __meta on result');
+    assert.equal(result.__meta.createdBy, 'store', 'createdBy should be method name');
+    assert.ok(result.__meta.createdAt, 'Expected createdAt timestamp');
+  });
 
   console.log('');
 

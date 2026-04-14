@@ -860,12 +860,6 @@ export class PhotonLoader {
         await this.injectMCPDependencies(instance, tsContent, name);
       }
 
-      // Auto-wrap public methods in @stateful classes to emit events
-      // All method calls automatically produce events with params, result, timestamp
-      if (tsContent) {
-        this.wrapStatefulMethods(instance, tsContent);
-      }
-
       // Inject MCP client factory if available (enables this.mcp() calls)
       const setMCPFactory = instance.setMCPFactory;
       if (this.mcpClientFactory && typeof setMCPFactory === 'function') {
@@ -1266,6 +1260,12 @@ export class PhotonLoader {
           }
           throw initError;
         }
+      }
+
+      // Auto-wrap public methods in @stateful classes to emit events
+      // Must happen AFTER capability injection so that emit() is available
+      if (tsContent) {
+        this.wrapStatefulMethods(instance, tsContent);
       }
 
       // Extract tools, templates, and statics (with schema override support)
@@ -4050,104 +4050,37 @@ Run: photon mcp ${mcpName} --config
       if (typeof original !== 'function') continue;
 
       instance[methodName] = function (...args: any[]) {
-        // Extract parameter names and map arguments to them
-        const paramNames = PhotonLoader.extractParamNames(original);
-        const params = Object.fromEntries(paramNames.map((name, i) => [name, args[i]]));
-
-        // Call the original method
         const result = original.apply(this, args);
 
-        // Attach __meta to returned objects for audit trail
-        const resultObj = result as Record<string, unknown> | null;
-        if (
-          resultObj &&
-          typeof resultObj === 'object' &&
-          !Array.isArray(resultObj) &&
-          !resultObj.__meta
-        ) {
-          const timestamp = new Date().toISOString();
-          Object.defineProperty(result, '__meta', {
-            value: {
-              createdAt: timestamp,
-              createdBy: methodName,
-              modifiedAt: null,
-              modifiedBy: null,
-              modifications: [],
-            },
-            enumerable: false,
-            writable: true,
-            configurable: true,
+        const attachMeta = (obj: any) => {
+          if (obj && typeof obj === 'object' && !Array.isArray(obj) && !obj.__meta) {
+            Object.defineProperty(obj, '__meta', {
+              value: {
+                createdAt: new Date().toISOString(),
+                createdBy: methodName,
+                modifiedAt: null,
+                modifiedBy: null,
+                modifications: [],
+              },
+              enumerable: false,
+              writable: true,
+              configurable: true,
+            });
+          }
+        };
+
+        // For async methods, attach __meta to the resolved value, not the Promise
+        if (result && typeof (result as any).then === 'function') {
+          return (result as Promise<any>).then((resolved: any) => {
+            attachMeta(resolved);
+            return resolved;
           });
         }
 
-        // Emit event with complete context
-        const eventData: Record<string, any> = {
-          method: methodName,
-          params,
-          result,
-          timestamp: new Date().toISOString(),
-        };
-        if (this.instanceName) {
-          eventData.instance = this.instanceName;
-        }
-
-        // Detect array mutations for range-based pagination support (Phase 5)
-        // If result is an object from this.items, add index and array metadata
-        if (result && typeof result === 'object' && Array.isArray(this.items)) {
-          const index = this.items.findIndex((item: any) => item === result);
-          if (index !== -1) {
-            eventData.index = index;
-            eventData.totalCount = this.items.length;
-            // Affected range: just this item
-            eventData.affectedRange = {
-              start: index,
-              end: index + 1,
-            };
-          }
-        }
-
-        // NOTE: Don't emit here - the real emission happens at executeTool level
-        // (line 2362 via outputHandler). This method wrapper is only called during
-        // direct instantiation testing, not in actual MCP execution paths where executeTool
-        // is the proper routing point.
-        //
-        // If we emit here too, we get duplicate messages:
-        // 1. This wrapper emits directly: emit(eventData)
-        // 2. executeTool emits via outputHandler: outputHandler(eventData)
-        // Both route to daemon, causing double notifications.
-
+        attachMeta(result);
         return result;
       };
     }
-  }
-
-  /**
-   * Extract parameter names from a function by parsing its signature
-   *
-   * Examples:
-   * - (text, priority = 'medium') => ['text', 'priority']
-   * - (id) => ['id']
-   * - () => []
-   */
-  private static extractParamNames(fn: (...args: any[]) => any): string[] {
-    const fnStr = fn.toString();
-    // Match parameters inside parentheses: ( ... )
-    const match = fnStr.match(/\(([^)]*)\)/);
-    if (!match?.[1]) {
-      return [];
-    }
-
-    return match[1]
-      .split(',')
-      .map((param) => {
-        const cleaned = param
-          .trim()
-          .split('=')[0] // Remove default value
-          .split(':')[0] // Remove type annotations
-          .trim();
-        return cleaned;
-      })
-      .filter((name) => name && name !== 'this');
   }
 
   /**
