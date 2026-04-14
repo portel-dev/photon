@@ -4124,6 +4124,11 @@ Run: photon mcp ${mcpName} --config
           }
         };
 
+        // Generators must pass through unwrapped - .then() would kill the iterator protocol
+        if (result && typeof (result as any)[Symbol.asyncIterator] === 'function') {
+          return result;
+        }
+
         // For async methods, attach __meta to the resolved value, not the Promise
         if (result && typeof (result as any).then === 'function') {
           return (result as Promise<any>).then((resolved: any) => {
