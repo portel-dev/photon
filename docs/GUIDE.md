@@ -1235,6 +1235,28 @@ export default class Monitor {
 
 In the CLI, `this.render()` manages a dedicated render zone that clears and repaints on each call. In Beam, it updates the result area in place. Call `this.render()` with no arguments to clear the render zone.
 
+### Runtime Helpers (UI Feedback Events)
+
+Both async methods and generator methods can push transient UI events. Helpers on `this` are 1:1 wrappers around `yield { emit: ... }` so the two styles produce identical wire events — pick whichever reads better:
+
+| Helper | Generator equivalent | Effect |
+|--------|---------------------|--------|
+| `this.toast(msg, { type?, duration? })` | `yield { emit: 'toast', message, type, duration }` | Transient notification bubble (Beam toast-manager, CLI prefixed log) |
+| `this.status(msg)` | `yield { emit: 'status', message }` | Ephemeral spinner / progress message without a value |
+| `this.progress(value, msg?)` | `yield { emit: 'progress', value, message }` | Progress bar (0..1 or 0..100) |
+| `this.log(msg, { level?, data? })` | `yield { emit: 'log', message, level, data }` | Structured log entry |
+| `this.thinking(active?)` | `yield { emit: 'thinking', active }` | Indeterminate "thinking" indicator |
+| `this.render(format, value)` | `yield { emit: 'render', format, value }` | Replace the live render zone with a formatted value |
+| `this.render()` | `yield { emit: 'render:clear' }` | Clear the render zone |
+
+`render('toast' \| 'status' \| 'progress', value)` is sugar that routes through the dedicated emit event, so `this.render('toast', 'Saved!')` and `this.toast('Saved!')` are equivalent.
+
+All of these are auto-injected on plain classes when the runtime detects their usage — no base class required. When extending the `Photon` base class they come from the mixin.
+
+#### Custom formats from the server → custom UI
+
+When you emit a format the auto-renderer doesn't recognize, Beam looks for a `@ui format-<name>` template. Inside that template you can reuse the auto-renderers via `photon.render(element, data, 'table'|'gauge'|...)` — see [Using Auto UI Renderers (photon.render)](./guides/CUSTOM-UI.md#using-auto-ui-renderers-photonrender) for the client-side API and the full format list.
+
 ### Receiving Events in Custom UIs
 
 If your photon has a `@ui` template, use the auto-injected global named after your photon:
