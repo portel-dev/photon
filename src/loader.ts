@@ -3536,32 +3536,38 @@ Run: photon mcp ${mcpName} --config
               });
             }
 
-            // Construct event data with full context for transmission
-            // CRITICAL: emit() expects { channel, event, data } structure for daemon pub/sub routing
-            const eventPayload: Record<string, any> = {
+            // Construct CloudEvents 1.0 envelope for @stateful event emissions.
+            // The `data` field carries the photon-specific payload; `channel` and `event`
+            // are transport metadata used by the daemon pub/sub router.
+            const cloudEventData: Record<string, any> = {
               method: toolName,
               params: parameters,
               result,
-              timestamp: new Date().toISOString(),
+              instance: mcp.instance.instanceName ?? null,
             };
-
-            // Add instance name if available
-            if (mcp.instance.instanceName) {
-              eventPayload.instance = mcp.instance.instanceName;
-            }
 
             // Add index/pagination info if result is from items array
             if (result && typeof result === 'object' && Array.isArray(mcp.instance.items)) {
               const index = mcp.instance.items.findIndex((item: any) => item === result);
               if (index !== -1) {
-                eventPayload.index = index;
-                eventPayload.totalCount = mcp.instance.items.length;
-                eventPayload.affectedRange = {
+                cloudEventData.index = index;
+                cloudEventData.totalCount = mcp.instance.items.length;
+                cloudEventData.affectedRange = {
                   start: index,
                   end: index + 1,
                 };
               }
             }
+
+            // CloudEvents 1.0 envelope (https://cloudevents.io)
+            const eventPayload = {
+              specversion: '1.0',
+              id: crypto.randomUUID(),
+              source: `photon/${photonName}`,
+              type: `photon.${photonName}.${toolName}.executed`,
+              time: new Date().toISOString(),
+              data: cloudEventData,
+            };
 
             // Wrap in daemon pub/sub format: { channel, event, data }
             const eventData = {
@@ -3576,7 +3582,7 @@ Run: photon mcp ${mcpName} --config
               try {
                 if (process.env.PHOTON_DEBUG_EMIT === '1') {
                   console.error(
-                    `[EMIT-DEBUG] Sending event: method=${eventPayload.method}, channel=${eventData.channel}, hasMeta=${!!result?.__meta}`
+                    `[EMIT-DEBUG] Sending event: method=${eventPayload.data.method}, channel=${eventData.channel}, hasMeta=${!!result?.__meta}`
                   );
                 }
                 // Cast to DaemonEventEnvelope - outputHandler is flexible and routes any object with channel property
