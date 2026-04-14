@@ -257,7 +257,6 @@ export class BeamApp extends LitElement {
       }
 
       :host(.view-result) .mobile-menu-btn,
-      :host(.view-result) .background-glow,
       :host(.view-result) .focus-toolbar,
       :host(.view-result) .main-toolbar,
       :host(.view-result) .method-toolbar,
@@ -268,7 +267,6 @@ export class BeamApp extends LitElement {
       :host(.view-result) app-layout,
       :host(.view-result) .result-chrome,
       :host(.view-form) .mobile-menu-btn,
-      :host(.view-form) .background-glow,
       :host(.view-form) .focus-toolbar,
       :host(.view-form) .main-toolbar,
       :host(.view-form) .method-toolbar,
@@ -1053,17 +1051,6 @@ export class BeamApp extends LitElement {
         padding: 2px 6px;
         border-radius: var(--radius-xs);
         font-weight: 500;
-      }
-
-      .background-glow {
-        position: absolute;
-        top: -20%;
-        left: -10%;
-        width: 50%;
-        height: 50%;
-        background: radial-gradient(circle, var(--glow-primary) 0%, transparent 70%);
-        pointer-events: none;
-        z-index: 0;
       }
 
       .connection-banner {
@@ -3920,8 +3907,6 @@ export class BeamApp extends LitElement {
             </div>
           `
         : ''}
-
-      <div class="background-glow" aria-hidden="true"></div>
 
       <!-- Mobile Menu Button: shows back arrow when in method detail, hamburger otherwise -->
       <button
