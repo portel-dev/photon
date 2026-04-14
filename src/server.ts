@@ -419,6 +419,9 @@ export class PhotonServer {
   private clientCapabilitiesLogged = false;
   /** Client capability detection and negotiation */
   private capabilityNegotiator = new CapabilityNegotiator();
+  /** Write queue for serialized STDIO notifications (prevents interleaving from concurrent generators) */
+  private _notifyQueue: Promise<void> = Promise.resolve();
+
   /** Compatibility alias for tests that seed raw capabilities directly on PhotonServer */
   public rawClientCapabilities: WeakMap<Server, Record<string, any>> = (
     this.capabilityNegotiator as any
@@ -612,6 +615,16 @@ export class PhotonServer {
       supportsElicitation,
       capabilities: JSON.stringify(capabilities),
     });
+  }
+
+  /**
+   * Send a notification through the STDIO write queue.
+   * Serializes writes so concurrent generators don't interleave JSON on stdout.
+   */
+  private queueNotification(notification: ServerNotification): void {
+    this._notifyQueue = this._notifyQueue
+      .then(() => this.server?.notification(notification))
+      .catch(() => {});
   }
 
   /**
@@ -1118,10 +1131,12 @@ export class PhotonServer {
       this.channelManager.publishIfChannel(emit);
 
       // Forward emit yields as MCP progress notifications to STDIO client
+      // All notifications go through queueNotification to prevent interleaving
+      // when concurrent generators write to the same stdout pipe
       if (emit?.emit === 'progress') {
         const rawValue = typeof emit.value === 'number' ? emit.value : 0;
         const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
-        void this.server?.notification({
+        this.queueNotification({
           method: 'notifications/progress',
           params: {
             progressToken: `progress_${toolName}`,
@@ -1129,9 +1144,9 @@ export class PhotonServer {
             total: 100,
             ...(emit.message ? { message: emit.message } : {}),
           },
-        });
+        } as ServerNotification);
       } else if (emit?.emit === 'status') {
-        void this.server?.notification({
+        this.queueNotification({
           method: 'notifications/progress',
           params: {
             progressToken: `progress_${toolName}`,
@@ -1139,45 +1154,35 @@ export class PhotonServer {
             total: 100,
             message: emit.message || '',
           },
-        });
+        } as ServerNotification);
       } else if (emit?.emit === 'log') {
-        void this.server?.notification({
+        this.queueNotification({
           method: 'notifications/message',
           params: {
             level: emit.level || 'info',
             data: emit.message || '',
           },
-        });
+        } as ServerNotification);
       } else if (emit?.emit === 'render') {
-        // Render emit — send formatted intermediate result as a log notification
-        // MCP clients can use the format hint to render appropriately
-        try {
-          void this.server?.notification({
-            method: 'notifications/message',
-            params: {
-              level: 'info',
-              data: JSON.stringify({
-                _render: true,
-                format: emit.format,
-                value: emit.value,
-              }),
-            },
-          });
-        } catch {
-          // Client may not support logging capability — silently skip
-        }
+        this.queueNotification({
+          method: 'notifications/message',
+          params: {
+            level: 'info',
+            data: JSON.stringify({
+              _render: true,
+              format: emit.format,
+              value: emit.value,
+            }),
+          },
+        } as ServerNotification);
       } else if (emit?.emit === 'render:clear') {
-        try {
-          void this.server?.notification({
-            method: 'notifications/message',
-            params: {
-              level: 'info',
-              data: JSON.stringify({ _render: true, clear: true }),
-            },
-          });
-        } catch {
-          // Client may not support logging capability — silently skip
-        }
+        this.queueNotification({
+          method: 'notifications/message',
+          params: {
+            level: 'info',
+            data: JSON.stringify({ _render: true, clear: true }),
+          },
+        } as ServerNotification);
       }
     };
 
@@ -1963,6 +1968,17 @@ export class PhotonServer {
    */
   private async startStdio() {
     const transport = new StdioServerTransport();
+
+    // Wrap transport.send with a write mutex to prevent concurrent generators
+    // from interleaving JSON-RPC messages on stdout
+    const originalSend = transport.send.bind(transport);
+    let writeChain = Promise.resolve();
+    transport.send = (message: any) => {
+      const p = writeChain.then(() => originalSend(message)).catch(() => {});
+      writeChain = p;
+      return p;
+    };
+
     this.capabilityNegotiator.interceptTransportForRawCapabilities(
       transport,
       this.server,
