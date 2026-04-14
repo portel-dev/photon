@@ -52,11 +52,36 @@ import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { ensureDaemon } from './daemon/manager.js';
 import { sendCommand, pingDaemon } from './daemon/client.js';
 import {
-  formatOutput as baseFormatOutput,
+  formatOutput as rawBaseFormatOutput,
   renderNone,
   OutputFormat,
   formatKey,
 } from './cli-formatter.js';
+
+const BASE_FORMATS = new Set([
+  'primitive',
+  'list',
+  'table',
+  'tree',
+  'card',
+  'tabs',
+  'accordion',
+  'none',
+  'json',
+  'markdown',
+  'yaml',
+  'xml',
+  'html',
+  'code',
+]);
+
+function baseFormatOutput(data: any, hint?: OutputFormat): void {
+  const safeHint =
+    hint && (BASE_FORMATS.has(hint as string) || (hint as string).startsWith('code:'))
+      ? hint
+      : undefined;
+  rawBaseFormatOutput(data, safeHint);
+}
 import { getErrorMessage, exitWithError, ExitCode } from './shared/error-handler.js';
 import * as os from 'os';
 
