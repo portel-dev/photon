@@ -1,6 +1,6 @@
 /**
  * API Config Routes — /api/invoke, /api/platform-bridge, /api/diagnostics,
- * /api/export/mcp-config, /api/openapi.json, /api/test/run
+ * /api/health/circuits, /api/export/mcp-config, /api/openapi.json, /api/test/run
  *
  * Extracted from beam.ts to reduce file size.
  */
@@ -276,6 +276,27 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     } catch {
       res.writeHead(500);
       res.end(JSON.stringify({ error: 'Failed to generate diagnostics' }));
+    }
+    return true;
+  }
+
+  // Circuit breaker health endpoint
+  if (url.pathname === '/api/health/circuits' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const circuits = state.loader.getCircuitHealth();
+      const entries = Object.entries(circuits);
+      const summary = {
+        total: entries.length,
+        open: entries.filter(([, v]) => v.state === 'open').length,
+        halfOpen: entries.filter(([, v]) => v.state === 'half-open').length,
+        closed: entries.filter(([, v]) => v.state === 'closed').length,
+      };
+      res.writeHead(200);
+      res.end(JSON.stringify({ summary, circuits }));
+    } catch {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: 'Failed to read circuit breaker health' }));
     }
     return true;
   }

@@ -30,6 +30,7 @@ export interface DaemonRequest {
     | 'list_locks'
     | 'get_events_since'
     | 'clear_instances'
+    | 'get_circuit_health'
     | 'status';
   id: string;
   /** Photon name for routing to correct SessionManager (required for multi-photon daemon) */
@@ -186,6 +187,7 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'list_locks',
     'get_events_since',
     'clear_instances',
+    'get_circuit_health',
     'status',
   ];
   if (!validTypes.includes(req.type as string)) return false;

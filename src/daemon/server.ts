@@ -1960,6 +1960,15 @@ async function handleRequest(
     return { type: 'result', id: request.id, success: true, data: { jobs } };
   }
 
+  if (request.type === 'get_circuit_health') {
+    // Aggregate circuit breaker states from all loaded photon loaders
+    const circuits: Record<string, { state: string; failures: number; openedAt: number }> = {};
+    for (const manager of sessionManagers.values()) {
+      Object.assign(circuits, manager.loader.getCircuitHealth());
+    }
+    return { type: 'result', id: request.id, success: true, data: { circuits } };
+  }
+
   // Handle command execution
   if (request.type === 'command') {
     if (!request.method) {

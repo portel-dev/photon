@@ -335,6 +335,30 @@ export class PhotonLoader {
   /** Per-photon custom middleware definitions discovered from module exports */
   private photonMiddleware = new Map<string, MiddlewareDefinition[]>();
 
+  /** Shadow registry of circuit breaker states, keyed by `${photon}:${instance}:${tool}` */
+  private circuitHealthTracker = new Map<
+    string,
+    { state: 'closed' | 'open' | 'half-open'; failures: number; openedAt: number }
+  >();
+
+  /**
+   * Returns all tracked circuit breaker states across all photons.
+   * Each entry uses the key format `${photon}:${instance}:${tool}`.
+   */
+  getCircuitHealth(): Record<
+    string,
+    { state: 'closed' | 'open' | 'half-open'; failures: number; openedAt: number }
+  > {
+    const result: Record<
+      string,
+      { state: 'closed' | 'open' | 'half-open'; failures: number; openedAt: number }
+    > = {};
+    for (const [key, entry] of this.circuitHealthTracker) {
+      result[key] = { ...entry };
+    }
+    return result;
+  }
+
   /** Base directory for state/config/cache (defaults to ~/.photon) */
   public baseDir: string;
 
@@ -3324,6 +3348,48 @@ Run: photon mcp ${mcpName} --config
       };
     });
 
+    // Handler override for circuitBreaker — mirror state into circuitHealthTracker for introspection
+    handlerOverrides.set(
+      'circuitBreaker',
+      (config: { threshold: number; resetAfterMs: number }, _state: MiddlewareState) => {
+        const tracker = this.circuitHealthTracker;
+        return async (ctx: MiddlewareContext, next: () => Promise<any>) => {
+          const key = `${ctx.photon}:${ctx.instance}:${ctx.tool}`;
+          let circuit = tracker.get(key);
+          if (!circuit) {
+            circuit = { failures: 0, state: 'closed', openedAt: 0 };
+            tracker.set(key, circuit);
+          }
+
+          if (circuit.state === 'open') {
+            if (Date.now() - circuit.openedAt >= config.resetAfterMs) {
+              circuit.state = 'half-open';
+            } else {
+              const error = new Error(
+                `Circuit open: ${ctx.photon}.${ctx.tool} has failed ${config.threshold} consecutive times. Resets in ${Math.ceil((config.resetAfterMs - (Date.now() - circuit.openedAt)) / 1000)}s`
+              );
+              (error as any).name = 'PhotonCircuitOpenError';
+              throw error;
+            }
+          }
+
+          try {
+            const result = await next();
+            circuit.failures = 0;
+            circuit.state = 'closed';
+            return result;
+          } catch (error) {
+            circuit.failures++;
+            if (circuit.failures >= config.threshold) {
+              circuit.state = 'open';
+              circuit.openedAt = Date.now();
+            }
+            throw error;
+          }
+        };
+      }
+    );
+
     return buildMiddlewareChain(
       execute,
       declarations,
@@ -3356,6 +3422,7 @@ Run: photon mcp ${mcpName} --config
       outputHandler?: OutputHandler;
       inputProvider?: InputProvider;
       caller?: CallerInfo;
+      traceId?: string;
     }
   ): Promise<any> {
     // Start audit trail recording
@@ -3363,7 +3430,7 @@ Run: photon mcp ${mcpName} --config
     const { finish: auditFinish } = audit.start(mcp.name, toolName, parameters || {});
 
     // Start OTel span for tool execution (no-op if SDK not installed)
-    const span = startToolSpan(mcp.name, toolName, parameters);
+    const span = startToolSpan(mcp.name, toolName, parameters, options?.traceId);
     if (mcp.instance?.instanceName) {
       span.setAttribute('photon.instance', mcp.instance.instanceName);
     }
