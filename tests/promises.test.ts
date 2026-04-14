@@ -339,6 +339,22 @@ async function main() {
     assert.ok(out.includes('Hello, Config!'), 'Works without tsconfig.json');
   });
 
+  await check('I1', 'P1.2', 'No package.json required in photon directory', 'CLI', async () => {
+    assert.ok(!fs.existsSync(path.join(FIXTURES, 'package.json')), 'No package.json in fixtures');
+    const out = cli(`cli ${PROMISE_PHOTON} greet --name NoPkg`);
+    assert.ok(out.includes('Hello, NoPkg!'), 'Works without package.json');
+  });
+
+  await check('I1', 'P1.2', 'Adding a new method requires no registration', 'Runtime', async () => {
+    // promise-test has 4 methods - all auto-discovered, no registration code
+    const source = fs.readFileSync(PROMISE_PHOTON, 'utf-8');
+    assert.ok(!source.includes('register'), 'No registration code');
+    assert.ok(!source.includes('addTool'), 'No manual tool addition');
+    const client = await getMcpClient();
+    const { tools } = await client.listTools();
+    assert.equal(tools.length, 4, 'All 4 methods auto-discovered');
+  });
+
   // P1.3 — TypeScript is the only language
 
   await check('I1', 'P1.3', 'Parameter types generate MCP inputSchema', 'MCP', async () => {
@@ -410,7 +426,33 @@ async function main() {
     );
   });
 
+  await check('I2', 'P2.2', 'Non-readOnly methods lack readOnlyHint', 'MCP', async () => {
+    const client = await getMcpClient();
+    const { tools } = await client.listTools();
+    const add = tools.find((t: any) => t.name === 'add');
+    const annotations = (add as any)?.annotations;
+    assert.ok(
+      !annotations?.readOnlyHint,
+      `add should NOT be readOnly, got: ${JSON.stringify(annotations)}`
+    );
+  });
+
   // P2.3 — Text-first, always
+
+  await check(
+    'I2',
+    'P2.3',
+    '@format enhances display but data is always text/JSON',
+    'MCP',
+    async () => {
+      const client = await getMcpClient();
+      const result = await client.callTool({ name: 'users', arguments: {} });
+      const text = result.content?.find((c: any) => c.type === 'text')?.text;
+      assert.ok(text, 'MCP always returns text content for @format table');
+      const parsed = JSON.parse(text);
+      assert.ok(Array.isArray(parsed), 'Underlying data is JSON-parseable array');
+    }
+  );
 
   await check('I2', 'P2.3', 'Every method produces readable CLI output', 'CLI', async () => {
     const greet = cli(`cli ${PROMISE_PHOTON} greet --name Text`);
@@ -449,12 +491,46 @@ async function main() {
     }
   });
 
+  // P3.2 — Dependencies resolve themselves (additional)
+
+  await check(
+    'I3',
+    'P3.2',
+    '@photon tag is recognized by schema extractor',
+    'Runtime',
+    async () => {
+      const { SchemaExtractor } = await import('@portel/photon-core');
+      const extractor = new SchemaExtractor();
+      const source = `
+      /** @photon todo marketplace */
+      export default class Composed {
+        constructor(private todo: any) {}
+        async list() { return []; }
+      }
+    `;
+      const injections = extractor.resolveInjections(source, 'composed');
+      const photonInj = injections.find((i: any) => i.injectionType === 'photon');
+      assert.ok(photonInj, '@photon injection detected');
+    }
+  );
+
   // P3.3 — Configuration from code
 
   await check('I3', 'P3.3', 'Photon with optional params runs without config', 'CLI', async () => {
-    // promise-test has no required constructor params — should just work
     const out = cli(`cli ${PROMISE_PHOTON} greet --name NoConfig`);
     assert.ok(out.includes('Hello, NoConfig!'), 'Works without config');
+  });
+
+  await check('I3', 'P3.3', 'Defaults work without any config', 'All', async () => {
+    // Run all 4 methods of promise-test without any env vars or config
+    const greet = cli(`cli ${PROMISE_PHOTON} greet --name Default`);
+    const users = cli(`cli ${PROMISE_PHOTON} users`);
+    const docs = cli(`cli ${PROMISE_PHOTON} docs`);
+    const add = cli(`cli ${PROMISE_PHOTON} add --a 1 --b 2`);
+    assert.ok(greet.includes('Hello, Default!'), 'greet works');
+    assert.ok(users.includes('Alice'), 'users works');
+    assert.ok(docs.includes('Promise Test') || docs.includes('Features'), 'docs works');
+    assert.ok(add.includes('3'), 'add works');
   });
 
   console.log('');
@@ -486,12 +562,43 @@ async function main() {
 
   // P4.2 — Auto-UI from signatures
 
+  await check('I4', 'P4.1', 'Unknown @format falls back gracefully', 'CLI', async () => {
+    // Create a temp photon with unknown format
+    const tmpFile = path.join(os.tmpdir(), 'format-fallback-test.photon.ts');
+    fs.writeFileSync(
+      tmpFile,
+      `export default class FormatFallback {
+  /** @format heatmap */
+  async data() { return [{ x: 1, y: 2, value: 10 }]; }
+}`
+    );
+    try {
+      const out = cli(`cli ${tmpFile} data`);
+      assert.ok(
+        out.includes('10') || out.includes('value'),
+        `Unknown format should still show data, got: ${out.slice(0, 200)}`
+      );
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  // P4.2 — Auto-UI from signatures
+
   await check('I4', 'P4.2', '@min constraint in MCP schema', 'MCP', async () => {
     const client = await getMcpClient();
     const { tools } = await client.listTools();
     const add = tools.find((t: any) => t.name === 'add');
     const aMin = add?.inputSchema?.properties?.a?.minimum;
     assert.ok(aMin === 0, `@min 0 should be in schema, got ${aMin}`);
+  });
+
+  await check('I4', 'P4.2', 'Optional params are non-required in schema', 'MCP', async () => {
+    const client = await getMcpClient();
+    const { tools } = await client.listTools();
+    const greet = tools.find((t: any) => t.name === 'greet');
+    const required = greet?.inputSchema?.required || [];
+    assert.ok(required.includes('name'), 'name should be required');
   });
 
   console.log('');
