@@ -682,6 +682,20 @@ async function main() {
     assert.ok(result.__meta.createdAt, 'Expected createdAt timestamp');
   });
 
+  await check(
+    'I5',
+    'P5.2',
+    '@stateful generator methods stream without crashing',
+    'Runtime',
+    async () => {
+      const { PhotonLoader } = await import('../dist/loader.js');
+      const loader = new PhotonLoader();
+      const mcp = await loader.loadFile(STATEFUL_PHOTON);
+      const result = await loader.executeTool(mcp, 'stream', { steps: 3 });
+      assert.ok(result.completed === 3, `Expected completed=3, got: ${JSON.stringify(result)}`);
+    }
+  );
+
   console.log('');
 
   // ═══════════════════════════════════════════════════════════

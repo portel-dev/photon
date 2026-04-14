@@ -34,6 +34,17 @@ export default class StatefulTest {
     return { emitted: true };
   }
 
+  /**
+   * Streaming method to test @stateful + generator combination
+   * @param steps How many steps to stream
+   */
+  async *stream({ steps }: { steps: number }) {
+    for (let i = 0; i < steps; i++) {
+      yield { emit: 'progress', value: (i + 1) / steps, message: `Step ${i + 1}` };
+    }
+    return { completed: steps };
+  }
+
   // Type declarations for injected capabilities
   declare memory: {
     get<T>(key: string, scope?: string): Promise<T | null>;

@@ -219,6 +219,32 @@ else
   echo "  ⏭ npm pack failed — skipping install test"
 fi
 
+# ─── 10. Production dependency verification ────
+echo ""
+echo "▶ Step 10: Production dependency verification"
+PROD_DIR=$(mktemp -d)
+PACK_CHECK=$(npm pack 2>/dev/null | tail -1)
+if [ -f "$PACK_CHECK" ]; then
+  cd "$PROD_DIR"
+  npm init -y > /dev/null 2>&1
+  npm install "$(cd - > /dev/null && pwd)/$PACK_CHECK" --production > /dev/null 2>&1
+  # Verify the CLI entry point loads without crashing
+  PROD_OUT=$(node node_modules/@portel/photon/dist/cli.js --version 2>&1) || true
+  cd - > /dev/null
+  if echo "$PROD_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+    echo "  ✓ Production install works ($PROD_OUT)"
+  else
+    echo "  ✗ FAIL: Production install broken (missing runtime dep?): $PROD_OUT"
+    rm -rf "$PROD_DIR"
+    rm -f "$PACK_CHECK"
+    exit 1
+  fi
+  rm -rf "$PROD_DIR"
+  rm -f "$PACK_CHECK"
+else
+  echo "  ⏭ npm pack failed — skipping production dep test"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════"
 echo "  ✓ All pre-release checks passed"
