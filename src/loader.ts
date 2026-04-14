@@ -210,6 +210,52 @@ export function clearRenderZone(): void {
 }
 
 /**
+ * Inject emit-based convenience helpers on a plain-class instance.
+ * Every helper is a thin wrapper around this.emit so generator-yield and
+ * imperative-call styles produce identical wire events.
+ */
+function injectEmitHelpers(instance: any): void {
+  const emit = (data: any) => (instance.emit as (d: any) => void)(data);
+  // Mirrors photon-core base-class render(): UI-feedback formats route to their
+  // dedicated emit events; all other formats go through the render channel.
+  instance.render = (format?: string, value?: any) => {
+    if (format === undefined) return emit({ emit: 'render:clear' });
+    if (format === 'status')
+      return emit(
+        typeof value === 'string'
+          ? { emit: 'status', message: value }
+          : { emit: 'status', ...value }
+      );
+    if (format === 'progress')
+      return emit(
+        typeof value === 'number' ? { emit: 'progress', value } : { emit: 'progress', ...value }
+      );
+    if (format === 'toast')
+      return emit(
+        typeof value === 'string' ? { emit: 'toast', message: value } : { emit: 'toast', ...value }
+      );
+    emit({ emit: 'render', format, value });
+  };
+  instance.toast = (
+    message: string,
+    opts: { type?: 'info' | 'success' | 'warning' | 'error'; duration?: number } = {}
+  ) => emit({ emit: 'toast', message, ...opts });
+  instance.log = (
+    message: string,
+    opts: { level?: 'debug' | 'info' | 'warn' | 'error'; data?: unknown } = {}
+  ) => emit({ emit: 'log', message, level: opts.level ?? 'info', data: opts.data });
+  instance.status = (message: string) => emit({ emit: 'status', message });
+  instance.progress = (value: number, message?: string) =>
+    emit({ emit: 'progress', value, message });
+  instance.thinking = (active = true) => emit({ emit: 'thinking', active });
+}
+
+/** Extra regex checks that force 'emit' capability when helper methods are used. */
+function detectEmitHelperUsage(source: string): boolean {
+  return /this\.(toast|log|status|progress|thinking)\s*\(/.test(source);
+}
+
+/**
  * Render a formatted value in the CLI using @portel/cli's formatOutput.
  * Uses clear-and-replace semantics — each call overwrites the previous render.
  * Synchronous to ensure proper line counting in CLIRenderZone.
@@ -890,6 +936,7 @@ export class PhotonLoader {
       // Photon base class already has these built-in, so only inject for plain classes
       if (tsContent && typeof instance.executeTool !== 'function') {
         const caps = detectCapabilities(tsContent);
+        if (detectEmitHelperUsage(tsContent)) caps.add('emit');
         if (caps.size > 0) {
           this.log(`🔍 Detected capabilities for ${name}: ${[...caps].join(', ')}`);
         }
@@ -940,14 +987,8 @@ export class PhotonLoader {
             }
           };
 
-          // Also inject render() — convenience wrapper around emit
-          instance.render = (format?: string, value?: any) => {
-            if (format === undefined) {
-              (instance.emit as (data: any) => void)({ emit: 'render:clear' });
-            } else {
-              (instance.emit as (data: any) => void)({ emit: 'render', format, value });
-            }
-          };
+          // Inject convenience helpers (render, toast, log, status, progress, thinking)
+          injectEmitHelpers(instance);
         }
 
         if (caps.has('memory')) {
@@ -1485,6 +1526,7 @@ export class PhotonLoader {
     // Detect and inject capabilities for plain classes
     if (tsContent && typeof instance.executeTool !== 'function') {
       const caps = detectCapabilities(tsContent);
+      if (detectEmitHelperUsage(tsContent)) caps.add('emit');
       this.injectPathHelpers(instance, tsContent);
 
       if (caps.has('emit')) {
@@ -1522,14 +1564,8 @@ export class PhotonLoader {
           }
         };
 
-        // Also inject render() — convenience wrapper around emit
-        instance.render = (format?: string, value?: any) => {
-          if (format === undefined) {
-            (instance.emit as (data: any) => void)({ emit: 'render:clear' });
-          } else {
-            (instance.emit as (data: any) => void)({ emit: 'render', format, value });
-          }
-        };
+        // Inject convenience helpers (render, toast, log, status, progress, thinking)
+        injectEmitHelpers(instance);
       }
 
       if (caps.has('memory')) {
@@ -4021,7 +4057,18 @@ Run: photon mcp ${mcpName} --config
     // Get all public method names from the instance
     // Skip runtime-injected methods (emit, render, push, ask) — these are
     // capability methods injected by the loader, not user-defined tools
-    const RUNTIME_METHODS = new Set(['emit', 'render', 'channel', 'ask', 'call']);
+    const RUNTIME_METHODS = new Set([
+      'emit',
+      'render',
+      'channel',
+      'ask',
+      'call',
+      'toast',
+      'log',
+      'status',
+      'progress',
+      'thinking',
+    ]);
     const proto = Object.getPrototypeOf(instance);
     const methodNames = Object.getOwnPropertyNames(proto).filter((name) => {
       // Skip constructor and private/protected methods
