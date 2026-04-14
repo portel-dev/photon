@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.21.0](https://github.com/portel-dev/photon/compare/v1.20.1...v1.21.0) (2026-04-14)
+
+### Features
+
+* add canvas demo photon with three test scenarios ([bf330f9](https://github.com/portel-dev/photon/commit/bf330f9ffcb51f47562d4a4b2ce1304436a99d1d))
+* add canvas two-stream AI-generated UI system ([0121ae7](https://github.com/portel-dev/photon/commit/0121ae7409c0451d2df23b7290c81e9f7698d347))
+* add co-creative canvas engine ([5c256ee](https://github.com/portel-dev/photon/commit/5c256eeb592ef831569b4bbdcc4d9fe7ee4e9c36))
+* add cross-transport data parity tests ([445f1ac](https://github.com/portel-dev/photon/commit/445f1acfdfc93bbb6b9f28f2fb7712ef7ec62ee2))
+* add format catalog with data schemas and /api/formats endpoint ([92f5593](https://github.com/portel-dev/photon/commit/92f55931171e93a388d3b7338799ef46093a64ef))
+* add photon publish wizard as bundled [@internal](https://github.com/internal) photon ([1653f0b](https://github.com/portel-dev/photon/commit/1653f0bfbd77f7c4507ce7cb51c964a40e2ac59b))
+* canvas engine Phase 1 — persistence, interactions, undo ([b39ae0c](https://github.com/portel-dev/photon/commit/b39ae0cbf7a1a0a5515abd1a1b240d5b2b8f34b0))
+* canvas Magic Move playback — Keynote-inspired animated transitions ([c2ffb8e](https://github.com/portel-dev/photon/commit/c2ffb8e9abaaaf64d557f66a3bbe346e728dd587))
+* canvas Phase 2 — turn-taking, locking, multi-agent colors ([bebe1b7](https://github.com/portel-dev/photon/commit/bebe1b7126ae248aa1426bd1575ca53eba6ab700))
+* canvas Phase 3 — AI feedback loop with describe and screenshot ([2b0ad91](https://github.com/portel-dev/photon/commit/2b0ad91429060ae5583f068c95e367fc3edd19a9))
+* canvas Phase 4 — custom components and AI-generated HTML ([cc3e4ca](https://github.com/portel-dev/photon/commit/cc3e4ca12793143a70c49f837216e76fdf606b12))
+* canvas Phase 5 — export scene graph as standalone photon ([98df0ff](https://github.com/portel-dev/photon/commit/98df0ffa2d567c8af009600366e4c5bdaed65f5b))
+* canvas timeline — history, checkpoint, restore, fork ([4932860](https://github.com/portel-dev/photon/commit/4932860352accaab56d73da657d01805a217c55f))
+* enforce [@auth](https://github.com/auth) at loader level across all transports ([3b04916](https://github.com/portel-dev/photon/commit/3b04916978a78687861023049d47838a5856210e))
+* expand promise test coverage from 23.6% to 40.4% ([b6e004f](https://github.com/portel-dev/photon/commit/b6e004fd60feb0cba6b598e3032ca0a11eb9fd35))
+* inject this.formats on every photon instance ([8cae650](https://github.com/portel-dev/photon/commit/8cae650948af80630dc83c897be1a48b12714c60))
+* inject toast/log/status/progress/thinking helpers on plain-class photons ([e7e60a6](https://github.com/portel-dev/photon/commit/e7e60a6049251eaa426147107e3f38a9dfe033bb))
+* Precision Optics design system — amber accent, new typography, kill glass ([73decbb](https://github.com/portel-dev/photon/commit/73decbbcaff9c739f111c7c765adfb806fb4276b)), closes [#FFB000](https://github.com/portel-dev/photon/issues/FFB000) [#EEF1F5](https://github.com/portel-dev/photon/issues/EEF1F5)
+* Prefab-inspired UI enhancements — column pipes, ring, charts, expandable rows, toast bridge ([45385dd](https://github.com/portel-dev/photon/commit/45385dd9bb4b385d2a4fd39c5f09209993276bcf))
+* push promise coverage from 40% to 49% (44/89 assertions) ([cc67c5b](https://github.com/portel-dev/photon/commit/cc67c5b2f5448995943e3589b6a9d45a3efe1cfb))
+* TSX view files with built-in DOM-based JSX runtime ([7f3d5e7](https://github.com/portel-dev/photon/commit/7f3d5e78ccdfe543e0801930924a41658410e60c))
+
+### Bug Fixes
+
+* __meta audit trail for [@stateful](https://github.com/stateful) plain class methods ([74ea9b6](https://github.com/portel-dev/photon/commit/74ea9b66471281ea51fed320ef51932851aa8ad4))
+* [@auth](https://github.com/auth) regex no longer matches [@author](https://github.com/author), [@authorize](https://github.com/authorize), etc. ([4016e9b](https://github.com/portel-dev/photon/commit/4016e9b8b0833c6194610b981ac89f86c6143306))
+* activate shell integration in current session via eval ([70b1921](https://github.com/portel-dev/photon/commit/70b19213d3723f48598d83c4fbe45309e7332e4b))
+* beam scopes photons to baseDir, respect PHOTON_DIR, fix symlink leak ([86b0a7b](https://github.com/portel-dev/photon/commit/86b0a7b791e7b682a8be799e0c13eef81009e78d))
+* canvas timing and auto-resize ([239f548](https://github.com/portel-dev/photon/commit/239f5481c009dabdc07ad1c8ad10344544c85210))
+* change default OKLCH preset from Violet to Amber ([48b0b11](https://github.com/portel-dev/photon/commit/48b0b11b56c01e1f8d76a2399655839951daf560))
+* emit locks-reset event on daemon startup ([1dbdf74](https://github.com/portel-dev/photon/commit/1dbdf74b2113963a2f9eff8b91e2024d1baeb777))
+* graceful daemon shutdown and session lifecycle cleanup ([2847611](https://github.com/portel-dev/photon/commit/28476118eda3d1ce2c1181d84f14ee5349c67b35))
+* in-flight request drain before hot-reload and scheduled job persistence ([044c05f](https://github.com/portel-dev/photon/commit/044c05fccb50fbc16a9fe01db3770619a09ac082))
+* remove background glow remnant from beam-app ([022019c](https://github.com/portel-dev/photon/commit/022019c753fd41cc7a1a1d0140b011022be7b790))
+* replace tsx with plain node for build-beam script ([1604be6](https://github.com/portel-dev/photon/commit/1604be66c1ee1d761b5a84e6e19528a8ca9a51fe))
+* strip [photon-loader] prefix from CLI toast output ([c110be3](https://github.com/portel-dev/photon/commit/c110be35f9ce56b20a7cbb2181c957358ec52a5c))
+* unknown [@format](https://github.com/format) tags fall back to auto-detection in CLI ([76cab95](https://github.com/portel-dev/photon/commit/76cab955a0cf25f36470dd53bc169989a13fe057))
+* worker crash recovery with backoff and read-only client retry ([89b0885](https://github.com/portel-dev/photon/commit/89b08854a82a516fdd411b1c8d88f69070561c8f))
+
 ## [1.20.1](https://github.com/portel-dev/photon/compare/v1.20.0...v1.20.1) (2026-04-10)
 
 ### Features
