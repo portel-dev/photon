@@ -31,6 +31,38 @@ Photon custom UIs run in iframes and communicate with the host (BEAM, Claude Des
 
 ---
 
+## Sandbox Constraints
+
+Photon UIs are loaded into a sandboxed `blob:` iframe so the same HTML works in **every** MCP client (Beam, Claude Desktop, ChatGPT, Cursor, future clients). Portability is the whole point — but the sandbox has real limits that matter if you try to run heavy browser features like client-side AI models, WebRTC, or WebGPU.
+
+### What doesn't work inside the iframe
+
+- **Cross-origin `fetch()`** — the iframe origin is `null`/opaque, so many CDNs reject CORS preflight. Loading model weights from HuggingFace, jsdelivr, unpkg often fails.
+- **SharedArrayBuffer / threaded WASM** — requires `Cross-Origin-Isolated`, which needs COOP/COEP headers the host client does not set. Rules out WebLLM and threaded ONNX Runtime.
+- **WebGPU, camera, microphone** — gated by Permissions-Policy on the parent iframe; not guaranteed across clients.
+- **Dynamic `import()` of remote ESM / `importScripts` over http(s)** — often blocked from `blob:` contexts.
+- **Persistent IndexedDB / Cache Storage** — scoped to the opaque origin, so models may re-download each session.
+
+These are **host-imposed** constraints, not photon-runtime bugs. Changing them would either break portability or require every MCP client to adopt COOP/COEP, which is out of our control.
+
+### Choosing a strategy (photon author's call)
+
+If your photon needs capabilities that bump into the sandbox, pick one of these up front:
+
+1. **Run it on the backend (recommended default).** Do the work in a photon method using Node/Bun libraries (`onnxruntime-node`, `@xenova/transformers`, `sharp`, etc.) and return results to the UI. Works in every MCP client, model cached on disk, no sandbox friction. Trade-off: no live webcam/audio stream without round-trips.
+
+2. **Proxy assets through a photon method.** Expose a method that returns model weights / remote resources as bytes. The UI calls it via the injected bridge instead of `fetch()`, sidestepping CORS from `blob:`. Portable, but slower first load.
+
+3. **Inline small assets as data URIs.** For models or datasets under a few MB (face/pose detection, small classifiers, fonts), base64-embed them in the UI HTML. Zero fetches, fully portable, ugly diff.
+
+4. **Accept single-threaded WASM.** Most detection-class models (MediaPipe Tasks, small ONNX via transformers.js) run fine single-threaded inside the sandbox. Slower than WebGPU/threads but fully portable.
+
+5. **Beam-only enhancement.** If and only if a feature genuinely cannot work under the sandbox and is acceptable as a Beam-only feature, document that clearly in the photon's README. Do not design the core experience around it — the photon must still work in other MCP clients.
+
+**Rule of thumb:** if in doubt, do it on the backend. The `@ui` HTML is a renderer, not an application runtime.
+
+---
+
 ## MCP Apps Extension (SEP-1865)
 
 The [MCP Apps Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1865) defines a standard protocol for rendering UIs in MCP-compatible clients.

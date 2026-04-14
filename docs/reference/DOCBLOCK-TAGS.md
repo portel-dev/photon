@@ -22,7 +22,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@photons` | Lists Photon dependencies (for diagram generation). | `@photons calculator` |
 | `@stateful` | Set to `true` if the photon maintains state between calls. | `@stateful true` |
 | `@idleTimeout` | Idle timeout in milliseconds before process termination. | `@idleTimeout 300000` |
-| `@ui` | Defines a UI template asset for MCP Apps. Use `.photon.html` extension for declarative mode (auto-binding via data attributes, no JS required). Use `.html` for full-control mode. | `@ui my-view ./ui/view.html` or `@ui my-view ./ui/view.photon.html` |
+| `@ui` | Defines a UI template asset for MCP Apps. Use `.photon.html` extension for declarative mode (auto-binding via data attributes, no JS required). Use `.html` for full-control mode. UIs run in a sandboxed `blob:` iframe — see [Custom UI → Sandbox Constraints](../guides/CUSTOM-UI.md#sandbox-constraints) before adding client-side AI models, WebGPU, or cross-origin fetches. | `@ui my-view ./ui/view.html` or `@ui my-view ./ui/view.photon.html` |
 | `@prompt` | Defines a static prompt asset. | `@prompt greet ./prompts/greet.txt` |
 | `@resource` | Defines a static resource asset. | `@resource data ./data.json` |
 | `@icon` | Sets the photon icon (emoji or image path). | `@icon 🔧` or `@icon ./icons/tool.png` |
