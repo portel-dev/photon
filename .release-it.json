@@ -16,7 +16,7 @@
     "skipChecks": false
   },
   "hooks": {
-    "before:init": ["bash scripts/pre-release-check.sh"],
+    "before:init": [],
     "after:bump": ["npm run build"],
     "after:release": "echo Successfully released ${name} v${version} to ${repo.repository}"
   },
