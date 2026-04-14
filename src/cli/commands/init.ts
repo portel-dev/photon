@@ -77,8 +77,9 @@ export function registerInitCommands(program: Command): void {
         evalLine = 'eval "$(photon init cli --hook)"';
       }
 
-      // --hook flag: output the hook script
-      if (options.hook) {
+      // Build the shell hook script. Extracted so the install path can also
+      // emit it on stdout when invoked via `eval "$(photon init cli)"`.
+      const buildHookScript = async (): Promise<string> => {
         const photonDir = getDefaultContext().baseDir;
         let photonNames: string[] = [];
         try {
@@ -95,7 +96,7 @@ export function registerInitCommands(program: Command): void {
             .map((name) => `${name}() { photon cli ${name} "$@"; }`)
             .join('\n');
 
-          console.log(`${marker}
+          return `${marker}
 
 # Shell functions for installed photons (direct invocation)
 ${functions}
@@ -225,13 +226,13 @@ _photon() {
 
 if (( $+functions[compdef] )); then
   compdef _photon photon
-fi`);
+fi`;
         } else if (shellType === 'bash') {
           const functions = photonNames
             .map((name) => `${name}() { photon cli ${name} "$@"; }`)
             .join('\n');
 
-          console.log(`${marker}
+          return `${marker}
 
 # Shell functions for installed photons (direct invocation)
 ${functions}
@@ -313,14 +314,14 @@ _photon_complete() {
 
 # Register completions
 ${photonNames.map((name) => `complete -F _photon_complete_direct ${name}`).join('\n')}
-complete -F _photon_complete photon`);
+complete -F _photon_complete photon`;
         } else if (shellType === 'powershell') {
           // PowerShell functions and completion
           const functions = photonNames
             .map((name) => `function ${name} { photon cli ${name} @Args }`)
             .join('\n');
 
-          console.log(`${marker}
+          return `${marker}
 
 # Functions for installed photons (direct invocation)
 ${functions}
@@ -410,21 +411,44 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
       } | Where-Object { $_.CompletionText -like "$wordToComplete*" }
     }
   }
-}`);
+}`;
         }
+        return '';
+      };
 
-        // Silently generate cache on first hook (non-blocking)
-        const { CACHE_FILE } = await import('../../shell-completions.js');
+      // Ensure the completions cache exists before emitting any hook script.
+      const ensureCompletionsCache = async () => {
+        const { CACHE_FILE, generateCompletionCache } = await import('../../shell-completions.js');
         try {
           await fs.access(CACHE_FILE);
         } catch {
-          // Cache doesn't exist yet — generate it
-          const { generateCompletionCache } = await import('../../shell-completions.js');
           await generateCompletionCache();
         }
+      };
 
+      // --hook flag: output the hook script only.
+      if (options.hook) {
+        await ensureCompletionsCache();
+        console.log(await buildHookScript());
         return;
       }
+
+      // When stdout is captured (e.g. `eval "$(photon init cli)"`), emit the
+      // hook script directly so the current shell activates immediately.
+      // All status messages go to stderr so they don't pollute the eval stream.
+      const stdoutIsTTY = process.stdout.isTTY;
+      const say = (msg: string) => {
+        if (stdoutIsTTY) console.log(msg);
+        else console.error(msg);
+      };
+      const sayOk = (msg: string) => {
+        if (stdoutIsTTY) printSuccess(msg);
+        else console.error(`✓ ${msg}`);
+      };
+      const sayInfo = (msg: string) => {
+        if (stdoutIsTTY) printInfo(msg);
+        else console.error(`ℹ ${msg}`);
+      };
 
       // Interactive mode → install into rc file
       try {
@@ -439,53 +463,62 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
           // rc file doesn't exist, we'll create it
         }
 
-        if (rcContent.includes(marker) || rcContent.includes(evalLine)) {
-          printInfo(`Shell integration already installed in ${rcFile}`);
-          if (shellType === 'powershell') {
-            console.log(`  Restart PowerShell or run: . $PROFILE`);
-          } else {
-            console.log(`  Activate now:  source ${rcFile}`);
-          }
-          return;
-        }
+        const alreadyInstalled = rcContent.includes(marker) || rcContent.includes(evalLine);
 
-        // Remove old eval line if migrating from `photon shell init`
-        const oldEvalLines = [
-          'eval "$(photon shell init --hook)"',
-          'Invoke-Expression (& photon shell init --hook)',
-        ];
-        let cleaned = rcContent;
-        for (const old of oldEvalLines) {
-          cleaned = cleaned
-            .split('\n')
-            .filter((l) => !l.includes(old))
-            .join('\n');
-        }
-        if (cleaned !== rcContent) {
-          await fs.writeFile(rcFile, cleaned, 'utf-8');
-        }
-
-        const block = `\n${marker}\n${evalLine}\n`;
-        await fs.appendFile(rcFile, block);
-
-        // Generate completions cache
-        const { generateCompletionCache } = await import('../../shell-completions.js');
-        await generateCompletionCache();
-
-        printSuccess(`Installed shell integration into ${rcFile}`);
-        console.log('');
-        if (shellType === 'powershell') {
-          console.log(`  Activate now:  . $PROFILE`);
+        if (alreadyInstalled) {
+          sayInfo(`Shell integration already installed in ${rcFile}`);
         } else {
-          console.log(`  Activate now:  source ${rcFile}`);
+          // Remove old eval line if migrating from `photon shell init`
+          const oldEvalLines = [
+            'eval "$(photon shell init --hook)"',
+            'Invoke-Expression (& photon shell init --hook)',
+          ];
+          let cleaned = rcContent;
+          for (const old of oldEvalLines) {
+            cleaned = cleaned
+              .split('\n')
+              .filter((l) => !l.includes(old))
+              .join('\n');
+          }
+          if (cleaned !== rcContent) {
+            await fs.writeFile(rcFile, cleaned, 'utf-8');
+          }
+
+          const block = `\n${marker}\n${evalLine}\n`;
+          await fs.appendFile(rcFile, block);
         }
-        console.log('');
-        console.log(`  Then type any photon name directly:`);
-        console.log(`    list get          → photon cli list get`);
-        console.log(`    list add "Milk"   → photon cli list add "Milk"`);
-        console.log('');
-        console.log('  Tab completion is enabled for:');
-        console.log('    Photon names, methods, parameters, and instances.');
+
+        await ensureCompletionsCache();
+
+        // When stdout is captured (eval "$(photon init cli)"), emit the hook
+        // script to stdout so the current shell activates immediately.
+        if (!stdoutIsTTY) {
+          process.stdout.write(await buildHookScript());
+          process.stdout.write('\n');
+        }
+
+        if (!alreadyInstalled) sayOk(`Installed shell integration into ${rcFile}`);
+        say('');
+        if (stdoutIsTTY) {
+          // Not captured — user needs to take one more step to activate.
+          say(`  Activate in this shell:`);
+          if (shellType === 'powershell') {
+            say(`    Invoke-Expression (& photon init cli --hook)`);
+          } else {
+            say(`    eval "$(photon init cli --hook)"`);
+          }
+          say('');
+          say(`  Or run with eval to install + activate in one step:`);
+          if (shellType === 'powershell') {
+            say(`    Invoke-Expression (& photon init cli)`);
+          } else {
+            say(`    eval "$(photon init cli)"`);
+          }
+          say('');
+          say(`  New shells will pick it up automatically.`);
+        } else {
+          sayOk('Activated in current shell.');
+        }
       } catch (error) {
         printError(`Failed to update ${rcFile}: ${getErrorMessage(error)}`);
         console.log(`  Add this line manually to your shell profile:`);
