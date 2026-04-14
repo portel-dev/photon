@@ -1269,10 +1269,13 @@ export class PhotonLoader {
       }
 
       // Extract tools, templates, and statics (with schema override support)
-      const { tools, templates, statics, settingsSchema } = await this.extractTools(
-        MCPClass,
-        absolutePath
-      );
+      const {
+        tools,
+        templates,
+        statics,
+        settingsSchema,
+        auth: extractedAuth,
+      } = await this.extractTools(MCPClass, absolutePath);
 
       // ═══ SETTINGS INJECTION ═══
       // If the photon declared `protected settings = { ... }`, inject persistence + proxy
@@ -1327,6 +1330,7 @@ export class PhotonLoader {
         settingsSchema?: SettingsSchema;
         icon?: string;
         stateful?: boolean;
+        auth?: string;
       } = {
         name,
         description: classDesc || `${name} MCP`,
@@ -1339,6 +1343,7 @@ export class PhotonLoader {
       };
       if (classIcon) result.icon = classIcon;
       if (isStateful) result.stateful = true;
+      if (extractedAuth) result.auth = extractedAuth;
       // Store class constructor for static method access
       result.classConstructor = MCPClass as unknown as Record<
         string,
@@ -1652,11 +1657,13 @@ export class PhotonLoader {
     }
 
     // Extract tools and metadata from embedded source (no disk I/O)
-    const { tools, templates, statics, settingsSchema } = await this.extractTools(
-      MCPClass,
-      absolutePath,
-      tsContent
-    );
+    const {
+      tools,
+      templates,
+      statics,
+      settingsSchema,
+      auth: extractedAuth,
+    } = await this.extractTools(MCPClass, absolutePath, tsContent);
 
     // Settings injection
     if (settingsSchema?.hasSettings && instance.settings && typeof instance.settings === 'object') {
@@ -1682,6 +1689,7 @@ export class PhotonLoader {
       settingsSchema?: SettingsSchema;
       icon?: string;
       stateful?: boolean;
+      auth?: string;
     } = {
       name,
       description: classDesc || `${name} MCP`,
@@ -1694,6 +1702,7 @@ export class PhotonLoader {
     };
     if (classIcon) result.icon = classIcon;
     if (isStateful) result.stateful = true;
+    if (extractedAuth) result.auth = extractedAuth;
     result.classConstructor = MCPClass as unknown as Record<
       string,
       (...args: unknown[]) => unknown
@@ -1878,6 +1887,7 @@ export class PhotonLoader {
     templates: TemplateInfo[];
     statics: StaticInfo[];
     settingsSchema?: SettingsSchema;
+    auth?: string;
   }> {
     const methodNames = this.getToolMethods(mcpClass);
     let tools: PhotonTool[] = [];
@@ -1982,7 +1992,13 @@ export class PhotonLoader {
               }
             });
           }
-          return { tools, templates, statics, settingsSchema: metadata.settingsSchema };
+          return {
+            tools,
+            templates,
+            statics,
+            settingsSchema: metadata.settingsSchema,
+            auth: metadata.auth,
+          };
         }
         throw jsonError;
       }
@@ -3339,6 +3355,41 @@ Run: photon mcp ${mcpName} --config
       // Check for configuration errors before executing tool
       if (mcp.instance._photonConfigError) {
         throw new Error(mcp.instance._photonConfigError);
+      }
+
+      // Enforce @auth at method level — works across ALL transports (CLI, STDIO, HTTP, daemon)
+      const photonAuth = (mcp as any).auth as string | undefined;
+      if (photonAuth === 'required') {
+        const caller = options?.caller;
+        if (!caller || caller.anonymous) {
+          const inputProvider = options?.inputProvider || this.createInputProvider();
+          try {
+            const token = await inputProvider({
+              ask: 'password',
+              message: `${mcp.name} requires authentication. Enter your access token:`,
+            });
+            if (token && typeof token === 'string') {
+              options = {
+                ...options,
+                caller: {
+                  id: token.slice(0, 8),
+                  name: 'authenticated-user',
+                  anonymous: false,
+                  claims: { token },
+                },
+              };
+            } else {
+              throw new Error(
+                `Authentication required: ${mcp.name} has @auth required but no credentials were provided`
+              );
+            }
+          } catch (e: any) {
+            if (e.message?.includes('Authentication required')) throw e;
+            throw new Error(
+              `Authentication required: ${mcp.name} has @auth required. Provide credentials via Authorization header, MCP elicitation, or CLI prompt.`
+            );
+          }
+        }
       }
 
       // Intercept auto-generated settings tool
