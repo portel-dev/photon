@@ -1,5 +1,5 @@
 /**
- * Auth Test Photon — Fixture for validating @auth enforcement across transports
+ * Auth Test Photon - validates authentication across transports
  *
  * @auth required
  */
@@ -18,8 +18,16 @@ export default class AuthTest {
    */
   async whoami(): Promise<{ id: string; anonymous: boolean }> {
     return {
-      id: (this as any).caller?.id ?? 'unknown',
-      anonymous: (this as any).caller?.anonymous ?? true,
+      id: this.caller?.id ?? 'unknown',
+      anonymous: this.caller?.anonymous ?? true,
     };
   }
+
+  declare caller: {
+    id: string;
+    name?: string;
+    anonymous: boolean;
+    scope?: string;
+    claims?: Record<string, unknown>;
+  };
 }
