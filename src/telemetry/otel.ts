@@ -71,11 +71,15 @@ function wrapOtelSpan(otelSpan: any, otelApi: any): PhotonSpan {
 
 /**
  * Start a span for tool execution following GenAI semantic conventions.
+ * @param traceId - Optional W3C-compatible trace ID (32 hex chars) for async executions.
+ *   When provided, set as `photon.trace_id` on the span so async executions are
+ *   correlated with the execution ID returned to the caller.
  */
 export function startToolSpan(
   photon: string,
   tool: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
+  traceId?: string
 ): PhotonSpan {
   const tracer = getTracerSync();
   if (!tracer) return noopSpan;
@@ -84,6 +88,10 @@ export function startToolSpan(
   span.setAttribute('gen_ai.tool.name', tool);
   span.setAttribute('gen_ai.agent.name', photon);
   span.setAttribute('gen_ai.operation.name', 'execute_tool');
+
+  if (traceId) {
+    span.setAttribute('photon.trace_id', traceId);
+  }
 
   if (params) {
     const paramKeys = Object.keys(params);

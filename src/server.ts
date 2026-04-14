@@ -26,9 +26,10 @@ import type { ServerNotification } from '@modelcontextprotocol/sdk/types.js';
 import { readText } from './shared/io.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
-import { PhotonClassExtended, generateExecutionId } from '@portel/photon-core';
+import { PhotonClassExtended } from '@portel/photon-core';
 import type { ExtractedSchema, PhotonClass } from '@portel/photon-core';
 import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';
@@ -1358,7 +1359,9 @@ export class PhotonServer {
         const { name: toolName, arguments: args } = request.params;
         const tool = this.mcp.tools.find((t) => t.name === toolName);
         if ((tool as ExtractedSchema)?.isAsync) {
-          const executionId = generateExecutionId();
+          // Generate a W3C-compatible OTel trace ID (32 hex chars = 128-bit)
+          const traceId = crypto.randomBytes(16).toString('hex');
+          const executionId = traceId;
           const inputProvider = this.createMCPInputProvider();
           const outputHandler = (emit: any) => {
             this.channelManager.publishIfChannel(emit);
@@ -1416,7 +1419,7 @@ export class PhotonServer {
           };
 
           this.loader
-            .executeTool(this.mcp, toolName, args || {}, { inputProvider, outputHandler })
+            .executeTool(this.mcp, toolName, args || {}, { inputProvider, outputHandler, traceId })
             .catch((error) => {
               this.log('error', `Async tool ${toolName} failed`, {
                 executionId,
@@ -1424,6 +1427,9 @@ export class PhotonServer {
               });
             });
 
+          // Build W3C traceparent: 00-{traceId}-{spanId}-01
+          const spanId = crypto.randomBytes(8).toString('hex');
+          const traceparent = `00-${traceId}-${spanId}-01`;
           return {
             content: [
               {
@@ -1431,6 +1437,8 @@ export class PhotonServer {
                 text: JSON.stringify(
                   {
                     executionId,
+                    _traceId: traceId,
+                    _traceparent: traceparent,
                     status: 'running',
                     photon: this.mcp.name,
                     method: toolName,
