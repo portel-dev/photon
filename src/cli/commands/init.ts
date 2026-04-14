@@ -93,7 +93,10 @@ export function registerInitCommands(program: Command): void {
 
         if (shellType === 'zsh') {
           const functions = photonNames
-            .map((name) => `${name}() { photon cli ${name} "$@"; }`)
+            .map(
+              (name) =>
+                `command -v ${name} >/dev/null 2>&1 || ${name}() { photon cli ${name} "$@"; }`
+            )
             .join('\n');
 
           return `${marker}
@@ -229,7 +232,10 @@ if (( $+functions[compdef] )); then
 fi`;
         } else if (shellType === 'bash') {
           const functions = photonNames
-            .map((name) => `${name}() { photon cli ${name} "$@"; }`)
+            .map(
+              (name) =>
+                `command -v ${name} >/dev/null 2>&1 || ${name}() { photon cli ${name} "$@"; }`
+            )
             .join('\n');
 
           return `${marker}
@@ -318,7 +324,10 @@ complete -F _photon_complete photon`;
         } else if (shellType === 'powershell') {
           // PowerShell functions and completion
           const functions = photonNames
-            .map((name) => `function ${name} { photon cli ${name} @Args }`)
+            .map(
+              (name) =>
+                `if (-not (Get-Command ${name} -ErrorAction SilentlyContinue)) { function ${name} { photon cli ${name} @Args } }`
+            )
             .join('\n');
 
           return `${marker}
