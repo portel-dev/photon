@@ -1759,6 +1759,14 @@ export class PhotonLoader {
     return match ? match[1] : '';
   }
 
+  private extractAuthTag(source: string): string | undefined {
+    const docblock = this.extractClassDocblock(source);
+    // Use \b to avoid matching @author, @authorize, etc.
+    const match = docblock.match(/@auth\b(?:\s+(\S+))?/i);
+    if (!match) return undefined;
+    return match[1]?.trim() || 'required';
+  }
+
   /**
    * Reload a Photon MCP file (for hot reload)
    */
@@ -2033,7 +2041,7 @@ export class PhotonLoader {
             templates,
             statics,
             settingsSchema: metadata.settingsSchema,
-            auth: metadata.auth,
+            auth: this.extractAuthTag(source),
           };
         }
         throw jsonError;
