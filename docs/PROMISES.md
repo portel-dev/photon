@@ -20,7 +20,8 @@ marketing.
 | [7](#intent-7-portable) | Portable | 2 | 7 | P2 — Important |
 | [8](#intent-8-resilient-by-default) | Resilient by Default | 2 | 9 | P2 — Important |
 | [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P2 — Important |
-| | **Total** | **23** | **89** | |
+| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 10 | P2 — Important |
+| | **Total** | **26** | **99** | |
 
 ## How to Read This
 
@@ -217,7 +218,7 @@ State survives restarts. Memory persists across calls. No database required.
 | 3 | `protected settings = {...}` auto-generates settings tool + persists | Runtime |
 | 4 | State works identically whether accessed via CLI, Beam, or MCP | All |
 
-### P5.2 — Real-time events with zero wiring
+### P5.2 — Real-time events with zero wiring (CloudEvents 1.0)
 
 `this.emit()` fires events that reach every connected client automatically.
 
@@ -300,9 +301,9 @@ Same photon deploys to bare metal, Docker, Cloudflare, AWS Lambda.
 *Methods handle failures gracefully. Retry, timeout, circuit break, rate limit —
 all via annotations, no try/catch boilerplate.*
 
-### P8.1 — Middleware from annotations
+### P8.1 — Middleware from annotations (Resilience4j/Polly vocabulary)
 
-Functional tags compose into a middleware pipeline.
+Functional tags compose into a Koa-style middleware pipeline with phase ordering.
 
 | # | Assertion | Target |
 |---|-----------|--------|
@@ -330,9 +331,10 @@ Background tasks and cron without infrastructure.
 *Authentication, encryption, and access control are built-in primitives,
 not afterthoughts.*
 
-### P9.1 — OAuth without boilerplate
+### P9.1 — OAuth without boilerplate (MCP OAuth 2.1 / RFC 9728)
 
-Built-in OAuth 2.0 for third-party API access.
+Built-in OAuth 2.1 with PKCE, RFC 9728 Protected Resource Metadata, and
+transport-agnostic `@auth` enforcement via elicitation.
 
 | # | Assertion | Target |
 |---|-----------|--------|
@@ -350,6 +352,50 @@ Locks and permissions know who's calling.
 | 1 | `@locked` with `@auth` assigns lock to specific caller ID | Runtime |
 | 2 | Only the lock holder can execute — others get clear "wait" message | Runtime |
 | 3 | Webhook secrets enforce `X-Webhook-Secret` header validation | Runtime |
+
+---
+
+## Intent 10: Standards-Aligned
+
+*Follow established protocols. Don't reinvent what already works.
+Adopt standards that enable interoperability without sacrificing simplicity.*
+
+Photon's features align with industry standards where they exist, and stay
+custom only where no standard applies or where the Photon-specific design is
+genuinely stronger.
+
+### P10.1 -- CloudEvents for event emission
+
+`@stateful` events use the CNCF CloudEvents 1.0 envelope format, making them
+consumable by any CloudEvents-aware sink (Kafka, EventBridge, NATS).
+
+| # | Assertion | Target |
+|---|-----------|--------|
+| 1 | `@stateful` method execution emits `specversion: '1.0'` in event payload | Runtime |
+| 2 | Events include `id`, `source`, `type`, and `time` fields | Runtime |
+| 3 | `source` follows `photon/{name}` format | Runtime |
+| 4 | `type` follows `photon.{name}.{method}.executed` format | Runtime |
+
+### P10.2 -- OpenTelemetry for observability
+
+`@async` execution IDs are valid W3C trace IDs. OTel spans carry photon context.
+
+| # | Assertion | Target |
+|---|-----------|--------|
+| 1 | `@async` returns a 32-hex-char trace ID compatible with OTel | Runtime |
+| 2 | Response includes `_traceparent` in W3C format `00-{traceId}-{spanId}-01` | Runtime |
+| 3 | OTel span attributes include `photon.trace_id` when async ID is provided | Runtime |
+
+### P10.3 -- Established patterns for resilience, auth, and storage
+
+Middleware follows Resilience4j/Polly vocabulary. Auth follows MCP OAuth 2.1.
+Memory follows Deno KV minimal surface.
+
+| # | Assertion | Target |
+|---|-----------|--------|
+| 1 | `MemoryBackend` interface includes `list(prefix?)` matching Deno KV surface | Runtime |
+| 2 | `MiddlewareContext` includes `caller` for auth-aware custom middleware | Runtime |
+| 3 | Circuit breaker state is inspectable via `/api/health/circuits` endpoint | Beam |
 
 ---
 
@@ -375,7 +421,7 @@ described as validated.
 |----------|---------|---------------|
 | P0 — Core | 1, 2, 3 | Yes — blocks release |
 | P1 — Essential | 4, 5, 6 | Yes — blocks release |
-| P2 — Important | 7, 8, 9 | Warning only |
+| P2 — Important | 7, 8, 9, 10 | Warning only |
 
 ---
 
