@@ -406,6 +406,8 @@ async batchUpdate(params: { taskIds: string[] }) {
 - Lock is held for the duration of method execution
 - Other processes/requests wait for lock release
 
+> **Single-node only:** The built-in lock uses the daemon's Unix socket and is scoped to a single machine/process group. For multi-node deployments, implement a custom lock backend (Redis Redlock, etcd leases, etc.) by overriding the lock manager via `applyMiddleware` in your custom middleware configuration.
+
 **Now auto-enforced:** Since v1.9.0, `@locked` is automatically enforced by the runtime. You no longer need to manually call `this.withLock()` — just add the tag and the runtime wraps execution with the lock.
 
 For programmatic locking with dynamic lock names, use `this.withLock()` (available on all `PhotonMCP` subclasses):

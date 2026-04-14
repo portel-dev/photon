@@ -560,6 +560,29 @@ This prevents CSRF and state tampering.
 - `KmsTokenVault`: uses envelope encryption with KMS-managed data keys, cached for 1 hour
 - All tokens stored as `base64(iv + authTag + ciphertext)`
 
+### Identity-Aware Locking with @locked
+
+Photon's `@locked` middleware integrates with authentication to enforce caller identity on locks. When a method is marked `@locked`, the runtime checks `this.caller.id` against the lock holder:
+
+```typescript
+/**
+ * Sensitive operation - only the lock holder's caller can proceed
+ * @locked sensitive:write
+ * @auth required
+ */
+async deleteAccount(params: { userId: string }) {
+  // Lock held only by the caller who acquired it
+  // Other callers attempting this method receive an error
+  // until the lock is released
+}
+```
+
+**Key differences from standard lock protocols:**
+- Standard locks are anonymous (any holder wins the race)
+- Photon locks are **identity-aware**: only the caller who acquired the lock can execute the locked method
+- This enables single-user resource protection (file checkouts, exclusive edits)
+- Multi-node deployments with custom lock backends should replicate this identity check for consistency
+
 ## Well-Known Endpoints
 
 Implements RFC 9728 (Protected Resource Metadata) and RFC 8414 (Authorization Server Metadata).

@@ -240,6 +240,17 @@ if (await acquireLock('kanban', 'board-write')) {
 }
 ```
 
+#### Single-Node Constraint
+
+The built-in lock implementation uses the daemon's Unix socket (`~/.photon/.data/daemon.sock`) and is scoped to a **single machine**. It ensures exclusive access within one node/process group but does not work in multi-node deployments.
+
+**For multi-node setups:**
+- Implement a custom lock backend (Redis Redlock, etcd leases, Consul, etc.)
+- Override the lock manager in `applyMiddleware` to use your distributed backend
+- The lock interface is minimal: `acquire(name, timeout)` and `release(name)`
+
+**Identity-aware locking:** Photon extends standard lock protocols by checking `this.caller.id`. In `@locked` methods, only the lock holder's caller can proceed - attempts by other callers return an error. This Photon-specific feature is not found in standard lock implementations.
+
 ### Scheduled Jobs: Background Tasks
 
 ```typescript
