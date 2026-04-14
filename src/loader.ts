@@ -3903,7 +3903,7 @@ Run: photon mcp ${mcpName} --config
                 : emit.type === 'success'
                   ? '✅'
                   : 'ℹ';
-          this.logger.info(`${icon} ${emit.message}`);
+          process.stdout.write(`${icon} ${emit.message}\n`);
           break;
 
         case 'thinking':
