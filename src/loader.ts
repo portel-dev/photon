@@ -3259,12 +3259,14 @@ Run: photon mcp ${mcpName} --config
     instanceName?: string
   ): () => Promise<any> {
     // Build middleware context
+    const store = executionContext.getStore();
     const ctx: MiddlewareContext = {
       photon: photonName,
       tool: toolName,
       instance: instanceName || 'default',
       params: parameters,
-    };
+      caller: store?.caller,
+    } as any; // MiddlewareContext type is in photon-core (read-only); caller added via runtime extension
 
     // Get declarations from the new middleware[] field
     const declarations: MiddlewareDeclaration[] = toolMeta.middleware || [];
