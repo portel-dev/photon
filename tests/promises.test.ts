@@ -1034,6 +1034,23 @@ export default class CtxProbe {
   await check(
     'I10',
     'P10.2',
+    'OTel logs bridge exposes emitOtelLog and is a safe no-op without SDK',
+    'Runtime',
+    async () => {
+      const mod = await import('../dist/telemetry/logs.js');
+      assert.equal(typeof mod.emitOtelLog, 'function');
+      assert.equal(typeof mod.isOtelLogsEnabled, 'function');
+      // Must not throw when SDK is absent.
+      mod.emitOtelLog({ level: 'info', message: 'hello', attributes: { k: 1 } });
+      mod.emitOtelLog({ level: 'error', message: 'boom' });
+      // isOtelLogsEnabled returns a boolean, false without SDK installed.
+      assert.equal(typeof mod.isOtelLogsEnabled(), 'boolean');
+    }
+  );
+
+  await check(
+    'I10',
+    'P10.2',
     'metrics module exposes recordToolCall and recordCircuitStateChange',
     'Runtime',
     async () => {

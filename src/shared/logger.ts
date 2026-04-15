@@ -141,6 +141,28 @@ export class Logger {
     if (this.sink) {
       this.sink({ ...record });
     }
+
+    // Forward to the OTel logs bridge when the SDK is installed. The bridge
+    // is a no-op otherwise so this adds no cost when unused.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const logsMod = require('../telemetry/logs.js') as {
+        emitOtelLog?: (record: {
+          level: 'debug' | 'info' | 'warn' | 'error';
+          message: string;
+          attributes?: Record<string, unknown>;
+        }) => void;
+      };
+      const attrs: Record<string, unknown> = {};
+      if (this.component) attrs['log.component'] = this.component;
+      if (this.scope) attrs['log.scope'] = this.scope;
+      if (meta) {
+        for (const [k, v] of Object.entries(meta)) attrs[k] = v;
+      }
+      logsMod.emitOtelLog?.({ level, message, attributes: attrs });
+    } catch {
+      /* logs bridge unavailable */
+    }
   }
 
   info(message: string, meta?: LogMeta) {

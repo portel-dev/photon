@@ -81,8 +81,10 @@ export function wrapError(error: unknown, context?: string, suggestion?: string)
 
   const message = context ? `${context}: ${getErrorMessage(error)}` : getErrorMessage(error);
 
-  // Preserve root cause per ECMAScript `Error` cause proposal — enables OTel
-  // recordException to capture the original stack trace.
+  // Preserve root cause per ECMAScript `Error` cause proposal. Photon-core
+  // ≥ 2.21 supports `{ cause }` as a 5th constructor arg, but we assign
+  // post-hoc for compatibility with the installed 2.20.x until the new
+  // version propagates.
   const withCause = (err: PhotonError): PhotonError => {
     if (error instanceof Error) (err as Error & { cause?: unknown }).cause = error;
     return err;

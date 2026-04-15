@@ -20,8 +20,8 @@ marketing.
 | [7](#intent-7-portable) | Portable | 2 | 7 | P2 — Important |
 | [8](#intent-8-resilient-by-default) | Resilient by Default | 2 | 9 | P2 — Important |
 | [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P2 — Important |
-| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 10 | P2 — Important |
-| | **Total** | **26** | **99** | |
+| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 19 | P2 — Important |
+| | **Total** | **26** | **108** | |
 
 ## How to Read This
 
@@ -385,6 +385,12 @@ consumable by any CloudEvents-aware sink (Kafka, EventBridge, NATS).
 | 1 | `@async` returns a 32-hex-char trace ID compatible with OTel | Runtime |
 | 2 | Response includes `_traceparent` in W3C format `00-{traceId}-{spanId}-01` | Runtime |
 | 3 | OTel span attributes include `photon.trace_id` when async ID is provided | Runtime |
+| 4 | OTel span attributes include `photon.stateful` when the tool is @stateful | Runtime |
+| 5 | `parseTraceparent` accepts valid W3C format and rejects malformed/all-zero | Runtime |
+| 6 | Tool-call telemetry emitted as OTel metrics (`photon.tool.duration` histogram, `photon.tool.calls`, `photon.tool.errors` counters) | Runtime |
+| 7 | Request context available via `AsyncLocalStorage` during tool execution | Runtime |
+| 8 | Nested `this.call()` forwards `_meta.traceparent` so child spans chain under the parent trace | Runtime |
+| 9 | OTel Logs bridge forwards every `Logger` record when `@opentelemetry/api-logs` is installed, no-op otherwise | Runtime |
 
 ### P10.3 -- Established patterns for resilience, auth, and storage
 
@@ -396,6 +402,9 @@ Memory follows Deno KV minimal surface.
 | 1 | `MemoryBackend` interface includes `list(prefix?)` matching Deno KV surface | Runtime |
 | 2 | `MiddlewareContext` includes `caller` for auth-aware custom middleware | Runtime |
 | 3 | Circuit breaker state is inspectable via `/api/health/circuits` endpoint | Beam |
+| 4 | `formatToolError` classifies `PhotonCircuitOpenError` as `circuit_open` with `retryable: true` | Runtime |
+| 5 | `formatToolError` marks `ValidationError` as non-retryable | Runtime |
+| 6 | `wrapError` preserves the root cause via `Error.cause` for OTel `recordException` | Runtime |
 
 ---
 
