@@ -81,48 +81,41 @@ export function wrapError(error: unknown, context?: string, suggestion?: string)
 
   const message = context ? `${context}: ${getErrorMessage(error)}` : getErrorMessage(error);
 
-  // Preserve root cause per ECMAScript `Error` cause proposal. Photon-core
-  // ≥ 2.21 supports `{ cause }` as a 5th constructor arg, but we assign
-  // post-hoc for compatibility with the installed 2.20.x until the new
-  // version propagates.
-  const withCause = (err: PhotonError): PhotonError => {
-    if (error instanceof Error) (err as Error & { cause?: unknown }).cause = error;
-    return err;
-  };
+  // Preserve root cause per ECMAScript `Error` cause proposal. photon-core
+  // ≥ 2.21 accepts `{ cause }` as a 5th constructor arg — OTel recordException
+  // walks the cause chain to the original stack.
+  const opts = error instanceof Error ? { cause: error } : undefined;
 
   // Handle Node.js errors with helpful context
   if (isNodeError(error)) {
     if (error.code === 'ENOENT' && error.path) {
-      return withCause(
-        new PhotonError(
-          `File not found: ${error.path}${context ? ` (${context})` : ''}`,
-          'FILE_SYSTEM_ERROR',
-          { path: error.path },
-          'Check that the file exists and you have read permissions'
-        )
+      return new PhotonError(
+        `File not found: ${error.path}${context ? ` (${context})` : ''}`,
+        'FILE_SYSTEM_ERROR',
+        { path: error.path },
+        'Check that the file exists and you have read permissions',
+        opts
       );
     }
     if (error.code === 'EACCES' && error.path) {
-      return withCause(
-        new PhotonError(
-          `Permission denied: ${error.path}${context ? ` (${context})` : ''}`,
-          'FILE_SYSTEM_ERROR',
-          { path: error.path },
-          'Check file permissions and ensure you have access rights'
-        )
+      return new PhotonError(
+        `Permission denied: ${error.path}${context ? ` (${context})` : ''}`,
+        'FILE_SYSTEM_ERROR',
+        { path: error.path },
+        'Check file permissions and ensure you have access rights',
+        opts
       );
     }
-    return withCause(
-      new PhotonError(
-        message,
-        'FILE_SYSTEM_ERROR',
-        { code: error.code, path: error.path },
-        suggestion
-      )
+    return new PhotonError(
+      message,
+      'FILE_SYSTEM_ERROR',
+      { code: error.code, path: error.path },
+      suggestion,
+      opts
     );
   }
 
-  return withCause(new PhotonError(message, 'UNKNOWN_ERROR', undefined, suggestion));
+  return new PhotonError(message, 'UNKNOWN_ERROR', undefined, suggestion, opts);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
