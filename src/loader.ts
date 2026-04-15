@@ -19,6 +19,7 @@ import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { startToolSpan } from './telemetry/otel.js';
+import { recordToolCall, recordCircuitStateChange } from './telemetry/metrics.js';
 import { spawn } from 'child_process';
 import {
   SchemaExtractor,
@@ -3371,9 +3372,21 @@ Run: photon mcp ${mcpName} --config
             return error;
           };
 
+          const emitTransition = (from: typeof circuit.state, to: typeof circuit.state) => {
+            if (from === to) return;
+            recordCircuitStateChange({
+              photon: ctx.photon,
+              tool: ctx.tool,
+              instance: ctx.instance,
+              from,
+              to,
+            });
+          };
+
           if (circuit.state === 'open') {
             if (Date.now() - circuit.openedAt >= config.resetAfterMs) {
               // Transition to half-open and allow exactly one probe through.
+              emitTransition('open', 'half-open');
               circuit.state = 'half-open';
               (circuit as any).probeInFlight = true;
             } else {
@@ -3387,9 +3400,11 @@ Run: photon mcp ${mcpName} --config
             (circuit as any).probeInFlight = true;
           }
 
+          const stateBefore = circuit.state;
           try {
             const result = await next();
             circuit.failures = 0;
+            if (stateBefore !== 'closed') emitTransition(stateBefore, 'closed');
             circuit.state = 'closed';
             (circuit as any).probeInFlight = false;
             return result;
@@ -3397,7 +3412,8 @@ Run: photon mcp ${mcpName} --config
             circuit.failures++;
             (circuit as any).probeInFlight = false;
             // A failed probe in half-open immediately reopens the circuit.
-            if (circuit.state === 'half-open' || circuit.failures >= config.threshold) {
+            if (stateBefore === 'half-open' || circuit.failures >= config.threshold) {
+              emitTransition(circuit.state, 'open');
               circuit.state = 'open';
               circuit.openedAt = Date.now();
             }
@@ -3446,6 +3462,11 @@ Run: photon mcp ${mcpName} --config
     // Start audit trail recording
     const audit = getAuditTrail();
     const { finish: auditFinish } = audit.start(mcp.name, toolName, parameters || {});
+
+    // Start wall-clock timer for tool-call duration histogram.
+    const toolStartedAt = Date.now();
+    let metricsStatus: 'ok' | 'error' = 'ok';
+    let metricsErrorType: string | undefined;
 
     // Peek at _meta.traceparent before span creation so distributed traces chain.
     // Explicit option wins over in-band _meta (server may have extracted from headers).
@@ -3870,10 +3891,20 @@ Run: photon mcp ${mcpName} --config
       span.recordException(error);
       span.setStatus('ERROR', error instanceof Error ? error.message : String(error));
       auditFinish(null, error as Error);
+      metricsStatus = 'error';
+      metricsErrorType = error instanceof Error ? error.name || 'Error' : 'unknown';
       this.logger.error(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
       throw error;
     } finally {
       span.end();
+      recordToolCall({
+        photon: mcp.name,
+        tool: toolName,
+        durationMs: Date.now() - toolStartedAt,
+        status: metricsStatus,
+        errorType: metricsErrorType,
+        stateful: isStateful,
+      });
     }
   }
 

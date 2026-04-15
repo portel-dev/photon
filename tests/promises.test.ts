@@ -950,6 +950,33 @@ async function main() {
     }
   );
 
+  await check(
+    'I10',
+    'P10.2',
+    'metrics module exposes recordToolCall and recordCircuitStateChange',
+    'Runtime',
+    async () => {
+      const mod = await import('../dist/telemetry/metrics.js');
+      assert.equal(typeof mod.recordToolCall, 'function');
+      assert.equal(typeof mod.recordCircuitStateChange, 'function');
+      // No-op when OTel SDK is absent — must not throw.
+      mod.recordToolCall({
+        photon: 'p',
+        tool: 't',
+        durationMs: 5,
+        status: 'ok',
+        stateful: false,
+      });
+      mod.recordCircuitStateChange({
+        photon: 'p',
+        tool: 't',
+        from: 'closed',
+        to: 'open',
+      });
+      assert.equal(typeof mod.isMetricsEnabled, 'function');
+    }
+  );
+
   // P10.3 — Established patterns for resilience, auth, and storage
 
   await check(
