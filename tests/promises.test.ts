@@ -1158,6 +1158,24 @@ export default class CtxProbe {
     }
   );
 
+  await check(
+    'I10',
+    'P10.3',
+    'formatToolError classifies PhotonRateLimitError as rate_limited (retryable)',
+    'Runtime',
+    async () => {
+      const { formatToolError } = await import('../dist/shared/error-handler.js');
+      const { recordRateLimitRejection } = await import('../dist/telemetry/metrics.js');
+      const err = new Error('Rate limited: photon.tool exceeds 10 calls per 60000ms');
+      (err as any).name = 'PhotonRateLimitError';
+      const out = formatToolError('tool', err);
+      assert.equal(out.errorType, 'rate_limited');
+      assert.equal(out.retryable, true);
+      // Must not throw when SDK is absent.
+      recordRateLimitRejection({ photon: 'p', tool: 't' });
+    }
+  );
+
   // P10.3 assertion 3 — /api/health/circuits endpoint is inspectable.
   await startBeam();
   try {

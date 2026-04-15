@@ -246,6 +246,10 @@ export function formatToolError(
     suggestion =
       'Circuit breaker is open after repeated failures. Back off and retry after the reset window.';
     retryable = true;
+  } else if (errorName === 'PhotonRateLimitError') {
+    errorType = 'rate_limited';
+    suggestion = 'Rate limit exceeded for this tool. Wait for the window to roll over and retry.';
+    retryable = true;
   } else if (errorName === 'PhotonTimeoutError' || nodeCode === 'ETIMEDOUT') {
     errorType = 'timeout_error';
     suggestion = 'The operation took too long. Try again or check external service availability.';

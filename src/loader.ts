@@ -19,7 +19,11 @@ import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { startToolSpan } from './telemetry/otel.js';
-import { recordToolCall, recordCircuitStateChange } from './telemetry/metrics.js';
+import {
+  recordToolCall,
+  recordCircuitStateChange,
+  recordRateLimitRejection,
+} from './telemetry/metrics.js';
 import { runWithRequestContext } from './telemetry/context.js';
 import { spawn } from 'child_process';
 import {
@@ -3964,6 +3968,16 @@ Run: photon mcp ${mcpName} --config
       auditFinish(null, error as Error);
       metricsStatus = 'error';
       metricsErrorType = error instanceof Error ? error.name || 'Error' : 'unknown';
+      // Emit a dedicated counter for rate-limit rejections so dashboards can
+      // alert on sustained throttling without scanning the generic error
+      // stream.
+      if (metricsErrorType === 'PhotonRateLimitError') {
+        recordRateLimitRejection({
+          photon: mcp.name,
+          tool: toolName,
+          instance: mcp.instance?.instanceName,
+        });
+      }
       this.logger.error(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
       throw error;
     } finally {

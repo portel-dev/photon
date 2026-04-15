@@ -55,6 +55,7 @@ created.
 | `photon.tool.calls` | counter | 1 | same |
 | `photon.tool.errors` | counter | 1 | same |
 | `photon.circuit_breaker.transitions` | counter | 1 | `gen_ai.agent.name`, `gen_ai.tool.name`, `from`, `to`, `photon.instance` |
+| `photon.rate_limit.rejections` | counter | 1 | `gen_ai.agent.name`, `gen_ai.tool.name`, `photon.instance` |
 
 ### Structured error responses
 
@@ -77,8 +78,8 @@ a machine-readable payload so agents can make typed retry decisions:
 ```
 
 Error `type` values: `validation_error`, `timeout_error`, `network_error`,
-`permission_error`, `not_found_error`, `circuit_open`, `implementation_error`,
-`runtime_error`. `retryable` is `true` for transient failures
+`permission_error`, `not_found_error`, `circuit_open`, `rate_limited`,
+`implementation_error`, `runtime_error`. `retryable` is `true` for transient failures
 (circuit_open, timeout, network) and `false` for deterministic ones
 (validation, permission, not_found).
 
