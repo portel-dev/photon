@@ -89,7 +89,19 @@ export interface RunFinishedEvent extends BaseEvent {
 export interface RunErrorEvent extends BaseEvent {
   type: AGUIEventType.RUN_ERROR;
   message: string;
+  /** Classification code from `formatToolError` — e.g. `circuit_open`,
+   *  `rate_limited`, `validation_error`. Enables AG-UI clients to decide
+   *  whether to surface the failure, retry silently, or prompt the user. */
   code?: string;
+  /** True when the failure is transient and a retry may succeed without
+   *  operator intervention (circuit_open, rate_limited, bulkhead_full,
+   *  timeout_error, network_error). */
+  retryable?: boolean;
+  /** Run identifier so a client that multiplexes runs over one stream can
+   *  route the error to the correct session. Mirrors RUN_STARTED/FINISHED. */
+  runId?: string;
+  /** Thread identifier for the same reason. */
+  threadId?: string;
 }
 
 export interface StepStartedEvent extends BaseEvent {

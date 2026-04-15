@@ -677,6 +677,15 @@ const handlers: Record<string, RequestHandler> = {
             'ag-ui': {
               version: '0.1.0',
               events: Object.values(AGUIEventType),
+              // Capability flags advertise server-side features so clients can
+              // negotiate without probing. Matches the handshake pattern used
+              // elsewhere in MCP `experimental`.
+              features: [
+                'structured-errors', // RUN_ERROR carries code + retryable
+                'trace-correlation', // events include rawEvent.traceparent
+                'proxy-mode', // ag-ui/run accepts agentUrl to proxy
+                'local-mode', // ag-ui/run accepts photon+method to run locally
+              ],
             },
           },
         },
@@ -817,7 +826,9 @@ const handlers: Record<string, RequestHandler> = {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      agui.error(message);
+      // Classify the error so AG-UI clients can auto-retry transient failures.
+      const { errorType, retryable } = formatToolError(methodName, err);
+      agui.error(message, { code: errorType, retryable });
     }
 
     return { jsonrpc: '2.0', id: req.id, result: { success: true } };

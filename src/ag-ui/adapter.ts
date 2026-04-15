@@ -22,12 +22,45 @@ import { AGUIEventType, type AGUIEvent, type RunAgentInput, type BaseEvent } fro
 
 type BroadcastFn = (notification: object) => void;
 
-/** Wrap an AG-UI event as a JSON-RPC 2.0 notification */
+/**
+ * Wrap an AG-UI event as a JSON-RPC 2.0 notification.
+ *
+ * Attaches a W3C `traceparent` in `rawEvent.traceparent` when an ambient
+ * request context is active, so AG-UI clients can correlate a UI event to
+ * the exact span in Jaeger/Tempo/Honeycomb.
+ */
 function wrapNotification(event: AGUIEvent | BaseEvent): object {
+  // Resolve ambient trace context lazily to avoid a hard import cycle.
+  let traceparent: string | undefined;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const ctxMod = require('../telemetry/context.js') as {
+      getRequestContext?: () => { traceId?: string; parentTraceparent?: string } | undefined;
+    };
+    const ctx = ctxMod.getRequestContext?.();
+    if (ctx) {
+      traceparent =
+        ctx.parentTraceparent ||
+        (ctx.traceId ? `00-${ctx.traceId}-0000000000000000-01` : undefined);
+    }
+  } catch {
+    /* context module unavailable */
+  }
+
+  const paramEvent = traceparent
+    ? {
+        ...event,
+        rawEvent: {
+          ...((event as { rawEvent?: Record<string, unknown> }).rawEvent ?? {}),
+          traceparent,
+        },
+      }
+    : event;
+
   return {
     jsonrpc: '2.0',
     method: 'ag-ui/event',
-    params: event,
+    params: paramEvent,
   };
 }
 
@@ -179,7 +212,7 @@ export function createAGUIOutputHandler(
 ): {
   outputHandler: (yieldValue: any) => void;
   finish: (result?: unknown) => void;
-  error: (message: string) => void;
+  error: (message: string, classification?: { code?: string; retryable?: boolean }) => void;
 } {
   const threadId = `${photonName}/${toolName}`;
   const messageId = randomUUID();
@@ -376,7 +409,10 @@ export function createAGUIOutputHandler(
     );
   };
 
-  const error = (message: string): void => {
+  const error = (
+    message: string,
+    classification?: { code?: string; retryable?: boolean }
+  ): void => {
     const ts = Date.now();
 
     // Close any open text stream
@@ -394,6 +430,10 @@ export function createAGUIOutputHandler(
       wrapNotification({
         type: AGUIEventType.RUN_ERROR,
         message,
+        code: classification?.code,
+        retryable: classification?.retryable,
+        runId,
+        threadId,
         timestamp: ts,
       })
     );

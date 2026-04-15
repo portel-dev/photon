@@ -151,6 +151,22 @@ The `/api/health` body shape:
 
 These are standard OTel variables; Photon doesn't invent any of them.
 
+## AG-UI integration
+
+AG-UI clients running against Photon benefit from everything in this guide
+automatically:
+
+- **Structured errors** — `RUN_ERROR` events include `code` (error type),
+  `retryable` (boolean), `runId`, and `threadId`, so clients can classify
+  failures and auto-retry transient ones without bubbling to the user.
+- **Trace correlation** — every AG-UI event carries
+  `rawEvent.traceparent`, letting clients deep-link a UI event to the
+  backing span in Jaeger/Tempo.
+- **Capability handshake** — MCP `initialize` advertises
+  `experimental['ag-ui'].features` (`structured-errors`,
+  `trace-correlation`, `proxy-mode`, `local-mode`) so clients can
+  negotiate without probing.
+
 ## Philosophy
 
 Photon's instrumentation is intentionally zero-dependency: the runtime

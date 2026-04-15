@@ -20,8 +20,8 @@ marketing.
 | [7](#intent-7-portable) | Portable | 2 | 7 | P2 — Important |
 | [8](#intent-8-resilient-by-default) | Resilient by Default | 2 | 9 | P2 — Important |
 | [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P2 — Important |
-| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 24 | P2 — Important |
-| | **Total** | **26** | **113** | |
+| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 27 | P2 — Important |
+| | **Total** | **26** | **116** | |
 
 ## How to Read This
 
@@ -392,6 +392,9 @@ consumable by any CloudEvents-aware sink (Kafka, EventBridge, NATS).
 | 8 | Nested `this.call()` forwards `_meta.traceparent` so child spans chain under the parent trace | Runtime |
 | 9 | OTel Logs bridge forwards every `Logger` record when `@opentelemetry/api-logs` is installed, no-op otherwise | Runtime |
 | 10 | `initOtelSdk` boots `@opentelemetry/sdk-node` automatically when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; no-op otherwise | Runtime |
+| 11 | AG-UI `RUN_ERROR` events carry `code`, `retryable`, `runId`, `threadId` so clients can classify and auto-retry failures | Runtime |
+| 12 | AG-UI events include `rawEvent.traceparent` when emitted inside a request context, correlating UI events to OTel spans | Runtime |
+| 13 | MCP `initialize` advertises `experimental['ag-ui'].features` (`structured-errors`, `trace-correlation`, `proxy-mode`, `local-mode`) for capability negotiation | Runtime |
 
 ### P10.3 -- Established patterns for resilience, auth, and storage
 

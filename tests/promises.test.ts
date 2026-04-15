@@ -1034,6 +1034,50 @@ export default class CtxProbe {
   await check(
     'I10',
     'P10.2',
+    'AG-UI RunError includes structured classification (code, retryable, runId)',
+    'Runtime',
+    async () => {
+      const { createAGUIOutputHandler } = await import('../dist/ag-ui/adapter.js');
+      const captured: any[] = [];
+      const { error } = createAGUIOutputHandler('p', 't', 'run-xyz', (n) => captured.push(n));
+      error('Bulkhead full', { code: 'bulkhead_full', retryable: true });
+      const errorEvent = captured.map((n) => n.params).find((p) => p.type === 'RUN_ERROR');
+      assert.ok(errorEvent, 'RUN_ERROR emitted');
+      assert.equal(errorEvent.code, 'bulkhead_full');
+      assert.equal(errorEvent.retryable, true);
+      assert.equal(errorEvent.runId, 'run-xyz');
+      assert.equal(errorEvent.threadId, 'p/t');
+    }
+  );
+
+  await check(
+    'I10',
+    'P10.2',
+    'AG-UI events include rawEvent.traceparent when emitted inside a request context',
+    'Runtime',
+    async () => {
+      const { createAGUIOutputHandler } = await import('../dist/ag-ui/adapter.js');
+      const { runWithRequestContext } = await import('../dist/telemetry/context.js');
+      const captured: any[] = [];
+      const traceId = '9'.repeat(32);
+      runWithRequestContext({ photon: 'p', tool: 't', traceId, startedAt: Date.now() }, () => {
+        const { finish } = createAGUIOutputHandler('p', 't', 'run-1', (n) => captured.push(n));
+        finish({ ok: true });
+      });
+      // Every event must carry traceparent.
+      for (const n of captured) {
+        assert.ok(n.params.rawEvent?.traceparent, 'rawEvent.traceparent attached');
+        assert.ok(
+          String(n.params.rawEvent.traceparent).includes(traceId),
+          'traceparent includes ambient traceId'
+        );
+      }
+    }
+  );
+
+  await check(
+    'I10',
+    'P10.2',
     'initOtelSdk is a no-op when OTEL_EXPORTER_OTLP_ENDPOINT is unset',
     'Runtime',
     async () => {
