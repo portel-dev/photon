@@ -1034,6 +1034,29 @@ export default class CtxProbe {
   await check(
     'I10',
     'P10.2',
+    'initOtelSdk is a no-op when OTEL_EXPORTER_OTLP_ENDPOINT is unset',
+    'Runtime',
+    async () => {
+      const { initOtelSdk, isOtelSdkStarted, isOtelRequested } =
+        await import('../dist/telemetry/sdk.js');
+      const priorEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+      try {
+        assert.equal(isOtelRequested(), false, 'unset env means no request');
+        const started = await initOtelSdk();
+        assert.equal(started, false, 'init returns false without env var');
+        assert.equal(isOtelSdkStarted(), false);
+      } finally {
+        if (priorEndpoint !== undefined) {
+          process.env.OTEL_EXPORTER_OTLP_ENDPOINT = priorEndpoint;
+        }
+      }
+    }
+  );
+
+  await check(
+    'I10',
+    'P10.2',
     'OTel logs bridge exposes emitOtelLog and is a safe no-op without SDK',
     'Runtime',
     async () => {
