@@ -20,8 +20,8 @@ marketing.
 | [7](#intent-7-portable) | Portable | 2 | 7 | P2 — Important |
 | [8](#intent-8-resilient-by-default) | Resilient by Default | 2 | 9 | P2 — Important |
 | [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P2 — Important |
-| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 23 | P2 — Important |
-| | **Total** | **26** | **112** | |
+| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 24 | P2 — Important |
+| | **Total** | **26** | **113** | |
 
 ## How to Read This
 
@@ -403,6 +403,7 @@ Memory follows Deno KV minimal surface.
 | 1 | `MemoryBackend` interface includes `list(prefix?)` matching Deno KV surface | Runtime |
 | 2 | `MiddlewareContext` includes `caller` for auth-aware custom middleware | Runtime |
 | 3 | Circuit breaker state is inspectable via `/api/health/circuits` endpoint | Beam |
+| 10 | `/api/health` returns liveness/readiness with per-subsystem status (runtime/photons/circuits) and 503 when any subsystem is degraded | Beam |
 | 4 | `formatToolError` classifies `PhotonCircuitOpenError` as `circuit_open` with `retryable: true` | Runtime |
 | 5 | `formatToolError` marks `ValidationError` as non-retryable | Runtime |
 | 6 | `wrapError` preserves the root cause via `Error.cause` for OTel `recordException` | Runtime |

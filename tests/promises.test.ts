@@ -1199,6 +1199,28 @@ export default class CtxProbe {
     await check(
       'I10',
       'P10.3',
+      '/api/health returns liveness/readiness with subsystem breakdown',
+      'Beam',
+      async () => {
+        const res = await fetch(`http://localhost:${beamPort}/api/health`);
+        // 200 when healthy; 503 when degraded — both are valid shapes.
+        assert.ok(res.status === 200 || res.status === 503, `status ${res.status}`);
+        const body = (await res.json()) as {
+          status: 'ok' | 'degraded';
+          uptime_s: number;
+          subsystems: Record<string, { status: 'ok' | 'degraded' }>;
+        };
+        assert.ok(body.status === 'ok' || body.status === 'degraded');
+        assert.equal(typeof body.uptime_s, 'number');
+        assert.ok(body.subsystems.runtime, 'runtime subsystem present');
+        assert.ok(body.subsystems.photons, 'photons subsystem present');
+        assert.ok(body.subsystems.circuits, 'circuits subsystem present');
+      }
+    );
+
+    await check(
+      'I10',
+      'P10.3',
       '/api/health/circuits returns summary and circuits map',
       'Beam',
       async () => {

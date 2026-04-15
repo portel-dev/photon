@@ -280,6 +280,48 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
+  // Top-level health endpoint — liveness + readiness + subsystem summary.
+  // Returns 200 when all subsystems are healthy, 503 when any is degraded.
+  // Kubernetes-style: mount this as both livenessProbe and readinessProbe.
+  if (url.pathname === '/api/health' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const circuits = state.loader.getCircuitHealth();
+      const circuitEntries = Object.entries(circuits);
+      const openCircuits = circuitEntries.filter(([, v]) => v.state === 'open').length;
+      const photonCount = state.photons.length;
+      const subsystems: Record<string, { status: 'ok' | 'degraded'; detail?: string }> = {
+        runtime: { status: 'ok' },
+        photons: {
+          status: photonCount > 0 ? 'ok' : 'degraded',
+          detail: `${photonCount} photon(s) loaded`,
+        },
+        circuits: {
+          status: openCircuits === 0 ? 'ok' : 'degraded',
+          detail: `${openCircuits} open of ${circuitEntries.length} tracked`,
+        },
+      };
+      const degraded = Object.values(subsystems).some((s) => s.status === 'degraded');
+      const body = {
+        status: degraded ? 'degraded' : 'ok',
+        uptime_s: Math.round(process.uptime()),
+        timestamp: new Date().toISOString(),
+        subsystems,
+      };
+      res.writeHead(degraded ? 503 : 200);
+      res.end(JSON.stringify(body));
+    } catch (e) {
+      res.writeHead(500);
+      res.end(
+        JSON.stringify({
+          status: 'degraded',
+          error: e instanceof Error ? e.message : String(e),
+        })
+      );
+    }
+    return true;
+  }
+
   // Circuit breaker health endpoint
   if (url.pathname === '/api/health/circuits' && req.method === 'GET') {
     res.setHeader('Content-Type', 'application/json');

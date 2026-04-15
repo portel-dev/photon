@@ -114,6 +114,30 @@ docker run -p 16686:16686 -p 4318:4318 \
   jaegertracing/all-in-one:latest
 ```
 
+## Health checks
+
+Beam exposes two HTTP endpoints for liveness/readiness probes:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/health` | Top-level status with per-subsystem breakdown. Returns `200` when all subsystems are `ok`, `503` when any is `degraded`. Mount as Kubernetes `livenessProbe` + `readinessProbe`. |
+| `GET /api/health/circuits` | Per-circuit state (closed/open/half-open) plus summary counts. Useful for ops dashboards. |
+
+The `/api/health` body shape:
+
+```json
+{
+  "status": "ok",
+  "uptime_s": 1234,
+  "timestamp": "2026-04-15T07:50:00.000Z",
+  "subsystems": {
+    "runtime":  { "status": "ok" },
+    "photons":  { "status": "ok", "detail": "5 photon(s) loaded" },
+    "circuits": { "status": "ok", "detail": "0 open of 3 tracked" }
+  }
+}
+```
+
 ## Environment variables
 
 | Variable | Purpose |
