@@ -948,9 +948,33 @@ export class PhotonLoader {
           params: Record<string, any>,
           targetInstance?: string
         ) => {
+          // Propagate trace context to nested photon-to-photon calls so the
+          // downstream span chains as a child of the current span. Uses
+          // in-band `_meta.traceparent` which executeTool peeks at before
+          // schema validation — works through worker threads transparently.
+          const ctxMod = await import('./telemetry/context.js');
+          const ctx = ctxMod.getRequestContext();
+          let forwardedParams = params;
+          if (ctx) {
+            const traceparent =
+              ctx.parentTraceparent ||
+              (ctx.traceId
+                ? `00-${ctx.traceId}-${crypto.randomBytes(8).toString('hex')}-01`
+                : undefined);
+            if (traceparent) {
+              const existingMeta = (params as any)?._meta;
+              forwardedParams = {
+                ...(params || {}),
+                _meta:
+                  existingMeta && typeof existingMeta === 'object'
+                    ? { traceparent, ...existingMeta }
+                    : { traceparent },
+              };
+            }
+          }
           // Dynamic import to avoid circular dependency
           const { sendCommand } = await import('./daemon/client.js');
-          return sendCommand(photonName, method, params, {
+          return sendCommand(photonName, method, forwardedParams, {
             workingDir: callBaseDir,
             targetInstance,
           });
@@ -3460,16 +3484,36 @@ Run: photon mcp ${mcpName} --config
       parentTraceparent?: string;
     }
   ): Promise<any> {
+    // Resolve parentTraceparent from options or in-band `_meta.traceparent` so
+    // the ALS context reflects the true parent for any nested `this.call()`.
+    let resolvedParentTraceparent = options?.parentTraceparent;
+    if (
+      !resolvedParentTraceparent &&
+      parameters &&
+      typeof parameters === 'object' &&
+      '_meta' in parameters
+    ) {
+      const metaPeek = (parameters as Record<string, unknown>)._meta as
+        | Record<string, unknown>
+        | undefined;
+      if (metaPeek && typeof metaPeek.traceparent === 'string') {
+        resolvedParentTraceparent = metaPeek.traceparent;
+      }
+    }
     return runWithRequestContext(
       {
         photon: mcp.name,
         tool: toolName,
         traceId: options?.traceId,
-        parentTraceparent: options?.parentTraceparent,
+        parentTraceparent: resolvedParentTraceparent,
         caller: options?.caller,
         startedAt: Date.now(),
       },
-      () => this._executeToolInner(mcp, toolName, parameters, options)
+      () =>
+        this._executeToolInner(mcp, toolName, parameters, {
+          ...options,
+          parentTraceparent: resolvedParentTraceparent,
+        })
     );
   }
 

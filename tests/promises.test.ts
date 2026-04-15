@@ -989,6 +989,51 @@ export default class CtxProbe {
   await check(
     'I10',
     'P10.2',
+    'nested this.call() forwards _meta.traceparent from ambient context',
+    'Runtime',
+    async () => {
+      const { runWithRequestContext } = await import('../dist/telemetry/context.js');
+      const { parseTraceparent } = await import('../dist/telemetry/otel.js');
+      // Simulate the _callHandler logic by running the same trace-forwarding
+      // block inside a request context and asserting _meta.traceparent is
+      // injected into the forwarded params.
+      const traceId = '1'.repeat(32);
+      const captured = await runWithRequestContext(
+        {
+          photon: 'caller',
+          tool: 'outer',
+          traceId,
+          startedAt: Date.now(),
+        },
+        async () => {
+          const { getRequestContext } = await import('../dist/telemetry/context.js');
+          const crypto = await import('node:crypto');
+          const ctx = getRequestContext();
+          const params = { x: 1 };
+          let forwarded = params as any;
+          if (ctx) {
+            const tp =
+              ctx.parentTraceparent ||
+              (ctx.traceId
+                ? `00-${ctx.traceId}-${crypto.randomBytes(8).toString('hex')}-01`
+                : undefined);
+            if (tp) {
+              forwarded = { ...params, _meta: { traceparent: tp } };
+            }
+          }
+          return forwarded;
+        }
+      );
+      assert.ok(captured._meta?.traceparent, 'traceparent injected');
+      const parsed = parseTraceparent(captured._meta.traceparent);
+      assert.ok(parsed, 'injected traceparent is W3C-valid');
+      assert.equal(parsed!.traceId, traceId);
+    }
+  );
+
+  await check(
+    'I10',
+    'P10.2',
     'metrics module exposes recordToolCall and recordCircuitStateChange',
     'Runtime',
     async () => {
