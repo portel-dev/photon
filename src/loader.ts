@@ -3363,26 +3363,41 @@ Run: photon mcp ${mcpName} --config
             tracker.set(key, circuit);
           }
 
+          const openError = (): Error => {
+            const error = new Error(
+              `Circuit open: ${ctx.photon}.${ctx.tool} has failed ${config.threshold} consecutive times. Resets in ${Math.ceil((config.resetAfterMs - (Date.now() - circuit.openedAt)) / 1000)}s`
+            );
+            (error as any).name = 'PhotonCircuitOpenError';
+            return error;
+          };
+
           if (circuit.state === 'open') {
             if (Date.now() - circuit.openedAt >= config.resetAfterMs) {
+              // Transition to half-open and allow exactly one probe through.
               circuit.state = 'half-open';
+              (circuit as any).probeInFlight = true;
             } else {
-              const error = new Error(
-                `Circuit open: ${ctx.photon}.${ctx.tool} has failed ${config.threshold} consecutive times. Resets in ${Math.ceil((config.resetAfterMs - (Date.now() - circuit.openedAt)) / 1000)}s`
-              );
-              (error as any).name = 'PhotonCircuitOpenError';
-              throw error;
+              throw openError();
             }
+          } else if (circuit.state === 'half-open') {
+            // Probe already in flight — reject concurrent requests to avoid stampede.
+            if ((circuit as any).probeInFlight) {
+              throw openError();
+            }
+            (circuit as any).probeInFlight = true;
           }
 
           try {
             const result = await next();
             circuit.failures = 0;
             circuit.state = 'closed';
+            (circuit as any).probeInFlight = false;
             return result;
           } catch (error) {
             circuit.failures++;
-            if (circuit.failures >= config.threshold) {
+            (circuit as any).probeInFlight = false;
+            // A failed probe in half-open immediately reopens the circuit.
+            if (circuit.state === 'half-open' || circuit.failures >= config.threshold) {
               circuit.state = 'open';
               circuit.openedAt = Date.now();
             }
@@ -3432,7 +3447,9 @@ Run: photon mcp ${mcpName} --config
     const { finish: auditFinish } = audit.start(mcp.name, toolName, parameters || {});
 
     // Start OTel span for tool execution (no-op if SDK not installed)
-    const span = startToolSpan(mcp.name, toolName, parameters, options?.traceId);
+    const toolMetaForSpan = (mcp as any)?.meta?.tools?.[toolName];
+    const isStateful = Boolean(toolMetaForSpan?.stateful ?? (mcp as any)?.meta?.stateful);
+    const span = startToolSpan(mcp.name, toolName, parameters, options?.traceId, isStateful);
     if (mcp.instance?.instanceName) {
       span.setAttribute('photon.instance', mcp.instance.instanceName);
     }
@@ -3650,9 +3667,11 @@ Run: photon mcp ${mcpName} --config
             if (options?.outputHandler) {
               try {
                 if (process.env.PHOTON_DEBUG_EMIT === '1') {
-                  console.error(
-                    `[EMIT-DEBUG] Sending event: method=${eventPayload.data.method}, channel=${eventData.channel}, hasMeta=${!!result?.__meta}`
-                  );
+                  this.logger.debug('[emit] sending event', {
+                    method: eventPayload.data.method,
+                    channel: eventData.channel,
+                    hasMeta: !!result?.__meta,
+                  });
                 }
                 // Cast to DaemonEventEnvelope - outputHandler is flexible and routes any object with channel property
                 void Promise.resolve(
@@ -3661,35 +3680,32 @@ Run: photon mcp ${mcpName} --config
                   this.logger.debug('Output handler failed for event', { error: e?.message || e });
                 });
                 if (process.env.PHOTON_DEBUG_EMIT === '1') {
-                  console.error(`[EMIT-DEBUG] Event transmitted to outputHandler`);
+                  this.logger.debug('[emit] event transmitted to outputHandler');
                 }
               } catch (e) {
-                console.error(
-                  `[EMIT-ERROR] Failed to send event through outputHandler: ${e instanceof Error ? e.message : String(e)}`
-                );
+                this.logger.error('Failed to send event through outputHandler', {
+                  error: e instanceof Error ? e.message : String(e),
+                });
               }
             } else if (mcp.instance && typeof mcp.instance.emit === 'function') {
               // Fallback for cases where outputHandler isn't available
               // (this path won't route to daemon pub/sub, but at least calls emit)
               try {
                 if (process.env.PHOTON_DEBUG_EMIT === '1') {
-                  console.error(`[EMIT-DEBUG] No outputHandler, falling back to instance.emit`);
+                  this.logger.debug('[emit] no outputHandler, falling back to instance.emit');
                 }
                 mcp.instance.emit(eventData);
               } catch (e) {
-                console.error(
-                  `[EMIT-ERROR] Failed to emit: ${e instanceof Error ? e.message : String(e)}`
-                );
+                this.logger.error('Failed to emit event via instance.emit', {
+                  error: e instanceof Error ? e.message : String(e),
+                });
               }
             }
           } catch (e) {
             // Log emit errors but don't break tool execution
-            console.error(
-              `[EMIT-ERROR] Failed to emit @stateful event: ${e instanceof Error ? e.message : String(e)}`
-            );
-            this.logger.debug(
-              `Failed to emit @stateful event: ${e instanceof Error ? e.message : String(e)}`
-            );
+            this.logger.error('Failed to emit @stateful event', {
+              error: e instanceof Error ? e.message : String(e),
+            });
           }
         }
 
@@ -3792,6 +3808,7 @@ Run: photon mcp ${mcpName} --config
         if (execResult.runId) {
           error.runId = execResult.runId;
         }
+        span.recordException(error);
         span.setStatus('ERROR', error.message);
         auditFinish(null, error);
         throw error;
@@ -3825,6 +3842,7 @@ Run: photon mcp ${mcpName} --config
     } catch (error) {
       // Clear progress on error too
       this.progressRenderer.done();
+      span.recordException(error);
       span.setStatus('ERROR', error instanceof Error ? error.message : String(error));
       auditFinish(null, error as Error);
       this.logger.error(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);

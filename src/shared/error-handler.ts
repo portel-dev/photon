@@ -81,33 +81,46 @@ export function wrapError(error: unknown, context?: string, suggestion?: string)
 
   const message = context ? `${context}: ${getErrorMessage(error)}` : getErrorMessage(error);
 
+  // Preserve root cause per ECMAScript `Error` cause proposal — enables OTel
+  // recordException to capture the original stack trace.
+  const withCause = (err: PhotonError): PhotonError => {
+    if (error instanceof Error) (err as Error & { cause?: unknown }).cause = error;
+    return err;
+  };
+
   // Handle Node.js errors with helpful context
   if (isNodeError(error)) {
     if (error.code === 'ENOENT' && error.path) {
-      return new PhotonError(
-        `File not found: ${error.path}${context ? ` (${context})` : ''}`,
-        'FILE_SYSTEM_ERROR',
-        { path: error.path },
-        'Check that the file exists and you have read permissions'
+      return withCause(
+        new PhotonError(
+          `File not found: ${error.path}${context ? ` (${context})` : ''}`,
+          'FILE_SYSTEM_ERROR',
+          { path: error.path },
+          'Check that the file exists and you have read permissions'
+        )
       );
     }
     if (error.code === 'EACCES' && error.path) {
-      return new PhotonError(
-        `Permission denied: ${error.path}${context ? ` (${context})` : ''}`,
-        'FILE_SYSTEM_ERROR',
-        { path: error.path },
-        'Check file permissions and ensure you have access rights'
+      return withCause(
+        new PhotonError(
+          `Permission denied: ${error.path}${context ? ` (${context})` : ''}`,
+          'FILE_SYSTEM_ERROR',
+          { path: error.path },
+          'Check file permissions and ensure you have access rights'
+        )
       );
     }
-    return new PhotonError(
-      message,
-      'FILE_SYSTEM_ERROR',
-      { code: error.code, path: error.path },
-      suggestion
+    return withCause(
+      new PhotonError(
+        message,
+        'FILE_SYSTEM_ERROR',
+        { code: error.code, path: error.path },
+        suggestion
+      )
     );
   }
 
-  return new PhotonError(message, 'UNKNOWN_ERROR', undefined, suggestion);
+  return withCause(new PhotonError(message, 'UNKNOWN_ERROR', undefined, suggestion));
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -215,10 +228,15 @@ export function exitWithError(
 export function formatToolError(
   toolName: string,
   error: unknown
-): { text: string; errorType: string } {
+): { text: string; errorType: string; retryable: boolean } {
   let errorMessage = error instanceof Error ? error.message : String(error);
   let errorType = 'runtime_error';
   let suggestion = '';
+  let retryable = false;
+
+  const errorName = error instanceof Error ? error.name : '';
+  const nodeCode =
+    error && typeof error === 'object' && 'code' in error ? String((error as any).code) : '';
 
   // Photon authors can attach userMessage and hint for friendly display
   const userMessage =
@@ -227,7 +245,38 @@ export function formatToolError(
 
   if (userMessage) errorMessage = userMessage;
 
-  if (userHint) {
+  // Prefer typed classification (error.name / error.code) over substring matching.
+  if (errorName === 'PhotonCircuitOpenError') {
+    errorType = 'circuit_open';
+    suggestion =
+      'Circuit breaker is open after repeated failures. Back off and retry after the reset window.';
+    retryable = true;
+  } else if (errorName === 'PhotonTimeoutError' || nodeCode === 'ETIMEDOUT') {
+    errorType = 'timeout_error';
+    suggestion = 'The operation took too long. Try again or check external service availability.';
+    retryable = true;
+  } else if (errorName === 'ValidationError') {
+    errorType = 'validation_error';
+    suggestion = 'Check the parameters provided match the tool schema requirements.';
+    retryable = false;
+  } else if (
+    nodeCode === 'ECONNREFUSED' ||
+    nodeCode === 'ENETUNREACH' ||
+    nodeCode === 'EAI_AGAIN'
+  ) {
+    errorType = 'network_error';
+    suggestion =
+      'Cannot connect to external service. Check network connection and service availability.';
+    retryable = true;
+  } else if (nodeCode === 'EACCES' || nodeCode === 'EPERM') {
+    errorType = 'permission_error';
+    suggestion = 'Permission denied. Check file/resource access permissions.';
+    retryable = false;
+  } else if (nodeCode === 'ENOENT') {
+    errorType = 'not_found_error';
+    suggestion = 'Resource not found. Check that the file or resource exists.';
+    retryable = false;
+  } else if (userHint) {
     suggestion = userHint;
   } else if (errorMessage.includes('not a function') || errorMessage.includes('undefined')) {
     errorType = 'implementation_error';
@@ -236,23 +285,28 @@ export function formatToolError(
   } else if (errorMessage.includes('required') || errorMessage.includes('validation')) {
     errorType = 'validation_error';
     suggestion = 'Check the parameters provided match the tool schema requirements.';
-  } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+  } else if (errorMessage.includes('timeout')) {
     errorType = 'timeout_error';
     suggestion = 'The operation took too long. Try again or check external service availability.';
-  } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('network')) {
+    retryable = true;
+  } else if (errorMessage.includes('network')) {
     errorType = 'network_error';
     suggestion =
       'Cannot connect to external service. Check network connection and service availability.';
-  } else if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
+    retryable = true;
+  } else if (errorMessage.includes('permission')) {
     errorType = 'permission_error';
     suggestion = 'Permission denied. Check file/resource access permissions.';
-  } else if (errorMessage.includes('not found') || errorMessage.includes('ENOENT')) {
+  } else if (errorMessage.includes('not found')) {
     errorType = 'not_found_error';
     suggestion = 'Resource not found. Check that the file or resource exists.';
   }
 
+  if (userHint && !suggestion) suggestion = userHint;
+
   let text = `Tool Error: ${toolName}\n\nError Type: ${errorType}\nMessage: ${errorMessage}\n`;
   if (suggestion) text += `\nSuggestion: ${suggestion}\n`;
+  text += `Retryable: ${retryable}\n`;
 
-  return { text, errorType };
+  return { text, errorType, retryable };
 }

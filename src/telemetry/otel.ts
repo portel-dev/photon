@@ -10,6 +10,7 @@ export interface PhotonSpan {
   setAttribute(key: string, value: string | number | boolean): void;
   addEvent(name: string, attributes?: Record<string, string | number | boolean>): void;
   setStatus(code: 'OK' | 'ERROR', message?: string): void;
+  recordException(error: unknown): void;
   end(): void;
 }
 
@@ -17,6 +18,7 @@ const noopSpan: PhotonSpan = {
   setAttribute() {},
   addEvent() {},
   setStatus() {},
+  recordException() {},
   end() {},
 };
 
@@ -62,6 +64,25 @@ function wrapOtelSpan(otelSpan: any, otelApi: any): PhotonSpan {
     setStatus(code: 'OK' | 'ERROR', message?: string) {
       const statusCode = code === 'OK' ? otelApi.SpanStatusCode.OK : otelApi.SpanStatusCode.ERROR;
       otelSpan.setStatus({ code: statusCode, message });
+      // Force-sample failed spans even under head-based sampling
+      if (code === 'ERROR') {
+        try {
+          otelSpan.setAttribute('sampling.priority', 1);
+        } catch {
+          /* best-effort */
+        }
+      }
+    },
+    recordException(error: unknown) {
+      try {
+        if (error instanceof Error) {
+          otelSpan.recordException(error);
+        } else {
+          otelSpan.recordException(new Error(String(error)));
+        }
+      } catch {
+        /* best-effort */
+      }
     },
     end() {
       otelSpan.end();
@@ -79,7 +100,8 @@ export function startToolSpan(
   photon: string,
   tool: string,
   params?: Record<string, unknown>,
-  traceId?: string
+  traceId?: string,
+  stateful?: boolean
 ): PhotonSpan {
   const tracer = getTracerSync();
   if (!tracer) return noopSpan;
@@ -91,6 +113,9 @@ export function startToolSpan(
 
   if (traceId) {
     span.setAttribute('photon.trace_id', traceId);
+  }
+  if (typeof stateful === 'boolean') {
+    span.setAttribute('photon.stateful', stateful);
   }
 
   if (params) {
