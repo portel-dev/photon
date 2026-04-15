@@ -56,6 +56,32 @@ created.
 | `photon.tool.errors` | counter | 1 | same |
 | `photon.circuit_breaker.transitions` | counter | 1 | `gen_ai.agent.name`, `gen_ai.tool.name`, `from`, `to`, `photon.instance` |
 
+### Structured error responses
+
+When a tool call fails, the MCP response sets `isError: true` and attaches
+a machine-readable payload so agents can make typed retry decisions:
+
+```json
+{
+  "content": [{ "type": "text", "text": "Tool Error: add ..." }],
+  "isError": true,
+  "structuredContent": {
+    "error": {
+      "type": "circuit_open",
+      "retryable": true,
+      "message": "Circuit open: add has failed 5 consecutive times. Resets in 12s"
+    }
+  },
+  "_meta": { "photon": { "type": "...", "retryable": true, "message": "..." } }
+}
+```
+
+Error `type` values: `validation_error`, `timeout_error`, `network_error`,
+`permission_error`, `not_found_error`, `circuit_open`, `implementation_error`,
+`runtime_error`. `retryable` is `true` for transient failures
+(circuit_open, timeout, network) and `false` for deterministic ones
+(validation, permission, not_found).
+
 ### Logs
 
 Every record emitted by the photon `Logger` is forwarded to the OTel logs

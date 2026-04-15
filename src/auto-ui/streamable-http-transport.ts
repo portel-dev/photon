@@ -2216,7 +2216,7 @@ const handlers: Record<string, RequestHandler> = {
 
       return toolResponse;
     } catch (error) {
-      const { text } = formatToolError(methodName, error);
+      const { text, errorType, retryable } = formatToolError(methodName, error);
       audit({
         ts: new Date().toISOString(),
         event: 'tool_error',
@@ -2226,13 +2226,24 @@ const handlers: Record<string, RequestHandler> = {
         client: session?.clientInfo?.name || 'beam',
         sessionId: session?.id,
         error: error instanceof Error ? error.message : String(error),
+        errorType,
+        retryable,
       });
+      const structured = {
+        error: {
+          type: errorType,
+          retryable,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
       return {
         jsonrpc: '2.0',
         id: req.id,
         result: {
           content: [{ type: 'text', text }],
           isError: true,
+          structuredContent: structured,
+          _meta: { photon: structured.error },
         },
       };
     }

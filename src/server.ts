@@ -1618,7 +1618,7 @@ export class PhotonServer {
    * Provides structured, actionable error messages
    */
   private formatError(error: any, toolName: string, args: any): any {
-    const { text, errorType: _errorType } = formatToolError(toolName, error);
+    const { text, errorType, retryable } = formatToolError(toolName, error);
 
     // Add dev-mode extras
     let devExtras = '';
@@ -1635,6 +1635,18 @@ export class PhotonServer {
       this.log('debug', error.stack);
     }
 
+    // Emit structured error metadata in addition to the human-readable text
+    // so MCP clients can make typed retry decisions without parsing prose.
+    // `_meta.photon` is the non-standard extension namespace; `structuredContent`
+    // is the MCP-spec field for machine-readable result data.
+    const structured = {
+      error: {
+        type: errorType,
+        retryable,
+        message: getErrorMessage(error),
+      },
+    };
+
     return {
       content: [
         {
@@ -1643,6 +1655,8 @@ export class PhotonServer {
         },
       ],
       isError: true,
+      structuredContent: structured,
+      _meta: { photon: structured.error },
     };
   }
 
