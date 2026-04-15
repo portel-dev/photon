@@ -1161,6 +1161,23 @@ export default class CtxProbe {
   await check(
     'I10',
     'P10.3',
+    'formatToolError classifies PhotonBulkheadFullError as bulkhead_full (retryable)',
+    'Runtime',
+    async () => {
+      const { formatToolError } = await import('../dist/shared/error-handler.js');
+      const { recordBulkheadRejection } = await import('../dist/telemetry/metrics.js');
+      const err = new Error('Bulkhead full: photon.tool has 5 concurrent executions (cap: 5)');
+      (err as any).name = 'PhotonBulkheadFullError';
+      const out = formatToolError('tool', err);
+      assert.equal(out.errorType, 'bulkhead_full');
+      assert.equal(out.retryable, true);
+      recordBulkheadRejection({ photon: 'p', tool: 't' });
+    }
+  );
+
+  await check(
+    'I10',
+    'P10.3',
     'formatToolError classifies PhotonRateLimitError as rate_limited (retryable)',
     'Runtime',
     async () => {

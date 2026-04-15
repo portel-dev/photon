@@ -155,6 +155,28 @@ export function recordRateLimitRejection(params: {
 }
 
 /**
+ * Record a bulkhead rejection. Incremented every time the @bulkhead
+ * middleware throws PhotonBulkheadFullError because concurrent-execution
+ * cap was reached.
+ */
+export function recordBulkheadRejection(params: {
+  photon: string;
+  tool: string;
+  instance?: string;
+}): void {
+  const attrs: Record<string, string | number | boolean> = {
+    'gen_ai.agent.name': params.photon,
+    'gen_ai.tool.name': params.tool,
+  };
+  if (params.instance) attrs['photon.instance'] = params.instance;
+  getCounter(
+    'photon.bulkhead.rejections',
+    'Bulkhead rejections (concurrent-cap exceeded)',
+    '1'
+  ).add(1, attrs);
+}
+
+/**
  * Record a circuit-breaker state transition.
  * Attributes capture the photon/tool key and the new state so dashboards can
  * alert on "open" without sampling the call stream.

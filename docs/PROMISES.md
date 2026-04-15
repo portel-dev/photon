@@ -20,8 +20,8 @@ marketing.
 | [7](#intent-7-portable) | Portable | 2 | 7 | P2 — Important |
 | [8](#intent-8-resilient-by-default) | Resilient by Default | 2 | 9 | P2 — Important |
 | [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P2 — Important |
-| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 22 | P2 — Important |
-| | **Total** | **26** | **111** | |
+| [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 23 | P2 — Important |
+| | **Total** | **26** | **112** | |
 
 ## How to Read This
 
@@ -408,6 +408,7 @@ Memory follows Deno KV minimal surface.
 | 6 | `wrapError` preserves the root cause via `Error.cause` for OTel `recordException` | Runtime |
 | 7 | MCP tool error responses include `structuredContent.error` with `type`, `retryable`, `message` so agents can make typed retry decisions | Runtime |
 | 8 | `formatToolError` classifies `PhotonRateLimitError` as `rate_limited` with `retryable: true` and a dedicated `photon.rate_limit.rejections` counter is emitted | Runtime |
+| 9 | `@bulkhead N` caps concurrent executions per tool at N and throws `PhotonBulkheadFullError` (classified as `bulkhead_full`, retryable, counted as `photon.bulkhead.rejections`) | Runtime |
 
 ---
 

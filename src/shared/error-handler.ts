@@ -250,6 +250,11 @@ export function formatToolError(
     errorType = 'rate_limited';
     suggestion = 'Rate limit exceeded for this tool. Wait for the window to roll over and retry.';
     retryable = true;
+  } else if (errorName === 'PhotonBulkheadFullError') {
+    errorType = 'bulkhead_full';
+    suggestion =
+      'Bulkhead capacity reached. Too many concurrent executions in flight — retry after some complete.';
+    retryable = true;
   } else if (errorName === 'PhotonTimeoutError' || nodeCode === 'ETIMEDOUT') {
     errorType = 'timeout_error';
     suggestion = 'The operation took too long. Try again or check external service availability.';

@@ -23,6 +23,7 @@ import {
   recordToolCall,
   recordCircuitStateChange,
   recordRateLimitRejection,
+  recordBulkheadRejection,
 } from './telemetry/metrics.js';
 import { runWithRequestContext } from './telemetry/context.js';
 import { spawn } from 'child_process';
@@ -3973,6 +3974,12 @@ Run: photon mcp ${mcpName} --config
       // stream.
       if (metricsErrorType === 'PhotonRateLimitError') {
         recordRateLimitRejection({
+          photon: mcp.name,
+          tool: toolName,
+          instance: mcp.instance?.instanceName,
+        });
+      } else if (metricsErrorType === 'PhotonBulkheadFullError') {
+        recordBulkheadRejection({
           photon: mcp.name,
           tool: toolName,
           instance: mcp.instance?.instanceName,
