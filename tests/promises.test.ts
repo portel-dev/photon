@@ -953,6 +953,42 @@ async function main() {
   await check(
     'I10',
     'P10.2',
+    'request context is available via AsyncLocalStorage during tool execution',
+    'Runtime',
+    async () => {
+      const { PhotonLoader } = await import('../dist/loader.js');
+      const { getRequestContext } = await import('../dist/telemetry/context.js');
+      const tmp = path.join(os.tmpdir(), `ctx-${Date.now()}.photon.ts`);
+      fs.writeFileSync(
+        tmp,
+        `/** Probe context */
+export default class CtxProbe {
+  async peek() {
+    const { getRequestContext } = await import('${path.join(__dirname, '..', 'dist', 'telemetry', 'context.js').replace(/\\/g, '/')}');
+    const ctx = getRequestContext();
+    return { photon: ctx?.photon, tool: ctx?.tool, traceId: ctx?.traceId };
+  }
+}
+`
+      );
+      try {
+        const loader = new PhotonLoader();
+        const mcp = await loader.loadFile(tmp);
+        const result = await loader.executeTool(mcp, 'peek', {}, { traceId: 'f'.repeat(32) });
+        assert.ok(typeof result.photon === 'string' && result.photon.length > 0, 'photon name set');
+        assert.equal(result.tool, 'peek');
+        assert.equal(result.traceId, 'f'.repeat(32));
+        // Outside the tool call, no context is set.
+        assert.equal(getRequestContext(), undefined);
+      } finally {
+        fs.unlinkSync(tmp);
+      }
+    }
+  );
+
+  await check(
+    'I10',
+    'P10.2',
     'metrics module exposes recordToolCall and recordCircuitStateChange',
     'Runtime',
     async () => {

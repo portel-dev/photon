@@ -76,6 +76,31 @@ export class Logger {
       component: this.component,
       scope: this.scope,
     };
+    // Enrich with ambient request context so every log line emitted during a
+    // tool call carries photon/tool/traceId without callers threading it.
+    // Dynamic require to avoid a hard dependency cycle at module init.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const ctxMod = require('../telemetry/context.js') as {
+        getRequestContext?: () =>
+          | {
+              photon?: string;
+              tool?: string;
+              traceId?: string;
+              caller?: { id?: string } | undefined;
+            }
+          | undefined;
+      };
+      const ctx = ctxMod.getRequestContext?.();
+      if (ctx) {
+        if (ctx.photon && record.photon == null) (record as LogMeta).photon = ctx.photon;
+        if (ctx.tool && record.tool == null) (record as LogMeta).tool = ctx.tool;
+        if (ctx.traceId && record.traceId == null) (record as LogMeta).traceId = ctx.traceId;
+        if (ctx.caller?.id && record.callerId == null) (record as LogMeta).callerId = ctx.caller.id;
+      }
+    } catch {
+      /* context module not available */
+    }
     if (meta && Object.keys(meta).length > 0) {
       Object.assign(record, meta);
     }

@@ -20,6 +20,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { startToolSpan } from './telemetry/otel.js';
 import { recordToolCall, recordCircuitStateChange } from './telemetry/metrics.js';
+import { runWithRequestContext } from './telemetry/context.js';
 import { spawn } from 'child_process';
 import {
   SchemaExtractor,
@@ -3447,6 +3448,32 @@ Run: photon mcp ${mcpName} --config
    * @returns Tool result, or wrapped result with runId for stateful workflows
    */
   async executeTool(
+    mcp: PhotonClass,
+    toolName: string,
+    parameters: any,
+    options?: {
+      resumeRunId?: string;
+      outputHandler?: OutputHandler;
+      inputProvider?: InputProvider;
+      caller?: CallerInfo;
+      traceId?: string;
+      parentTraceparent?: string;
+    }
+  ): Promise<any> {
+    return runWithRequestContext(
+      {
+        photon: mcp.name,
+        tool: toolName,
+        traceId: options?.traceId,
+        parentTraceparent: options?.parentTraceparent,
+        caller: options?.caller,
+        startedAt: Date.now(),
+      },
+      () => this._executeToolInner(mcp, toolName, parameters, options)
+    );
+  }
+
+  private async _executeToolInner(
     mcp: PhotonClass,
     toolName: string,
     parameters: any,
