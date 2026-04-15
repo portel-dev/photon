@@ -1015,6 +1015,33 @@ async function main() {
     assert.equal(wrapped.cause, original, 'cause chain preserved');
   });
 
+  // P10.3 assertion 3 — /api/health/circuits endpoint is inspectable.
+  await startBeam();
+  try {
+    await check(
+      'I10',
+      'P10.3',
+      '/api/health/circuits returns summary and circuits map',
+      'Beam',
+      async () => {
+        const res = await fetch(`http://localhost:${beamPort}/api/health/circuits`);
+        assert.equal(res.status, 200, 'endpoint returns 200');
+        const body = (await res.json()) as {
+          summary: { total: number; open: number; halfOpen: number; closed: number };
+          circuits: Record<string, unknown>;
+        };
+        assert.ok(body.summary, 'summary present');
+        assert.equal(typeof body.summary.total, 'number');
+        assert.equal(typeof body.summary.open, 'number');
+        assert.equal(typeof body.summary.halfOpen, 'number');
+        assert.equal(typeof body.summary.closed, 'number');
+        assert.ok(body.circuits && typeof body.circuits === 'object', 'circuits map present');
+      }
+    );
+  } finally {
+    await stopBeam();
+  }
+
   console.log('');
 
   // ═══════════════════════════════════════════════════════════
