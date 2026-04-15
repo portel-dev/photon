@@ -928,6 +928,28 @@ async function main() {
     }
   );
 
+  await check(
+    'I10',
+    'P10.2',
+    'parseTraceparent validates W3C traceparent header format',
+    'Runtime',
+    async () => {
+      const { parseTraceparent } = await import('../dist/telemetry/otel.js');
+      const valid = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+      const parsed = parseTraceparent(valid);
+      assert.ok(parsed, 'valid traceparent parses');
+      assert.equal(parsed!.traceId, '4bf92f3577b34da6a3ce929d0e0e4736');
+      assert.equal(parsed!.spanId, '00f067aa0ba902b7');
+      assert.equal(parseTraceparent('bogus'), null);
+      assert.equal(parseTraceparent(''), null);
+      // All-zero IDs rejected per spec
+      assert.equal(
+        parseTraceparent('00-00000000000000000000000000000000-00f067aa0ba902b7-01'),
+        null
+      );
+    }
+  );
+
   // P10.3 — Established patterns for resilience, auth, and storage
 
   await check(

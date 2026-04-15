@@ -91,22 +91,65 @@ function wrapOtelSpan(otelSpan: any, otelApi: any): PhotonSpan {
 }
 
 /**
+ * Parse a W3C traceparent header into its components.
+ * Format: `{version}-{traceId}-{parentSpanId}-{flags}` (e.g. `00-abc...-def...-01`).
+ * Returns null if the header is malformed.
+ */
+export function parseTraceparent(
+  traceparent: string | undefined | null
+): { version: string; traceId: string; spanId: string; flags: string } | null {
+  if (!traceparent || typeof traceparent !== 'string') return null;
+  const parts = traceparent.trim().split('-');
+  if (parts.length !== 4) return null;
+  const [version, traceId, spanId, flags] = parts;
+  if (version.length !== 2 || traceId.length !== 32 || spanId.length !== 16 || flags.length !== 2) {
+    return null;
+  }
+  if (!/^[0-9a-f]+$/i.test(traceId) || !/^[0-9a-f]+$/i.test(spanId)) return null;
+  // All-zero trace/span IDs are invalid per the spec.
+  if (/^0+$/.test(traceId) || /^0+$/.test(spanId)) return null;
+  return { version, traceId, spanId, flags };
+}
+
+/**
  * Start a span for tool execution following GenAI semantic conventions.
  * @param traceId - Optional W3C-compatible trace ID (32 hex chars) for async executions.
  *   When provided, set as `photon.trace_id` on the span so async executions are
  *   correlated with the execution ID returned to the caller.
+ * @param stateful - When true, sets `photon.stateful=true` on the span.
+ * @param parentTraceparent - Optional W3C traceparent header. When provided, the new
+ *   span is created as a child of that remote span context so distributed traces
+ *   chain across client → photon → downstream calls.
  */
 export function startToolSpan(
   photon: string,
   tool: string,
   params?: Record<string, unknown>,
   traceId?: string,
-  stateful?: boolean
+  stateful?: boolean,
+  parentTraceparent?: string
 ): PhotonSpan {
   const tracer = getTracerSync();
   if (!tracer) return noopSpan;
 
-  const span = tracer.startSpan(`gen_ai.tool.call ${photon}.${tool}`);
+  const parent = parseTraceparent(parentTraceparent);
+  let span: any;
+  if (parent && otelApi?.trace && otelApi?.context) {
+    try {
+      const spanContext = {
+        traceId: parent.traceId,
+        spanId: parent.spanId,
+        traceFlags: parseInt(parent.flags, 16) || 0,
+        isRemote: true,
+      };
+      const ctx = otelApi.trace.setSpanContext(otelApi.context.active(), spanContext);
+      span = tracer.startSpan(`gen_ai.tool.call ${photon}.${tool}`, undefined, ctx);
+    } catch {
+      span = tracer.startSpan(`gen_ai.tool.call ${photon}.${tool}`);
+    }
+  } else {
+    span = tracer.startSpan(`gen_ai.tool.call ${photon}.${tool}`);
+  }
   span.setAttribute('gen_ai.tool.name', tool);
   span.setAttribute('gen_ai.agent.name', photon);
   span.setAttribute('gen_ai.operation.name', 'execute_tool');

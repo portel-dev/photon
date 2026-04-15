@@ -1927,7 +1927,7 @@ export class PhotonLoader {
   private stripJSDocTags(description: string | undefined): string {
     if (!description) return '';
     if (description.includes('@emits') && process.env.PHOTON_DEBUG_EXTRACT) {
-      console.log(`[stripJSDocTags] Input: "${description}"`);
+      this.logger.debug(`[stripJSDocTags] Input: "${description}"`);
     }
     // Remove lines that start with @ (full line removal)
     let cleaned = description
@@ -1938,7 +1938,7 @@ export class PhotonLoader {
     // Also remove inline @ tags (e.g., "text @emits ... " at end of line)
     cleaned = cleaned.replace(/\s*@\w+.*$/gm, '').trim();
     if (description.includes('@emits') && process.env.PHOTON_DEBUG_EXTRACT) {
-      console.log(`[stripJSDocTags] Output: "${cleaned}"`);
+      this.logger.debug(`[stripJSDocTags] Output: "${cleaned}"`);
     }
     return cleaned;
   }
@@ -2043,7 +2043,7 @@ export class PhotonLoader {
           if (process.env.PHOTON_DEBUG_EXTRACT) {
             tools.forEach((t) => {
               if (t.description?.includes('@')) {
-                console.log(`[EXTRACTOR] Before clean: ${t.name}: "${t.description}"`);
+                this.logger.debug(`[EXTRACTOR] Before clean: ${t.name}: "${t.description}"`);
               }
             });
           }
@@ -2056,7 +2056,7 @@ export class PhotonLoader {
           if (process.env.PHOTON_DEBUG_EXTRACT) {
             tools.forEach((t) => {
               if (t.name === 'clear') {
-                console.log(`[EXTRACTOR] After clean: ${t.name}: "${t.description}"`);
+                this.logger.debug(`[EXTRACTOR] After clean: ${t.name}: "${t.description}"`);
               }
             });
           }
@@ -3440,16 +3440,41 @@ Run: photon mcp ${mcpName} --config
       inputProvider?: InputProvider;
       caller?: CallerInfo;
       traceId?: string;
+      parentTraceparent?: string;
     }
   ): Promise<any> {
     // Start audit trail recording
     const audit = getAuditTrail();
     const { finish: auditFinish } = audit.start(mcp.name, toolName, parameters || {});
 
+    // Peek at _meta.traceparent before span creation so distributed traces chain.
+    // Explicit option wins over in-band _meta (server may have extracted from headers).
+    let parentTraceparent = options?.parentTraceparent;
+    if (
+      !parentTraceparent &&
+      parameters &&
+      typeof parameters === 'object' &&
+      '_meta' in parameters
+    ) {
+      const metaPeek = (parameters as Record<string, unknown>)._meta as
+        | Record<string, unknown>
+        | undefined;
+      if (metaPeek && typeof metaPeek === 'object' && typeof metaPeek.traceparent === 'string') {
+        parentTraceparent = metaPeek.traceparent;
+      }
+    }
+
     // Start OTel span for tool execution (no-op if SDK not installed)
     const toolMetaForSpan = (mcp as any)?.meta?.tools?.[toolName];
     const isStateful = Boolean(toolMetaForSpan?.stateful ?? (mcp as any)?.meta?.stateful);
-    const span = startToolSpan(mcp.name, toolName, parameters, options?.traceId, isStateful);
+    const span = startToolSpan(
+      mcp.name,
+      toolName,
+      parameters,
+      options?.traceId,
+      isStateful,
+      parentTraceparent
+    );
     if (mcp.instance?.instanceName) {
       span.setAttribute('photon.instance', mcp.instance.instanceName);
     }
