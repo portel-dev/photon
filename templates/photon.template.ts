@@ -1,8 +1,9 @@
 /**
  * TemplateName Photon MCP
  *
- * Single-file MCP server using Photon
- * Run with: npx photon template-name.photon.ts --dev
+ * Single-file MCP server using Photon.
+ *
+ * Run with: photon mcp template-name --dev
  */
 
 export default class TemplateName {
@@ -23,7 +24,7 @@ export default class TemplateName {
   }
 
   /**
-   * Example echo tool
+   * Echo a message back
    * @param message Message to echo back
    */
   async echo(params: { message: string }) {
@@ -36,20 +37,13 @@ export default class TemplateName {
    * @param b Second number
    */
   async add(params: { a: number; b: number }) {
-    return {
-      success: true,
-      content: `${params.a} + ${params.b} = ${params.a + params.b}`,
-    };
+    return { a: params.a, b: params.b, sum: params.a + params.b };
   }
 
   /**
    * Get current timestamp
    */
-  async getCurrentTime(params: {}) {
-    const now = new Date();
-    return {
-      success: true,
-      content: `Current time: ${now.toISOString()}`,
-    };
+  async getCurrentTime() {
+    return new Date().toISOString();
   }
 }
