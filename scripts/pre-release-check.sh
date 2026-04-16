@@ -32,21 +32,32 @@ else
 fi
 echo ""
 
-# ─── 2. Build verification ───────────────────────────
-echo "▶ Step 2: Full build"
+# ─── 2. Lockfile sync check (critical — `npm ci` in CI/Release workflows fails hard if out of sync) ──
+echo "▶ Step 2: Lockfile sync"
+if ! npm ci --dry-run >/dev/null 2>&1; then
+  echo "  ✗ FAIL: package-lock.json is out of sync with package.json"
+  echo "    CI and Release workflows will fail. Run 'npm install' and commit package-lock.json."
+  npm ci --dry-run 2>&1 | grep -E "Invalid:" | head -3
+  exit 1
+fi
+echo "  ✓ npm ci dry-run passes (package-lock.json in sync)"
+echo ""
+
+# ─── 3. Build verification ───────────────────────────
+echo "▶ Step 3: Full build"
 npm run build
 npm run build:beam
 echo "  ✓ Build passes"
 echo ""
 
 # ─── 3. Test suite ───────────────────────────────────
-echo "▶ Step 3: Test suite"
+echo "▶ Step 4: Test suite"
 npm test
 echo "  ✓ Tests pass"
 echo ""
 
-# ─── 4. Yield pattern check ─────────────────────────
-echo "▶ Step 4: Yield pattern verification"
+# ─── 5. Yield pattern check ─────────────────────────
+echo "▶ Step 5: Yield pattern verification"
 # Check multi-line yields: line with 'yield {' must be followed by emit:/ask:/checkpoint:
 # Uses awk to pair yield lines with their next line
 # Check that each 'yield {' has emit:/ask:/checkpoint: on same line or next line
@@ -71,8 +82,8 @@ fi
 echo "  ✓ All generator yields use emit pattern"
 echo ""
 
-# ─── 5. Dependency audit ────────────────────────────
-echo "▶ Step 5: Runtime dependency check"
+# ─── 6. Dependency audit ────────────────────────────
+echo "▶ Step 6: Runtime dependency check"
 # Check that key runtime imports are in dependencies, not devDependencies
 DEPS=$(node -e "const p=require('./package.json'); console.log(Object.keys(p.dependencies||{}).join(' '))")
 MISSING=""
@@ -88,8 +99,8 @@ fi
 echo "  ✓ Runtime dependencies present"
 echo ""
 
-# ─── 6. Fresh install simulation ────────────────────
-echo "▶ Step 6: Fresh install simulation"
+# ─── 7. Fresh install simulation ────────────────────
+echo "▶ Step 7: Fresh install simulation"
 FRESH_DIR=$(mktemp -d)
 export PHOTON_DIR="$FRESH_DIR"
 
@@ -154,9 +165,9 @@ fi
 rm -rf "$FRESH_DIR"
 unset PHOTON_DIR
 
-# ─── 7. Visual tests (optional — requires lookout + MLX) ────
+# ─── 8. Visual tests (optional — requires lookout + MLX) ────
 echo ""
-echo "▶ Step 7: Visual tests (lookout AI)"
+echo "▶ Step 8: Visual tests (lookout AI)"
 if command -v photon >/dev/null 2>&1 && photon lookout status -y 2>/dev/null | grep -q '"ready": true\|ready.*true'; then
   echo "  Lookout available — running visual tests..."
   npm run test:visual
@@ -165,18 +176,18 @@ else
   echo "  ⏭ Lookout not available (no MLX or photon not installed) — skipping"
 fi
 
-# ─── 8. Promise validation (core intents — release gate) ────
+# ─── 9. Promise validation (core intents — release gate) ────
 echo ""
-echo "▶ Step 8: Promise validation"
+echo "▶ Step 9: Promise validation"
 echo "  Running promise validation suite..."
 npm run test:promises
 echo "  ✓ Platform promises validated"
 # Restore test fixture data files
 git checkout -- tests/fixtures/.data/ 2>/dev/null || true
 
-# ─── 9. Global install simulation ────
+# ─── 10. Global install simulation ────
 echo ""
-echo "▶ Step 9: Global install simulation"
+echo "▶ Step 10: Global install simulation"
 PACK_TGZ=$(npm pack 2>/dev/null | tail -1)
 PACK_ABS="$(pwd)/$PACK_TGZ"
 if [ -f "$PACK_ABS" ]; then
@@ -221,7 +232,7 @@ fi
 
 # ─── 10. Production dependency verification ────
 echo ""
-echo "▶ Step 10: Production dependency verification"
+echo "▶ Step 11: Production dependency verification"
 PROD_DIR=$(mktemp -d)
 PACK_CHECK=$(npm pack 2>/dev/null | tail -1)
 if [ -f "$PACK_CHECK" ]; then
