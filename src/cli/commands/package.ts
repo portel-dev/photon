@@ -499,7 +499,9 @@ export function registerPackageCommands(program: Command): void {
     .option('--check', 'Check for updates without upgrading')
     .option('--dry-run', 'Alias for --check')
     .alias('up')
-    .description('Upgrade MCP(s) from marketplaces')
+    .description(
+      'Upgrade installed photons from marketplaces (to update the Photon CLI, use `photon update`)'
+    )
     .action(async (name: string | undefined, options: any, command: Command) => {
       // --check and --dry-run are synonyms — both suppress the actual upgrade.
       if (options.dryRun) options.check = true;

@@ -17,7 +17,9 @@ import { globalInstallCmd, detectPM } from '../../shared-utils.js';
 export function registerUpdateCommand(program: Command): void {
   program
     .command('update')
-    .description('Update Photon CLI to the latest version')
+    .description(
+      'Update the Photon CLI itself (to upgrade installed photons, use `photon upgrade`)'
+    )
     .option('--dry-run', 'Show the planned version change without installing')
     .action(async (options: { dryRun?: boolean }) => {
       try {

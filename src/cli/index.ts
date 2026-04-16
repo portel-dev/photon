@@ -72,13 +72,13 @@ Hosting:
 Package Management:
   add <name>              Install a photon from marketplace
   remove <name>           Remove an installed photon
-  upgrade, up [name]      Upgrade photon(s) to latest version
+  upgrade, up [name]      Upgrade installed photons (not the CLI itself)
   search <query>          Search marketplaces for photons
   info, list [name]       Show installed photons and details
   publish                 Publish your photons as a marketplace (wizard)
 
 Maintenance:
-  update                  Update Photon CLI to the latest version
+  update                  Update the Photon CLI itself (not installed photons)
   changelog [version]     Show what's new in the current or latest version
   doctor [name]           Diagnose environment and installations
   audit                   View persistent tool execution audit log
