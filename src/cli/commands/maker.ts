@@ -8,6 +8,7 @@
 import type { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import { existsSync, lstatSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { getErrorMessage, ExitCode, exitWithError } from '../../shared/error-handler.js';
@@ -470,14 +471,22 @@ export function registerMakerCommands(program: Command): void {
   maker
     .command('new')
     .argument('<name>', 'Name for the new photon')
+    .option(
+      '--global',
+      'Scaffold into ~/.photon (auto-discovered by the daemon) instead of the current directory'
+    )
     .description('Create a new photon from template')
-    .action(async (name: string, options: any, command: Command) => {
+    .action(async (name: string, options: { global?: boolean }, command: Command) => {
       try {
-        // Get working directory from global options
-        const workingDir = getDefaultContext().baseDir;
+        // --global always means ~/.photon, independent of CWD auto-detection.
+        // Default (no --global) scaffolds into CWD so users get create-next-app-style
+        // local project layout.
+        const workingDir = options.global ? path.join(os.homedir(), '.photon') : process.cwd();
 
-        // Ensure working directory exists
-        await ensureWorkingDir(workingDir);
+        // Ensure working directory exists (only needed for ~/.photon; CWD always exists)
+        if (options.global) {
+          await ensureWorkingDir(workingDir);
+        }
 
         const fileName = `${name}.photon.ts`;
         const filePath = path.join(workingDir, fileName);
@@ -526,8 +535,14 @@ export function registerMakerCommands(program: Command): void {
         // Write file
         await fs.writeFile(filePath, content, 'utf-8');
 
-        console.error(`✅ Created ${fileName} in ${workingDir}`);
-        console.error(`Run with: photon mcp ${name} --dev`);
+        // Print a short, path-aware success message
+        const displayPath = options.global ? filePath : `./${fileName}`;
+        console.error(`✅ Created ${displayPath}`);
+        if (options.global) {
+          console.error(`Run with: photon mcp ${name} --dev`);
+        } else {
+          console.error(`Next: photon mcp ${name} --dev  (run the MCP server from this directory)`);
+        }
       } catch (error) {
         logger.error(`Error: ${getErrorMessage(error)}`);
         process.exit(1);

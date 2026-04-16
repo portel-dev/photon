@@ -195,17 +195,40 @@ fi
 # SECTION 5: Working Directory Flag
 # ============================================================================
 
-test_start "photon maker new should create photon with hyphenated name"
+test_start "photon maker new --global should create photon with hyphenated name in ~/.photon"
 rm -f ~/.photon/test-mcp.photon.ts
-if $PHOTON_CMD maker new test-mcp > /dev/null 2>&1; then
+if $PHOTON_CMD maker new test-mcp --global > /dev/null 2>&1; then
     if [ -f ~/.photon/test-mcp.photon.ts ]; then
         test_pass "test-mcp.photon.ts created in ~/.photon/"
     else
         test_fail "test-mcp.photon.ts not found in ~/.photon/"
     fi
 else
-    test_fail "maker new test-mcp failed"
+    test_fail "maker new --global test-mcp failed"
 fi
+
+test_start "photon maker new (no flag) should create photon in CWD"
+# Run from a temp dir we control so we can assert the default scaffold target
+PHOTON_MAKER_TEST_DIR=$(mktemp -d -t photon-maker-default.XXXXXX)
+(
+    cd "$PHOTON_MAKER_TEST_DIR"
+    if $PHOTON_CMD maker new cwd-test > /dev/null 2>&1; then
+        if [ -f "$PHOTON_MAKER_TEST_DIR/cwd-test.photon.ts" ]; then
+            test_pass "cwd-test.photon.ts created in CWD"
+        else
+            test_fail "cwd-test.photon.ts not found in CWD"
+        fi
+        if [ ! -f ~/.photon/cwd-test.photon.ts ]; then
+            test_pass "cwd-test.photon.ts not leaked into ~/.photon/"
+        else
+            test_fail "cwd-test.photon.ts should not be in ~/.photon/ without --global"
+            rm -f ~/.photon/cwd-test.photon.ts
+        fi
+    else
+        test_fail "maker new cwd-test failed"
+    fi
+)
+rm -rf "$PHOTON_MAKER_TEST_DIR"
 
 # ============================================================================
 # SECTION 6: Marketplace Commands
