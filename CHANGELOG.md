@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.22.0](https://github.com/portel-dev/photon/compare/v1.21.0...v1.22.0) (2026-04-16)
+
+### Features
+
+* /api/health liveness/readiness with subsystem breakdown ([a0505f9](https://github.com/portel-dev/photon/commit/a0505f9b6bfe2ab3e5b80d8f415c02aa26e9da9d))
+* add caller to MiddlewareContext for auth-aware middleware ([6c57749](https://github.com/portel-dev/photon/commit/6c577496e28c59d50ad80ee4a61669ac2b9ffb1a))
+* add Intent 10 (Standards-Aligned) to platform promises ([4d2256b](https://github.com/portel-dev/photon/commit/4d2256bf120da47167f6f51397c2d6e04a6931bf))
+* add OTel metrics for tool calls and circuit breaker ([01cd554](https://github.com/portel-dev/photon/commit/01cd554c2ab98ac37b64f83e62f5a269bb38ad47))
+* add regression prevention tests from post-release analysis ([49ba6ae](https://github.com/portel-dev/photon/commit/49ba6aecda8a8f000fd62e4d28c0e0656208f2d5))
+* adopt CloudEvents 1.0 envelope for [@stateful](https://github.com/stateful) event emissions ([8f0ac63](https://github.com/portel-dev/photon/commit/8f0ac633046a8bc1ce55fa20b4ef907cac3a3ef1))
+* adopt photon-core 2.21.0 native PhotonError cause option ([dff34ff](https://github.com/portel-dev/photon/commit/dff34ffcec391ef34aab882dbc8f3161bce64a10))
+* adopt photon-core 2.22.0 [@bulkhead](https://github.com/bulkhead) middleware ([834ef7e](https://github.com/portel-dev/photon/commit/834ef7ec1ff3f32ece5b7e16b9963aec2ce91269))
+* **ag-ui:** structured errors, trace correlation, capability handshake ([957a3eb](https://github.com/portel-dev/photon/commit/957a3eb2d8a806d758a7557a9d553d0594877595))
+* AsyncLocalStorage request context for ambient trace/caller ([9f14fc1](https://github.com/portel-dev/photon/commit/9f14fc11d19c4c4029110b1769457784b587e8a4))
+* expose circuit breaker health via /api/health/circuits ([38ddb2c](https://github.com/portel-dev/photon/commit/38ddb2c64199af491cb83c4995a83f3a18deb241))
+* harden error handling and observability ([45734f1](https://github.com/portel-dev/photon/commit/45734f14aebcf4baf43c103372fb551c11a5b2d5))
+* nested this.call() inherits parent trace context ([1cb4d00](https://github.com/portel-dev/photon/commit/1cb4d0070a5213c65b6c52b921f3bd62cc37f904))
+* OTel logs bridge and documented I10 assertions ([720e664](https://github.com/portel-dev/photon/commit/720e664cb197c2286d7e000d37f44afa40674207))
+* OTel NodeSDK bootstrap and observability guide ([55ec95e](https://github.com/portel-dev/photon/commit/55ec95ea0ff36506d239883301ee2ee0ea4683f0))
+* OTel parent-context propagation and finish console.* cleanup ([7402dc8](https://github.com/portel-dev/photon/commit/7402dc8a1363a9105a7fed5df02efa92fcbaadbd))
+* propagate W3C trace_id from server to tool spans ([0ea66c5](https://github.com/portel-dev/photon/commit/0ea66c5c512795a6a8d607680ec2a55cd3f11ad7))
+* rate-limit rejections surface as rate_limited error + metric ([b8bf940](https://github.com/portel-dev/photon/commit/b8bf940e30621c4e8b75a5824af81a53f14549ca))
+* reactive circuit events, daemon health, auto service.version, CHANGELOG ([926b047](https://github.com/portel-dev/photon/commit/926b0477bc9fa20dfb079d6953c017451f346a4a))
+* structured error payload on MCP tool responses ([c5f7cb0](https://github.com/portel-dev/photon/commit/c5f7cb03f4ecbfda9731d7cf3a8f9796f1494c22))
+
+### Bug Fixes
+
+* serialize STDIO notifications and bump photon-core to 2.19.2 ([6dd214a](https://github.com/portel-dev/photon/commit/6dd214a6fa184e19798cc35e78b0546dde0c0b2b))
+* shell integration skips aliases for existing commands ([dabc28d](https://github.com/portel-dev/photon/commit/dabc28da088ccc547fe6a48c3b36d4da8a9ac7e0))
+* stateful wrapper skips async generators to preserve iterator protocol ([7a0017a](https://github.com/portel-dev/photon/commit/7a0017a6bcec9ef11415d3ea5f61ea5c65c1d15f))
+* use static ESM import for telemetry/context to share ALS across module instances ([6427f01](https://github.com/portel-dev/photon/commit/6427f01b15b4a2d909883c32b5075def544913c3))
+# Changelog
+
 ## [1.21.0](https://github.com/portel-dev/photon/compare/v1.20.1...v1.21.0) (2026-04-14)
 
 ### Features
@@ -1966,3 +1999,4 @@ Built on:
 - `esbuild` - Fast TypeScript compilation
 - `chokidar` - File watching for hot reload
 - `commander` - CLI framework
+
