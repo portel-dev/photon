@@ -15,6 +15,7 @@ import {
   ExitCode,
   exitWithError,
   handleError,
+  isNodeError,
 } from '../../shared/error-handler.js';
 import { LoggerOptions, normalizeLogLevel, logger } from '../../shared/logger.js';
 import { printError, printWarning, printInfo, printSuccess } from '../../cli-formatter.js';
@@ -269,6 +270,116 @@ async function showConfigTemplate(
   cliHint(`Validate with: photon mcp ${mcpName} --validate`);
 }
 
+type SupportedClient = 'claude';
+
+const SUPPORTED_CLIENTS: SupportedClient[] = ['claude'];
+const CLIENT_NAMES: Record<SupportedClient, string> = {
+  claude: 'Claude Desktop',
+};
+
+/**
+ * Register `<name>` in the target MCP client's config file.
+ *
+ * Reads the existing JSON config, merges the server entry under mcpServers,
+ * writes atomically through a temp file, and preserves a `.bak` backup.
+ * Creates the config from scratch if it doesn't exist yet.
+ */
+async function installToClient(
+  name: string,
+  filePath: string,
+  client: SupportedClient,
+  workingDir: string
+): Promise<void> {
+  // The SupportedClient union is the source of truth — when it expands to
+  // include `cursor` / `claude-code`, add per-client branching here.
+  const configPath = getConfigPath();
+  const clientName = CLIENT_NAMES[client];
+
+  // Build the MCP server entry (same shape as showConfigTemplate emits)
+  const params = await extractConstructorParams(filePath);
+  const env: Record<string, string> = {};
+  for (const param of params) {
+    const envVarName = toEnvVarName(name, param.name);
+    const defaultDisplay =
+      param.defaultValue !== undefined
+        ? formatDefaultValue(param.defaultValue)
+        : `<your-${param.name}>`;
+    env[envVarName] = defaultDisplay;
+  }
+  if (process.env.PHOTON_DIR) {
+    env.PHOTON_DIR = workingDir;
+  }
+
+  const serverEntry: Record<string, unknown> = {
+    command: detectRunner(),
+    args: ['@portel/photon', 'mcp', name],
+    ...(Object.keys(env).length > 0 && { env }),
+  };
+
+  // Read existing config (if any) and merge
+  let config: { mcpServers?: Record<string, unknown>; [key: string]: unknown } = {};
+  let configExisted = false;
+  try {
+    const raw = await fs.readFile(configPath, 'utf-8');
+    configExisted = true;
+    try {
+      config = JSON.parse(raw);
+    } catch {
+      exitWithError(`Cannot parse existing ${clientName} config as JSON`, {
+        exitCode: ExitCode.CONFIG_ERROR,
+        suggestion: `Fix the JSON at ${configPath} or move it aside and re-run install`,
+      });
+    }
+    if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+      exitWithError(`Existing ${clientName} config is not a JSON object`, {
+        exitCode: ExitCode.CONFIG_ERROR,
+        suggestion: `Fix the JSON at ${configPath} or move it aside and re-run install`,
+      });
+    }
+  } catch (err) {
+    if (configExisted || !isNodeError(err, 'ENOENT')) {
+      throw err;
+    }
+    // ENOENT — fresh config.
+  }
+
+  if (!config.mcpServers || typeof config.mcpServers !== 'object') {
+    config.mcpServers = {};
+  }
+  const existing = config.mcpServers;
+  const replaced = Object.prototype.hasOwnProperty.call(existing, name);
+  existing[name] = serverEntry;
+
+  // Ensure parent directory exists.
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+
+  // Backup existing config before rewriting.
+  if (configExisted) {
+    const backupPath = `${configPath}.bak`;
+    try {
+      await fs.copyFile(configPath, backupPath);
+    } catch (err) {
+      printWarning(`Could not write backup to ${backupPath}: ${getErrorMessage(err)}`);
+    }
+  }
+
+  // Atomic write: temp file next to target, then rename.
+  const tmpPath = `${configPath}.tmp-${process.pid}`;
+  const payload = JSON.stringify(config, null, 2) + '\n';
+  await fs.writeFile(tmpPath, payload, 'utf-8');
+  await fs.rename(tmpPath, configPath);
+
+  printSuccess(
+    replaced
+      ? `Updated '${name}' in ${clientName} at ${configPath}`
+      : `Registered '${name}' in ${clientName} at ${configPath}`
+  );
+  if (configExisted) {
+    printInfo(`Backup: ${configPath}.bak`);
+  }
+  printInfo(`Restart ${clientName} to pick up the change.`);
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // COMMAND
 // ══════════════════════════════════════════════════════════════════════════════
@@ -279,7 +390,7 @@ async function showConfigTemplate(
  * MCP Runtime: run a .photon.ts file as MCP server
  */
 export function registerMCPCommand(program: Command): void {
-  program
+  const mcp = program
     .command('mcp', { hidden: true })
     .argument('<name>', 'MCP name (without .photon.ts extension)')
     .description('Run a Photon as MCP server')
@@ -511,6 +622,42 @@ export function registerMCPCommand(program: Command): void {
             void watcher.stop();
           });
         }
+      } catch (error) {
+        logger.error(`Error: ${getErrorMessage(error)}`);
+        process.exit(1);
+      }
+    });
+
+  // mcp install: register a photon in an MCP client's config (e.g. Claude Desktop)
+  mcp
+    .command('install')
+    .argument('<name>', 'Photon name to register (without .photon.ts extension)')
+    .description(
+      `Register a photon in an MCP client's config (supported: ${SUPPORTED_CLIENTS.join(', ')})`
+    )
+    .option('--client <client>', `Target MCP client (${SUPPORTED_CLIENTS.join(', ')})`, 'claude')
+    .action(async (name: string, options: { client?: string }) => {
+      try {
+        const client = (options.client ?? 'claude') as SupportedClient;
+        if (!SUPPORTED_CLIENTS.includes(client)) {
+          exitWithError(`Unsupported client: ${client}`, {
+            exitCode: ExitCode.ERROR,
+            suggestion: `Supported clients: ${SUPPORTED_CLIENTS.join(', ')}`,
+          });
+        }
+
+        const workingDir = getDefaultContext().baseDir;
+        const filePath = await resolvePhotonPathWithBundled(name, workingDir);
+
+        if (!filePath) {
+          exitWithError(`Photon '${name}' not found`, {
+            exitCode: ExitCode.NOT_FOUND,
+            searchedIn: workingDir,
+            suggestion: `Create it first with: photon maker new ${name}\nOr install from a marketplace with: photon add ${name}`,
+          });
+        }
+
+        await installToClient(name, filePath, client, workingDir);
       } catch (error) {
         logger.error(`Error: ${getErrorMessage(error)}`);
         process.exit(1);
