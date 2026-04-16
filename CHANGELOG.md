@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.1](https://github.com/portel-dev/photon/compare/v1.22.0...v1.22.1) (2026-04-16)
+
+### Bug Fixes
+
+* **ci:** sync package-lock.json with package.json and add lockfile guardrail ([33b9973](https://github.com/portel-dev/photon/commit/33b997310fdc48d94c5224b129fe746cf0eceecf))
+# Changelog
+
 ## [1.22.0](https://github.com/portel-dev/photon/compare/v1.21.0...v1.22.0) (2026-04-16)
 
 ### Features
