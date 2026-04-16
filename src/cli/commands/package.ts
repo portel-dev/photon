@@ -497,9 +497,12 @@ export function registerPackageCommands(program: Command): void {
     .command('upgrade')
     .argument('[name]', 'MCP name to upgrade (upgrades all if omitted)')
     .option('--check', 'Check for updates without upgrading')
+    .option('--dry-run', 'Alias for --check')
     .alias('up')
     .description('Upgrade MCP(s) from marketplaces')
     .action(async (name: string | undefined, options: any, command: Command) => {
+      // --check and --dry-run are synonyms — both suppress the actual upgrade.
+      if (options.dryRun) options.check = true;
       try {
         const { formatOutput, printInfo, printSuccess, printWarning, printError, STATUS } =
           await import('../../cli-formatter.js');

@@ -18,7 +18,8 @@ export function registerUpdateCommand(program: Command): void {
   program
     .command('update')
     .description('Update Photon CLI to the latest version')
-    .action(async () => {
+    .option('--dry-run', 'Show the planned version change without installing')
+    .action(async (options: { dryRun?: boolean }) => {
       try {
         const { printInfo, printSuccess, printWarning, printHeader, printError } =
           await import('../../cli-formatter.js');
@@ -54,7 +55,17 @@ export function registerUpdateCommand(program: Command): void {
         printHeader(`Updating ${PHOTON_VERSION} → ${latestVersion}`);
         console.log('');
 
-        // 3. Run the actual install
+        // 3. Dry-run: stop here before any install side effects
+        if (options.dryRun) {
+          const pm = detectPM();
+          const cmd = globalInstallCmd('@portel/photon');
+          printInfo(`Dry run. Would install via ${pm}:`);
+          printInfo(`  ${cmd}`);
+          printInfo(`Run without --dry-run to apply.`);
+          return;
+        }
+
+        // 4. Run the actual install
         const pm = detectPM();
         const cmd = globalInstallCmd('@portel/photon');
 
@@ -70,7 +81,7 @@ export function registerUpdateCommand(program: Command): void {
         printSuccess(`Updated to ${latestVersion}`);
         printInfo("Run `photon changelog` to see what's new");
 
-        // 4. Refresh marketplace indexes
+        // 5. Refresh marketplace indexes
         try {
           const { MarketplaceManager } = await import('../../marketplace-manager.js');
           const manager = new MarketplaceManager();
