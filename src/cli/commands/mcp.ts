@@ -271,9 +271,9 @@ async function showConfigTemplate(
   cliHint(`Validate with: photon mcp ${mcpName} --validate`);
 }
 
-type SupportedClient = 'claude';
+export type SupportedClient = 'claude';
 
-const SUPPORTED_CLIENTS: SupportedClient[] = ['claude'];
+export const SUPPORTED_CLIENTS: SupportedClient[] = ['claude'];
 const CLIENT_NAMES: Record<SupportedClient, string> = {
   claude: 'Claude Desktop',
 };
@@ -285,7 +285,7 @@ const CLIENT_NAMES: Record<SupportedClient, string> = {
  * writes atomically through a temp file, and preserves a `.bak` backup.
  * Creates the config from scratch if it doesn't exist yet.
  */
-async function installToClient(
+export async function installToClient(
   name: string,
   filePath: string,
   client: SupportedClient,

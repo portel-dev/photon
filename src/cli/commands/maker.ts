@@ -459,11 +459,18 @@ export default class TemplateName {
 // COMMAND REGISTRATION
 // ══════════════════════════════════════════════════════════════════════════════
 
+interface ScaffoldOptions {
+  global?: boolean;
+  force?: boolean;
+  /** MCP client to auto-register with after scaffolding (e.g. 'claude'). */
+  for?: string;
+}
+
 /**
  * Scaffold a new .photon.ts file from the bundled template.
  * Shared between `photon maker new` and the `photon new` top-level shortcut.
  */
-async function scaffoldPhoton(name: string, options: { global?: boolean }): Promise<void> {
+async function scaffoldPhoton(name: string, options: ScaffoldOptions): Promise<void> {
   try {
     // --global always means ~/.photon, independent of CWD auto-detection.
     // Default (no --global) scaffolds into CWD so users get create-next-app-style
@@ -478,17 +485,19 @@ async function scaffoldPhoton(name: string, options: { global?: boolean }): Prom
     const fileName = `${name}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 
-    // Check if file already exists
-    try {
-      await fs.access(filePath);
-      exitWithError(`File already exists: ${filePath}`, {
-        suggestion: `Choose a different name or delete the existing file`,
-      });
-    } catch (err) {
-      if (!isNodeError(err, 'ENOENT')) {
-        exitWithError(`Cannot access ${filePath}: ${getErrorMessage(err)}`);
+    // Check if file already exists (unless --force)
+    if (!options.force) {
+      try {
+        await fs.access(filePath);
+        exitWithError(`File already exists: ${filePath}`, {
+          suggestion: `Choose a different name, delete the existing file, or re-run with --force`,
+        });
+      } catch (err) {
+        if (!isNodeError(err, 'ENOENT')) {
+          exitWithError(`Cannot access ${filePath}: ${getErrorMessage(err)}`);
+        }
+        // ENOENT = file doesn't exist — good, proceed
       }
-      // ENOENT = file doesn't exist — good, proceed
     }
 
     // Read template
@@ -516,6 +525,23 @@ async function scaffoldPhoton(name: string, options: { global?: boolean }): Prom
     // Print a short, path-aware success message
     const displayPath = options.global ? filePath : `./${fileName}`;
     console.error(`✅ Created ${displayPath}`);
+
+    // --for <client>: register in the MCP client immediately so the user is
+    // one restart away from a working tool. Deliberately lazy-imports to
+    // avoid pulling mcp.ts into maker.ts' startup path.
+    if (options.for) {
+      const { SUPPORTED_CLIENTS, installToClient } = await import('./mcp.js');
+      const target = options.for as (typeof SUPPORTED_CLIENTS)[number];
+      if (!SUPPORTED_CLIENTS.includes(target)) {
+        exitWithError(`Unsupported client for --for: ${options.for}`, {
+          exitCode: ExitCode.ERROR,
+          suggestion: `Supported: ${SUPPORTED_CLIENTS.join(', ')}`,
+        });
+      }
+      await installToClient(name, filePath, target, workingDir);
+      return;
+    }
+
     if (options.global) {
       console.error(`Run with: photon mcp ${name} --dev`);
     } else {
@@ -542,8 +568,13 @@ export function registerNewCommand(program: Command): void {
       '--global',
       'Scaffold into ~/.photon (auto-discovered by the daemon) instead of the current directory'
     )
+    .option('--force', 'Overwrite the file if it already exists')
+    .option(
+      '--for <client>',
+      'After scaffolding, register the photon in the named MCP client (e.g. claude)'
+    )
     .description('Create a new photon from template (shortcut for `photon maker new`)')
-    .action(async (name: string, options: { global?: boolean }) => {
+    .action(async (name: string, options: ScaffoldOptions) => {
       await scaffoldPhoton(name, options);
     });
 }
@@ -571,8 +602,13 @@ export function registerMakerCommands(program: Command): void {
       '--global',
       'Scaffold into ~/.photon (auto-discovered by the daemon) instead of the current directory'
     )
+    .option('--force', 'Overwrite the file if it already exists')
+    .option(
+      '--for <client>',
+      'After scaffolding, register the photon in the named MCP client (e.g. claude)'
+    )
     .description('Create a new photon from template')
-    .action(async (name: string, options: { global?: boolean }) => {
+    .action(async (name: string, options: ScaffoldOptions) => {
       await scaffoldPhoton(name, options);
     });
 
