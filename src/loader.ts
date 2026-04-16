@@ -3311,7 +3311,8 @@ Run: photon mcp ${mcpName} --config
     photonName: string,
     toolName: string,
     parameters: any,
-    instanceName?: string
+    instanceName?: string,
+    outputHandler?: (data: unknown) => void
   ): () => Promise<any> {
     // Build middleware context
     const store = executionContext.getStore();
@@ -3321,7 +3322,8 @@ Run: photon mcp ${mcpName} --config
       instance: instanceName || 'default',
       params: parameters,
       caller: store?.caller,
-    } as any; // MiddlewareContext type is in photon-core (read-only); caller added via runtime extension
+      outputHandler,
+    } as any; // MiddlewareContext type is in photon-core (read-only); caller/outputHandler added via runtime extension
 
     // Get declarations from the new middleware[] field
     const declarations: MiddlewareDeclaration[] = toolMeta.middleware || [];
@@ -3411,6 +3413,26 @@ Run: photon mcp ${mcpName} --config
               from,
               to,
             });
+            // Broadcast state-change as a domain event so AG-UI clients
+            // (via createAGUIOutputHandler) receive a STATE_DELTA in real
+            // time instead of polling /api/health/circuits.
+            const handler = (ctx as any).outputHandler as ((data: unknown) => void) | undefined;
+            if (handler) {
+              try {
+                handler({
+                  channel: `${ctx.photon}:circuits`,
+                  event: 'state-change',
+                  data: {
+                    key: `${ctx.photon}:${ctx.instance}:${ctx.tool}`,
+                    from,
+                    to,
+                    timestamp: Date.now(),
+                  },
+                });
+              } catch {
+                /* best-effort — don't fail the middleware chain */
+              }
+            }
           };
 
           if (circuit.state === 'open') {
@@ -3711,7 +3733,8 @@ Run: photon mcp ${mcpName} --config
             mcp.name,
             toolName,
             parameters,
-            mcp.instance.instanceName
+            mcp.instance.instanceName,
+            options?.outputHandler as ((data: unknown) => void) | undefined
           );
         }
 
@@ -3902,7 +3925,8 @@ Run: photon mcp ${mcpName} --config
           mcp.name,
           toolName,
           parameters,
-          mcp.instance.instanceName
+          mcp.instance.instanceName,
+          options?.outputHandler as ((data: unknown) => void) | undefined
         );
       }
 

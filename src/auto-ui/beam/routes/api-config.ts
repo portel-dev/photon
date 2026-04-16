@@ -290,8 +290,25 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       const circuitEntries = Object.entries(circuits);
       const openCircuits = circuitEntries.filter(([, v]) => v.state === 'open').length;
       const photonCount = state.photons.length;
+      // Probe daemon health — best-effort, non-blocking.
+      let daemonOk = false;
+      try {
+        const { queryDaemonStatus } = await import('../../../daemon/client.js');
+        const status = await Promise.race([
+          queryDaemonStatus(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000)),
+        ]);
+        daemonOk = status != null;
+      } catch {
+        /* daemon unreachable */
+      }
+
       const subsystems: Record<string, { status: 'ok' | 'degraded'; detail?: string }> = {
         runtime: { status: 'ok' },
+        daemon: {
+          status: daemonOk ? 'ok' : 'degraded',
+          detail: daemonOk ? 'reachable' : 'unreachable',
+        },
         photons: {
           status: photonCount > 0 ? 'ok' : 'degraded',
           detail: `${photonCount} photon(s) loaded`,

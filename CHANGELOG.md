@@ -1,5 +1,57 @@
 # Changelog
 
+## Unreleased
+
+### Observability (end-to-end)
+
+* **OTel traces**: W3C trace_id propagation, parent-context chaining via `_meta.traceparent`, `recordException` on errors, `photon.stateful` attribute, force-sampled error spans
+* **OTel metrics**: `photon.tool.duration` histogram, `photon.tool.calls` / `photon.tool.errors` counters, `photon.circuit_breaker.transitions`, `photon.rate_limit.rejections`, `photon.bulkhead.rejections` counters
+* **OTel logs bridge**: every `Logger` record forwarded to `@opentelemetry/api-logs` when installed, with ambient photon/tool/traceId/callerId enrichment
+* **OTel SDK bootstrap**: `initOtelSdk()` called at CLI entry -- set `OTEL_EXPORTER_OTLP_ENDPOINT` and install the SDK to export everything
+* **AsyncLocalStorage request context**: `getRequestContext()` available to any code during tool execution -- photon, tool, traceId, caller, startedAt
+* **Nested trace inheritance**: `this.call()` forwards `_meta.traceparent` so photon-to-photon calls chain under one trace
+* **Structured Logger enrichment**: Logger.log auto-attaches photon/tool/traceId/callerId from ambient ALS context
+
+### Error handling
+
+* `PhotonError` constructor accepts `{ cause }` (photon-core 2.21.0+) for native cause chains
+* `wrapError` preserves root cause via `Error.cause`
+* `formatToolError` uses typed guards (`error.name`, `error.code`) over substring matching
+* New error classifications: `circuit_open`, `rate_limited`, `bulkhead_full` -- all with `retryable: true`
+* MCP tool error responses include `structuredContent.error` with `{ type, retryable, message }` so agents can auto-retry
+* Console.* leaks in loader.ts routed through structured Logger
+
+### Resilience
+
+* **Circuit breaker half-open probe latch**: only one probe allowed through, failed probe immediately reopens
+* **@bulkhead middleware** (photon-core 2.22.0): caps concurrent in-flight executions per tool, fast-fails with `PhotonBulkheadFullError`
+* Reactive circuit state-change events emitted via outputHandler for AG-UI STATE_DELTA
+
+### Health endpoints
+
+* `GET /api/health` -- liveness/readiness with per-subsystem breakdown (runtime, daemon, photons, circuits), 503 when degraded
+* `GET /api/health/circuits` -- per-circuit state detail (shipped earlier, now tested)
+
+### AG-UI
+
+* `RUN_ERROR` events carry `code`, `retryable`, `runId`, `threadId` for typed auto-retry
+* Every AG-UI event includes `rawEvent.traceparent` for OTel correlation
+* Capability handshake: `experimental['ag-ui'].features` advertises `structured-errors`, `trace-correlation`, `proxy-mode`, `local-mode`
+
+### Documentation
+
+* `docs/guides/observability.md` -- full setup recipe, env vars, health endpoints, metrics table, AG-UI integration, local collector recipe
+* `docs/PROMISES.md` -- Intent 10 grew from 10 to 27 assertions; platform total from 99 to 116
+* Promise suite: 65/65 pass (was 52 at session start)
+
+### Dependencies
+
+* `@portel/photon-core` ^2.22.0 (was ^2.20.0)
+  * `PhotonError({ cause })` constructor
+  * `@bulkhead` middleware + `@bulkhead N` sugar tag
+  * Fixed `listPhotons`/`allLogPaths` for flat local-namespace layout
+  * Fixed memory.test.ts isolation (PHOTON_DIR instead of PHOTON_DATA_DIR)
+
 ## [1.21.0](https://github.com/portel-dev/photon/compare/v1.20.1...v1.21.0) (2026-04-14)
 
 ### Features

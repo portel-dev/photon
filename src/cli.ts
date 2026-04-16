@@ -12,10 +12,11 @@
  */
 
 import { initOtelSdk } from './telemetry/sdk.js';
+import { PHOTON_VERSION } from './version.js';
 import { main } from './cli/index.js';
 
 async function bootstrap(): Promise<void> {
-  await initOtelSdk();
+  await initOtelSdk({ serviceVersion: PHOTON_VERSION });
   await main();
 }
 

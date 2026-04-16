@@ -1257,6 +1257,7 @@ export default class CtxProbe {
         assert.ok(body.status === 'ok' || body.status === 'degraded');
         assert.equal(typeof body.uptime_s, 'number');
         assert.ok(body.subsystems.runtime, 'runtime subsystem present');
+        assert.ok(body.subsystems.daemon, 'daemon subsystem present');
         assert.ok(body.subsystems.photons, 'photons subsystem present');
         assert.ok(body.subsystems.circuits, 'circuits subsystem present');
       }
