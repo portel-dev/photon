@@ -554,7 +554,14 @@ export function registerNewCommand(program: Command): void {
 export function registerMakerCommands(program: Command): void {
   const maker = program
     .command('maker', { hidden: true })
-    .description('Commands for creating photons and marketplaces');
+    .description('Commands for creating photons and marketplaces')
+    // The program-level configureHelp hides subcommands to keep `photon --help`
+    // curated via addHelpText. For subcommand groups we DO want the default
+    // Commander behavior of listing children, so restore it here.
+    .configureHelp({
+      sortSubcommands: false,
+      sortOptions: false,
+    });
 
   // maker new: create a new photon from template
   maker

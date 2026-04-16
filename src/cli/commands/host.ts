@@ -16,7 +16,11 @@ import { getDefaultContext } from '../../context.js';
 export function registerHostCommand(program: Command): void {
   const host = program
     .command('host', { hidden: true })
-    .description('Manage cloud hosting and deployment');
+    .description('Manage cloud hosting and deployment')
+    .configureHelp({
+      sortSubcommands: false,
+      sortOptions: false,
+    });
 
   host
     .command('preview')

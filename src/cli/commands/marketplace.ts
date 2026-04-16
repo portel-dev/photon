@@ -14,7 +14,13 @@ const logger = new Logger({ component: 'marketplace' });
  * Register marketplace subcommands
  */
 export function registerMarketplaceCommands(program: Command): void {
-  const marketplace = program.command('marketplace').description('Manage photon marketplaces');
+  const marketplace = program
+    .command('marketplace')
+    .description('Manage photon marketplaces')
+    .configureHelp({
+      sortSubcommands: false,
+      sortOptions: false,
+    });
 
   marketplace
     .command('list')
