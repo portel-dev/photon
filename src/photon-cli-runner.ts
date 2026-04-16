@@ -1615,10 +1615,12 @@ export async function listMethods(photonName: string): Promise<void> {
     const allMethods = await extractMethods(resolvedPath);
     const photonDesc = await extractPhotonDescription(resolvedPath);
 
-    // Filter out internal methods: scheduled*, handle*, reportError
+    // Filter out internal methods: lifecycle hooks, scheduled*, handle*, reportError
     const methods = allMethods.filter((m) => {
       if (m.scheduled) return false;
       if (m.webhook) return false;
+      if (m.name === 'onInitialize') return false;
+      if (m.name === 'onShutdown') return false;
       if (m.name.startsWith('scheduled')) return false;
       if (m.name.startsWith('handle')) return false;
       if (m.name === 'reportError') return false;
