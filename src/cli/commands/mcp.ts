@@ -202,6 +202,7 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
     exitWithError('Validation failed: Missing required environment variables', {
       exitCode: ExitCode.CONFIG_ERROR,
       suggestion: `Run 'photon mcp ${mcpName} --config' to see the configuration template`,
+      docsAnchor: 'missing-environment-variables',
     });
   } else {
     printSuccess('Configuration valid!');
@@ -441,6 +442,7 @@ export function registerMCPCommand(program: Command): void {
                 : marketplaceSource
                   ? `Photon '${name}' not found in ${marketplaceSource}`
                   : "Use 'photon search <name>' to find it or 'photon marketplace add <source>' to add a marketplace",
+              docsAnchor: 'mcp-not-found-in-marketplace',
             });
           } else if (conflict.sources.length === 1 || !conflict.hasConflict) {
             // Single source — auto-download
@@ -654,6 +656,7 @@ export function registerMCPCommand(program: Command): void {
             exitCode: ExitCode.NOT_FOUND,
             searchedIn: workingDir,
             suggestion: `Create it first with: photon maker new ${name}\nOr install from a marketplace with: photon add ${name}`,
+            docsAnchor: 'photon-not-found',
           });
         }
 

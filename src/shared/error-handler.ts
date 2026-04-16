@@ -177,8 +177,17 @@ export function handleError(
 // CLI ERROR UTILITIES
 // ══════════════════════════════════════════════════════════════════════════════
 
+const DOCS_BASE = 'https://github.com/portel-dev/photon/blob/main/docs/TROUBLESHOOTING.md';
+
 /**
- * Print error to stderr and exit with appropriate code
+ * Print error to stderr and exit with appropriate code.
+ *
+ * Options:
+ * - suggestion: short tip (what to do next)
+ * - searchedIn: path that was searched (for not-found cases)
+ * - docsAnchor: TROUBLESHOOTING.md anchor (e.g. 'mcp-not-found-in-marketplace').
+ *   Appended as 'Docs: <url>#<anchor>' to give users a place to read more.
+ * - docsUrl: full override when the docs live elsewhere.
  */
 export function exitWithError(
   message: string,
@@ -186,10 +195,21 @@ export function exitWithError(
     exitCode?: ExitCodeType;
     suggestion?: string;
     searchedIn?: string;
+    docsAnchor?: string;
+    docsUrl?: string;
     logger?: Logger;
   }
 ): never {
-  const { exitCode = ExitCode.ERROR, suggestion, searchedIn, logger } = options || {};
+  const {
+    exitCode = ExitCode.ERROR,
+    suggestion,
+    searchedIn,
+    docsAnchor,
+    docsUrl,
+    logger,
+  } = options || {};
+
+  const docs = docsUrl ?? (docsAnchor ? `${DOCS_BASE}#${docsAnchor}` : undefined);
 
   if (logger) {
     logger.error(message);
@@ -199,6 +219,9 @@ export function exitWithError(
     if (suggestion) {
       logger.info(`Tip: ${suggestion}`);
     }
+    if (docs) {
+      logger.info(`Docs: ${docs}`);
+    }
   } else {
     console.error(`✗ ${message}`);
     if (searchedIn) {
@@ -206,6 +229,9 @@ export function exitWithError(
     }
     if (suggestion) {
       console.error(`  Tip: ${suggestion}`);
+    }
+    if (docs) {
+      console.error(`  Docs: ${docs}`);
     }
   }
 

@@ -1626,6 +1626,7 @@ export async function listMethods(photonName: string): Promise<void> {
         exitCode: ExitCode.NOT_FOUND,
         searchedIn: getDefaultContext().baseDir,
         suggestion: `Install it with: photon add ${photonName}\nIf '${photonName}' is a command, run 'photon --help' for available commands`,
+        docsAnchor: 'photon-not-found',
       });
     }
 
@@ -1754,6 +1755,7 @@ export async function runMethod(
         exitCode: ExitCode.NOT_FOUND,
         searchedIn: getDefaultContext().baseDir,
         suggestion: `Install it with: photon add ${photonName}\nIf '${photonName}' is a command, run 'photon --help' for available commands`,
+        docsAnchor: 'photon-not-found',
       });
     }
 

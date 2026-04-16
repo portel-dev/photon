@@ -4,6 +4,7 @@ Comprehensive guide to diagnosing and fixing common Photon MCP issues.
 
 ## Table of Contents
 
+- [Photon Not Found](#photon-not-found)
 - [Installation Issues](#installation-issues)
 - [Configuration Problems](#configuration-problems)
 - [Hot Reload Failures](#hot-reload-failures)
@@ -14,6 +15,28 @@ Comprehensive guide to diagnosing and fixing common Photon MCP issues.
 - [MCP Protocol Errors](#mcp-protocol-errors)
 - [Stale Cache After Upgrade](#stale-cache-after-upgrade)
 - [npx Quick Reset Guide](#npx-quick-reset-guide)
+
+---
+
+## Photon Not Found
+
+Commands like `photon cli <name>`, `photon mcp <name>`, and `photon mcp install <name>` look up a photon by name. If they can't find one, you'll see:
+
+```
+✗ Photon 'foo' not found
+  Searched in: /Users/you/.photon
+  Tip: Install it with: photon add foo
+  Docs: https://github.com/portel-dev/photon/blob/main/docs/TROUBLESHOOTING.md#photon-not-found
+```
+
+Checklist when you hit this:
+
+1. **Scaffolded but can't find it?** `photon new foo` scaffolds `./foo.photon.ts` in the current directory by default (not `~/.photon`). Run the next command from the same directory. Or use `photon new foo --global` to put it in `~/.photon` so any directory can see it.
+2. **Installed from marketplace but missing?** Run `photon info` to list what's actually installed. If it's gone, re-install with `photon add <name>`.
+3. **Marketplace name has a prefix?** If the photon lives in a non-default marketplace, use the qualified form: `photon add alice/custom-photons:<name>`.
+4. **Just typed a typo?** `photon --help` lists commands. `photon search <query>` searches marketplaces for fuzzy matches.
+
+Related: [MCP Not Found in Marketplace](#mcp-not-found-in-marketplace), [Global Install Not Found](#global-install-not-found).
 
 ---
 
