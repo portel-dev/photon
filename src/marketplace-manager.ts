@@ -607,7 +607,10 @@ export class MarketplaceManager {
     } catch (error) {
       // Marketplace doesn't have a manifest or fetch failed
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to fetch manifest from ${marketplace.name}`, {
+      // Transient — surface only at debug level. Individual user-facing commands
+      // (search, add) own the aggregate "some marketplaces were unreachable" message
+      // when it actually matters.
+      this.logger.debug(`Failed to fetch manifest from ${marketplace.name}`, {
         source: marketplace.source,
         error: message,
         hint:
@@ -834,7 +837,7 @@ export class MarketplaceManager {
           // Try to fetch metadata from manifest (auto-fetch if cache empty)
           let manifest = await this.getCachedManifest(marketplace.name);
           if (!manifest) {
-            this.logger.info(
+            this.logger.debug(
               `No cached manifest for ${marketplace.name}, fetching for metadata...`
             );
             const updated = await this.updateMarketplaceCache(marketplace.name);
@@ -1040,7 +1043,7 @@ export class MarketplaceManager {
 
       // If cache is empty, try fetching it now (first boot scenario)
       if (!manifest) {
-        this.logger.info(`No cached manifest for ${marketplace.name}, fetching...`);
+        this.logger.debug(`No cached manifest for ${marketplace.name}, fetching...`);
         const updated = await this.updateMarketplaceCache(marketplace.name);
         if (updated) {
           manifest = await this.getCachedManifest(marketplace.name);
@@ -1076,8 +1079,9 @@ export class MarketplaceManager {
             results.set(query, existing);
           }
         } catch {
-          // Skip this marketplace — offline or unreachable
-          this.logger.warn(`Marketplace ${marketplace.name} unreachable during search`);
+          // Skip this marketplace — offline or unreachable. Surface only at debug;
+          // the search command counts unreachable sources and prints a summary.
+          this.logger.debug(`Marketplace ${marketplace.name} unreachable during search`);
         }
       }
     }

@@ -255,10 +255,12 @@ export function registerInfoCommand(program: Command): void {
               const fileName = `${name}.photon.ts`;
               const installMetadata = await manager.getPhotonInstallMetadata(fileName);
               const marketplaceLines = sources.map((source) => {
-                const version = source.metadata?.version || 'unknown';
+                const version = source.metadata?.version;
                 const mark =
                   installMetadata?.marketplace === source.marketplace.name ? ' (installed)' : '';
-                return `${source.marketplace.name} · v${version}${mark}`;
+                return version
+                  ? `${source.marketplace.name} · v${version}${mark}`
+                  : `${source.marketplace.name}${mark}`;
               });
               renderSection('Marketplace sources', marketplaceLines);
             } else if (!isInstalled) {
