@@ -24,6 +24,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_DIR="/tmp/photon-test-$$"
 mkdir -p "$TEST_DIR"
 
+# Pin the photon base directory to ~/.photon so the test suite's results are
+# independent of the directory the test runs from. Without this, any stray
+# .photon.ts file in CWD promotes CWD to baseDir (see getDefaultContext), which
+# makes fixtures written to ~/.photon invisible to `photon info`/`validate`.
+export PHOTON_DIR="$HOME/.photon"
+
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BLUE}  Photon README Validation Test Suite${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
@@ -73,12 +79,13 @@ fi
 # SECTION 2: Quick Start - Init Command
 # ============================================================================
 
-# Note: photon maker new creates files in ~/.photon/ by default, not current directory
-# Clean up any existing test file first
+# Note: photon maker new now defaults to CWD; --global opts into ~/.photon.
+# The rest of this suite depends on the fixture photon being globally
+# discoverable (photon info, photon cli, etc.), so we scaffold with --global.
 rm -f ~/.photon/test-readme-calc.photon.ts
 
-test_start "photon maker new should create .photon.ts file in ~/.photon/"
-if $PHOTON_CMD maker new test-readme-calc > /dev/null 2>&1; then
+test_start "photon maker new --global should create .photon.ts file in ~/.photon/"
+if $PHOTON_CMD maker new test-readme-calc --global > /dev/null 2>&1; then
     if [ -f ~/.photon/test-readme-calc.photon.ts ]; then
         test_pass "test-readme-calc.photon.ts created in ~/.photon/"
     else
@@ -106,16 +113,16 @@ if [ -f ~/.photon/test-readme-calc.photon.ts ]; then
     fi
 fi
 
-test_start "photon maker new should create another photon"
+test_start "photon maker new --global should create another photon"
 rm -f ~/.photon/local-calc.photon.ts
-if $PHOTON_CMD maker new local-calc > /dev/null 2>&1; then
+if $PHOTON_CMD maker new local-calc --global > /dev/null 2>&1; then
     if [ -f ~/.photon/local-calc.photon.ts ]; then
         test_pass "local-calc.photon.ts created in ~/.photon/"
     else
         test_fail "local-calc.photon.ts not found in ~/.photon/"
     fi
 else
-    test_fail "maker new local-calc failed"
+    test_fail "maker new --global local-calc failed"
 fi
 
 # ============================================================================
