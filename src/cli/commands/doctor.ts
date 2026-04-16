@@ -191,12 +191,29 @@ export function registerDoctorCommand(program: Command): void {
             suggestions.push('Add at least one marketplace so you can install community photons.');
           } else {
             const conflicts = await manager.detectAllConflicts();
+
+            // Conflicts strictly between the two shipped built-in marketplaces
+            // (portel-dev/photons and portel-dev/photon-examples) are expected —
+            // examples intentionally mirrors a subset of canonical photons for
+            // learning purposes. Those shouldn't scare first-time users.
+            const BUILT_IN_NAMES = new Set(['photons', 'examples']);
+            let userImpactingConflicts = 0;
+            for (const sources of conflicts.values()) {
+              const nonBuiltIn = sources.filter((s) => !BUILT_IN_NAMES.has(s.marketplace.name));
+              if (nonBuiltIn.length > 0) {
+                userImpactingConflicts++;
+              }
+            }
+
             diagnostics['Marketplaces'] = {
-              status: conflicts.size > 0 ? STATUS.WARN : STATUS.OK,
+              status: userImpactingConflicts > 0 ? STATUS.WARN : STATUS.OK,
               enabled: enabled.map((m) => m.name),
-              conflicts: conflicts.size,
+              conflicts: userImpactingConflicts,
+              ...(conflicts.size > userImpactingConflicts && {
+                expectedOverlaps: conflicts.size - userImpactingConflicts,
+              }),
             };
-            if (conflicts.size > 0) {
+            if (userImpactingConflicts > 0) {
               issuesFound++;
               suggestions.push('Resolve duplicate photons with: photon marketplace resolve');
             }
