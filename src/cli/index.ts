@@ -18,7 +18,7 @@ import { registerSSECommand, registerBeamCommand } from './commands/beam.js';
 import { registerServeCommand } from './commands/serve.js';
 import { registerHostCommand } from './commands/host.js';
 import { registerSearchCommand } from './commands/search.js';
-import { registerMakerCommands } from './commands/maker.js';
+import { registerMakerCommands, registerNewCommand } from './commands/maker.js';
 import { registerMarketplaceCommands } from './commands/marketplace.js';
 import { registerInfoCommand } from './commands/info.js';
 import { registerPackageCommands } from './commands/package.js';
@@ -84,6 +84,7 @@ Maintenance:
   audit                   View persistent tool execution audit log
 
 Development:
+  new <name>              Create a new photon from template (shortcut)
   maker new <name>        Create a new photon from template
   maker validate <name>   Validate photon syntax and schemas
   maker sync              Generate marketplace manifest
@@ -107,6 +108,7 @@ Run 'photon <command> --help' for detailed usage.
   registerHostCommand(program);
   registerSearchCommand(program);
   registerMakerCommands(program);
+  registerNewCommand(program);
   registerMarketplaceCommands(program);
   registerInfoCommand(program);
   registerPackageCommands(program);

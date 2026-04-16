@@ -460,6 +460,95 @@ export default class TemplateName {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Scaffold a new .photon.ts file from the bundled template.
+ * Shared between `photon maker new` and the `photon new` top-level shortcut.
+ */
+async function scaffoldPhoton(name: string, options: { global?: boolean }): Promise<void> {
+  try {
+    // --global always means ~/.photon, independent of CWD auto-detection.
+    // Default (no --global) scaffolds into CWD so users get create-next-app-style
+    // local project layout.
+    const workingDir = options.global ? path.join(os.homedir(), '.photon') : process.cwd();
+
+    // Ensure working directory exists (only needed for ~/.photon; CWD always exists)
+    if (options.global) {
+      await ensureWorkingDir(workingDir);
+    }
+
+    const fileName = `${name}.photon.ts`;
+    const filePath = path.join(workingDir, fileName);
+
+    // Check if file already exists
+    try {
+      await fs.access(filePath);
+      exitWithError(`File already exists: ${filePath}`, {
+        suggestion: `Choose a different name or delete the existing file`,
+      });
+    } catch (err) {
+      if (!isNodeError(err, 'ENOENT')) {
+        exitWithError(`Cannot access ${filePath}: ${getErrorMessage(err)}`);
+      }
+      // ENOENT = file doesn't exist — good, proceed
+    }
+
+    // Read template
+    const templatePath = path.join(__dirname, '..', '..', '..', 'templates', 'photon.template.ts');
+    let template: string;
+
+    try {
+      template = await fs.readFile(templatePath, 'utf-8');
+    } catch (err) {
+      logger.debug(`Template not found at ${templatePath}, using inline template`);
+      template = getInlineTemplate();
+    }
+
+    // Replace placeholders
+    // Convert kebab-case to PascalCase for class name
+    const className = name
+      .split(/[-_]/)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join('');
+    const content = template.replace(/TemplateName/g, className).replace(/template-name/g, name);
+
+    // Write file
+    await fs.writeFile(filePath, content, 'utf-8');
+
+    // Print a short, path-aware success message
+    const displayPath = options.global ? filePath : `./${fileName}`;
+    console.error(`✅ Created ${displayPath}`);
+    if (options.global) {
+      console.error(`Run with: photon mcp ${name} --dev`);
+    } else {
+      console.error(`Next: photon mcp ${name} --dev  (run the MCP server from this directory)`);
+    }
+  } catch (error) {
+    logger.error(`Error: ${getErrorMessage(error)}`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Register the `photon new <name>` top-level shortcut for `photon maker new`.
+ *
+ * Kept as a separate registration so the shortcut can appear under the
+ * Development section of top-level --help while `maker new` stays for
+ * back-compat and scripting.
+ */
+export function registerNewCommand(program: Command): void {
+  program
+    .command('new')
+    .argument('<name>', 'Name for the new photon')
+    .option(
+      '--global',
+      'Scaffold into ~/.photon (auto-discovered by the daemon) instead of the current directory'
+    )
+    .description('Create a new photon from template (shortcut for `photon maker new`)')
+    .action(async (name: string, options: { global?: boolean }) => {
+      await scaffoldPhoton(name, options);
+    });
+}
+
+/**
  * Register the `maker` command group and all its subcommands
  */
 export function registerMakerCommands(program: Command): void {
@@ -476,77 +565,8 @@ export function registerMakerCommands(program: Command): void {
       'Scaffold into ~/.photon (auto-discovered by the daemon) instead of the current directory'
     )
     .description('Create a new photon from template')
-    .action(async (name: string, options: { global?: boolean }, command: Command) => {
-      try {
-        // --global always means ~/.photon, independent of CWD auto-detection.
-        // Default (no --global) scaffolds into CWD so users get create-next-app-style
-        // local project layout.
-        const workingDir = options.global ? path.join(os.homedir(), '.photon') : process.cwd();
-
-        // Ensure working directory exists (only needed for ~/.photon; CWD always exists)
-        if (options.global) {
-          await ensureWorkingDir(workingDir);
-        }
-
-        const fileName = `${name}.photon.ts`;
-        const filePath = path.join(workingDir, fileName);
-
-        // Check if file already exists
-        try {
-          await fs.access(filePath);
-          exitWithError(`File already exists: ${filePath}`, {
-            suggestion: `Choose a different name or delete the existing file`,
-          });
-        } catch (err) {
-          if (!isNodeError(err, 'ENOENT')) {
-            exitWithError(`Cannot access ${filePath}: ${getErrorMessage(err)}`);
-          }
-          // ENOENT = file doesn't exist — good, proceed
-        }
-
-        // Read template
-        const templatePath = path.join(
-          __dirname,
-          '..',
-          '..',
-          '..',
-          'templates',
-          'photon.template.ts'
-        );
-        let template: string;
-
-        try {
-          template = await fs.readFile(templatePath, 'utf-8');
-        } catch (err) {
-          logger.debug(`Template not found at ${templatePath}, using inline template`);
-          template = getInlineTemplate();
-        }
-
-        // Replace placeholders
-        // Convert kebab-case to PascalCase for class name
-        const className = name
-          .split(/[-_]/)
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join('');
-        const content = template
-          .replace(/TemplateName/g, className)
-          .replace(/template-name/g, name);
-
-        // Write file
-        await fs.writeFile(filePath, content, 'utf-8');
-
-        // Print a short, path-aware success message
-        const displayPath = options.global ? filePath : `./${fileName}`;
-        console.error(`✅ Created ${displayPath}`);
-        if (options.global) {
-          console.error(`Run with: photon mcp ${name} --dev`);
-        } else {
-          console.error(`Next: photon mcp ${name} --dev  (run the MCP server from this directory)`);
-        }
-      } catch (error) {
-        logger.error(`Error: ${getErrorMessage(error)}`);
-        process.exit(1);
-      }
+    .action(async (name: string, options: { global?: boolean }) => {
+      await scaffoldPhoton(name, options);
     });
 
   // maker validate: validate photon syntax and schemas
