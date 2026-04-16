@@ -13,6 +13,8 @@
  * to the standard scale and ambient trace context auto-attached.
  */
 
+import { getRequestContext } from './context.js';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let otelLogsApi: any;
 
@@ -70,29 +72,14 @@ export function emitOtelLog(record: OtelLogRecord): void {
   if (!otelLogger) return;
 
   const attributes: Record<string, unknown> = { ...(record.attributes ?? {}) };
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const ctxMod = require('./context.js') as {
-      getRequestContext?: () =>
-        | {
-            photon?: string;
-            tool?: string;
-            traceId?: string;
-            caller?: { id?: string };
-          }
-        | undefined;
-    };
-    const ctx = ctxMod.getRequestContext?.();
-    if (ctx) {
-      if (ctx.photon && attributes['photon.name'] == null) attributes['photon.name'] = ctx.photon;
-      if (ctx.tool && attributes['photon.tool'] == null) attributes['photon.tool'] = ctx.tool;
-      if (ctx.traceId && attributes['photon.trace_id'] == null)
-        attributes['photon.trace_id'] = ctx.traceId;
-      if (ctx.caller?.id && attributes['photon.caller_id'] == null)
-        attributes['photon.caller_id'] = ctx.caller.id;
-    }
-  } catch {
-    /* context module unavailable */
+  const ctx = getRequestContext();
+  if (ctx) {
+    if (ctx.photon && attributes['photon.name'] == null) attributes['photon.name'] = ctx.photon;
+    if (ctx.tool && attributes['photon.tool'] == null) attributes['photon.tool'] = ctx.tool;
+    if (ctx.traceId && attributes['photon.trace_id'] == null)
+      attributes['photon.trace_id'] = ctx.traceId;
+    if (ctx.caller?.id && attributes['photon.caller_id'] == null)
+      attributes['photon.caller_id'] = ctx.caller.id;
   }
 
   try {

@@ -15,6 +15,7 @@
 
 import { randomUUID } from 'crypto';
 import { AGUIEventType, type AGUIEvent, type RunAgentInput, type BaseEvent } from './types.js';
+import { getRequestContext } from '../telemetry/context.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -30,21 +31,15 @@ type BroadcastFn = (notification: object) => void;
  * the exact span in Jaeger/Tempo/Honeycomb.
  */
 function wrapNotification(event: AGUIEvent | BaseEvent): object {
-  // Resolve ambient trace context lazily to avoid a hard import cycle.
+  // Read ambient trace context from the request-scoped ALS. Static ESM
+  // import (not require) so the adapter shares the same AsyncLocalStorage
+  // instance as PhotonLoader; a require() call lands in a different
+  // module copy under tsx/esm interop and returns undefined.
   let traceparent: string | undefined;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const ctxMod = require('../telemetry/context.js') as {
-      getRequestContext?: () => { traceId?: string; parentTraceparent?: string } | undefined;
-    };
-    const ctx = ctxMod.getRequestContext?.();
-    if (ctx) {
-      traceparent =
-        ctx.parentTraceparent ||
-        (ctx.traceId ? `00-${ctx.traceId}-0000000000000000-01` : undefined);
-    }
-  } catch {
-    /* context module unavailable */
+  const ctx = getRequestContext();
+  if (ctx) {
+    traceparent =
+      ctx.parentTraceparent || (ctx.traceId ? `00-${ctx.traceId}-0000000000000000-01` : undefined);
   }
 
   const paramEvent = traceparent

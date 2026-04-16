@@ -1,4 +1,6 @@
 import type { Writable } from 'node:stream';
+import { getRequestContext } from '../telemetry/context.js';
+import { emitOtelLog } from '../telemetry/logs.js';
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
@@ -78,28 +80,14 @@ export class Logger {
     };
     // Enrich with ambient request context so every log line emitted during a
     // tool call carries photon/tool/traceId without callers threading it.
-    // Dynamic require to avoid a hard dependency cycle at module init.
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const ctxMod = require('../telemetry/context.js') as {
-        getRequestContext?: () =>
-          | {
-              photon?: string;
-              tool?: string;
-              traceId?: string;
-              caller?: { id?: string } | undefined;
-            }
-          | undefined;
-      };
-      const ctx = ctxMod.getRequestContext?.();
-      if (ctx) {
-        if (ctx.photon && record.photon == null) (record as LogMeta).photon = ctx.photon;
-        if (ctx.tool && record.tool == null) (record as LogMeta).tool = ctx.tool;
-        if (ctx.traceId && record.traceId == null) (record as LogMeta).traceId = ctx.traceId;
-        if (ctx.caller?.id && record.callerId == null) (record as LogMeta).callerId = ctx.caller.id;
-      }
-    } catch {
-      /* context module not available */
+    // Static ESM import — same module instance as the rest of the runtime
+    // so the AsyncLocalStorage store is shared.
+    const ctx = getRequestContext();
+    if (ctx) {
+      if (ctx.photon && record.photon == null) (record as LogMeta).photon = ctx.photon;
+      if (ctx.tool && record.tool == null) (record as LogMeta).tool = ctx.tool;
+      if (ctx.traceId && record.traceId == null) (record as LogMeta).traceId = ctx.traceId;
+      if (ctx.caller?.id && record.callerId == null) (record as LogMeta).callerId = ctx.caller.id;
     }
     if (meta && Object.keys(meta).length > 0) {
       Object.assign(record, meta);
@@ -145,21 +133,13 @@ export class Logger {
     // Forward to the OTel logs bridge when the SDK is installed. The bridge
     // is a no-op otherwise so this adds no cost when unused.
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const logsMod = require('../telemetry/logs.js') as {
-        emitOtelLog?: (record: {
-          level: 'debug' | 'info' | 'warn' | 'error';
-          message: string;
-          attributes?: Record<string, unknown>;
-        }) => void;
-      };
       const attrs: Record<string, unknown> = {};
       if (this.component) attrs['log.component'] = this.component;
       if (this.scope) attrs['log.scope'] = this.scope;
       if (meta) {
         for (const [k, v] of Object.entries(meta)) attrs[k] = v;
       }
-      logsMod.emitOtelLog?.({ level, message, attributes: attrs });
+      emitOtelLog({ level, message, attributes: attrs });
     } catch {
       /* logs bridge unavailable */
     }
