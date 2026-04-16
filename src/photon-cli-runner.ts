@@ -184,21 +184,38 @@ function stripJSDocTags(description: string | undefined): string {
 }
 
 /**
- * Extract the photon's class-level description from its JSDoc
+ * Extract the photon's class-level description from its JSDoc.
+ *
+ * Paragraph breaks in the source (blank `*` lines) are preserved as `\n\n`
+ * in the output so multi-paragraph descriptions don't collapse into one
+ * run-on sentence in CLI help and info output.
  */
 async function extractPhotonDescription(filePath: string): Promise<string> {
   const source = await fs.readFile(filePath, 'utf-8');
   const jsdocMatch = source.match(/\/\*\*([\s\S]*?)\*\//);
   if (!jsdocMatch) return '';
 
-  const lines = jsdocMatch[1].split('\n').map((line) => line.replace(/^\s*\*\s?/, ''));
-  const descLines: string[] = [];
-  for (const raw of lines) {
+  const rawLines = jsdocMatch[1].split('\n').map((line) => line.replace(/^\s*\*\s?/, ''));
+
+  // Collect paragraphs: a blank line separates them. Stop at the first @tag
+  // or ## heading (tags and headings aren't part of the description).
+  const paragraphs: string[][] = [[]];
+  for (const raw of rawLines) {
     const line = raw.trim();
     if (line.startsWith('@') || line.startsWith('#')) break;
-    if (line.length > 0) descLines.push(line);
+    if (line.length === 0) {
+      if (paragraphs[paragraphs.length - 1].length > 0) {
+        paragraphs.push([]);
+      }
+    } else {
+      paragraphs[paragraphs.length - 1].push(line);
+    }
   }
-  return descLines.join(' ').trim();
+
+  return paragraphs
+    .map((p) => p.join(' ').trim())
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /**
