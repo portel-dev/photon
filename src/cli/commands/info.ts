@@ -195,7 +195,7 @@ export function registerInfoCommand(program: Command): void {
             const configPath = getConfigPath();
             console.log(`# Photon MCP Server Configuration: ${name}`);
             console.log(`# Add to mcpServers in: ${configPath}\n`);
-            console.log(JSON.stringify({ [name]: config }, null, 2));
+            console.log(JSON.stringify({ mcpServers: { [name]: config } }, null, 2));
           } else {
             if (isInstalled) {
               const { PhotonDocExtractor } = await import('../../photon-doc-extractor.js');
