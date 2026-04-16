@@ -16,7 +16,23 @@ npm install -g @portel/photon
 
 ---
 
-## Your First Photon
+## The three-command path
+
+If you just want an MCP server connected to Claude Desktop, these three commands are all you need:
+
+```bash
+photon new my-tool                  # Scaffolds ./my-tool.photon.ts in the current directory
+photon mcp install my-tool          # Registers it in Claude Desktop's config
+# Restart Claude Desktop. Your tool is live.
+```
+
+`photon new` is a shortcut for `photon maker new`. The scaffold lives in your current directory so you can open it in your editor, commit it to git, or share it with teammates like any other source file. Use `--global` if you'd rather drop it into `~/.photon/` for the daemon to auto-discover.
+
+The rest of this page is about writing a photon from scratch so you can see how the same TypeScript class becomes three different interfaces.
+
+---
+
+## Your First Photon (from scratch)
 
 Create a file called `todo.photon.ts` in any directory:
 

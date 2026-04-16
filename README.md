@@ -72,17 +72,22 @@ One definition. Multiple surfaces.
 
 ### Quick Start
 
+From zero to an MCP server connected to Claude Desktop in three commands:
+
 ```bash
 npm install -g @portel/photon
-photon maker new my-tool      # Scaffold a new photon
-photon                        # Open Beam, the web UI
+photon new my-tool                  # Scaffolds ./my-tool.photon.ts in your CWD
+photon mcp install my-tool          # Registers it in Claude Desktop's config
+# Restart Claude Desktop. Your tool is live.
 ```
 
-Or try without installing:
+Prefer the web dashboard? Skip step 3 and run `photon` instead — it opens Beam, the auto-generated UI.
+
+Or try without installing globally:
 
 ```bash
-npx @portel/photon maker new my-tool
-npx @portel/photon
+npx @portel/photon new my-tool
+npx @portel/photon mcp install my-tool
 ```
 
 > Requires [Node.js 20+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
