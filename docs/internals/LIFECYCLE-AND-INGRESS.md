@@ -1,7 +1,7 @@
 # Lifecycle Hooks & Ingress Model
 
 **Status**: Design approved, implementation in progress (as of 2026-04-17)
-**Scope**: Lifecycle hooks for photons, webhook authentication v2, `@scheduled` syntax polish, removal of the `handle*` prefix convention
+**Scope**: Two new lifecycle hooks (`onReload`, `onError`) built on the existing `onInitialize`/`onShutdown` foundation, webhook authentication v2, `@scheduled` syntax polish, removal of the `handle*` prefix convention
 
 ---
 
@@ -12,7 +12,7 @@ Every method on a photon has two independent properties:
 - **Ingress** — who can trigger this method? (MCP client, webhook HTTP, scheduler, runtime itself)
 - **Visibility** — does it appear in the MCP tool list? (yes / no)
 
-Historically these were tangled. The new model treats them as independent axes:
+The new model treats them as independent axes:
 
 | Ingress | Default visibility | Rationale |
 |---|---|---|
@@ -20,7 +20,7 @@ Historically these were tangled. The new model treats them as independent axes:
 | `@webhook` | **Hidden** | Purpose-built for external HTTP events. Manual MCP invocation is nonsensical. |
 | `@scheduled` | Visible | Method does real work; the schedule is one trigger among many. "Run now" is a valid user request. |
 | `@internal` | Hidden | Explicit opt-out. Composes with any ingress. |
-| Lifecycle (`onStart` etc.) | Hidden | Runtime-only; never user-callable. |
+| Lifecycle hooks | Hidden | Runtime-only; never user-callable. |
 
 Composition is explicit:
 
@@ -37,57 +37,56 @@ async nightlyCleanup() { ... }
 
 ## 1. Lifecycle hooks
 
-Four reserved method names the runtime recognizes. All optional, all async, all implicitly hidden from MCP and CLI.
+### 1.1 Existing hooks (already shipped)
+
+Photons already have two lifecycle hooks that this design **does not change**:
+
+| Hook | Signature | When it fires |
+|---|---|---|
+| `onInitialize` | `async onInitialize(): Promise<void>` | After construction, before first method call |
+| `onShutdown` | `async onShutdown(): Promise<void>` | SIGTERM/SIGINT drain, hot-reload (old instance), explicit unload |
+
+Already wired end-to-end:
+- Both loaders call `onInitialize` after instance construction and dependency injection.
+- `onShutdown` is invoked on session teardown (`src/server.ts:2742`) and before hot-reload of the old instance (`src/server.ts:2897`).
+- Daemon `SIGTERM`/`SIGINT` handler drains all session managers, which invoke `onShutdown` on every loaded photon (`src/daemon/server.ts:3870`, `:4034`).
+- Method list extractor excludes both from MCP advertisement.
+- Photon templates scaffold both by default.
+- Worker-thread auto-detection places photons with both hooks into worker threads so the host process is protected from blocking cleanup.
+
+Because this foundation already exists, no renaming or migration is part of this design.
+
+### 1.2 New hooks being added
+
+Two genuinely new hooks. Both optional, async, hidden from MCP and CLI.
 
 | Hook | Signature | When it fires | Default timeout |
 |---|---|---|---|
-| `onStart` | `async onStart(): Promise<void>` | After construction, before first method call | 30s |
-| `onStop` | `async onStop(): Promise<void>` | SIGTERM/SIGINT, hot-reload, explicit unload | 10s |
-| `onReload` | `async onReload(): Promise<void>` | Hot reload (if present, replaces stop+start for the reload path) | 30s |
-| `onError` | `async onError(err, ctx): Promise<void>` | Any method throws (observability only; does not suppress) | 5s |
+| `onReload` | `async onReload(): Promise<void>` | Hot reload, if the photon wants to rebind without full teardown | 30s |
+| `onError` | `async onError(err: Error, ctx: MethodContext): Promise<void>` | Any method throws (observability only; does not suppress) | 5s |
 
-### Firing rules
+#### `onReload` — preserve state across hot reload
 
-- **Beam** (long-lived daemon): `onStart` eagerly on photon load. `onStop` on shutdown, unload, hot-reload (unless `onReload` is defined).
-- **CLI** (one-shot): `onStart` lazily before the single invocation. `onStop` after the method returns, before process exit.
-- **STDIO MCP** (per-client session): same as Beam but scoped to the session lifetime.
+Today's hot-reload path runs `onShutdown(old)` followed by `onInitialize(new)` — a full teardown and re-init. That is correct for photons that need a clean slate, but it discards in-memory state (open streams, active subscriptions, warmed caches).
 
-### Ordering with `@photon` dependencies
+`onReload` is an opt-in alternative: when present, the runtime keeps the existing instance alive, applies the new code via method rebinding, and calls `onReload()` on the surviving instance. Implementation note: class-instance replacement in JS is limited; the practical form is to reapply the new class's method descriptors onto the existing instance and then fire `onReload`. Photons that maintain delicate runtime state (e.g., a MQTT connection, a running scheduled job) benefit; photons that don't define `onReload` keep the existing behavior.
 
-- `onStart` fires in dependency order: if A depends on B, B starts first.
-- `onStop` fires in reverse: A stops first, then B.
-- If any `onStart` fails or times out, dependents fail to load with a clear error surfacing the chain.
+#### `onError` — centralized error observability
 
-### Failure behavior
+Every method throws is caught by the middleware pipeline today. `onError(err, ctx)` provides a single handler for author-side observability (metrics, logging, alerts, custom reporting) without wrapping every method in try/catch. It runs after the error has already been returned to the caller, so it cannot suppress or transform the error. Non-fatal: a throw inside `onError` is logged and swallowed.
 
-- `onStart` throws → photon fails to load. Error surfaces to the caller trying to use it.
-- `onStop` throws or exceeds timeout → logged and skipped; never blocks other photons' cleanup or process exit.
-- `onError` throws → swallowed (an observability handler should never cascade).
+### 1.3 Ordering with `@photon` dependencies
 
-### Example
+`onInitialize` already fires in dependency-first order naturally, because `@photon` dependencies are constructed recursively before the dependent's construction completes. The new hooks inherit this:
 
-```ts
-import { Photon } from '@portel/photon-core';
-import { MongoClient } from 'mongodb';
+- `onInitialize` and `onReload` fire in dependency order (deps first).
+- `onShutdown` fires in reverse (dependents first).
 
-class TodoPhoton extends Photon {
-  private db!: MongoClient;
+If any `onInitialize` fails or times out, dependents fail to load. The existing `PhotonInitializationError` surfaces this.
 
-  async onStart() {
-    this.db = new MongoClient(process.env.MONGO_URL!);
-    await this.db.connect();
-  }
+### 1.4 Loader-lite gap
 
-  async onStop() {
-    await this.db.close();
-  }
-
-  async add(task: string) {
-    await this.db.db('todos').collection('tasks').insertOne({ task });
-    return { ok: true };
-  }
-}
-```
+`photon-loader-lite.ts` (the programmatic `photon()` API) calls `onInitialize` but does not call `onShutdown`. In the lite path the caller owns the instance lifecycle, so this is arguably correct for programmatic use. This design surfaces the gap; a decision on whether lite should expose an explicit `dispose` or match the full loader is tracked as an open question (section 5).
 
 ---
 
@@ -206,12 +205,14 @@ Cron remains the most expressive; interval and natural forms exist for readabili
 
 | Change | Severity | Path |
 |---|---|---|
-| Lifecycle hooks added | Additive | Use the new methods when needed. |
+| `onReload` + `onError` hooks | Additive | Opt-in; define the method if you want it. |
 | `@webhook` hidden from MCP | Behavioral | Intentional; no migration needed unless you relied on MCP-calling a webhook method. |
 | Per-method `@webhook-auth` | Additive | Global `PHOTON_WEBHOOK_SECRET` still works. |
 | `handle*` → `@webhook` | Breaking (one-minor warning window) | Add `@webhook` to each `handle*` method. |
 | `@cron` → `@scheduled` | Soft-deprecated (alias preserved) | Rename at your convenience. |
 | `@scheduled` syntax broadened | Additive | Existing cron expressions unaffected. |
+
+Existing `onInitialize`/`onShutdown` behavior is unchanged.
 
 ---
 
@@ -219,14 +220,30 @@ Cron remains the most expressive; interval and natural forms exist for readabili
 
 - **Class-level default `@webhook-auth`**: override per method. Useful for Stripe-only photons.
 - **IP allowlist** (`@webhook-source <cidr>`): for providers that publish source ranges.
-- **`onIdle` / `onResume`**: release resources after N seconds idle.
+- **Loader-lite shutdown**: should `photon-loader-lite.ts` expose an explicit `dispose` that invokes `onShutdown`, or keep the "caller owns lifecycle" contract?
 - **State/settings hooks**: `onStateLoad`, `onStateSave`, `onSettingsChange`.
 - **Webhook response schema enforcement**: pass-through today; may want opinionated shape later.
 
 ---
 
-## 6. Related docs
+## 6. Implementation order
 
+1. `onReload` + `onError` hooks (smallest blast radius, independent)
+2. `@webhook` → MCP-list exclusion in `photon-doc-extractor.ts`
+3. Raw body + per-service `@webhook-auth` verifiers
+4. `photon webhook ...` CLI testing command
+5. `@scheduled` syntax broadening + `@cron` deprecation warning
+6. `handle*` prefix removal with deprecation warning
+7. Docs pass (update `WEBHOOKS.md`, `DOCBLOCK-TAGS.md`, `GUIDE.md`, skill references)
+
+Each step is shippable independently.
+
+---
+
+## 7. Related docs
+
+- [`GUIDE.md`](../GUIDE.md) — covers existing `onInitialize`/`onShutdown` usage
+- [`guides/ADVANCED.md`](../guides/ADVANCED.md) — lifecycle patterns and worker-thread placement
 - [`WEBHOOKS.md`](../reference/WEBHOOKS.md) — user-facing webhook guide (will be updated when implementation lands)
 - [`DOCBLOCK-TAGS.md`](../reference/DOCBLOCK-TAGS.md) — tag reference (will list new tags when implementation lands)
 - [`CONSTRUCTOR-INJECTION.md`](CONSTRUCTOR-INJECTION.md) — complements lifecycle hooks for async setup
