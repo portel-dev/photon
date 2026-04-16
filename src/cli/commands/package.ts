@@ -241,25 +241,39 @@ export function registerPackageCommands(program: Command): void {
         if (!conflict.sources || conflict.sources.length === 0) {
           logger.error(`MCP '${name}' not found in any enabled marketplace\n`);
 
-          // Search for similar names
+          // Search for similar names. Drop candidates that are:
+          //   - an exact name match for the query (we already said "not found";
+          //     suggesting the same name back is the fuzzy-matcher echoing
+          //     the query on a stale manifest entry, not a real hit).
+          //   - missing metadata (no version AND no description), which
+          //     signals a placeholder entry in a manifest we can't trust.
           const searchResults = await manager.search(name);
+          const viableSuggestions: Array<{
+            name: string;
+            version: string | undefined;
+            description: string | undefined;
+          }> = [];
+          for (const [mcpName, sources] of searchResults) {
+            if (mcpName === name) continue;
+            const source = sources[0];
+            const version = source.metadata?.version;
+            const description = source.metadata?.description;
+            if (!version && !description) continue;
+            viableSuggestions.push({ name: mcpName, version, description });
+            if (viableSuggestions.length >= 5) break;
+          }
 
-          if (searchResults.size > 0) {
+          if (viableSuggestions.length > 0) {
             console.error(`Did you mean one of these?\n`);
 
-            // Convert search results to array for selection
             const suggestions: Array<{ name: string; version: string; description: string }> = [];
-            let count = 0;
-            for (const [mcpName, sources] of searchResults) {
-              if (count >= 5) break; // Limit to 5 suggestions
-              const source = sources[0]; // Use first marketplace
-              const version = source.metadata?.version || 'unknown';
-              const description = source.metadata?.description || 'No description';
-              suggestions.push({ name: mcpName, version, description });
-              console.error(`  [${count + 1}] ${mcpName} (v${version})`);
+            viableSuggestions.forEach((s, idx) => {
+              const version = s.version || 'unknown';
+              const description = s.description || 'No description';
+              suggestions.push({ name: s.name, version, description });
+              console.error(`  [${idx + 1}] ${s.name} (v${version})`);
               console.error(`      ${description}`);
-              count++;
-            }
+            });
 
             // Interactive selection or auto-select with -y
             let selectedIndex: number | null;
