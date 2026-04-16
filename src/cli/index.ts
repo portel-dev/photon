@@ -54,6 +54,7 @@ export function createProgram(): Command {
       `
 Runtime Commands:
   mcp <name>              Run a photon as MCP server (for AI assistants)
+  mcp install <name>      Register a photon in an MCP client (e.g. Claude Desktop)
   cli <photon> [method]   Run photon methods from command line
                           Example: photon cli kanban stats
   sse <name>              Run Photon as HTTP server with SSE transport
@@ -71,9 +72,9 @@ Hosting:
 Package Management:
   add <name>              Install a photon from marketplace
   remove <name>           Remove an installed photon
-  upgrade [name]          Upgrade photon(s) to latest version
+  upgrade, up [name]      Upgrade photon(s) to latest version
   search <query>          Search marketplaces for photons
-  info [name]             Show installed photons and details
+  info, list [name]       Show installed photons and details
   publish                 Publish your photons as a marketplace (wizard)
 
 Maintenance:
