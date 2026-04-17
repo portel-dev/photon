@@ -166,6 +166,7 @@ import { SubscriptionManager } from './beam/subscription.js';
 import { handleMarketplaceRoutes } from './beam/routes/api-marketplace.js';
 import { handleBrowseRoutes } from './beam/routes/api-browse.js';
 import { handleConfigRoutes } from './beam/routes/api-config.js';
+import { handleDaemonRoutes } from './beam/routes/api-daemon.js';
 import {
   loadExternalMCPs as loadExternalMCPsFromModule,
   reconnectExternalMCP as reconnectExternalMCPFromModule,
@@ -1426,6 +1427,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         if (await handleMarketplaceRoutes(req, res, url, beamState)) return;
         if (await handleBrowseRoutes(req, res, url, beamState)) return;
         if (await handleConfigRoutes(req, res, url, beamState)) return;
+        if (await handleDaemonRoutes(req, res, url, beamState)) return;
       }
 
       // Service worker for PWA support
