@@ -1465,8 +1465,17 @@ function syncActiveSchedulesAtBoot(): void {
 let webhookServer: http.Server | null = null;
 const WEBHOOK_PORT = parseInt(process.env.PHOTON_WEBHOOK_PORT || '0');
 
-// Security: rate limiter for webhook endpoint
-const webhookRateLimiter = new SimpleRateLimiter(30, 60_000);
+// Security: rate limiter for webhook endpoint. Default 60/min per source IP;
+// override via PHOTON_WEBHOOK_RATE_LIMIT / PHOTON_WEBHOOK_RATE_WINDOW_MS.
+const WEBHOOK_RATE_LIMIT = Math.max(
+  1,
+  parseInt(process.env.PHOTON_WEBHOOK_RATE_LIMIT || '60', 10) || 60
+);
+const WEBHOOK_RATE_WINDOW_MS = Math.max(
+  1_000,
+  parseInt(process.env.PHOTON_WEBHOOK_RATE_WINDOW_MS || '60000', 10) || 60_000
+);
+const webhookRateLimiter = new SimpleRateLimiter(WEBHOOK_RATE_LIMIT, WEBHOOK_RATE_WINDOW_MS);
 
 function startWebhookServer(port: number): void {
   if (port <= 0) return;
@@ -1489,8 +1498,18 @@ function startWebhookServer(port: number): void {
       // Security: rate limiting
       const clientKey = req.socket?.remoteAddress || 'unknown';
       if (!webhookRateLimiter.isAllowed(clientKey)) {
-        res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Too many requests' }));
+        const retryAfter = Math.ceil(WEBHOOK_RATE_WINDOW_MS / 1000);
+        res.writeHead(429, {
+          'Content-Type': 'application/json',
+          'Retry-After': String(retryAfter),
+        });
+        res.end(
+          JSON.stringify({
+            error: 'Too many requests',
+            limit: WEBHOOK_RATE_LIMIT,
+            windowMs: WEBHOOK_RATE_WINDOW_MS,
+          })
+        );
         return;
       }
 

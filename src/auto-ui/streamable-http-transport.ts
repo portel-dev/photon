@@ -24,6 +24,16 @@ import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
 import { formatToolError } from '../shared/error-handler.js';
+import { SimpleRateLimiter } from '../shared/security.js';
+
+// Default rate limit: 60 requests/min per source IP. Override via
+// PHOTON_MCP_RATE_LIMIT (count) and PHOTON_MCP_RATE_WINDOW_MS (window).
+const MCP_RATE_LIMIT = Math.max(1, parseInt(process.env.PHOTON_MCP_RATE_LIMIT || '60', 10) || 60);
+const MCP_RATE_WINDOW_MS = Math.max(
+  1_000,
+  parseInt(process.env.PHOTON_MCP_RATE_WINDOW_MS || '60000', 10) || 60_000
+);
+const mcpRateLimiter = new SimpleRateLimiter(MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS);
 import { AGUIEventType } from '../ag-ui/types.js';
 import { proxyExternalAgent, createAGUIOutputHandler } from '../ag-ui/adapter.js';
 import type { RunAgentInput } from '../ag-ui/types.js';
@@ -3932,6 +3942,27 @@ export async function handleStreamableHTTP(
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return true;
+  }
+
+  // Default rate limit: per source IP, before any session or auth work.
+  const clientKey = req.socket?.remoteAddress || 'unknown';
+  if (!mcpRateLimiter.isAllowed(clientKey)) {
+    const retryAfter = Math.ceil(MCP_RATE_WINDOW_MS / 1000);
+    res.writeHead(429, {
+      'Content-Type': 'application/json',
+      'Retry-After': String(retryAfter),
+    });
+    res.end(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        error: {
+          code: -32000,
+          message: 'Too many requests',
+          data: { limit: MCP_RATE_LIMIT, windowMs: MCP_RATE_WINDOW_MS },
+        },
+      })
+    );
     return true;
   }
 
