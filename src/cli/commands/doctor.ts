@@ -64,6 +64,56 @@ async function extractConstructorParams(
   }
 }
 
+/** Upper bound on tool count before we nudge the author to collapse. */
+const TOOL_SPRAWL_THRESHOLD = 15;
+/** Parameter-name patterns that almost always indicate a credential. */
+const SECRET_NAME_REGEX =
+  /^(api[_-]?key|password|passwd|pwd|secret|token|access[_-]?token|bearer)$/i;
+
+async function extractToolCount(filePath: string): Promise<number> {
+  try {
+    const source = await fs.readFile(filePath, 'utf-8');
+    const { SchemaExtractor } = await import('@portel/photon-core');
+    const extractor = new SchemaExtractor();
+    return extractor.extractFromSource(source).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Find constructor or method parameters whose name matches the secret regex.
+ * Returns `{ paramName, location }` tuples. Location is either the literal
+ * string "constructor" or the method name so the reporter can cite it.
+ */
+async function findSecretNamedParams(
+  filePath: string
+): Promise<Array<{ paramName: string; location: string }>> {
+  try {
+    const source = await fs.readFile(filePath, 'utf-8');
+    const { SchemaExtractor } = await import('@portel/photon-core');
+    const extractor = new SchemaExtractor();
+    const hits: Array<{ paramName: string; location: string }> = [];
+
+    for (const p of extractor.extractConstructorParams(source)) {
+      if (SECRET_NAME_REGEX.test(p.name)) {
+        hits.push({ paramName: p.name, location: 'constructor' });
+      }
+    }
+
+    for (const tool of extractor.extractFromSource(source)) {
+      for (const key of Object.keys(tool.inputSchema.properties || {})) {
+        if (SECRET_NAME_REGEX.test(key)) {
+          hits.push({ paramName: key, location: tool.name });
+        }
+      }
+    }
+    return hits;
+  } catch {
+    return [];
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // COMMAND
 // ══════════════════════════════════════════════════════════════════════════════
@@ -269,6 +319,39 @@ export function registerDoctorCommand(program: Command): void {
                 status: STATUS.WARN,
                 note: 'Not compiled yet (first run will compile)',
               };
+            }
+
+            // Tool sprawl: every exposed tool widens the attack surface.
+            const toolCount = await extractToolCount(filePath);
+            if (toolCount > TOOL_SPRAWL_THRESHOLD) {
+              photonSection.toolCount = {
+                status: STATUS.WARN,
+                count: toolCount,
+                threshold: TOOL_SPRAWL_THRESHOLD,
+                note: `Exposes ${toolCount} tools — consider collapsing into fewer outcome-oriented tools`,
+              };
+              issuesFound++;
+              suggestions.push(
+                `${name} exposes ${toolCount} tools (> ${TOOL_SPRAWL_THRESHOLD}). Each tool is an attack surface; collapse fine-grained CRUD into outcome-oriented tools.`
+              );
+            } else {
+              photonSection.toolCount = { status: STATUS.OK, count: toolCount };
+            }
+
+            // Secret-named parameters — nudge the author toward env injection.
+            const secretHits = await findSecretNamedParams(filePath);
+            if (secretHits.length > 0) {
+              photonSection.secretParams = {
+                status: STATUS.WARN,
+                hits: secretHits.map((h) => `${h.location}.${h.paramName}`),
+                note: 'Parameters with secret-like names should be injected via env vars, not accepted as free-form input.',
+              };
+              issuesFound++;
+              for (const h of secretHits) {
+                suggestions.push(
+                  `${name}: "${h.paramName}" in ${h.location} looks like a credential — prefer env-injection (e.g. @env ${toEnvVarName(name, h.paramName)}) over a method parameter.`
+                );
+              }
             }
           }
           diagnostics[`Photon: ${name}`] = photonSection;
