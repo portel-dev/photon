@@ -30,6 +30,8 @@ import {
   setBroker,
   touchBase,
   getPhotonSchedulesDir,
+  listActiveBases,
+  pruneBasesRegistry,
 } from '@portel/photon-core';
 import type {
   ChannelBroker,
@@ -917,17 +919,89 @@ function loadIpcSchedulesFromDir(
 }
 
 /**
+ * One-time sweep of legacy IPC schedules from ~/.photon/schedules/ to the
+ * new per-base location. Only moves files that carry a `workingDir` field
+ * (IPC-originated schedules have this); ScheduleProvider-originated files
+ * that lack `workingDir` are left in place and continue to be read via the
+ * legacy fallback in autoRegisterFromMetadata until the photon that owns
+ * them runs under the new layout and regenerates them.
+ *
+ * Idempotent: files already moved are no longer at the legacy path, so the
+ * next startup is a no-op for them. Called before loadAllPersistedSchedules.
+ */
+function migrateLegacyIpcSchedules(): void {
+  const legacyRoot =
+    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules');
+  if (!fs.existsSync(legacyRoot)) return;
+
+  let moved = 0;
+  let kept = 0;
+  let photonDirs: fs.Dirent[];
+  try {
+    photonDirs = fs.readdirSync(legacyRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const dir of photonDirs) {
+    if (!dir.isDirectory()) continue;
+    const photonLegacyDir = path.join(legacyRoot, dir.name);
+    let files: string[];
+    try {
+      files = fs.readdirSync(photonLegacyDir).filter((f) => f.endsWith('.json'));
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      const legacyPath = path.join(photonLegacyDir, file);
+      try {
+        const content = fs.readFileSync(legacyPath, 'utf-8');
+        const task = JSON.parse(content);
+        // Only migrate IPC-sourced files with a known working dir.
+        if (task.source !== 'ipc' || !task.workingDir || typeof task.workingDir !== 'string') {
+          kept++;
+          continue;
+        }
+        const destDir = resolveScheduleDir(task.photonName || dir.name, task.workingDir);
+        const destPath = path.join(destDir, file);
+        // Skip if the destination already has content (e.g. a previous partial
+        // migration succeeded); don't overwrite.
+        if (fs.existsSync(destPath)) {
+          kept++;
+          continue;
+        }
+        fs.mkdirSync(destDir, { recursive: true });
+        fs.renameSync(legacyPath, destPath);
+        moved++;
+      } catch {
+        kept++;
+      }
+    }
+
+    // If the legacy photon dir is now empty, remove it to keep the tree tidy.
+    try {
+      if (fs.readdirSync(photonLegacyDir).length === 0) {
+        fs.rmdirSync(photonLegacyDir);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  if (moved > 0) {
+    logger.info('Migrated legacy IPC schedules to per-base location', { moved, kept });
+  }
+}
+
+/**
  * Load all persisted IPC schedules from disk on daemon startup.
  *
- * Scans:
- *   1. The legacy flat dir (~/.photon/schedules/<photon>/ or PHOTON_SCHEDULES_DIR)
- *      for backwards compatibility with schedules written pre-Option-B.
- *   2. The default base's new-location dir ({baseDir}/.data/<photon>/schedules/)
- *      so schedules written after this change are reinstated.
- *
- * Multi-base scanning (iterating every registered PHOTON_DIR from the bases
- * registry) lands in a follow-up commit — see step (c) in
- * docs/internals/PHOTON-DIR-AND-NAMESPACE.md §8.
+ * Iterates every PHOTON_DIR recorded in the bases registry (`listActiveBases`)
+ * and scans each base's `{base}/.data/<photon>/schedules/` for IPC schedule
+ * records. Also scans the legacy flat dir (`~/.photon/schedules/` or
+ * `PHOTON_SCHEDULES_DIR`) for backwards compatibility with schedules that
+ * haven't yet been migrated.
  */
 function loadAllPersistedSchedules(): void {
   const TTL_DAYS = 30;
@@ -936,7 +1010,7 @@ function loadAllPersistedSchedules(): void {
   let skippedCount = 0;
 
   const scannedDirs = new Set<string>();
-  const scanRoot = (root: string) => {
+  const scanFlatRoot = (root: string) => {
     if (!fs.existsSync(root)) return;
     let photonDirs: fs.Dirent[];
     try {
@@ -959,38 +1033,57 @@ function loadAllPersistedSchedules(): void {
     }
   };
 
-  // New location: {defaultBase}/.data/<photonName>/schedules/
-  // Iterate photonName subdirectories of .data/ that contain a schedules/ dir.
-  const defaultDataRoot = path.join(getDefaultContext().baseDir, '.data');
-  if (fs.existsSync(defaultDataRoot)) {
+  const scanBaseDataRoot = (baseDir: string) => {
+    const dataRoot = path.join(baseDir, '.data');
+    if (!fs.existsSync(dataRoot)) return;
+    let entries: fs.Dirent[];
     try {
-      const entries = fs.readdirSync(defaultDataRoot, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        // Skip reserved buckets
-        if (entry.name.startsWith('_') || entry.name.startsWith('.') || entry.name === 'tasks') {
-          continue;
-        }
-        const schedulesPath = path.join(defaultDataRoot, entry.name, 'schedules');
-        if (fs.existsSync(schedulesPath)) {
-          if (scannedDirs.has(schedulesPath)) continue;
-          scannedDirs.add(schedulesPath);
-          const result = loadIpcSchedulesFromDir(schedulesPath, ttlMs);
-          loadedCount += result.loaded;
-          skippedCount += result.skipped;
-        }
-      }
+      entries = fs.readdirSync(dataRoot, { withFileTypes: true });
     } catch (err) {
-      logger.warn('Failed to scan default-base schedules', {
+      logger.warn('Failed to scan base schedules', {
+        base: baseDir,
         error: getErrorMessage(err),
       });
+      return;
     }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      // Skip reserved buckets (_global, _sessions, .cache, tasks, .migrated, etc.)
+      if (entry.name.startsWith('_') || entry.name.startsWith('.') || entry.name === 'tasks') {
+        continue;
+      }
+      const schedulesPath = path.join(dataRoot, entry.name, 'schedules');
+      if (!fs.existsSync(schedulesPath)) continue;
+      if (scannedDirs.has(schedulesPath)) continue;
+      scannedDirs.add(schedulesPath);
+      const result = loadIpcSchedulesFromDir(schedulesPath, ttlMs);
+      loadedCount += result.loaded;
+      skippedCount += result.skipped;
+    }
+  };
+
+  // Scan every PHOTON_DIR we've ever served. Prune dead entries first so a
+  // deleted project folder doesn't emit warnings each startup.
+  const pruned = pruneBasesRegistry();
+  if (pruned.length > 0) {
+    logger.info('Pruned bases that no longer exist', {
+      removed: pruned.map((b) => b.path),
+    });
+  }
+  const bases = listActiveBases();
+  // Always include the default base even if the registry hasn't recorded it yet.
+  const defaultBase = getDefaultContext().baseDir;
+  if (!bases.some((b) => b.path === path.resolve(defaultBase))) {
+    scanBaseDataRoot(defaultBase);
+  }
+  for (const base of bases) {
+    scanBaseDataRoot(base.path);
   }
 
-  // Legacy location: ~/.photon/schedules/<photonName>/ (or PHOTON_SCHEDULES_DIR)
+  // Legacy location for schedules that predate the per-base layout.
   const legacyRoot =
     process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules');
-  scanRoot(legacyRoot);
+  scanFlatRoot(legacyRoot);
 
   if (loadedCount > 0 || skippedCount > 0) {
     logger.info('Loaded persisted schedules', { loaded: loadedCount, skipped: skippedCount });
@@ -4212,6 +4305,7 @@ void (async () => {
   await claimExclusiveOwnership();
   startupWatchPhotons();
   startServer();
+  migrateLegacyIpcSchedules();
   loadAllPersistedSchedules();
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();
