@@ -24,7 +24,13 @@ import {
   type ScheduledJob,
   type LockInfo,
 } from './protocol.js';
-import { setPromptHandler, type PromptHandler, setBroker } from '@portel/photon-core';
+import {
+  setPromptHandler,
+  type PromptHandler,
+  setBroker,
+  touchBase,
+  getPhotonSchedulesDir,
+} from '@portel/photon-core';
 import type {
   ChannelBroker,
   ChannelMessage,
@@ -704,6 +710,42 @@ function unscheduleJob(jobId: string): boolean {
   return existed;
 }
 
+/**
+ * Resolve the canonical schedules dir for a photon under the Option B
+ * contract: {workingDir || default baseDir}/.data/{photonName}/schedules/.
+ * Subdirectory namespaces are not yet threaded through the scheduled job
+ * record; the flat-root common case is served here.
+ */
+function resolveScheduleDir(photonName: string, workingDir?: string): string {
+  return getPhotonSchedulesDir('', photonName, workingDir || getDefaultContext().baseDir);
+}
+
+/**
+ * Legacy schedules dir (pre-Option-B), read-only compatibility path.
+ * Kept for the one-release transition window so schedules created before
+ * this change continue to be discoverable. Removed once step (c) sweeps
+ * legacy content into the new per-base location.
+ */
+function resolveLegacyScheduleDir(photonName: string): string {
+  return path.join(
+    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
+    photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
+  );
+}
+
+/** Locate a persisted schedule file, preferring the new location. */
+function findPersistedScheduleFile(
+  photonName: string,
+  taskId: string,
+  workingDir?: string
+): string | null {
+  const newPath = path.join(resolveScheduleDir(photonName, workingDir), `${taskId}.json`);
+  if (fs.existsSync(newPath)) return newPath;
+  const legacyPath = path.join(resolveLegacyScheduleDir(photonName), `${taskId}.json`);
+  if (fs.existsSync(legacyPath)) return legacyPath;
+  return null;
+}
+
 /** Update persisted schedule file after job execution */
 function updatePersistedSchedule(
   jobId: string,
@@ -716,11 +758,9 @@ function updatePersistedSchedule(
   if (!schedMatch && !ipcMatch) return;
   const taskId = schedMatch ? schedMatch[1] : ipcMatch![1];
 
-  const schedulesDir = path.join(
-    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
-    photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
-  );
-  const filePath = path.join(schedulesDir, `${taskId}.json`);
+  const workingDir = scheduledJobs.get(jobId)?.workingDir;
+  const filePath = findPersistedScheduleFile(photonName, taskId, workingDir);
+  if (!filePath) return;
 
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -735,10 +775,7 @@ function updatePersistedSchedule(
 
 /** Persist an IPC-created schedule job to disk for daemon restart recovery */
 function persistIpcSchedule(job: ScheduledJob & { photonName: string; workingDir?: string }): void {
-  const schedulesDir = path.join(
-    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
-    job.photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
-  );
+  const schedulesDir = resolveScheduleDir(job.photonName, job.workingDir);
 
   try {
     fs.mkdirSync(schedulesDir, { recursive: true });
@@ -783,112 +820,177 @@ function deletePersistedIpcSchedule(jobId: string, photonName: string): void {
   if (!match) return;
   const taskId = match[1];
 
-  const schedulesDir = path.join(
-    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
-    photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
-  );
-  const filePath = path.join(schedulesDir, `${taskId}.json`);
+  const workingDir = scheduledJobs.get(jobId)?.workingDir;
+  const filePath = findPersistedScheduleFile(photonName, taskId, workingDir);
+  if (!filePath) return;
 
   try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      logger.debug('Deleted persisted IPC schedule', { jobId, path: filePath });
-    }
+    fs.unlinkSync(filePath);
+    logger.debug('Deleted persisted IPC schedule', { jobId, path: filePath });
   } catch {
     // Ignore — file may already be gone
   }
 }
 
-/** Load all persisted schedules from disk on daemon startup */
+/**
+ * Process IPC schedule files from one photon's schedules directory.
+ * Mutates loadedCount / skippedCount via the returned counters.
+ */
+function loadIpcSchedulesFromDir(
+  schedulesPath: string,
+  ttlMs: number
+): { loaded: number; skipped: number } {
+  let loaded = 0;
+  let skipped = 0;
+  let files: string[];
+  try {
+    files = fs.readdirSync(schedulesPath).filter((f) => f.endsWith('.json'));
+  } catch {
+    return { loaded, skipped };
+  }
+
+  for (const file of files) {
+    const filePath = path.join(schedulesPath, file);
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const task = JSON.parse(content);
+
+      // Skip non-IPC jobs (ScheduleProvider handles its own)
+      if (task.source !== 'ipc') continue;
+
+      // Validate required fields
+      if (!task.id || !task.method || !task.cron || !task.photonName) {
+        logger.warn('Skipping invalid persisted schedule', { file: filePath });
+        skipped++;
+        continue;
+      }
+
+      // TTL check: skip jobs not executed in 30+ days
+      const lastExec = task.lastExecutionAt ? new Date(task.lastExecutionAt).getTime() : 0;
+      const created = task.createdAt ? new Date(task.createdAt).getTime() : 0;
+      const lastActivity = Math.max(lastExec, created);
+      if (lastActivity > 0 && Date.now() - lastActivity > ttlMs) {
+        logger.info('Removing expired schedule (TTL)', {
+          jobId: task.id,
+          lastActivity: new Date(lastActivity).toISOString(),
+        });
+        try {
+          fs.unlinkSync(filePath);
+        } catch {
+          /* ignore */
+        }
+        skipped++;
+        continue;
+      }
+
+      // Skip if already registered (another source may have loaded it)
+      if (scheduledJobs.has(task.id)) continue;
+
+      const job: ScheduledJob & { photonName: string; workingDir?: string } = {
+        id: task.id,
+        method: task.method,
+        args: task.args || {},
+        cron: task.cron,
+        runCount: task.executionCount || 0,
+        createdAt: created || Date.now(),
+        createdBy: task.createdBy,
+        photonName: task.photonName,
+        workingDir: task.workingDir,
+      };
+
+      if (scheduleJob(job)) {
+        loaded++;
+      } else {
+        logger.warn('Failed to schedule persisted job (invalid cron?)', { jobId: task.id });
+        skipped++;
+      }
+    } catch (err) {
+      logger.warn('Failed to load persisted schedule file', {
+        file: filePath,
+        error: getErrorMessage(err),
+      });
+      skipped++;
+    }
+  }
+
+  return { loaded, skipped };
+}
+
+/**
+ * Load all persisted IPC schedules from disk on daemon startup.
+ *
+ * Scans:
+ *   1. The legacy flat dir (~/.photon/schedules/<photon>/ or PHOTON_SCHEDULES_DIR)
+ *      for backwards compatibility with schedules written pre-Option-B.
+ *   2. The default base's new-location dir ({baseDir}/.data/<photon>/schedules/)
+ *      so schedules written after this change are reinstated.
+ *
+ * Multi-base scanning (iterating every registered PHOTON_DIR from the bases
+ * registry) lands in a follow-up commit — see step (c) in
+ * docs/internals/PHOTON-DIR-AND-NAMESPACE.md §8.
+ */
 function loadAllPersistedSchedules(): void {
-  const baseDir =
-    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules');
-
-  if (!fs.existsSync(baseDir)) return;
-
-  let loadedCount = 0;
-  let skippedCount = 0;
   const TTL_DAYS = 30;
   const ttlMs = TTL_DAYS * 24 * 60 * 60 * 1000;
+  let loadedCount = 0;
+  let skippedCount = 0;
 
-  try {
-    const photonDirs = fs.readdirSync(baseDir, { withFileTypes: true });
+  const scannedDirs = new Set<string>();
+  const scanRoot = (root: string) => {
+    if (!fs.existsSync(root)) return;
+    let photonDirs: fs.Dirent[];
+    try {
+      photonDirs = fs.readdirSync(root, { withFileTypes: true });
+    } catch (err) {
+      logger.warn('Failed to scan schedules directory', {
+        dir: root,
+        error: getErrorMessage(err),
+      });
+      return;
+    }
     for (const dir of photonDirs) {
       if (!dir.isDirectory()) continue;
+      const schedulesPath = path.join(root, dir.name);
+      if (scannedDirs.has(schedulesPath)) continue;
+      scannedDirs.add(schedulesPath);
+      const result = loadIpcSchedulesFromDir(schedulesPath, ttlMs);
+      loadedCount += result.loaded;
+      skippedCount += result.skipped;
+    }
+  };
 
-      const schedulesPath = path.join(baseDir, dir.name);
-      const files = fs.readdirSync(schedulesPath).filter((f) => f.endsWith('.json'));
-
-      for (const file of files) {
-        const filePath = path.join(schedulesPath, file);
-        try {
-          const content = fs.readFileSync(filePath, 'utf-8');
-          const task = JSON.parse(content);
-
-          // Skip non-IPC jobs (ScheduleProvider handles its own)
-          if (task.source !== 'ipc') continue;
-
-          // Validate required fields
-          if (!task.id || !task.method || !task.cron || !task.photonName) {
-            logger.warn('Skipping invalid persisted schedule', { file: filePath });
-            skippedCount++;
-            continue;
-          }
-
-          // TTL check: skip jobs not executed in 30+ days
-          const lastExec = task.lastExecutionAt ? new Date(task.lastExecutionAt).getTime() : 0;
-          const created = task.createdAt ? new Date(task.createdAt).getTime() : 0;
-          const lastActivity = Math.max(lastExec, created);
-          if (lastActivity > 0 && Date.now() - lastActivity > ttlMs) {
-            logger.info('Removing expired schedule (TTL)', {
-              jobId: task.id,
-              lastActivity: new Date(lastActivity).toISOString(),
-            });
-            try {
-              fs.unlinkSync(filePath);
-            } catch {
-              /* ignore */
-            }
-            skippedCount++;
-            continue;
-          }
-
-          // Skip if already registered (ScheduleProvider may have loaded it)
-          if (scheduledJobs.has(task.id)) continue;
-
-          const job: ScheduledJob & { photonName: string; workingDir?: string } = {
-            id: task.id,
-            method: task.method,
-            args: task.args || {},
-            cron: task.cron,
-            runCount: task.executionCount || 0,
-            createdAt: created || Date.now(),
-            createdBy: task.createdBy,
-            photonName: task.photonName,
-            workingDir: task.workingDir,
-          };
-
-          if (scheduleJob(job)) {
-            loadedCount++;
-          } else {
-            logger.warn('Failed to schedule persisted job (invalid cron?)', { jobId: task.id });
-            skippedCount++;
-          }
-        } catch (err) {
-          logger.warn('Failed to load persisted schedule file', {
-            file: filePath,
-            error: getErrorMessage(err),
-          });
-          skippedCount++;
+  // New location: {defaultBase}/.data/<photonName>/schedules/
+  // Iterate photonName subdirectories of .data/ that contain a schedules/ dir.
+  const defaultDataRoot = path.join(getDefaultContext().baseDir, '.data');
+  if (fs.existsSync(defaultDataRoot)) {
+    try {
+      const entries = fs.readdirSync(defaultDataRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        // Skip reserved buckets
+        if (entry.name.startsWith('_') || entry.name.startsWith('.') || entry.name === 'tasks') {
+          continue;
+        }
+        const schedulesPath = path.join(defaultDataRoot, entry.name, 'schedules');
+        if (fs.existsSync(schedulesPath)) {
+          if (scannedDirs.has(schedulesPath)) continue;
+          scannedDirs.add(schedulesPath);
+          const result = loadIpcSchedulesFromDir(schedulesPath, ttlMs);
+          loadedCount += result.loaded;
+          skippedCount += result.skipped;
         }
       }
+    } catch (err) {
+      logger.warn('Failed to scan default-base schedules', {
+        error: getErrorMessage(err),
+      });
     }
-  } catch (err) {
-    logger.warn('Failed to scan schedules directory', {
-      dir: baseDir,
-      error: getErrorMessage(err),
-    });
   }
+
+  // Legacy location: ~/.photon/schedules/<photonName>/ (or PHOTON_SCHEDULES_DIR)
+  const legacyRoot =
+    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules');
+  scanRoot(legacyRoot);
 
   if (loadedCount > 0 || skippedCount > 0) {
     logger.info('Loaded persisted schedules', { loaded: loadedCount, skipped: skippedCount });
@@ -1362,6 +1464,15 @@ async function getOrCreateSessionManager(
     if (!photonPaths.has(photonName)) {
       photonPaths.set(photonName, pathToUse);
     }
+
+    // Record this PHOTON_DIR in the bases registry so future daemon startups
+    // can scan it for schedules and other per-base data. See
+    // docs/internals/PHOTON-DIR-AND-NAMESPACE.md §8.
+    try {
+      touchBase(workingDir || getDefaultContext().baseDir);
+    } catch (err) {
+      logger.warn('Failed to update bases registry', { error: getErrorMessage(err) });
+    }
     if (workingDir) {
       workingDirs.set(key, workingDir);
       watchWorkingDir(workingDir);
@@ -1454,14 +1565,29 @@ async function autoRegisterFromMetadata(
       });
     }
 
-    // Load persisted schedule files from ~/.photon/schedules/{photonName}/
-    // These are created by this.schedule.create() at runtime.
-    const schedulesDir = path.join(
-      process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
-      photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
-    );
-    try {
-      const scheduleFiles = fs.readdirSync(schedulesDir).filter((f) => f.endsWith('.json'));
+    // Load persisted schedule files created by this.schedule.create() at
+    // runtime. Scan the new per-base location first, then the legacy
+    // ~/.photon/schedules/ location for backwards compatibility.
+    const workingDir = manager.loader?.baseDir;
+    const schedulesDirs = [
+      resolveScheduleDir(photonName, workingDir),
+      resolveLegacyScheduleDir(photonName),
+    ];
+    for (const schedulesDir of schedulesDirs) {
+      let scheduleFiles: string[];
+      try {
+        scheduleFiles = fs.readdirSync(schedulesDir).filter((f) => f.endsWith('.json'));
+      } catch (err: any) {
+        // ENOENT is fine — no schedules dir means no persisted schedules here
+        if (err.code !== 'ENOENT') {
+          logger.warn('Failed to load persisted schedules', {
+            photon: photonName,
+            dir: schedulesDir,
+            error: getErrorMessage(err),
+          });
+        }
+        continue;
+      }
       for (const file of scheduleFiles) {
         try {
           const content = fs.readFileSync(path.join(schedulesDir, file), 'utf-8');
@@ -1493,14 +1619,6 @@ async function autoRegisterFromMetadata(
         } catch {
           // Skip corrupt schedule files
         }
-      }
-    } catch (err: any) {
-      // ENOENT is fine — no schedules dir means no persisted schedules
-      if (err.code !== 'ENOENT') {
-        logger.warn('Failed to load persisted schedules', {
-          photon: photonName,
-          error: getErrorMessage(err),
-        });
       }
     }
   } catch (error) {
