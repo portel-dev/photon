@@ -315,6 +315,10 @@ const parentDirWatchers = new Map<string, SafeWatcher>();
 const workingDirInodes = new Map<string, number>();
 // workingDir -> SafeWatcher: watches {workingDir}/state/ for photon subdir deletions
 const stateDirWatchers = new Map<string, SafeWatcher>();
+// basePath -> SafeWatcher: watches a PHOTON_DIR root for .photon.ts edits so
+// @scheduled cron changes and @webhook additions reach the declared-set
+// without a daemon restart. See watchBaseForProactiveMetadata().
+const baseDirWatchers = new Map<string, SafeWatcher>();
 
 /**
  * Create a composite key from photonName + workingDir for map lookups.
@@ -1247,6 +1251,137 @@ function loadAllPersistedSchedules(): void {
  * fires (or a webhook request arrives), the daemon lazy-loads the
  * photon via the normal session-manager path.
  */
+/**
+ * Re-extract @scheduled and @webhook metadata for a single source file
+ * and reconcile the declaredSchedules / webhookRoutes maps in place.
+ * Returns true if anything changed (caller can re-sync active schedules
+ * and fan out a schedules-changed event).
+ *
+ * Shared between boot discovery and the live watcher — any behavior
+ * change here benefits both paths.
+ */
+async function scanOneForProactiveMetadata(
+  photonName: string,
+  filePath: string,
+  workingDir: string | undefined
+): Promise<boolean> {
+  const core = await import('@portel/photon-core');
+  const SchemaExtractor = (core as any).SchemaExtractor as new () => {
+    extractAllFromSource(source: string): { tools: Array<Record<string, unknown>> };
+  };
+  let source: string;
+  try {
+    const fsp = await import('fs/promises');
+    source = await fsp.readFile(filePath, 'utf-8');
+  } catch (err) {
+    // File may have been deleted/renamed mid-flight — drop its declarations.
+    return dropProactiveMetadataFor(photonName);
+  }
+
+  if (!/@(scheduled|cron|webhook)\b/.test(source) && !/\basync\s+handle[A-Z]/.test(source)) {
+    // No proactive tags anymore — clear anything we had for this photon.
+    return dropProactiveMetadataFor(photonName);
+  }
+
+  let changed = false;
+
+  let meta: { tools: Array<Record<string, unknown>> };
+  try {
+    const extractor = new SchemaExtractor();
+    meta = extractor.extractAllFromSource(source);
+  } catch (err) {
+    logger.warn('Metadata re-scan: extract failed', {
+      photon: photonName,
+      path: filePath,
+      error: getErrorMessage(err),
+    });
+    return false;
+  }
+
+  // Collect the new shape, then diff against current state so callers
+  // only fire change events on actual differences.
+  const nextSchedules = new Map<
+    string,
+    typeof declaredSchedules extends Map<string, infer V> ? V : never
+  >();
+  const nextRoutes = new Map<string, string>(); // routePath → methodName
+
+  for (const rawTool of meta.tools) {
+    const tool = rawTool as { name: string; scheduled?: string; webhook?: string | boolean };
+    if (tool.scheduled) {
+      nextSchedules.set(declaredKey(photonName, tool.name), {
+        photon: photonName,
+        method: tool.name,
+        cron: tool.scheduled,
+        photonPath: filePath,
+        workingDir,
+      });
+    }
+    if (tool.webhook !== undefined) {
+      const routePath = typeof tool.webhook === 'string' ? tool.webhook : tool.name;
+      nextRoutes.set(routePath, tool.name);
+    }
+  }
+
+  // Schedules diff — add/update new, remove stale entries owned by this photon.
+  const existingScheduleKeys = new Set(
+    Array.from(declaredSchedules.entries())
+      .filter(([, v]) => v.photon === photonName)
+      .map(([k]) => k)
+  );
+  for (const [key, decl] of nextSchedules) {
+    const prev = declaredSchedules.get(key);
+    if (
+      !prev ||
+      prev.cron !== decl.cron ||
+      prev.photonPath !== decl.photonPath ||
+      prev.workingDir !== decl.workingDir
+    ) {
+      declaredSchedules.set(key, decl);
+      changed = true;
+    }
+    existingScheduleKeys.delete(key);
+  }
+  for (const staleKey of existingScheduleKeys) {
+    declaredSchedules.delete(staleKey);
+    changed = true;
+  }
+
+  // Webhooks diff — keyed per photon, replace the whole route table for
+  // this photon since it's small and authoritative.
+  const prevRoutes = webhookRoutes.get(photonName);
+  const prevKeys = prevRoutes ? Array.from(prevRoutes.keys()) : [];
+  const nextKeys = Array.from(nextRoutes.keys());
+  if (nextKeys.length > 0) {
+    webhookRoutes.set(photonName, nextRoutes);
+    if (
+      prevKeys.length !== nextKeys.length ||
+      prevKeys.some((k) => nextRoutes.get(k) !== prevRoutes?.get(k))
+    ) {
+      changed = true;
+    }
+  } else if (prevRoutes) {
+    webhookRoutes.delete(photonName);
+    changed = true;
+  }
+
+  proactivePhotonLocations.set(photonName, { photonPath: filePath, workingDir });
+  return changed;
+}
+
+/** Remove all proactive-metadata entries owned by a photon. */
+function dropProactiveMetadataFor(photonName: string): boolean {
+  let changed = false;
+  for (const [key, decl] of declaredSchedules.entries()) {
+    if (decl.photon === photonName) {
+      declaredSchedules.delete(key);
+      changed = true;
+    }
+  }
+  if (webhookRoutes.delete(photonName)) changed = true;
+  return changed;
+}
+
 async function discoverProactiveMetadataAtBoot(): Promise<void> {
   const baseCandidates = new Set<string>();
   const defaultBase = path.resolve(getDefaultContext().baseDir);
@@ -1259,9 +1394,6 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
 
   // Lazy import to keep daemon startup cheap for users with no bases.
   const core = await import('@portel/photon-core');
-  const SchemaExtractor = (core as any).SchemaExtractor as new () => {
-    extractAllFromSource(source: string): { tools: Array<Record<string, unknown>> };
-  };
 
   for (const basePath of baseCandidates) {
     let photons: Awaited<ReturnType<typeof core.listPhotonFilesWithNamespace>>;
@@ -1275,73 +1407,29 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
       continue;
     }
 
+    const workingDir = basePath === defaultBase ? undefined : basePath;
     for (const p of photons) {
       photonsScanned++;
+      const before = {
+        schedules: Array.from(declaredSchedules.values()).filter((d) => d.photon === p.name).length,
+        routes: webhookRoutes.get(p.name)?.size ?? 0,
+      };
       try {
-        const fsp = await import('fs/promises');
-        const source = await fsp.readFile(p.filePath, 'utf-8');
-
-        // Fast filter — only parse photons that actually declare a
-        // proactive trigger. Keeps the boot cost close to one readFile
-        // per photon for dirs full of regular photons.
-        if (!/@(scheduled|cron|webhook)\b/.test(source) && !/\basync\s+handle[A-Z]/.test(source)) {
-          continue;
-        }
-
-        const extractor = new SchemaExtractor();
-        const meta = extractor.extractAllFromSource(source);
-
-        const workingDir = basePath === defaultBase ? undefined : basePath;
-
-        for (const rawTool of meta.tools) {
-          const tool = rawTool as {
-            name: string;
-            scheduled?: string;
-            webhook?: string | boolean;
-          };
-
-          // @scheduled: record the declaration. Timer registration is
-          // gated on the per-base active-schedules file (two-step model).
-          // syncActiveSchedulesAtBoot() does the actual scheduleJob().
-          if (tool.scheduled) {
-            declaredSchedules.set(declaredKey(p.name, tool.name), {
-              photon: p.name,
-              method: tool.name,
-              cron: tool.scheduled,
-              photonPath: p.filePath,
-              workingDir,
-            });
-            schedulesRegistered++; // counts declarations, not active timers
-          }
-
-          // @webhook: register the route now; photon lazy-loads on request.
-          // (Webhooks are passive until an external caller hits them, so
-          // auto-register is safe. `photon ps disable` can drop a route.)
-          if (tool.webhook !== undefined) {
-            let routes = webhookRoutes.get(p.name);
-            if (!routes) {
-              routes = new Map();
-              webhookRoutes.set(p.name, routes);
-            }
-            const routePath = typeof tool.webhook === 'string' ? tool.webhook : tool.name;
-            routes.set(routePath, tool.name);
-            webhooksRegistered++;
-          }
-        }
-
-        // Record the source location under the photon name if any proactive
-        // metadata was found, so runJob / the webhook handler can lazy-load.
-        proactivePhotonLocations.set(p.name, {
-          photonPath: p.filePath,
-          workingDir,
-        });
+        await scanOneForProactiveMetadata(p.name, p.filePath, workingDir);
       } catch (err) {
         logger.warn('Boot discovery: failed to extract metadata', {
           photon: p.name,
           path: p.filePath,
           error: getErrorMessage(err),
         });
+        continue;
       }
+      const after = {
+        schedules: Array.from(declaredSchedules.values()).filter((d) => d.photon === p.name).length,
+        routes: webhookRoutes.get(p.name)?.size ?? 0,
+      };
+      schedulesRegistered += Math.max(0, after.schedules - before.schedules);
+      webhooksRegistered += Math.max(0, after.routes - before.routes);
     }
   }
 
@@ -1352,6 +1440,90 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
       webhooksRegistered,
       bases: baseCandidates.size,
     });
+  }
+}
+
+/**
+ * Watch each registered base directory for `.photon.ts` create/modify
+ * events, re-extract proactive metadata on each hit, and reconcile the
+ * declared-set + webhook routes live. Closes the gap where an edit to
+ * `@scheduled` cron expressions or `@webhook` additions only reached
+ * the daemon at restart.
+ *
+ * Deduped by filename via the existing watchDebounce map (~150 ms) so
+ * editors that save-twice don't trigger two scans. Skips files that
+ * aren't `.photon.ts`.
+ */
+function watchBaseForProactiveMetadata(basePath: string, isDefaultBase: boolean): void {
+  if (baseDirWatchers.has(basePath)) return;
+  try {
+    if (!fs.existsSync(basePath)) return;
+  } catch {
+    return;
+  }
+
+  const workingDir = isDefaultBase ? undefined : basePath;
+  const onChange = (filename: string | null): void => {
+    if (!filename || !filename.endsWith('.photon.ts')) return;
+    // Only watch files at the base root for now. Namespace subdirs get
+    // picked up the next time the user runs a photon from there (the
+    // normal registration flow touches the bases registry).
+    const debounceKey = `base:${basePath}:${filename}`;
+    const existing = watchDebounce.get(debounceKey);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      void (async () => {
+        const currentTimer = watchDebounce.get(debounceKey);
+        if (currentTimer === timer) watchDebounce.delete(debounceKey);
+        const photonName = filename.replace(/\.photon\.ts$/, '');
+        const filePath = path.join(basePath, filename);
+        try {
+          const changed = await scanOneForProactiveMetadata(photonName, filePath, workingDir);
+          if (changed) {
+            // Re-sync timers so cron edits take effect immediately.
+            syncActiveSchedulesAtBoot();
+            publishToChannel('system:*', {
+              event: 'schedules-changed',
+              photon: photonName,
+              base: basePath,
+              timestamp: Date.now(),
+            });
+            logger.info('Proactive metadata updated', {
+              photon: photonName,
+              base: basePath,
+              path: filePath,
+            });
+          }
+        } catch (err) {
+          logger.warn('Live rescan failed', {
+            photon: photonName,
+            base: basePath,
+            error: getErrorMessage(err),
+          });
+        }
+      })();
+    }, 150);
+    timer.unref();
+    watchDebounce.set(debounceKey, timer);
+  };
+
+  try {
+    const watcher = safeWatchDir(basePath, (_eventType, filename) => onChange(filename));
+    baseDirWatchers.set(basePath, watcher);
+  } catch (err) {
+    logger.debug('Could not watch base for proactive metadata', {
+      base: basePath,
+      error: getErrorMessage(err),
+    });
+  }
+}
+
+/** Install watchers on every registered base. Safe to call multiple times. */
+function startBaseWatchers(): void {
+  const defaultBase = path.resolve(getDefaultContext().baseDir);
+  watchBaseForProactiveMetadata(defaultBase, true);
+  for (const b of listActiveBases()) {
+    watchBaseForProactiveMetadata(b.path, path.resolve(b.path) === defaultBase);
   }
 }
 
@@ -5080,6 +5252,7 @@ void (async () => {
   void (async () => {
     await discoverProactiveMetadataAtBoot();
     syncActiveSchedulesAtBoot();
+    startBaseWatchers();
     try {
       sweepExecutionHistoryBases(listActiveBases().map((b) => b.path));
     } catch (err) {
