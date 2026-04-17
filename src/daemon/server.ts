@@ -723,16 +723,34 @@ function resolveScheduleDir(photonName: string, workingDir?: string): string {
 }
 
 /**
+ * Root of the legacy schedules tree (pre-Option-B layout).
+ * Honors `PHOTON_SCHEDULES_DIR` only for the one-release deprecation
+ * window; production code should rely on the per-PHOTON_DIR layout.
+ */
+let _schedulesEnvWarned = false;
+function resolveLegacySchedulesRoot(): string {
+  const override = process.env.PHOTON_SCHEDULES_DIR;
+  if (override) {
+    if (!_schedulesEnvWarned) {
+      _schedulesEnvWarned = true;
+      logger.warn(
+        'PHOTON_SCHEDULES_DIR is deprecated and will be removed in the next minor release. ' +
+          'Schedules now live under {PHOTON_DIR}/.data/{photon}/schedules/ per Option B.',
+        { path: override }
+      );
+    }
+    return override;
+  }
+  return path.join(os.homedir(), '.photon', 'schedules');
+}
+
+/**
  * Legacy schedules dir (pre-Option-B), read-only compatibility path.
  * Kept for the one-release transition window so schedules created before
- * this change continue to be discoverable. Removed once step (c) sweeps
- * legacy content into the new per-base location.
+ * this change continue to be discoverable.
  */
 function resolveLegacyScheduleDir(photonName: string): string {
-  return path.join(
-    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
-    photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
-  );
+  return path.join(resolveLegacySchedulesRoot(), photonName.replace(/[^a-zA-Z0-9_-]/g, '_'));
 }
 
 /** Locate a persisted schedule file, preferring the new location. */
@@ -930,8 +948,7 @@ function loadIpcSchedulesFromDir(
  * next startup is a no-op for them. Called before loadAllPersistedSchedules.
  */
 function migrateLegacyIpcSchedules(): void {
-  const legacyRoot =
-    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules');
+  const legacyRoot = resolveLegacySchedulesRoot();
   if (!fs.existsSync(legacyRoot)) return;
 
   let moved = 0;
@@ -1081,9 +1098,7 @@ function loadAllPersistedSchedules(): void {
   }
 
   // Legacy location for schedules that predate the per-base layout.
-  const legacyRoot =
-    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules');
-  scanFlatRoot(legacyRoot);
+  scanFlatRoot(resolveLegacySchedulesRoot());
 
   if (loadedCount > 0 || skippedCount > 0) {
     logger.info('Loaded persisted schedules', { loaded: loadedCount, skipped: skippedCount });
