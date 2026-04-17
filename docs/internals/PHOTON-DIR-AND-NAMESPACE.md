@@ -94,3 +94,56 @@ A runtime change passes the Option B compliance check if, for any `PHOTON_DIR`:
 4. Two `PHOTON_DIR` trees operated on in sequence (or in parallel) do not share or leak any data between them.
 
 Any failure of (1)-(4) indicates a subsystem that has not been routed through `getDataRoot(baseDir)` correctly.
+
+---
+
+## 8. Daemon central, data distributed
+
+The runtime has **exactly one** piece of global infrastructure: the daemon. Everything else that looks like it belongs to a photon (state, memory, logs, env, schedules, config, instance data) is **data** and lives with the `PHOTON_DIR` that owns it.
+
+### Classification
+
+| Concern | Classification | Location |
+|---|---|---|
+| Daemon socket / pid / log | Infrastructure | `~/.photon/.data/daemon.*` (one per user) |
+| Webhook HTTP server (port, routing table) | Infrastructure | In-process on the daemon |
+| In-memory locks, channel buffers, session managers | Infrastructure (transient) | Daemon process memory |
+| Bases registry | Infrastructure | `~/.photon/.data/.bases.json` |
+| Scheduled jobs | **Data** | `{PHOTON_DIR}/.data/{ns}/{photon}/schedules/` |
+| Instance state | **Data** | `{PHOTON_DIR}/.data/{ns}/{photon}/state/{instance}/` |
+| Memory (`this.memory`) | **Data** | `{PHOTON_DIR}/.data/{ns}/{photon}/memory/` |
+| Logs | **Data** | `{PHOTON_DIR}/.data/{ns}/{photon}/logs/` |
+| Env / context / config | **Data** | `{PHOTON_DIR}/.data/{ns}/{photon}/...` |
+
+The daemon is the **mechanism** that fires schedules, routes webhooks, serves MCP requests. It does not **own** the records — records live with their PHOTON_DIR.
+
+### Rule
+
+> A subsystem is infrastructure if it exists once per user. Everything else is data, and its location is a function of `PHOTON_DIR`.
+
+Concretely: if you're considering where to store something, ask "does it make sense to have more than one of these, scoped per project/marketplace?" If yes, it's data. If no (there's only ever one daemon, one webhook port, one socket), it's infrastructure.
+
+### How the daemon handles data distributed across PHOTON_DIRs
+
+One daemon serves all the PHOTON_DIRs the user has ever launched photons from. For that to work for long-lived concerns like schedules, the daemon maintains a **bases registry** at `~/.photon/.data/.bases.json`:
+
+```json
+{
+  "bases": [
+    { "path": "/Users/arul/Projects/kith", "firstSeen": "2026-04-17T09:00:00Z", "lastSeen": "2026-04-17T11:30:00Z" },
+    { "path": "/Users/arul/.photon",       "firstSeen": "2026-04-10T12:00:00Z", "lastSeen": "2026-04-17T11:32:00Z" }
+  ]
+}
+```
+
+Every time the daemon handles an invocation from a PHOTON_DIR, it upserts that base with a fresh `lastSeen`. On startup, the daemon:
+
+1. Reads the registry.
+2. Prunes entries whose `path` no longer exists on disk (`ENOENT`). Entries with temporary read errors (e.g. unmounted network drive) are kept.
+3. For each surviving base, scans `{base}/.data/*/*/schedules/*.json` and reinstates the timers.
+
+Schedule records themselves carry the originating `baseDir` inline so the daemon knows which context to re-enter when firing.
+
+### What this replaces
+
+The legacy behavior wrote all schedules to `~/.photon/schedules/` regardless of which PHOTON_DIR spawned them (optionally redirected by `PHOTON_SCHEDULES_DIR`). That directly violated the Option B contract. The registry + per-base schedule layout restores it while keeping the daemon topology unchanged.
