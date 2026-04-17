@@ -1106,23 +1106,45 @@ export default class CacheTest {
     assert.equal((response.data as any).answer, 'alpha');
   });
 
-  await test('after source change + reload, new code is used (not stale cache)', async () => {
+  // Stat-gate guarantees: the very next request after an edit sees the
+  // new code, even if the watcher hasn't fired yet. No polling, no sleep.
+  await test('after source change + reload, new code is used on the first request', async () => {
     fs.writeFileSync(cacheTestFile, SOURCE_B);
-    const { answer, elapsedMs } = await pollUntilAnswer('cache_v2', 'bravo');
+    const response = await sendRequest({
+      type: 'command',
+      id: 'cache_v2',
+      photonName: 'cache-test',
+      photonPath: cacheTestFile,
+      sessionId: 'cache-session',
+      clientType: 'test',
+      method: 'value',
+      args: {},
+    });
+    assert.equal(response.type, 'result');
     assert.equal(
-      answer,
+      (response.data as any).answer,
       'bravo',
-      `Expected "bravo" after source change, got "${answer}" after ${elapsedMs}ms — stale cache!`
+      `Expected "bravo" on the first request after write — stat-gate should have synced the reload`
     );
   });
 
-  await test('reverting source back to original also picks up fresh compile', async () => {
+  await test('reverting source back to original also picks up fresh compile on the first request', async () => {
     fs.writeFileSync(cacheTestFile, SOURCE_A);
-    const { answer, elapsedMs } = await pollUntilAnswer('cache_v3', 'alpha');
+    const response = await sendRequest({
+      type: 'command',
+      id: 'cache_v3',
+      photonName: 'cache-test',
+      photonPath: cacheTestFile,
+      sessionId: 'cache-session',
+      clientType: 'test',
+      method: 'value',
+      args: {},
+    });
+    assert.equal(response.type, 'result');
     assert.equal(
-      answer,
+      (response.data as any).answer,
       'alpha',
-      `Expected "alpha" after revert, got "${answer}" after ${elapsedMs}ms`
+      `Expected "alpha" on the first request after revert — stat-gate should have synced the reload`
     );
   });
 }

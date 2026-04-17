@@ -223,6 +223,84 @@ const photonPaths = new Map<string, string>(); // compositeKey -> photonPath
 const workingDirs = new Map<string, string>(); // compositeKey -> workingDir
 const fileWatchers = new Map<string, SafeWatcher>();
 const watchDebounce = new Map<string, NodeJS.Timeout>();
+
+// Source-stat gate (prototype — see docs/internals/STAT-GATE.md when landed):
+// compositeKey → last observed stat of the photon's source file. Used by
+// the stat-gate check right before dispatch to detect edits that the file
+// watcher hasn't processed yet. Closes the race window where a request
+// arrives between a file write and the watcher's debounce event.
+interface PhotonSourceStat {
+  mtimeMs: number;
+  size: number;
+  ino: number;
+}
+const photonSourceStats = new Map<string, PhotonSourceStat>();
+
+/** Snapshot the stat fields we use as change signal. Null on ENOENT etc. */
+function statOrNull(filePath: string): PhotonSourceStat | null {
+  try {
+    const s = fs.statSync(filePath);
+    return { mtimeMs: s.mtimeMs, size: s.size, ino: s.ino };
+  } catch {
+    return null;
+  }
+}
+
+/** Record the current stat for a photon after a successful load or reload. */
+function recordPhotonSourceStat(key: string, photonPath: string | undefined): void {
+  if (!photonPath) return;
+  const s = statOrNull(photonPath);
+  if (s) photonSourceStats.set(key, s);
+}
+
+/**
+ * Compare the current file stat against the last-recorded stat. If the
+ * file has changed since the cached photon was loaded, trigger a
+ * synchronous reload before returning. On any error (missing file,
+ * reload failure), the call returns without throwing so dispatch can
+ * surface a richer error downstream.
+ */
+async function statGate(
+  key: string,
+  photonName: string,
+  photonPath: string | undefined,
+  workingDir: string | undefined
+): Promise<void> {
+  if (!photonPath) return;
+  const cached = photonSourceStats.get(key);
+  if (!cached) {
+    // No baseline yet — record what's there now and let this request run on
+    // the current (just-loaded) instance.
+    recordPhotonSourceStat(key, photonPath);
+    return;
+  }
+  const current = statOrNull(photonPath);
+  if (!current) return;
+  if (
+    current.mtimeMs === cached.mtimeMs &&
+    current.size === cached.size &&
+    current.ino === cached.ino
+  ) {
+    return;
+  }
+  logger.info('stat-gate: source changed since last load, syncing reload', {
+    photon: photonName,
+    path: photonPath,
+    prevMtime: cached.mtimeMs,
+    newMtime: current.mtimeMs,
+  });
+  try {
+    const result = await reloadPhoton(photonName, photonPath, workingDir);
+    if (result.success) {
+      photonSourceStats.set(key, current);
+    }
+  } catch (err) {
+    logger.warn('stat-gate: reload failed — continuing with stale instance', {
+      photon: photonName,
+      error: getErrorMessage(err),
+    });
+  }
+}
 // parentDir -> SafeWatcher: one watcher per unique parent directory
 const parentDirWatchers = new Map<string, SafeWatcher>();
 // workingDir -> inode: recorded at watch time for rename-vs-delete detection
@@ -1572,6 +1650,9 @@ async function getOrCreateSessionManager(
     if (!photonPaths.has(photonName)) {
       photonPaths.set(photonName, pathToUse);
     }
+    // Baseline the stat-gate for this session so subsequent dispatches can
+    // detect source edits the file watcher hasn't processed yet.
+    recordPhotonSourceStat(key, pathToUse);
 
     // Record this PHOTON_DIR in the bases registry so future daemon startups
     // can scan it for schedules and other per-base data. See
@@ -2334,6 +2415,12 @@ async function handleRequest(
         error: `Cannot initialize photon '${photonName}'. Provide photonPath in request.`,
       };
     }
+
+    // Stat-gate: if the source file has changed since we last loaded it,
+    // synchronously reload before dispatching. Closes the race window where
+    // a request arrives between a file write and the watcher's debounce.
+    const dispatchPhotonPath = request.photonPath || photonPaths.get(cmdKey);
+    await statGate(cmdKey, photonName, dispatchPhotonPath, request.workingDir);
 
     try {
       const session = await sessionManager.getOrCreateSession(
@@ -3738,6 +3825,10 @@ async function doReloadPhoton(
       timestamp: Date.now(),
       sessionsUpdated: updatedCount,
     });
+
+    // Refresh the stat-gate baseline so the next dispatch's stat check
+    // sees the file it just loaded (not the stat from before this reload).
+    recordPhotonSourceStat(key, newPhotonPath);
 
     logger.info('Photon reloaded successfully', { photonName, sessionsUpdated: updatedCount });
     return { success: true, sessionsUpdated: updatedCount };
