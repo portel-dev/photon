@@ -5,7 +5,15 @@
  */
 
 import * as fs from 'fs/promises';
-import { realpathSync, existsSync, mkdirSync, symlinkSync, readFileSync, type Dirent } from 'fs';
+import {
+  realpathSync,
+  existsSync,
+  mkdirSync,
+  symlinkSync,
+  readFileSync,
+  statSync,
+  type Dirent,
+} from 'fs';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
 import type {
   PhotonInstance,
@@ -918,6 +926,29 @@ export class PhotonLoader {
 
       // Inject file path for storage()/assets() resolution
       instance._photonFilePath = absolutePath;
+
+      // Stat-gate baseline for CLI-direct dispatch. Daemon-routed calls
+      // have their own equivalent at src/daemon/server.ts; this ensures
+      // `photon cli foo bar` run immediately after a `sed -i` sees the
+      // new code on the first call.
+      try {
+        const s = statSync(absolutePath);
+        instance._photonSourceStat = { mtimeMs: s.mtimeMs, size: s.size, ino: s.ino };
+      } catch {
+        // No stat — the gate stays a no-op for this instance.
+      }
+      instance._photonReloader = async () => {
+        try {
+          await this.reloadFile(absolutePath);
+          const s = statSync(absolutePath);
+          instance._photonSourceStat = { mtimeMs: s.mtimeMs, size: s.size, ino: s.ino };
+        } catch (err) {
+          this.logger.debug('Stat-gate reload failed', {
+            path: absolutePath,
+            error: getErrorMessage(err),
+          });
+        }
+      };
 
       // Inject dynamic photon resolver for this.photon.use()
       instance._photonResolver = (photonName: string, instanceName?: string) => {
