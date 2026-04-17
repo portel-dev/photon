@@ -28,6 +28,7 @@ import { registerDoctorCommand } from './commands/doctor.js';
 import { registerRunCommand } from './commands/run.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerDaemonCommands } from './commands/daemon.js';
+import { registerPsCommands } from './commands/ps.js';
 import { registerInitCommands, registerUninitCommands } from './commands/init.js';
 import { registerTestCommand } from './commands/test.js';
 import { registerAliasCommands } from './commands/alias.js';
@@ -118,6 +119,7 @@ Run 'photon <command> --help' for detailed usage.
   registerRunCommand(program);
   registerConfigCommands(program);
   registerDaemonCommands(program);
+  registerPsCommands(program);
   registerInitCommands(program);
   registerUninitCommands(program);
   registerTestCommand(program);

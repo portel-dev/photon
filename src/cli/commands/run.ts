@@ -44,6 +44,7 @@ export const RESERVED_COMMANDS = [
   'clear-cache',
   'clean',
   'daemon',
+  'ps',
   // Instance/env
   'use',
   'instances',

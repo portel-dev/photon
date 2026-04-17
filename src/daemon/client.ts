@@ -1244,6 +1244,102 @@ export async function listJobs(photonName: string): Promise<
   });
 }
 
+// ──────────────────────────────────────────────────────────────
+// Two-step scheduling RPCs (ps / enable / disable / pause / resume)
+// ──────────────────────────────────────────────────────────────
+
+/** Shape returned by the `ps` RPC — full observability snapshot. */
+export interface PsSnapshot {
+  active: Array<{
+    id: string;
+    photon: string;
+    method: string;
+    cron: string;
+    nextRun: number | null;
+    lastRun: number | null;
+    runCount: number;
+    photonPath?: string;
+    workingDir?: string;
+    createdBy?: string;
+  }>;
+  declared: Array<{
+    key: string;
+    photon: string;
+    method: string;
+    cron: string;
+    photonPath: string;
+    workingDir?: string;
+    active: boolean;
+  }>;
+  webhooks: Array<{ photon: string; route: string; method: string; workingDir?: string }>;
+  sessions: Array<{ photon: string; workingDir?: string; key: string; instanceCount: number }>;
+}
+
+/** Fire-and-forget helper for the new RPCs. Returns the parsed result.data. */
+async function sendSimpleDaemonRequest<T = unknown>(
+  req: Omit<DaemonRequest, 'id'> & { id?: string }
+): Promise<T> {
+  const socketPath = getGlobalSocketPath();
+  const requestId = req.id || `${req.type}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  return new Promise<T>((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+    let buffer = '';
+    const timer = setTimeout(() => {
+      client.destroy();
+      reject(new Error(`${req.type} request timeout`));
+    }, 5000);
+    client.on('connect', () => {
+      client.write(JSON.stringify({ ...req, id: requestId }) + '\n');
+    });
+    // Unix socket data may arrive in multiple chunks when the response is
+    // large. Buffer until we see a newline, then parse each line
+    // independently (daemon frames every response with a trailing '\n').
+    client.on('data', (chunk) => {
+      buffer += chunk.toString();
+      let newlineIdx: number;
+      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIdx);
+        buffer = buffer.slice(newlineIdx + 1);
+        if (!line.trim()) continue;
+        try {
+          const response: DaemonResponse = JSON.parse(line);
+          if (response.id !== requestId) continue;
+          clearTimeout(timer);
+          client.destroy();
+          if (response.type === 'result') resolve(response.data as T);
+          else reject(new Error(response.error || `${req.type} failed`));
+          return;
+        } catch (e) {
+          logger.warn('Failed to parse daemon response', {
+            error: getErrorMessage(e),
+            line: line.slice(0, 200),
+          });
+        }
+      }
+    });
+    client.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+export async function fetchPsSnapshot(): Promise<PsSnapshot> {
+  return sendSimpleDaemonRequest<PsSnapshot>({ type: 'ps' });
+}
+export async function enableSchedule(photonName: string, method: string): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'enable_schedule', photonName, method });
+}
+export async function disableSchedule(photonName: string, method: string): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'disable_schedule', photonName, method });
+}
+export async function pauseSchedule(photonName: string, method: string): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'pause_schedule', photonName, method });
+}
+export async function resumeSchedule(photonName: string, method: string): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'resume_schedule', photonName, method });
+}
+
 /**
  * Ping daemon to check if it's responsive
  */

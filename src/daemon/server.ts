@@ -2618,10 +2618,233 @@ async function handleRequest(
     };
   }
 
-  // Handle list jobs
+  // Handle list jobs (legacy shape — just the active cron jobs)
   if (request.type === 'list_jobs') {
     const jobs = Array.from(scheduledJobs.values());
     return { type: 'result', id: request.id, success: true, data: { jobs } };
+  }
+
+  // `photon ps` full snapshot: active timers, declared-but-dormant schedules,
+  // webhook routes, loaded sessions. Agent-friendly (structured) and compact.
+  if (request.type === 'ps') {
+    const defaultBase = path.resolve(getDefaultContext().baseDir);
+    const active = Array.from(scheduledJobs.values()).map((j) => ({
+      id: j.id,
+      photon: j.photonName,
+      method: j.method,
+      cron: j.cron,
+      nextRun: j.nextRun ?? null,
+      lastRun: j.lastRun ?? null,
+      runCount: j.runCount,
+      photonPath: j.photonPath,
+      workingDir: j.workingDir ?? defaultBase,
+      createdBy: j.createdBy,
+    }));
+    const declared = Array.from(declaredSchedules.values()).map((d) => ({
+      key: declaredKey(d.photon, d.method),
+      photon: d.photon,
+      method: d.method,
+      cron: d.cron,
+      photonPath: d.photonPath,
+      workingDir: d.workingDir ?? defaultBase,
+      active: scheduledJobs.has(declaredKey(d.photon, d.method)),
+    }));
+    const webhooks: Array<{ photon: string; route: string; method: string; workingDir?: string }> =
+      [];
+    for (const [photon, routes] of webhookRoutes.entries()) {
+      for (const [route, methodName] of routes.entries()) {
+        const loc = proactivePhotonLocations.get(photon);
+        webhooks.push({
+          photon,
+          route,
+          method: methodName,
+          workingDir: loc?.workingDir ?? defaultBase,
+        });
+      }
+    }
+    const sessions: Array<{
+      photon: string;
+      workingDir?: string;
+      key: string;
+      instanceCount: number;
+    }> = [];
+    for (const [key, mgr] of sessionManagers.entries()) {
+      const stored = workingDirs.get(key);
+      const photonFromKey = key.includes(':') ? key.split(':')[0] : key;
+      sessions.push({
+        photon: photonFromKey,
+        workingDir: stored ?? defaultBase,
+        key,
+        instanceCount: mgr.getSessions().length,
+      });
+    }
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { active, declared, webhooks, sessions },
+    };
+  }
+
+  // Enroll a declared @scheduled method into the active list.
+  if (request.type === 'enable_schedule') {
+    const photon = request.photonName;
+    const method = (request as { method?: string }).method;
+    if (!photon || !method) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: '`enable_schedule` requires photonName and method',
+      };
+    }
+    const key = declaredKey(photon, method);
+    const decl = declaredSchedules.get(key);
+    if (!decl) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `No @scheduled declaration found for ${key}. ` +
+          `Did the source file get renamed or deleted?`,
+      };
+    }
+    const base = path.resolve(decl.workingDir || getDefaultContext().baseDir);
+    const file = readActiveSchedulesFile(base);
+    const existing = file.active.find((e) => e.photon === photon && e.method === method);
+    if (existing) {
+      if (existing.paused) existing.paused = false;
+    } else {
+      file.active.push({
+        photon,
+        method,
+        enabledAt: new Date().toISOString(),
+        enabledBy: (request as { source?: string }).source || 'rpc',
+      });
+    }
+    writeActiveSchedulesFile(base, file);
+    // Also record this base so daemon restarts find it.
+    try {
+      touchBase(base);
+    } catch {
+      /* non-fatal */
+    }
+    if (!scheduledJobs.has(key)) {
+      scheduleJob({
+        id: key,
+        method: decl.method,
+        args: {},
+        cron: decl.cron,
+        runCount: 0,
+        createdAt: Date.now(),
+        createdBy: 'ps-enable',
+        photonName: decl.photon,
+        workingDir: decl.workingDir,
+        photonPath: decl.photonPath,
+      });
+    }
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { photon, method, base, cron: decl.cron, status: 'active' },
+    };
+  }
+
+  // Remove a schedule from the active list (drops the timer and the file entry).
+  if (request.type === 'disable_schedule') {
+    const photon = request.photonName;
+    const method = (request as { method?: string }).method;
+    if (!photon || !method) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: '`disable_schedule` requires photonName and method',
+      };
+    }
+    const key = declaredKey(photon, method);
+    const decl = declaredSchedules.get(key);
+    const base = path.resolve(
+      decl?.workingDir ||
+        (request as { workingDir?: string }).workingDir ||
+        getDefaultContext().baseDir
+    );
+    const file = readActiveSchedulesFile(base);
+    const before = file.active.length;
+    file.active = file.active.filter((e) => !(e.photon === photon && e.method === method));
+    const removed = before - file.active.length;
+    writeActiveSchedulesFile(base, file);
+    // Clear the timer if one is running.
+    const existingTimer = jobTimers.get(key);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      jobTimers.delete(key);
+    }
+    scheduledJobs.delete(key);
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { photon, method, base, removed: removed > 0, status: 'disabled' },
+    };
+  }
+
+  // Pause: keep the enrollment record but cancel the timer.
+  if (request.type === 'pause_schedule' || request.type === 'resume_schedule') {
+    const photon = request.photonName;
+    const method = (request as { method?: string }).method;
+    const pause = request.type === 'pause_schedule';
+    if (!photon || !method) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: `\`${pause ? 'pause_schedule' : 'resume_schedule'}\` requires photonName and method`,
+      };
+    }
+    const key = declaredKey(photon, method);
+    const decl = declaredSchedules.get(key);
+    const base = path.resolve(
+      decl?.workingDir ||
+        (request as { workingDir?: string }).workingDir ||
+        getDefaultContext().baseDir
+    );
+    const file = readActiveSchedulesFile(base);
+    const entry = file.active.find((e) => e.photon === photon && e.method === method);
+    if (!entry) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: `No active enrollment for ${key} under ${base}. Enable it first.`,
+      };
+    }
+    entry.paused = pause;
+    writeActiveSchedulesFile(base, file);
+    if (pause) {
+      const existingTimer = jobTimers.get(key);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        jobTimers.delete(key);
+      }
+      scheduledJobs.delete(key);
+    } else if (decl) {
+      scheduleJob({
+        id: key,
+        method: decl.method,
+        args: {},
+        cron: decl.cron,
+        runCount: 0,
+        createdAt: Date.now(),
+        createdBy: 'ps-resume',
+        photonName: decl.photon,
+        workingDir: decl.workingDir,
+        photonPath: decl.photonPath,
+      });
+    }
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { photon, method, base, status: pause ? 'paused' : 'active' },
+    };
   }
 
   if (request.type === 'get_circuit_health') {
