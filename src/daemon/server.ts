@@ -1273,27 +1273,23 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
             webhook?: string | boolean;
           };
 
-          // @scheduled: register the cron timer now; photon lazy-loads on fire.
+          // @scheduled: record the declaration. Timer registration is
+          // gated on the per-base active-schedules file (two-step model).
+          // syncActiveSchedulesAtBoot() does the actual scheduleJob().
           if (tool.scheduled) {
-            const jobId = `${p.name}:${tool.name}`;
-            if (!scheduledJobs.has(jobId)) {
-              const ok = scheduleJob({
-                id: jobId,
-                method: tool.name,
-                args: {},
-                cron: tool.scheduled,
-                runCount: 0,
-                createdAt: Date.now(),
-                createdBy: 'auto-boot',
-                photonName: p.name,
-                workingDir,
-                photonPath: p.filePath,
-              });
-              if (ok) schedulesRegistered++;
-            }
+            declaredSchedules.set(declaredKey(p.name, tool.name), {
+              photon: p.name,
+              method: tool.name,
+              cron: tool.scheduled,
+              photonPath: p.filePath,
+              workingDir,
+            });
+            schedulesRegistered++; // counts declarations, not active timers
           }
 
           // @webhook: register the route now; photon lazy-loads on request.
+          // (Webhooks are passive until an external caller hits them, so
+          // auto-register is safe. `photon ps disable` can drop a route.)
           if (tool.webhook !== undefined) {
             let routes = webhookRoutes.get(p.name);
             if (!routes) {
@@ -1325,9 +1321,113 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
   if (schedulesRegistered > 0 || webhooksRegistered > 0) {
     logger.info('Boot discovery complete', {
       photonsScanned,
-      schedulesRegistered,
+      schedulesDeclared: schedulesRegistered,
       webhooksRegistered,
       bases: baseCandidates.size,
+    });
+  }
+}
+
+/**
+ * Sync declared schedules against each base's active-schedules file.
+ *
+ * Two-step scheduling: declaring `@scheduled` doesn't activate. The user
+ * must explicitly enroll a declaration via `photon ps enable`, which
+ * writes to `{PHOTON_DIR}/.data/.active-schedules.json`. On boot we read
+ * each base's active list and register cron timers only for those
+ * entries.
+ *
+ * First-boot migration: for bases that have never gone through this
+ * sync, every currently-declared `@scheduled` gets auto-enrolled so
+ * existing behavior is preserved across the upgrade. The active file
+ * records `migratedFromAutoRegister: true` so the auto-enroll is a
+ * one-time event — subsequent boots respect user-chosen enrollment.
+ */
+function syncActiveSchedulesAtBoot(): void {
+  const defaultBase = path.resolve(getDefaultContext().baseDir);
+  const bases = new Set<string>([defaultBase]);
+  for (const b of listActiveBases()) bases.add(b.path);
+
+  let registered = 0;
+  let missingRefs = 0;
+
+  for (const basePath of bases) {
+    const file = readActiveSchedulesFile(basePath);
+    let dirty = false;
+
+    // One-time migration: seed the active list from the current
+    // declarations for this base so upgrade doesn't silently disable
+    // previously-auto-registered schedules.
+    if (!file.migratedFromAutoRegister) {
+      const now = new Date().toISOString();
+      for (const decl of declaredSchedules.values()) {
+        const declBase = decl.workingDir ? path.resolve(decl.workingDir) : defaultBase;
+        if (declBase !== basePath) continue;
+        const alreadyActive = file.active.some(
+          (e) => e.photon === decl.photon && e.method === decl.method
+        );
+        if (!alreadyActive) {
+          file.active.push({
+            photon: decl.photon,
+            method: decl.method,
+            enabledAt: now,
+            enabledBy: 'auto-migrate',
+          });
+          dirty = true;
+        }
+      }
+      file.migratedFromAutoRegister = true;
+      dirty = true;
+    }
+
+    if (dirty) {
+      try {
+        writeActiveSchedulesFile(basePath, file);
+      } catch (err) {
+        logger.warn('Could not write active-schedules file', {
+          base: basePath,
+          error: getErrorMessage(err),
+        });
+      }
+    }
+
+    // Register timers for active (non-paused) entries.
+    for (const entry of file.active) {
+      if (entry.paused) continue;
+      const key = declaredKey(entry.photon, entry.method);
+      const decl = declaredSchedules.get(key);
+      if (!decl) {
+        missingRefs++;
+        logger.warn('Active schedule references a declaration that no longer exists', {
+          base: basePath,
+          photon: entry.photon,
+          method: entry.method,
+          hint: '`photon ps disable` to remove or add the @scheduled tag back',
+        });
+        continue;
+      }
+      if (scheduledJobs.has(key)) continue;
+      const ok = scheduleJob({
+        id: key,
+        method: decl.method,
+        args: {},
+        cron: decl.cron,
+        runCount: 0,
+        createdAt: Date.now(),
+        createdBy: 'active-list',
+        photonName: decl.photon,
+        workingDir: decl.workingDir,
+        photonPath: decl.photonPath,
+      });
+      if (ok) registered++;
+    }
+  }
+
+  if (registered > 0 || missingRefs > 0) {
+    logger.info('Active schedules synced', {
+      registered,
+      declared: declaredSchedules.size,
+      missingRefs,
     });
   }
 }
@@ -1871,6 +1971,81 @@ interface ProactiveLocation {
   workingDir?: string;
 }
 const proactivePhotonLocations = new Map<string, ProactiveLocation>();
+
+/**
+ * Declared-schedule registry (two-step scheduling).
+ *
+ * Boot discovery fills this with every `@scheduled` tag it finds in any
+ * registered PHOTON_DIR. Presence here means "this method declares a
+ * schedule"; it does NOT mean the cron timer is running. Activation is
+ * gated by the per-base active-schedules file — see syncActiveSchedulesAtBoot().
+ *
+ * Keyed by `${photonName}:${methodName}` for O(1) lookup from both the
+ * active-list sync and the `photon ps enable/disable` CLI.
+ */
+interface DeclaredSchedule {
+  photon: string;
+  method: string;
+  cron: string;
+  photonPath: string;
+  workingDir?: string;
+}
+const declaredSchedules = new Map<string, DeclaredSchedule>();
+
+function declaredKey(photon: string, method: string): string {
+  return `${photon}:${method}`;
+}
+
+/** Entry shape in {PHOTON_DIR}/.data/.active-schedules.json */
+interface ActiveScheduleEntry {
+  photon: string;
+  method: string;
+  enabledAt: string;
+  enabledBy: string;
+  paused?: boolean;
+}
+interface ActiveSchedulesFile {
+  version: 1;
+  active: ActiveScheduleEntry[];
+  /** One-time marker so the auto-migrate step only runs once per base. */
+  migratedFromAutoRegister?: boolean;
+}
+
+function activeSchedulesPath(baseDir: string): string {
+  return path.join(baseDir, '.data', '.active-schedules.json');
+}
+
+function readActiveSchedulesFile(baseDir: string): ActiveSchedulesFile {
+  const file = activeSchedulesPath(baseDir);
+  try {
+    const raw = fs.readFileSync(file, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.active)) {
+      return {
+        version: 1,
+        active: parsed.active.filter(
+          (e: any) =>
+            e &&
+            typeof e.photon === 'string' &&
+            typeof e.method === 'string' &&
+            typeof e.enabledAt === 'string'
+        ),
+        migratedFromAutoRegister: !!parsed.migratedFromAutoRegister,
+      };
+    }
+  } catch {
+    // Missing or malformed — treated as empty.
+  }
+  return { version: 1, active: [] };
+}
+
+function writeActiveSchedulesFile(baseDir: string, data: ActiveSchedulesFile): void {
+  const file = activeSchedulesPath(baseDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ ...data, version: 1 }, null, 2));
+  fs.renameSync(tmp, file);
+}
 
 /**
  * Auto-register scheduled jobs and webhook routes from tool metadata.
@@ -4595,7 +4770,10 @@ void (async () => {
   startServer();
   migrateLegacyIpcSchedules();
   loadAllPersistedSchedules();
-  void discoverProactiveMetadataAtBoot();
+  void (async () => {
+    await discoverProactiveMetadataAtBoot();
+    syncActiveSchedulesAtBoot();
+  })();
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();
   startHealthMonitor();
