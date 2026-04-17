@@ -84,14 +84,15 @@ export function getDefaultContext(): PhotonContext {
     baseDir = HOME_PHOTON_DIR;
   }
 
-  // Data/cache/state ALWAYS live under ~/.photon — never cwd-relative.
-  // This ensures the same photon always reads/writes the same state file
-  // regardless of which process (CLI, Beam, Claude Desktop) launched it.
+  // Data/cache/state live under the resolved PHOTON_DIR (baseDir).
+  // See docs/internals/PHOTON-DIR-AND-NAMESPACE.md — once PHOTON_DIR is
+  // resolved, it is the self-contained home for both source and data. The
+  // daemon socket/pid/log remain global (one daemon per user).
   return Object.freeze({
     baseDir,
-    dataDir: getDataRoot(HOME_PHOTON_DIR),
-    stateDir: path.join(HOME_PHOTON_DIR, 'state'), // legacy compat
-    cacheDir: getCacheDir(HOME_PHOTON_DIR),
+    dataDir: getDataRoot(baseDir),
+    stateDir: path.join(baseDir, 'state'), // legacy compat
+    cacheDir: getCacheDir(baseDir),
     configFile: path.join(baseDir, 'config.json'),
     socketPath: getDaemonSocketPath(),
     pidFile: getDaemonPidPath(),
@@ -164,9 +165,17 @@ export async function discoverLocalPhotons(): Promise<ListedPhoton[]> {
   return listPhotonFilesWithNamespace(getDefaultContext().baseDir, { onCleanup: cleanupHandler });
 }
 
+/** Tracks shadowing warnings we've already printed this process. */
+const _shadowWarningsPrinted = new Set<string>();
+
 /**
  * Resolve a photon by name across all discovery sources.
  * Priority: PHOTON_DIR / local workspace > ~/.photon > null.
+ *
+ * When a local file shadows an installed photon of the same name we warn
+ * to stderr. The local and installed versions have SEPARATE memory stores
+ * (different namespaces / different baseDir), so silent shadowing is a
+ * frequent source of "my state disappeared" reports.
  */
 export async function resolvePhotonFromAllSources(name: string): Promise<string | null> {
   const localDir = getLocalWorkspace();
@@ -174,7 +183,22 @@ export async function resolvePhotonFromAllSources(name: string): Promise<string 
   // Check local/PHOTON_DIR workspace first (higher priority)
   if (localDir) {
     const localPath = await resolvePhotonPath(name, localDir);
-    if (localPath) return localPath;
+    if (localPath) {
+      // Does an installed ~/.photon copy also exist? If so, warn once.
+      const globalPath = await resolvePhotonPath(name, HOME_PHOTON_DIR);
+      if (globalPath && globalPath !== localPath) {
+        const warnKey = `${localPath}::${globalPath}`;
+        if (!_shadowWarningsPrinted.has(warnKey)) {
+          _shadowWarningsPrinted.add(warnKey);
+          // Plain stderr write so the warning appears regardless of logger config.
+          process.stderr.write(
+            `[photon] warning: local '${name}' at ${localPath} is shadowing the installed version at ${globalPath}. ` +
+              `They have separate memory stores — cd out of this folder, or delete the local file, to use the installed one.\n`
+          );
+        }
+      }
+      return localPath;
+    }
   }
 
   // Fall back to global ~/.photon

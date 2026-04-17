@@ -100,7 +100,6 @@ import {
   type MiddlewareContext,
   type MiddlewareDeclaration,
   type MiddlewareHandler,
-  detectNamespace,
   getCacheDir,
 } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
@@ -4547,25 +4546,21 @@ Run: photon mcp ${mcpName} --config
   }
 
   /**
-   * Resolve the namespace for a photon based on its file path.
-   * Extracts the directory name between baseDir and the photon file.
+   * Resolve the namespace for a photon based purely on its directory
+   * position relative to baseDir. See docs/internals/PHOTON-DIR-AND-NAMESPACE.md.
    *
-   * Examples:
-   *   ~/.photon/portel-dev/todo.photon.ts → 'portel-dev'
-   *   ~/.photon/acme/todo.photon.ts       → 'acme'
-   *   ~/.photon/todo.photon.ts            → detected from git or 'local'
+   *   {baseDir}/foo.photon.ts            → '' (flat at root)
+   *   {baseDir}/alice/foo.photon.ts      → 'alice'
+   *   {baseDir}/org/team/foo.photon.ts   → 'org/team'
+   *
+   * The runtime never consults git state. PHOTON_DIR is the outer boundary;
+   * the file's position within it is the only namespace signal.
    */
   private resolveNamespace(absolutePath: string): string {
     const rel = path.relative(this.baseDir, absolutePath);
     const parts = rel.split(path.sep);
-
-    // If file is in a subdirectory (namespace/photon.ts), use that as namespace
-    if (parts.length >= 2) {
-      return parts[0];
-    }
-
-    // Flat file at root — detect from git remote or default to 'local'
-    return detectNamespace(this.baseDir);
+    if (parts.length < 2) return '';
+    return parts.slice(0, -1).join(path.sep);
   }
 
   /**

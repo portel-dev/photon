@@ -332,6 +332,135 @@ await test('MemoryProvider reads from legacy path as fallback', async () => {
   }
 });
 
+// Bug repro: data stranded when namespace changes (e.g. git remote added
+// to ~/.photon). Reporter case: .data/Arul-/kith-sync/memory/syncState.json
+// orphaned after the photon's resolved namespace flipped from 'Arul-' back
+// to 'local'. Memory must migrate the orphaned dir atomically on first
+// access so the photon keeps reading (and writing to) the same data.
+await test('MemoryProvider recovers data stranded under a different namespace', async () => {
+  const dir = makeTempDir();
+  try {
+    // Simulate old namespace data (existed when git remote was 'Arul-').
+    writeJSON(path.join(dir, '.data', 'Arul-', 'kith-sync', 'memory', 'syncState.json'), {
+      captured: 22,
+      failed: 211,
+    });
+
+    process.env.PHOTON_DIR = dir;
+    const { MemoryProvider } = await import('@portel/photon-core');
+    // Resolve with namespace='local' (the stable/correct one).
+    const mem = new MemoryProvider('kith-sync', undefined, 'local', dir);
+
+    const result = await mem.get('syncState');
+    assert.deepEqual(result, { captured: 22, failed: 211 });
+
+    // After read, subsequent writes should go to the canonical location.
+    // For namespace='local' the canonical path flattens to .data/<name>/memory/.
+    await mem.set('syncState', { captured: 23, failed: 211 });
+    assert.ok(
+      exists(path.join(dir, '.data', 'kith-sync', 'memory', 'syncState.json')),
+      'writes land at canonical .data/<name>/memory/ after migration'
+    );
+    const migrated = readJSON(path.join(dir, '.data', 'kith-sync', 'memory', 'syncState.json'));
+    assert.equal(migrated.captured, 23);
+
+    // The stranded dir must be gone so future reads don't split.
+    assert.ok(
+      !exists(path.join(dir, '.data', 'Arul-', 'kith-sync', 'memory')),
+      'stranded namespace dir is removed after migration'
+    );
+  } finally {
+    delete process.env.PHOTON_DIR;
+    cleanup(dir);
+  }
+});
+
+// Bug repro: when a local project has a photon file with the same name
+// as an installed ~/.photon one, the local version silently shadows the
+// installed one — and they use DIFFERENT memory stores. The resolver
+// must warn. We test via the real resolver using PHOTON_DIR for the
+// local workspace and a probe file placed temporarily under ~/.photon
+// (skipped if the home dir is unwritable).
+await test('resolvePhotonFromAllSources warns on stderr when local shadows installed', async () => {
+  const local = makeTempDir();
+  const prevPhotonDir = process.env.PHOTON_DIR;
+  const userHome = path.join(os.homedir(), '.photon');
+  const installedProbe = path.join(userHome, `__shadow-probe-${Date.now()}.photon.ts`);
+
+  // Only run this test if we can safely create and remove a probe file.
+  let createdProbe = false;
+  try {
+    fs.mkdirSync(userHome, { recursive: true });
+    fs.writeFileSync(installedProbe, '// installed probe');
+    createdProbe = true;
+  } catch {
+    // Can't touch user home — skip.
+    console.log('    (skipped: cannot write to ~/.photon)');
+    return;
+  }
+
+  const probeName = path.basename(installedProbe).replace('.photon.ts', '');
+  const origWrite = process.stderr.write.bind(process.stderr);
+  let captured = '';
+  (process.stderr as any).write = (chunk: any) => {
+    captured += typeof chunk === 'string' ? chunk : chunk.toString();
+    return true;
+  };
+  try {
+    // Local copy with same name
+    writeFile(path.join(local, `${probeName}.photon.ts`), '// local copy');
+    process.env.PHOTON_DIR = local;
+
+    const { resolvePhotonFromAllSources } = await import('../src/context.js');
+    const resolved = await resolvePhotonFromAllSources(probeName);
+
+    assert.ok(resolved?.startsWith(local), `local must win (got ${resolved})`);
+    assert.ok(
+      captured.includes('shadowing'),
+      `expected shadowing warning on stderr, got: ${captured}`
+    );
+  } finally {
+    process.stderr.write = origWrite;
+    if (prevPhotonDir === undefined) delete process.env.PHOTON_DIR;
+    else process.env.PHOTON_DIR = prevPhotonDir;
+    if (createdProbe) {
+      try {
+        fs.unlinkSync(installedProbe);
+      } catch {}
+    }
+    cleanup(local);
+  }
+});
+
+// Bug repro: flat-root photon namespace must not be derived from the git
+// remote of any directory. Adding/removing a remote on a PHOTON_DIR must
+// have zero effect on data paths. See docs/internals/PHOTON-DIR-AND-NAMESPACE.md.
+await test('PhotonLoader.resolveNamespace ignores git remote for flat-root photons', async () => {
+  const dir = makeTempDir();
+  try {
+    execSync('git init', { cwd: dir, stdio: 'ignore' });
+    execSync('git remote add origin git@github.com:Arul-/foo.git', {
+      cwd: dir,
+      stdio: 'ignore',
+    });
+    writeFile(path.join(dir, 'kith-sync.photon.ts'), '// flat-root photon');
+
+    const { PhotonLoader } = await import('../src/loader.js');
+    const loader = new PhotonLoader(false, undefined, dir);
+    // @ts-expect-error — calling private method for regression coverage
+    const ns = loader.resolveNamespace(path.join(dir, 'kith-sync.photon.ts'));
+    assert.equal(ns, '', 'flat-root photon namespace is empty regardless of git state');
+
+    // Subdirectory photon still derives namespace from directory position.
+    writeFile(path.join(dir, 'team', 'report.photon.ts'), '// nested photon');
+    // @ts-expect-error — calling private method for regression coverage
+    const nestedNs = loader.resolveNamespace(path.join(dir, 'team', 'report.photon.ts'));
+    assert.equal(nestedNs, 'team', 'subdirectory segment is the namespace');
+  } finally {
+    cleanup(dir);
+  }
+});
+
 await test('InstanceStore writes to .data/ and reads back', async () => {
   const dir = makeTempDir();
   try {
