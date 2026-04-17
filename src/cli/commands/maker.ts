@@ -472,10 +472,17 @@ interface ScaffoldOptions {
  */
 async function scaffoldPhoton(name: string, options: ScaffoldOptions): Promise<void> {
   try {
+    const { announceContext } = await import('../../shared/announce-context.js');
     // --global always means ~/.photon, independent of CWD auto-detection.
     // Default (no --global) scaffolds into CWD so users get create-next-app-style
     // local project layout.
     const workingDir = options.global ? path.join(os.homedir(), '.photon') : process.cwd();
+    announceContext({
+      photon: name,
+      action: 'Creating',
+      target: path.join(workingDir, `${name}.photon.ts`),
+      hint: options.global ? 'Scaffolding into the global home (--global).' : undefined,
+    });
 
     // Ensure working directory exists (only needed for ~/.photon; CWD always exists)
     if (options.global) {
