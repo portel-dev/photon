@@ -30,6 +30,7 @@ import {
   setBroker,
   touchBase,
   getPhotonSchedulesDir,
+  getPhotonStateLogPath,
   listActiveBases,
   pruneBasesRegistry,
 } from '@portel/photon-core';
@@ -3651,13 +3652,19 @@ const EVENT_LOG_MAX_SIZE =
   parseInt(process.env.PHOTON_EVENT_LOG_MAX_SIZE || '', 10) || 10 * 1024 * 1024; // 10MB default
 
 /**
- * Get the event log path for a photon instance.
- * Co-located with state file: ~/.photon/state/{photon}/{instance}.log
+ * Get the event log path for a photon instance under the Option B layout:
+ * `{PHOTON_DIR}/.data/{photon}/state/{instance}/state.log`. Delegates to
+ * the canonical photon-core helper so all callers land on the same path.
+ * Namespace is threaded through as empty (flat root) — sub-namespace log
+ * routing lands as part of the later namespace-aware instance work.
  */
 function getInstanceLogPath(photonName: string, instanceName: string, baseDir?: string): string {
-  const name = instanceName || 'default';
-  const dir = baseDir || getDefaultContext().baseDir;
-  return path.join(dir, 'state', photonName, `${name}.log`);
+  return getPhotonStateLogPath(
+    '',
+    photonName,
+    instanceName || 'default',
+    baseDir || getDefaultContext().baseDir
+  );
 }
 
 /**

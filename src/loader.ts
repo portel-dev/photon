@@ -103,6 +103,7 @@ import {
   getCacheDir,
 } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
+import { getInstanceStatePath } from './context-store.js';
 
 interface DependencySpec {
   name: string;
@@ -1163,8 +1164,7 @@ export class PhotonLoader {
         if (caps.has('instanceMeta')) {
           // Inject instance metadata (file-stat-based timestamps)
           const instanceName = options?.instanceName || 'default';
-          const stateDir = path.join(this.baseDir, 'state', name);
-          const stateFile = path.join(stateDir, `${instanceName}.json`);
+          const stateFile = getInstanceStatePath(name, instanceName, this.baseDir);
           try {
             const stat = await fs.stat(stateFile);
             instance.instanceMeta = {
@@ -1183,34 +1183,40 @@ export class PhotonLoader {
         }
 
         if (caps.has('allInstances')) {
-          // Inject cross-instance iterator
+          // Inject cross-instance iterator. Walks the Option B layout —
+          // `.data/{photon}/state/{instance}/state.json` — one subdirectory
+          // per instance. getInstanceStatePath keeps the path source truth
+          // in one place.
           const photonName = name;
           const loaderBaseDir = this.baseDir;
           instance.allInstances = async function* () {
-            const stateDir = path.join(loaderBaseDir, 'state', photonName);
+            // Derive the parent state dir from a known instance path.
+            const stateDir = path.dirname(
+              path.dirname(getInstanceStatePath(photonName, 'default', loaderBaseDir))
+            );
+            let subdirs: string[];
             try {
-              const files = await fs.readdir(stateDir);
-              for (const file of files.filter((f: string) => f.endsWith('.json'))) {
-                const instName = file.replace('.json', '');
-                const statePath = path.join(stateDir, file);
-                try {
-                  const snapshot = await readJSON(statePath);
-                  const stat = await fs.stat(statePath);
-                  yield {
-                    name: instName,
-                    meta: {
-                      name: instName,
-                      createdAt: stat.birthtime.toISOString(),
-                      updatedAt: stat.mtime.toISOString(),
-                    },
-                    state: snapshot,
-                  };
-                } catch {
-                  // Skip corrupted state files
-                }
-              }
+              subdirs = await fs.readdir(stateDir);
             } catch {
-              // State dir doesn't exist yet — no instances
+              return; // state dir doesn't exist yet — no instances
+            }
+            for (const instName of subdirs) {
+              const statePath = getInstanceStatePath(photonName, instName, loaderBaseDir);
+              try {
+                const snapshot = await readJSON(statePath);
+                const stat = await fs.stat(statePath);
+                yield {
+                  name: instName,
+                  meta: {
+                    name: instName,
+                    createdAt: stat.birthtime.toISOString(),
+                    updatedAt: stat.mtime.toISOString(),
+                  },
+                  state: snapshot,
+                };
+              } catch {
+                // Not a state subdir, or a corrupted / legacy file — skip.
+              }
             }
           };
         }
@@ -2108,10 +2114,16 @@ export class PhotonLoader {
   // ════════════════════════════════════════════════════════════════════════════
 
   /**
-   * Get the settings persistence path for a photon instance
+   * Get the settings persistence path for a photon instance.
+   * Co-located with state under Option B: the settings JSON lives next to
+   * state.json inside the per-instance directory.
    */
   private getSettingsPath(photonName: string, instanceName: string): string {
-    return path.join(this.baseDir, 'state', photonName, `${instanceName}-settings.json`);
+    // getInstanceStatePath returns `.../state/{instance}/state.json`; swap
+    // the filename so settings land at `.../state/{instance}/settings.json`.
+    // Keeps the source of truth for the layout in context-store.
+    const statePath = getInstanceStatePath(photonName, instanceName, this.baseDir);
+    return path.join(path.dirname(statePath), 'settings.json');
   }
 
   /**
