@@ -37,10 +37,12 @@ import { isNodeError, getErrorMessage } from './shared/error-handler.js';
 export class InstanceStore {
   private baseDir: string;
 
-  constructor(_baseDir?: string) {
-    // State ALWAYS lives under ~/.photon — canonical location regardless of
-    // which process (CLI, Beam, Claude Desktop) or cwd launched the runtime.
-    this.baseDir = DEFAULT_PHOTON_DIR;
+  constructor(baseDir?: string) {
+    // Honor the passed baseDir (or PHOTON_DIR env) so instance state lives
+    // under the resolved PHOTON_DIR. Previously hardcoded to ~/.photon,
+    // which violated Option B for any non-default PHOTON_DIR.
+    // See docs/internals/PHOTON-DIR-AND-NAMESPACE.md.
+    this.baseDir = baseDir || process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
   }
 
   private _path(photonName: string, namespace?: string): string {
@@ -267,8 +269,9 @@ export class CLISessionStore {
 export class EnvStore {
   private baseDir: string;
 
-  constructor(_baseDir?: string) {
-    this.baseDir = DEFAULT_PHOTON_DIR;
+  constructor(baseDir?: string) {
+    // Honor the passed baseDir (or PHOTON_DIR env). See Option B contract.
+    this.baseDir = baseDir || process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
   }
 
   private _path(photonName: string, namespace?: string): string {
@@ -348,17 +351,17 @@ export class EnvStore {
 export function getInstanceStatePath(
   photonName: string,
   instance: string,
-  _baseDir?: string,
+  baseDir?: string,
   photonFilePath?: string,
   namespace?: string
 ): string {
   const name = instance || 'default';
   const ns = namespace || 'local';
-  // State ALWAYS lives under ~/.photon — canonical location regardless of
-  // which process (CLI, Beam, Claude Desktop) or cwd launched the runtime.
-  const canonicalBase = DEFAULT_PHOTON_DIR;
+  // Honor the resolved PHOTON_DIR so instance state lives where the rest
+  // of the photon's data lives. See Option B contract.
+  const resolvedBase = baseDir || process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
 
-  const newPath = getPhotonStatePath(ns, photonName, name, canonicalBase);
+  const newPath = getPhotonStatePath(ns, photonName, name, resolvedBase);
 
   // Check legacy paths in order of preference
   if (!fs.existsSync(path.dirname(newPath))) {
@@ -370,8 +373,8 @@ export function getInstanceStatePath(
       if (fs.existsSync(oldNsPath)) return oldNsPath;
     }
 
-    // Legacy flat: ~/.photon/state/{photon}/{instance}.json
-    const legacyPath = getLegacyStatePath(photonName, name, canonicalBase);
+    // Legacy flat: {baseDir}/state/{photon}/{instance}.json
+    const legacyPath = getLegacyStatePath(photonName, name, resolvedBase);
     if (fs.existsSync(legacyPath)) return legacyPath;
   }
 
@@ -385,15 +388,15 @@ export function getInstanceStatePath(
 export function getInstanceLogPath(
   photonName: string,
   instance: string,
-  _baseDir?: string,
+  baseDir?: string,
   photonFilePath?: string,
   namespace?: string
 ): string {
   const name = instance || 'default';
   const ns = namespace || 'local';
-  const canonicalBase = DEFAULT_PHOTON_DIR;
+  const resolvedBase = baseDir || process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
 
-  const newPath = getPhotonStateLogPath(ns, photonName, name, canonicalBase);
+  const newPath = getPhotonStateLogPath(ns, photonName, name, resolvedBase);
 
   if (!fs.existsSync(path.dirname(newPath))) {
     if (photonFilePath) {
@@ -403,7 +406,7 @@ export function getInstanceLogPath(
       if (fs.existsSync(oldNsPath)) return oldNsPath;
     }
 
-    const legacyPath = getLegacyStateLogPath(photonName, name, canonicalBase);
+    const legacyPath = getLegacyStateLogPath(photonName, name, resolvedBase);
     if (fs.existsSync(legacyPath)) return legacyPath;
   }
 
