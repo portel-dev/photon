@@ -41,11 +41,6 @@ export interface PhotonContext {
   readonly pidFile: string;
   /** Daemon log file — ALWAYS ~/.photon/.data/daemon.log */
   readonly logFile: string;
-
-  /**
-   * @deprecated Use dataDir instead. State is now per-photon inside .data/
-   */
-  readonly stateDir: string;
 }
 
 // HOME_PHOTON_DIR is the user's global ~/.photon directory — the default
@@ -92,7 +87,6 @@ export function getDefaultContext(): PhotonContext {
   return Object.freeze({
     baseDir,
     dataDir: getDataRoot(baseDir),
-    stateDir: path.join(baseDir, 'state'), // legacy compat
     cacheDir: getCacheDir(baseDir),
     configFile: path.join(baseDir, 'config.json'),
     socketPath: getDaemonSocketPath(),
