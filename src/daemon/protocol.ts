@@ -32,6 +32,7 @@ export interface DaemonRequest {
     | 'disable_schedule'
     | 'pause_schedule'
     | 'resume_schedule'
+    | 'get_execution_history'
     | 'list_locks'
     | 'get_events_since'
     | 'clear_instances'
@@ -72,6 +73,10 @@ export interface DaemonRequest {
   cron?: string;
   /** Last event timestamp received by client (for delta sync on reconnect) */
   lastEventId?: string;
+  /** Max rows for history-style queries (get_execution_history). */
+  limit?: number;
+  /** Lower time bound (unix ms) for history-style queries. */
+  sinceTs?: number;
 }
 
 /**
@@ -194,6 +199,7 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'disable_schedule',
     'pause_schedule',
     'resume_schedule',
+    'get_execution_history',
     'list_locks',
     'get_events_since',
     'clear_instances',
@@ -233,6 +239,12 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
   // Reload requires photonPath
   if (req.type === 'reload') {
     if (typeof req.photonPath !== 'string') return false;
+  }
+
+  // Execution-history query is scoped to a specific photon + method.
+  if (req.type === 'get_execution_history') {
+    if (typeof req.photonName !== 'string') return false;
+    if (typeof req.method !== 'string') return false;
   }
 
   return true;

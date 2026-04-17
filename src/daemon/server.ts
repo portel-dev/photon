@@ -44,6 +44,13 @@ import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
 import { audit } from '../shared/audit.js';
+import {
+  recordExecution,
+  previewResult,
+  readExecutionHistory,
+  sweepAllBases as sweepExecutionHistoryBases,
+  type ExecutionStatus,
+} from './execution-history.js';
 import { WorkerManager } from './worker-manager.js';
 import fastJsonPatch, { type Operation } from 'fast-json-patch';
 import {
@@ -762,9 +769,13 @@ async function runJob(jobId: string): Promise<void> {
   logger.info('Running scheduled job', { jobId, method: job.method, photon: job.photonName });
 
   trackExecution(key);
+  const startTs = Date.now();
+  let status: ExecutionStatus = 'success';
+  let errorMessage: string | undefined;
+  let result: unknown;
   try {
     const session = await sessionManager.getOrCreateSession('scheduler', 'scheduler');
-    await sessionManager.loader.executeTool(session.instance, job.method, job.args || {});
+    result = await sessionManager.loader.executeTool(session.instance, job.method, job.args || {});
 
     job.lastRun = Date.now();
     job.runCount++;
@@ -784,16 +795,31 @@ async function runJob(jobId: string): Promise<void> {
 
     logger.info('Job completed', { jobId, method: job.method, runCount: job.runCount });
   } catch (error) {
-    logger.error('Job failed', { jobId, method: job.method, error: getErrorMessage(error) });
+    status = 'error';
+    errorMessage = getErrorMessage(error);
+    logger.error('Job failed', { jobId, method: job.method, error: errorMessage });
 
     publishToChannel(`jobs:${job.photonName}`, {
       event: 'job-failed',
       jobId,
       method: job.method,
-      error: getErrorMessage(error),
+      error: errorMessage,
     });
   } finally {
     untrackExecution(key);
+    recordExecution(
+      job.photonName,
+      {
+        ts: Date.now(),
+        jobId,
+        method: job.method,
+        durationMs: Date.now() - startTs,
+        status,
+        errorMessage,
+        outputPreview: status === 'success' ? previewResult(result) : undefined,
+      },
+      job.workingDir
+    );
   }
 
   scheduleJob(job);
@@ -2844,6 +2870,38 @@ async function handleRequest(
       id: request.id,
       success: true,
       data: { photon, method, base, status: pause ? 'paused' : 'active' },
+    };
+  }
+
+  // Return recent firings recorded by recordExecution() — scoped to one
+  // photon:method, newest first, filterable by time window.
+  if (request.type === 'get_execution_history') {
+    const photon = request.photonName;
+    const method = (request as { method?: string }).method;
+    if (!photon || !method) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: '`get_execution_history` requires photonName and method',
+      };
+    }
+    // Prefer the caller-supplied workingDir; fall back to the declaration's
+    // base; finally to the default base.
+    const decl = declaredSchedules.get(declaredKey(photon, method));
+    const workingDir =
+      (request as { workingDir?: string }).workingDir ||
+      decl?.workingDir ||
+      getDefaultContext().baseDir;
+    const entries = readExecutionHistory(
+      photon,
+      { method, limit: request.limit, sinceTs: request.sinceTs },
+      workingDir
+    );
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { photon, method, entries },
     };
   }
 
@@ -4996,6 +5054,11 @@ void (async () => {
   void (async () => {
     await discoverProactiveMetadataAtBoot();
     syncActiveSchedulesAtBoot();
+    try {
+      sweepExecutionHistoryBases(listActiveBases().map((b) => b.path));
+    } catch (err) {
+      logger.debug('Execution-history sweep skipped', { error: getErrorMessage(err) });
+    }
   })();
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();

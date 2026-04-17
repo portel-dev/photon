@@ -232,4 +232,64 @@ export function registerPsCommands(program: Command): void {
         process.exit(1);
       }
     });
+
+  ps.command('history')
+    .argument('<target>', '<photon>:<method>')
+    .option('--limit <n>', 'Show at most N most-recent entries', '20')
+    .option('--since <iso>', 'Only entries at or after this ISO timestamp')
+    .option('--json', 'Output structured JSON')
+    .description('Show recent firings of a scheduled method')
+    .action(
+      async (
+        target: string,
+        opts: { limit?: string; since?: string; json?: boolean },
+        cmd: Command
+      ) => {
+        try {
+          await ensureDaemonRunning();
+          const { photon, method } = parseTarget(target);
+          const { fetchExecutionHistory } = await import('../../daemon/client.js');
+          const limit = opts.limit ? Math.max(1, parseInt(opts.limit, 10) || 20) : 20;
+          const sinceTs = opts.since ? Date.parse(opts.since) : undefined;
+          if (opts.since && (!sinceTs || Number.isNaN(sinceTs))) {
+            throw new Error(`Invalid --since value "${opts.since}" (expected ISO 8601)`);
+          }
+          const resp = await fetchExecutionHistory(photon, method, { limit, sinceTs });
+
+          // Parent `ps` also defines --json; commander resolves the flag on
+          // whichever command matches first, so check both.
+          const parentOpts: Record<string, unknown> = cmd.parent?.opts() ?? {};
+          const wantJson = Boolean(opts.json || parentOpts.json);
+          if (wantJson) {
+            process.stdout.write(JSON.stringify(resp, null, 2) + '\n');
+            return;
+          }
+
+          process.stdout.write(
+            `\nHISTORY for ${resp.photon}:${resp.method} (${resp.entries.length})\n`
+          );
+          if (resp.entries.length === 0) {
+            process.stdout.write('  (no firings recorded)\n');
+            return;
+          }
+          process.stdout.write(
+            renderTable(
+              ['WHEN', 'STATUS', 'DURATION', 'DETAIL'],
+              resp.entries.map((e) => [
+                fmtWhen(e.ts),
+                e.status.toUpperCase(),
+                `${e.durationMs}ms`,
+                e.status === 'success'
+                  ? (e.outputPreview ?? '').slice(0, 80)
+                  : (e.errorMessage ?? '').slice(0, 80),
+              ])
+            )
+          );
+        } catch (error) {
+          const { printError } = await import('../../cli-formatter.js');
+          printError(`photon ps history failed: ${getErrorMessage(error)}`);
+          process.exit(1);
+        }
+      }
+    );
 }

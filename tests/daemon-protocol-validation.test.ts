@@ -201,6 +201,42 @@ async function testRequestValidation() {
     assert.equal(isValidDaemonRequest({ type: 'unschedule', id: '1', jobId: 'j1' }), true);
   });
 
+  // ── Execution history ──
+
+  await test('get_execution_history requires photonName and method', () => {
+    assert.equal(
+      isValidDaemonRequest({ type: 'get_execution_history', id: '1', photonName: 'p' }),
+      false
+    );
+    assert.equal(
+      isValidDaemonRequest({ type: 'get_execution_history', id: '1', method: 'm' }),
+      false
+    );
+  });
+
+  await test('get_execution_history with photonName and method is valid', () => {
+    assert.equal(
+      isValidDaemonRequest({
+        type: 'get_execution_history',
+        id: '1',
+        photonName: 'demo',
+        method: 'sync',
+      }),
+      true
+    );
+    assert.equal(
+      isValidDaemonRequest({
+        type: 'get_execution_history',
+        id: '1',
+        photonName: 'demo',
+        method: 'sync',
+        limit: 10,
+        sinceTs: 1_700_000_000_000,
+      }),
+      true
+    );
+  });
+
   // ── Reload ──
 
   await test('reload requires photonPath', () => {

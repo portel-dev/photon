@@ -1340,6 +1340,37 @@ export async function resumeSchedule(photonName: string, method: string): Promis
   return sendSimpleDaemonRequest({ type: 'resume_schedule', photonName, method });
 }
 
+export interface ExecutionHistoryEntry {
+  ts: number;
+  jobId: string;
+  method: string;
+  durationMs: number;
+  status: 'success' | 'error' | 'timeout';
+  errorMessage?: string;
+  outputPreview?: string;
+}
+
+export interface ExecutionHistoryResponse {
+  photon: string;
+  method: string;
+  entries: ExecutionHistoryEntry[];
+}
+
+export async function fetchExecutionHistory(
+  photonName: string,
+  method: string,
+  opts: { limit?: number; sinceTs?: number; workingDir?: string } = {}
+): Promise<ExecutionHistoryResponse> {
+  return sendSimpleDaemonRequest<ExecutionHistoryResponse>({
+    type: 'get_execution_history',
+    photonName,
+    method,
+    limit: opts.limit,
+    sinceTs: opts.sinceTs,
+    workingDir: opts.workingDir,
+  });
+}
+
 /**
  * Ping daemon to check if it's responsive
  */

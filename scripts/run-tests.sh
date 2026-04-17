@@ -50,6 +50,7 @@ SUITES=(
   "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
   "instance-drift:$RUN tests/instance-drift.test.ts"
   "daemon-watcher:$RUN tests/daemon-watcher.test.ts"
+  "execution-history:$RUN tests/execution-history.test.ts"
   "ui-rendering:$RUN_TEST tests/ui/result-rendering.test.ts"
   "photon-instance-mgr:$VITEST tests/photon-instance-manager.test.ts"
   "viewport-proxy:$VITEST tests/viewport-aware-proxy.test.ts"
