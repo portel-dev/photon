@@ -48,15 +48,52 @@ export interface PhotonContext {
 // as the canonical DEFAULT_PHOTON_DIR constant; aliased for local clarity.
 
 /**
- * Check if a directory contains .photon.ts files (is a marketplace or photon workspace).
+ * Check whether a directory is a photon marketplace — i.e. the user has
+ * run `photon maker init` so it contains a `.marketplace/` directory.
+ *
+ * Historically this returned true for any folder with a .photon.ts
+ * file. That was too loose: a project that happened to contain a
+ * single photon file would get promoted to a PHOTON_DIR, which is
+ * rarely what the user wants. The marker-based rule is explicit:
+ * opt-in via `photon maker init`, opt-out by not running it.
+ *
+ * During the transition, directories that still match the old
+ * predicate (.photon.ts present, no .marketplace/) emit a one-time
+ * warning and are treated as photon directories for one release so
+ * existing setups keep working.
  */
+const _implicitPhotonDirWarned = new Set<string>();
+
 function isPhotonDirectory(dir: string): boolean {
+  // Canonical rule: .marketplace/ directory marks a PHOTON_DIR.
+  try {
+    const markerPath = path.join(dir, '.marketplace');
+    const stat = fs.statSync(markerPath);
+    if (stat.isDirectory()) return true;
+  } catch {
+    // No marker — fall through to the transition-compat check.
+  }
+
+  // Transition-compat: any .photon.ts file still counts for one release.
   try {
     const entries = fs.readdirSync(dir);
-    return entries.some((e) => e.endsWith('.photon.ts'));
+    if (entries.some((e) => e.endsWith('.photon.ts'))) {
+      if (!_implicitPhotonDirWarned.has(dir)) {
+        _implicitPhotonDirWarned.add(dir);
+        // eslint-disable-next-line no-console
+        console.error(
+          `[photon] warning: ${dir} is being treated as a photon directory ` +
+            `because it contains .photon.ts files, but it has no .marketplace/ ` +
+            `marker. Run \`photon maker init\` here to make it explicit; ` +
+            `implicit detection will be removed in the next minor release.`
+        );
+      }
+      return true;
+    }
   } catch {
-    return false;
+    // Not a readable dir
   }
+  return false;
 }
 
 /**
