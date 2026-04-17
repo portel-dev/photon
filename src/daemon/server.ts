@@ -43,7 +43,13 @@ import type {
 import { getDefaultContext } from '../context.js';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
-import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
+import {
+  timingSafeEqual,
+  readBody,
+  SimpleRateLimiter,
+  ipInAllowlist,
+  parseAllowlistEnv,
+} from '../shared/security.js';
 import { audit } from '../shared/audit.js';
 import {
   recordExecution,
@@ -1650,6 +1656,12 @@ const WEBHOOK_RATE_WINDOW_MS = Math.max(
 );
 const webhookRateLimiter = new SimpleRateLimiter(WEBHOOK_RATE_LIMIT, WEBHOOK_RATE_WINDOW_MS);
 
+// Optional per-source IP allowlist. When PHOTON_WEBHOOK_ALLOWED_IPS is
+// set, requests from any address outside the listed CIDRs (or exact
+// IPv6 literals) are rejected before any auth work. Empty env → allow
+// all, keeping the default unchanged.
+const WEBHOOK_ALLOWED_IPS = parseAllowlistEnv(process.env.PHOTON_WEBHOOK_ALLOWED_IPS);
+
 function startWebhookServer(port: number): void {
   if (port <= 0) return;
 
@@ -1668,8 +1680,21 @@ function startWebhookServer(port: number): void {
         return;
       }
 
-      // Security: rate limiting
+      // Security: CIDR allowlist (runs before rate limiting so blocked
+      // addresses don't consume the per-IP budget).
       const clientKey = req.socket?.remoteAddress || 'unknown';
+      if (WEBHOOK_ALLOWED_IPS.length > 0 && !ipInAllowlist(clientKey, WEBHOOK_ALLOWED_IPS)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: 'Source IP not in webhook allowlist',
+            sourceIp: clientKey,
+          })
+        );
+        return;
+      }
+
+      // Security: rate limiting
       if (!webhookRateLimiter.isAllowed(clientKey)) {
         const retryAfter = Math.ceil(WEBHOOK_RATE_WINDOW_MS / 1000);
         res.writeHead(429, {

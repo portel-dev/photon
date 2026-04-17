@@ -204,6 +204,77 @@ export function setSecurityHeaders(res: ServerResponse): void {
 // ─── Rate Limiting ──────────────────────────────────────────────────
 
 /**
+ * Parse a CIDR notation string into a {base, prefix} pair. Returns null
+ * for malformed input. Supports IPv4 only for now — IPv6 allowlists are
+ * handled separately by exact-match since realistic webhook sources are
+ * IPv4 in practice.
+ */
+function parseCidrV4(cidr: string): { base: number; prefix: number } | null {
+  const [ip, prefixRaw] = cidr.trim().split('/');
+  if (!ip) return null;
+  const prefix = prefixRaw === undefined ? 32 : parseInt(prefixRaw, 10);
+  if (!Number.isFinite(prefix) || prefix < 0 || prefix > 32) return null;
+  const octets = ip.split('.');
+  if (octets.length !== 4) return null;
+  let base = 0;
+  for (const o of octets) {
+    const n = parseInt(o, 10);
+    if (!Number.isFinite(n) || n < 0 || n > 255) return null;
+    base = ((base << 8) | n) >>> 0;
+  }
+  return { base, prefix };
+}
+
+function ipv4ToInt(ip: string): number | null {
+  const octets = ip.split('.');
+  if (octets.length !== 4) return null;
+  let n = 0;
+  for (const o of octets) {
+    const v = parseInt(o, 10);
+    if (!Number.isFinite(v) || v < 0 || v > 255) return null;
+    n = ((n << 8) | v) >>> 0;
+  }
+  return n;
+}
+
+/**
+ * Return true when `ip` is inside any of the given CIDR ranges or equals
+ * any literal entry. Silently ignores malformed CIDRs (the caller should
+ * log them at config-parse time).
+ */
+export function ipInAllowlist(ip: string, ranges: string[]): boolean {
+  if (ranges.length === 0) return true; // no allowlist = allow all
+  // Strip IPv6-mapped IPv4 prefix so "::ffff:10.0.0.1" matches "10.0.0.0/8".
+  const normalized = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+  const addr = ipv4ToInt(normalized);
+  for (const raw of ranges) {
+    const entry = raw.trim();
+    if (!entry) continue;
+    // Exact-match fallback (covers IPv6 literals without CIDR math).
+    if (entry === ip || entry === normalized) return true;
+    if (addr === null) continue;
+    const parsed = parseCidrV4(entry);
+    if (!parsed) continue;
+    const mask = parsed.prefix === 0 ? 0 : (~0 << (32 - parsed.prefix)) >>> 0;
+    if ((addr & mask) === (parsed.base & mask)) return true;
+  }
+  return false;
+}
+
+/**
+ * Parse a comma-separated list of CIDR ranges / literal IPs from env
+ * config. Empty string → empty array (allow all). Malformed entries are
+ * dropped (matching the ipInAllowlist tolerance).
+ */
+export function parseAllowlistEnv(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
  * Simple in-memory rate limiter using a sliding window.
  */
 export class SimpleRateLimiter {

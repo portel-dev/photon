@@ -290,6 +290,37 @@ console.log('\n#23 Rate limiting (SimpleRateLimiter)');
   test(limiter.isAllowed('test'), 'allows after reset');
 }
 
+// #24 — CIDR allowlist (ipInAllowlist / parseAllowlistEnv)
+console.log('\n#24 Webhook CIDR allowlist');
+{
+  const { ipInAllowlist, parseAllowlistEnv } = await import('../dist/shared/security.js');
+
+  test(ipInAllowlist('1.2.3.4', []), 'empty allowlist = allow all');
+  test(ipInAllowlist('10.0.0.1', ['10.0.0.0/8']), '/8 range match');
+  test(!ipInAllowlist('192.168.0.1', ['10.0.0.0/8']), 'outside /8 range rejected');
+  test(ipInAllowlist('192.168.1.42', ['192.168.1.0/24']), '/24 range match');
+  test(!ipInAllowlist('192.168.2.42', ['192.168.1.0/24']), 'outside /24 rejected');
+  test(ipInAllowlist('10.0.0.5', ['10.0.0.5']), 'exact IP match without mask');
+  test(ipInAllowlist('10.0.0.5', ['10.0.0.5/32']), '/32 single-host CIDR');
+  test(ipInAllowlist('10.0.0.5', ['127.0.0.1', '10.0.0.0/8']), 'matches second range in list');
+  test(
+    ipInAllowlist('::ffff:10.0.0.5', ['10.0.0.0/8']),
+    'IPv6-mapped IPv4 address matches IPv4 CIDR'
+  );
+  test(
+    !ipInAllowlist('10.0.0.1', ['not.a.cidr', 'bogus']),
+    'malformed entries are ignored, not matched'
+  );
+
+  assert.deepEqual(parseAllowlistEnv(undefined), [], 'env undefined → empty');
+  assert.deepEqual(parseAllowlistEnv(''), [], 'env empty → empty');
+  assert.deepEqual(
+    parseAllowlistEnv('10.0.0.0/8, 192.168.1.0/24 , 127.0.0.1'),
+    ['10.0.0.0/8', '192.168.1.0/24', '127.0.0.1'],
+    'env whitespace-trimmed'
+  );
+}
+
 // #4 — Dangerous module detection (mitigation)
 console.log('\n#4 Dangerous module detection (warnIfDangerous)');
 {
