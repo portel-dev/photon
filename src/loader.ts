@@ -1825,7 +1825,10 @@ export class PhotonLoader {
   /**
    * Reload a Photon MCP file (for hot reload)
    */
-  async reloadFile(filePath: string): Promise<PhotonClassExtended> {
+  async reloadFile(
+    filePath: string,
+    options?: { instanceName?: string; skipInitialize?: boolean }
+  ): Promise<PhotonClassExtended> {
     // Invalidate the cache for this file
     const absolutePath = path.resolve(filePath);
 
@@ -1854,7 +1857,7 @@ export class PhotonLoader {
       }
     }
 
-    return this.loadFile(filePath);
+    return this.loadFile(filePath, options);
   }
 
   /**

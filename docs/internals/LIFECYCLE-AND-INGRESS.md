@@ -1,7 +1,7 @@
 # Lifecycle Hooks & Ingress Model
 
 **Status**: Design approved, implementation in progress (as of 2026-04-17)
-**Scope**: Two new lifecycle hooks (`onReload`, `onError`) built on the existing `onInitialize`/`onShutdown` foundation, webhook authentication v2, `@scheduled` syntax polish, removal of the `handle*` prefix convention
+**Scope**: One new lifecycle hook (`onError`) built on the existing `onInitialize`/`onShutdown` foundation plus a consistency fix to the Beam hot-reload path, webhook authentication v2, `@scheduled` syntax polish, removal of the `handle*` prefix convention
 
 ---
 
@@ -56,30 +56,41 @@ Already wired end-to-end:
 
 Because this foundation already exists, no renaming or migration is part of this design.
 
-### 1.2 New hooks being added
+### 1.2 New hook: `onError`
 
-Two genuinely new hooks. Both optional, async, hidden from MCP and CLI.
+One genuinely new hook. Optional, async, hidden from MCP and CLI.
 
 | Hook | Signature | When it fires | Default timeout |
 |---|---|---|---|
-| `onReload` | `async onReload(): Promise<void>` | Hot reload, if the photon wants to rebind without full teardown | 30s |
-| `onError` | `async onError(err: Error, ctx: MethodContext): Promise<void>` | Any method throws (observability only; does not suppress) | 5s |
+| `onError` | `async onError(err: unknown, ctx: { tool: string; params: any }): Promise<void>` | Any tool method throws (observability only; cannot suppress) | 5s |
 
-#### `onReload` — preserve state across hot reload
+`onError` provides a single handler for author-side observability (metrics, logging, alerts, custom reporting) without wrapping every method in try/catch. Wired into `photon-core/src/base.ts` `executeTool`, so every invocation path (CLI, daemon, lite loader, MCP, webhook dispatch) picks it up for free.
 
-Today's hot-reload path runs `onShutdown(old)` followed by `onInitialize(new)` — a full teardown and re-init. That is correct for photons that need a clean slate, but it discards in-memory state (open streams, active subscriptions, warmed caches).
+Contract:
+- Runs **after** the error is captured, **before** the error is re-thrown to the caller.
+- Cannot suppress or transform the error — `throw` from `onError`, or a return value, is ignored.
+- A throw or timeout inside `onError` is logged and swallowed; observability code never cascades into the request path.
+- Default timeout: 5s.
 
-`onReload` is an opt-in alternative: when present, the runtime keeps the existing instance alive, applies the new code via method rebinding, and calls `onReload()` on the surviving instance. Implementation note: class-instance replacement in JS is limited; the practical form is to reapply the new class's method descriptors onto the existing instance and then fire `onReload`. Photons that maintain delicate runtime state (e.g., a MQTT connection, a running scheduled job) benefit; photons that don't define `onReload` keep the existing behavior.
+### 1.3 State preservation across hot reload (already shipped, now consistent)
 
-#### `onError` — centralized error observability
+Original design notes here proposed a new `onReload` hook for state-preserving reload. Investigation revealed the state-transfer mechanism already exists via context parameters on the existing hooks:
 
-Every method throws is caught by the middleware pipeline today. `onError(err, ctx)` provides a single handler for author-side observability (metrics, logging, alerts, custom reporting) without wrapping every method in try/catch. It runs after the error has already been returned to the caller, so it cannot suppress or transform the error. Non-fatal: a throw inside `onError` is logged and swallowed.
+```ts
+async onInitialize?(ctx?: { reason?: string; oldInstance?: any }): Promise<void>;
+async onShutdown?(ctx?: { reason?: string }): Promise<void>;
+```
+
+- `onShutdown({ reason: 'hot-reload' })` — old instance can skip destructive cleanup of resources the new instance will reuse.
+- `onInitialize({ reason: 'hot-reload', oldInstance })` — new instance pulls non-copyable resources (sockets, timers, DB connections) from the old. In-memory non-function properties are also auto-copied by the runtime.
+
+This pattern was already correctly wired in the **daemon** hot-reload path (`src/daemon/server.ts:3665-3700`) but not in the **Beam server** hot-reload path (`src/server.ts`). The latter is now fixed to match. A new `onReload` hook is not needed — the existing API already covers the use case, and making the Beam path consistent is the real round-1 work.
 
 ### 1.3 Ordering with `@photon` dependencies
 
 `onInitialize` already fires in dependency-first order naturally, because `@photon` dependencies are constructed recursively before the dependent's construction completes. The new hooks inherit this:
 
-- `onInitialize` and `onReload` fire in dependency order (deps first).
+- `onInitialize` fires in dependency order (deps first).
 - `onShutdown` fires in reverse (dependents first).
 
 If any `onInitialize` fails or times out, dependents fail to load. The existing `PhotonInitializationError` surfaces this.
@@ -205,7 +216,8 @@ Cron remains the most expressive; interval and natural forms exist for readabili
 
 | Change | Severity | Path |
 |---|---|---|
-| `onReload` + `onError` hooks | Additive | Opt-in; define the method if you want it. |
+| `onError` hook | Additive | Opt-in; define the method if you want observability. |
+| Beam hot-reload context | Bug fix | Already-documented `{ reason, oldInstance }` context now flows through the Beam path (already flowed through the daemon path). |
 | `@webhook` hidden from MCP | Behavioral | Intentional; no migration needed unless you relied on MCP-calling a webhook method. |
 | Per-method `@webhook-auth` | Additive | Global `PHOTON_WEBHOOK_SECRET` still works. |
 | `handle*` → `@webhook` | Breaking (one-minor warning window) | Add `@webhook` to each `handle*` method. |
@@ -228,7 +240,7 @@ Existing `onInitialize`/`onShutdown` behavior is unchanged.
 
 ## 6. Implementation order
 
-1. `onReload` + `onError` hooks (smallest blast radius, independent)
+1. `onError` hook + Beam hot-reload context fix (smallest blast radius, independent)
 2. `@webhook` → MCP-list exclusion in `photon-doc-extractor.ts`
 3. Raw body + per-service `@webhook-auth` verifiers
 4. `photon webhook ...` CLI testing command

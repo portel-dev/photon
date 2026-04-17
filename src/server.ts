@@ -2893,18 +2893,57 @@ export class PhotonServer {
       // Store old instance in case we need to rollback
       const oldInstance = this.mcp;
 
-      // Call shutdown hook on old instance (but keep it for rollback)
+      // Call shutdown hook on old instance with hot-reload context so the
+      // photon can skip destructive cleanup of resources the new instance
+      // will reuse (sockets, timers, DB connections, etc.).
       if (oldInstance?.instance?.onShutdown) {
         try {
-          await oldInstance.instance.onShutdown();
+          await oldInstance.instance.onShutdown({ reason: 'hot-reload' });
         } catch (shutdownError: any) {
           this.log('warn', 'Shutdown hook failed during reload', { error: shutdownError.message });
           // Continue with reload anyway
         }
       }
 
-      // Reload the file
-      const newMcp = await this.loader.reloadFile(this.options.filePath);
+      // Reload the file without running onInitialize — we'll invoke it
+      // manually below with hot-reload context and an oldInstance reference
+      // so the new instance can transfer non-copyable resources.
+      const newMcp = await this.loader.reloadFile(this.options.filePath, {
+        skipInitialize: true,
+      });
+
+      // Auto-transfer in-memory state (non-function own properties) from
+      // old to new. Covers maps, arrays, flags, caches without requiring
+      // the photon author to manually copy fields in onInitialize. Photons
+      // only need custom handling for non-copyable resources (sockets,
+      // timers, DB connections) via the oldInstance context below.
+      if (oldInstance?.instance && newMcp?.instance && typeof oldInstance.instance === 'object') {
+        for (const key of Object.keys(oldInstance.instance)) {
+          const value = (oldInstance.instance as Record<string, unknown>)[key];
+          if (typeof value !== 'function' && key !== 'constructor') {
+            try {
+              (newMcp.instance as Record<string, unknown>)[key] = value;
+            } catch {
+              // Some properties may be read-only (e.g. settings proxy)
+            }
+          }
+        }
+      }
+
+      // Invoke onInitialize on the new instance with hot-reload context so
+      // the photon can re-subscribe to non-copyable resources using the
+      // provided oldInstance reference.
+      if (newMcp?.instance && typeof newMcp.instance.onInitialize === 'function') {
+        try {
+          await newMcp.instance.onInitialize({
+            reason: 'hot-reload',
+            oldInstance: oldInstance?.instance,
+          });
+        } catch (initError: any) {
+          // Bubble through so the outer catch flags PhotonInitializationError.
+          throw initError;
+        }
+      }
 
       // Success! Update instance and reset failure count
       this.mcp = newMcp;
