@@ -14,19 +14,31 @@ import { EventEmitter } from 'events';
 import { type Task, TERMINAL_STATES, DEFAULT_TTL, DEFAULT_POLL_INTERVAL } from './types.js';
 import { getTasksDir, getLegacyTasksDir } from '@portel/photon-core';
 
-// Tasks are ephemeral/global — use .data/tasks/
-// Check legacy path for existing tasks during migration
-const newDir = getTasksDir();
-const legacyDir = getLegacyTasksDir();
-const TASKS_DIR = existsSync(newDir) ? newDir : existsSync(legacyDir) ? legacyDir : newDir;
+/**
+ * Resolve the tasks directory at call time rather than module import.
+ *
+ * A long-lived daemon serves multiple PHOTON_DIRs over its lifetime;
+ * freezing the path at import meant every task landed under whichever
+ * base imported first. Resolving per-call lets each task live under the
+ * PHOTON_DIR active at the moment of creation. The legacy fallback is
+ * only consulted if the new path does not yet exist, matching the
+ * migration pattern used elsewhere.
+ */
+function resolveTasksDir(): string {
+  const newDir = getTasksDir();
+  if (existsSync(newDir)) return newDir;
+  const legacyDir = getLegacyTasksDir();
+  if (existsSync(legacyDir)) return legacyDir;
+  return newDir;
+}
 
 /** Ensure tasks directory exists (idempotent) */
 function ensureDir(): void {
-  mkdirSync(TASKS_DIR, { recursive: true });
+  mkdirSync(resolveTasksDir(), { recursive: true });
 }
 
 function taskPath(id: string): string {
-  return join(TASKS_DIR, `${id}.json`);
+  return join(resolveTasksDir(), `${id}.json`);
 }
 
 /** Event emitter for task state changes */
@@ -107,11 +119,11 @@ export function updateTask(
 
 export function listTasks(photon?: string): Task[] {
   ensureDir();
-  const files = readdirSync(TASKS_DIR).filter((f) => f.endsWith('.json'));
+  const files = readdirSync(resolveTasksDir()).filter((f) => f.endsWith('.json'));
   const tasks: Task[] = [];
   for (const file of files) {
     try {
-      const task: Task = readJSONSync(join(TASKS_DIR, file));
+      const task: Task = readJSONSync(join(resolveTasksDir(), file));
       if (!photon || task.photon === photon) {
         tasks.push(task);
       }
@@ -128,12 +140,12 @@ export function listTasks(photon?: string): Task[] {
  */
 export function cleanExpiredTasks(): number {
   ensureDir();
-  const files = readdirSync(TASKS_DIR).filter((f) => f.endsWith('.json'));
+  const files = readdirSync(resolveTasksDir()).filter((f) => f.endsWith('.json'));
   const now = Date.now();
   let cleaned = 0;
   for (const file of files) {
     try {
-      const task: Task = readJSONSync(join(TASKS_DIR, file));
+      const task: Task = readJSONSync(join(resolveTasksDir(), file));
       const age = now - new Date(task.createdAt).getTime();
       const ttl = task.ttl || DEFAULT_TTL;
 
@@ -141,14 +153,14 @@ export function cleanExpiredTasks(): number {
         // Terminal tasks: always clean
         // Non-terminal tasks past TTL: force-cancel and clean
         if (TERMINAL_STATES.includes(task.state)) {
-          unlinkSync(join(TASKS_DIR, file));
+          unlinkSync(join(resolveTasksDir(), file));
           cleaned++;
         } else {
           // Force-cancel stale non-terminal tasks
           const controller = getController(task.id);
           if (controller) controller.abort();
           unregisterController(task.id);
-          unlinkSync(join(TASKS_DIR, file));
+          unlinkSync(join(resolveTasksDir(), file));
           cleaned++;
         }
       }
@@ -159,9 +171,9 @@ export function cleanExpiredTasks(): number {
   return cleaned;
 }
 
-/** Override tasks dir for testing */
+/** Return the current tasks dir — resolves per call so tests can switch PHOTON_DIR. */
 export function _getTasksDir(): string {
-  return TASKS_DIR;
+  return resolveTasksDir();
 }
 
 // Startup cleanup
