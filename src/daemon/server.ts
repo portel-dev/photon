@@ -540,7 +540,10 @@ staleMapCleanupInterval.unref();
 // SCHEDULED JOBS
 // ════════════════════════════════════════════════════════════════════════════════
 
-const scheduledJobs = new Map<string, ScheduledJob & { photonName: string; workingDir?: string }>();
+const scheduledJobs = new Map<
+  string,
+  ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string }
+>();
 const jobTimers = new Map<string, NodeJS.Timeout>();
 
 function parseCronField(field: string, min: number, max: number): number[] | null {
@@ -694,7 +697,9 @@ function parseCron(cron: string): { isValid: boolean; nextRun: number } {
   return { isValid: false, nextRun: 0 };
 }
 
-function scheduleJob(job: ScheduledJob & { photonName: string; workingDir?: string }): boolean {
+function scheduleJob(
+  job: ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string }
+): boolean {
   const { isValid, nextRun } = parseCron(job.cron);
   if (!isValid) {
     logger.error('Invalid cron expression', { jobId: job.id, cron: job.cron });
@@ -729,7 +734,25 @@ async function runJob(jobId: string): Promise<void> {
   if (!job) return;
 
   const key = compositeKey(job.photonName, job.workingDir);
-  const sessionManager = sessionManagers.get(key);
+  let sessionManager = sessionManagers.get(key);
+
+  // Lazy-load: schedules registered proactively at boot carry the photon's
+  // source path on the job, so we can spin up the session when the timer
+  // fires rather than require the photon to be invoked manually first.
+  if (!sessionManager && job.photonPath) {
+    try {
+      sessionManager =
+        (await getOrCreateSessionManager(job.photonName, job.photonPath, job.workingDir)) ??
+        undefined;
+    } catch (err) {
+      logger.warn('Lazy-load for scheduled job failed', {
+        jobId,
+        photon: job.photonName,
+        error: getErrorMessage(err),
+      });
+    }
+  }
+
   if (!sessionManager) {
     logger.warn('Cannot run job - photon not initialized', { jobId, photon: job.photonName });
     scheduleJob(job); // Reschedule anyway
@@ -872,7 +895,9 @@ function updatePersistedSchedule(
 }
 
 /** Persist an IPC-created schedule job to disk for daemon restart recovery */
-function persistIpcSchedule(job: ScheduledJob & { photonName: string; workingDir?: string }): void {
+function persistIpcSchedule(
+  job: ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string }
+): void {
   const schedulesDir = resolveScheduleDir(job.photonName, job.workingDir);
 
   try {
@@ -984,7 +1009,7 @@ function loadIpcSchedulesFromDir(
       // Skip if already registered (another source may have loaded it)
       if (scheduledJobs.has(task.id)) continue;
 
-      const job: ScheduledJob & { photonName: string; workingDir?: string } = {
+      const job: ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string } = {
         id: task.id,
         method: task.method,
         args: task.args || {},
@@ -1183,6 +1208,130 @@ function loadAllPersistedSchedules(): void {
   }
 }
 
+/**
+ * Boot-time discovery of `@scheduled` and `@webhook` tags across every
+ * known PHOTON_DIR. Before this ran, scheduled methods on a photon that
+ * had never been invoked would silently not fire, and webhook routes
+ * were only registered on first invocation. Now both work from the
+ * moment a photon file exists under a registered base.
+ *
+ * We never INSTANTIATE the photon here — only parse its source with
+ * the schema extractor to read tag metadata. When the schedule's cron
+ * fires (or a webhook request arrives), the daemon lazy-loads the
+ * photon via the normal session-manager path.
+ */
+async function discoverProactiveMetadataAtBoot(): Promise<void> {
+  const baseCandidates = new Set<string>();
+  const defaultBase = path.resolve(getDefaultContext().baseDir);
+  baseCandidates.add(defaultBase);
+  for (const base of listActiveBases()) baseCandidates.add(base.path);
+
+  let schedulesRegistered = 0;
+  let webhooksRegistered = 0;
+  let photonsScanned = 0;
+
+  // Lazy import to keep daemon startup cheap for users with no bases.
+  const core = await import('@portel/photon-core');
+  const SchemaExtractor = (core as any).SchemaExtractor as new () => {
+    extractAllFromSource(source: string): { tools: Array<Record<string, unknown>> };
+  };
+
+  for (const basePath of baseCandidates) {
+    let photons: Awaited<ReturnType<typeof core.listPhotonFilesWithNamespace>>;
+    try {
+      photons = await core.listPhotonFilesWithNamespace(basePath);
+    } catch (err) {
+      logger.warn('Boot discovery: could not list photons in base', {
+        base: basePath,
+        error: getErrorMessage(err),
+      });
+      continue;
+    }
+
+    for (const p of photons) {
+      photonsScanned++;
+      try {
+        const fsp = await import('fs/promises');
+        const source = await fsp.readFile(p.filePath, 'utf-8');
+
+        // Fast filter — only parse photons that actually declare a
+        // proactive trigger. Keeps the boot cost close to one readFile
+        // per photon for dirs full of regular photons.
+        if (!/@(scheduled|cron|webhook)\b/.test(source) && !/\basync\s+handle[A-Z]/.test(source)) {
+          continue;
+        }
+
+        const extractor = new SchemaExtractor();
+        const meta = extractor.extractAllFromSource(source);
+
+        const workingDir = basePath === defaultBase ? undefined : basePath;
+
+        for (const rawTool of meta.tools) {
+          const tool = rawTool as {
+            name: string;
+            scheduled?: string;
+            webhook?: string | boolean;
+          };
+
+          // @scheduled: register the cron timer now; photon lazy-loads on fire.
+          if (tool.scheduled) {
+            const jobId = `${p.name}:${tool.name}`;
+            if (!scheduledJobs.has(jobId)) {
+              const ok = scheduleJob({
+                id: jobId,
+                method: tool.name,
+                args: {},
+                cron: tool.scheduled,
+                runCount: 0,
+                createdAt: Date.now(),
+                createdBy: 'auto-boot',
+                photonName: p.name,
+                workingDir,
+                photonPath: p.filePath,
+              });
+              if (ok) schedulesRegistered++;
+            }
+          }
+
+          // @webhook: register the route now; photon lazy-loads on request.
+          if (tool.webhook !== undefined) {
+            let routes = webhookRoutes.get(p.name);
+            if (!routes) {
+              routes = new Map();
+              webhookRoutes.set(p.name, routes);
+            }
+            const routePath = typeof tool.webhook === 'string' ? tool.webhook : tool.name;
+            routes.set(routePath, tool.name);
+            webhooksRegistered++;
+          }
+        }
+
+        // Record the source location under the photon name if any proactive
+        // metadata was found, so runJob / the webhook handler can lazy-load.
+        proactivePhotonLocations.set(p.name, {
+          photonPath: p.filePath,
+          workingDir,
+        });
+      } catch (err) {
+        logger.warn('Boot discovery: failed to extract metadata', {
+          photon: p.name,
+          path: p.filePath,
+          error: getErrorMessage(err),
+        });
+      }
+    }
+  }
+
+  if (schedulesRegistered > 0 || webhooksRegistered > 0) {
+    logger.info('Boot discovery complete', {
+      photonsScanned,
+      schedulesRegistered,
+      webhooksRegistered,
+      bases: baseCandidates.size,
+    });
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // WEBHOOK HTTP SERVER
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1278,7 +1427,25 @@ function startWebhookServer(port: number): void {
         return;
       }
 
-      const sessionManager = sessionManagers.get(photonName);
+      let sessionManager = sessionManagers.get(photonName);
+      // Lazy-load: if a @webhook route was registered proactively at boot
+      // (photon discovered in a known base but never invoked), spin up
+      // the session now rather than return 503 to the caller.
+      if (!sessionManager) {
+        const loc = proactivePhotonLocations.get(photonName);
+        if (loc) {
+          try {
+            sessionManager =
+              (await getOrCreateSessionManager(photonName, loc.photonPath, loc.workingDir)) ??
+              undefined;
+          } catch (err) {
+            logger.warn('Lazy-load for webhook request failed', {
+              photon: photonName,
+              error: getErrorMessage(err),
+            });
+          }
+        }
+      }
       if (!sessionManager) {
         res.writeHead(503, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `Photon '${photonName}' not initialized` }));
@@ -1689,6 +1856,21 @@ async function getOrCreateSessionManager(
 const autoRegistered = new Set<string>();
 // Webhook route map: photonName → Set<allowed method names>
 const webhookRoutes = new Map<string, Map<string, string>>();
+
+/**
+ * Photon source locations known to the daemon from boot-time discovery.
+ * Populated by discoverProactiveMetadataAtBoot() so `runJob` and the
+ * webhook handler can lazy-load a photon whose @scheduled or @webhook
+ * tag was registered before the photon was ever invoked.
+ *
+ * Keyed by photon name (matching webhookRoutes' key). Value holds the
+ * absolute source path and the PHOTON_DIR the photon was discovered in.
+ */
+interface ProactiveLocation {
+  photonPath: string;
+  workingDir?: string;
+}
+const proactivePhotonLocations = new Map<string, ProactiveLocation>();
 
 /**
  * Auto-register scheduled jobs and webhook routes from tool metadata.
@@ -2208,7 +2390,7 @@ async function handleRequest(
       : `${photonName}:ipc:${request.jobId!}`;
 
     const existing = scheduledJobs.get(ipcJobId);
-    const job: ScheduledJob & { photonName: string; workingDir?: string } = {
+    const job: ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string } = {
       id: ipcJobId,
       method: request.method!,
       args: request.args,
@@ -4413,6 +4595,7 @@ void (async () => {
   startServer();
   migrateLegacyIpcSchedules();
   loadAllPersistedSchedules();
+  void discoverProactiveMetadataAtBoot();
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();
   startHealthMonitor();
