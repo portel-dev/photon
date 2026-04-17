@@ -1334,27 +1334,11 @@ export class PhotonLoader {
         await this.checkCLIDependencies(tsContent, name);
       }
 
-      // Call lifecycle hook if present with error handling
-      // skipInitialize is used during hot-reload: state is transferred from the old
-      // instance after loadFile returns, then onInitialize is called manually.
-      const onInitialize = instance.onInitialize;
-      if (typeof onInitialize === 'function' && !options?.skipInitialize) {
-        this.onProgress?.('running onInitialize');
-        try {
-          await onInitialize.call(instance);
-        } catch (error) {
-          const initError = new Error(
-            `Initialization failed for ${name}: ${getErrorMessage(error)}\n` +
-              `\nThe onInitialize() lifecycle hook threw an error.\n` +
-              `Check your constructor configuration and initialization logic.`
-          );
-          initError.name = 'PhotonInitializationError';
-          if (error instanceof Error && error.stack) {
-            initError.stack = error.stack;
-          }
-          throw initError;
-        }
-      }
+      // Call lifecycle hook if present with error handling.
+      // skipInitialize is used during hot-reload: state is transferred from
+      // the old instance after loadFile returns, then onInitialize is called
+      // manually.
+      await this.invokeInitialize(instance, name, options);
 
       // Auto-wrap public methods in @stateful classes to emit events
       // Must happen AFTER capability injection so that emit() is available
@@ -1735,17 +1719,7 @@ export class PhotonLoader {
     }
 
     // Call lifecycle hook
-    const onInitialize = instance.onInitialize;
-    if (typeof onInitialize === 'function' && !options?.skipInitialize) {
-      this.onProgress?.('running onInitialize');
-      try {
-        await onInitialize.call(instance);
-      } catch (error) {
-        const initError = new Error(`Initialization failed for ${name}: ${getErrorMessage(error)}`);
-        initError.name = 'PhotonInitializationError';
-        throw initError;
-      }
-    }
+    await this.invokeInitialize(instance, name, options);
 
     // Extract tools and metadata from embedded source (no disk I/O)
     const {
@@ -4565,6 +4539,36 @@ Run: photon mcp ${mcpName} --config
     const parts = rel.split(path.sep);
     if (parts.length < 2) return '';
     return parts.slice(0, -1).join(path.sep);
+  }
+
+  /**
+   * Invoke the `onInitialize` lifecycle hook on a loaded photon instance,
+   * honoring the `skipInitialize` option and wrapping any thrown error in
+   * a PhotonInitializationError so the caller can surface hook failures
+   * distinctly from runtime errors.
+   */
+  private async invokeInitialize(
+    instance: { onInitialize?: (ctx?: any) => Promise<void> | void } | undefined,
+    name: string,
+    options?: { skipInitialize?: boolean },
+    ctx?: { reason?: string; oldInstance?: unknown }
+  ): Promise<void> {
+    const hook = instance?.onInitialize;
+    if (typeof hook !== 'function' || options?.skipInitialize) return;
+    this.onProgress?.('running onInitialize');
+    try {
+      await hook.call(instance, ctx);
+    } catch (error) {
+      const message = ctx
+        ? `Initialization failed for ${name}: ${getErrorMessage(error)}`
+        : `Initialization failed for ${name}: ${getErrorMessage(error)}\n` +
+          `\nThe onInitialize() lifecycle hook threw an error.\n` +
+          `Check your constructor configuration and initialization logic.`;
+      const initError = new Error(message);
+      initError.name = 'PhotonInitializationError';
+      if (error instanceof Error && error.stack) initError.stack = error.stack;
+      throw initError;
+    }
   }
 
   /**
