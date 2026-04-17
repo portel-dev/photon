@@ -103,7 +103,6 @@ import {
   getCacheDir,
 } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
-import * as os from 'os';
 
 interface DependencySpec {
   name: string;
@@ -1527,10 +1526,12 @@ export class PhotonLoader {
     instance.instanceName = options?.instanceName ?? '';
 
     // Inject file path for storage()/assets() resolution.
-    // For preloaded modules (compiled binaries), remap to ~/.photon/ so storage()
-    // resolves under the deployment directory instead of the build machine's source tree.
+    // For preloaded modules (compiled binaries), remap to the resolved
+    // PHOTON_DIR (this.baseDir) so storage() resolves under the deployment
+    // directory instead of the build machine's source tree. Respects Option B:
+    // storage follows wherever the photon is deployed, not always ~/.photon.
     // Assets still use absolutePath (resolved from embedded source paths).
-    const storagePath = path.join(os.homedir(), '.photon', path.basename(absolutePath));
+    const storagePath = path.join(this.baseDir, path.basename(absolutePath));
     instance._photonFilePath = storagePath;
 
     // Inject dynamic photon resolver for this.photon.use()
