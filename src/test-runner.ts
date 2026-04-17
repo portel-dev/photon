@@ -14,10 +14,11 @@
  */
 
 import * as path from 'path';
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { PhotonLoader } from './loader.js';
+import { listPhotonSourceFiles } from '@portel/photon-core';
 import { listPhotonMCPs, resolvePhotonPath } from './path-resolver.js';
 import { logger } from './shared/logger.js';
 import { SchemaExtractor, compilePhotonTS } from '@portel/photon-core';
@@ -1320,8 +1321,7 @@ export async function runTests(
     // Discover photons in CWD (development repos)
     if (cwdIsDifferent && existsSync(cwd)) {
       try {
-        const cwdFiles = readdirSync(cwd).filter((f) => f.endsWith('.photon.ts'));
-        for (const file of cwdFiles) {
+        for (const file of listPhotonSourceFiles(cwd, { extensions: ['.photon.ts'] })) {
           const name = file.replace(/\.photon\.ts$/, '');
           photonMap.set(name, path.join(cwd, file)); // CWD overrides installed
         }
