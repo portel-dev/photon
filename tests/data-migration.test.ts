@@ -79,14 +79,12 @@ await test('migrates state files', async () => {
     delete process.env.PHOTON_DIR;
 
     // Verify new layout
-    assert.ok(exists(path.join(dir, '.data', 'local', 'todo', 'state', 'default', 'state.json')));
-    assert.ok(exists(path.join(dir, '.data', 'local', 'todo', 'state', 'work', 'state.json')));
-    assert.ok(exists(path.join(dir, '.data', 'local', 'todo', 'state', 'default', 'state.log')));
+    assert.ok(exists(path.join(dir, '.data', 'todo', 'state', 'default', 'state.json')));
+    assert.ok(exists(path.join(dir, '.data', 'todo', 'state', 'work', 'state.json')));
+    assert.ok(exists(path.join(dir, '.data', 'todo', 'state', 'default', 'state.log')));
 
     // Verify data integrity
-    const state = readJSON(
-      path.join(dir, '.data', 'local', 'todo', 'state', 'default', 'state.json')
-    );
+    const state = readJSON(path.join(dir, '.data', 'todo', 'state', 'default', 'state.json'));
     assert.deepEqual(state, { items: [1, 2, 3] });
   } finally {
     delete process.env.PHOTON_DIR;
@@ -103,8 +101,8 @@ await test('migrates context files', async () => {
     const { runDataMigration } = await import('../src/data-migration.js');
     await runDataMigration(dir);
 
-    assert.ok(exists(path.join(dir, '.data', 'local', 'todo', 'context.json')));
-    const ctx = readJSON(path.join(dir, '.data', 'local', 'todo', 'context.json'));
+    assert.ok(exists(path.join(dir, '.data', 'todo', 'context.json')));
+    const ctx = readJSON(path.join(dir, '.data', 'todo', 'context.json'));
     assert.equal(ctx.instance, 'work');
   } finally {
     cleanup(dir);
@@ -120,8 +118,8 @@ await test('migrates env files', async () => {
     const { runDataMigration } = await import('../src/data-migration.js');
     await runDataMigration(dir);
 
-    assert.ok(exists(path.join(dir, '.data', 'local', 'whatsapp', 'env.json')));
-    const env = readJSON(path.join(dir, '.data', 'local', 'whatsapp', 'env.json'));
+    assert.ok(exists(path.join(dir, '.data', 'whatsapp', 'env.json')));
+    const env = readJSON(path.join(dir, '.data', 'whatsapp', 'env.json'));
     assert.equal(env.API_KEY, 'secret123');
   } finally {
     cleanup(dir);
@@ -139,8 +137,8 @@ await test('migrates memory (data/) files', async () => {
     await runDataMigration(dir);
 
     // Per-photon memory
-    assert.ok(exists(path.join(dir, '.data', 'local', 'todo', 'memory', 'items.json')));
-    const items = readJSON(path.join(dir, '.data', 'local', 'todo', 'memory', 'items.json'));
+    assert.ok(exists(path.join(dir, '.data', 'todo', 'memory', 'items.json')));
+    const items = readJSON(path.join(dir, '.data', 'todo', 'memory', 'items.json'));
     assert.deepEqual(items, ['buy milk']);
 
     // Global memory
@@ -163,7 +161,7 @@ await test('migrates logs, cache, tasks, audit', async () => {
     const { runDataMigration } = await import('../src/data-migration.js');
     await runDataMigration(dir);
 
-    assert.ok(exists(path.join(dir, '.data', 'local', 'todo', 'logs', 'executions.jsonl')));
+    assert.ok(exists(path.join(dir, '.data', 'todo', 'logs', 'executions.jsonl')));
     assert.ok(exists(path.join(dir, '.data', '.cache', 'marketplaces', 'portel.json')));
     assert.ok(exists(path.join(dir, '.data', 'tasks', 'task_1.json')));
     assert.ok(exists(path.join(dir, '.data', 'audit.jsonl')));
@@ -190,9 +188,7 @@ await test('sentinel prevents re-running', async () => {
     await runDataMigration(dir);
 
     // Original migrated data should be unchanged (v: 1, not v: 2)
-    const state = readJSON(
-      path.join(dir, '.data', 'local', 'todo', 'state', 'default', 'state.json')
-    );
+    const state = readJSON(path.join(dir, '.data', 'todo', 'state', 'default', 'state.json'));
     assert.equal(state.v, 1);
   } finally {
     cleanup(dir);
@@ -204,7 +200,7 @@ await test('does not overwrite existing .data/ files', async () => {
   try {
     // Create old AND new layout
     writeJSON(path.join(dir, 'state', 'todo', 'default.json'), { v: 'old' });
-    writeJSON(path.join(dir, '.data', 'local', 'todo', 'state', 'default', 'state.json'), {
+    writeJSON(path.join(dir, '.data', 'todo', 'state', 'default', 'state.json'), {
       v: 'new',
     });
     writeFile(path.join(dir, 'todo.photon.ts'), '// dummy');
@@ -213,9 +209,7 @@ await test('does not overwrite existing .data/ files', async () => {
     await runDataMigration(dir);
 
     // New layout should be preserved, not overwritten
-    const state = readJSON(
-      path.join(dir, '.data', 'local', 'todo', 'state', 'default', 'state.json')
-    );
+    const state = readJSON(path.join(dir, '.data', 'todo', 'state', 'default', 'state.json'));
     assert.equal(state.v, 'new');
   } finally {
     cleanup(dir);
@@ -243,7 +237,10 @@ await test('no legacy dirs = just writes sentinel', async () => {
 
 console.log('\n2. Namespace detection during migration');
 
-await test('marketplace git repo → uses owner as namespace', async () => {
+// Under Option B, a flat photon at the root of a PHOTON_DIR uses the
+// 'local' namespace regardless of git state. Migration must honor the
+// same rule — the git-remote-based detectNamespace is no longer consulted.
+await test('marketplace git repo → flat photon migrates under local (git remote ignored)', async () => {
   const dir = makeTempDir();
   try {
     execSync('git init', { cwd: dir, stdio: 'ignore' });
@@ -259,10 +256,15 @@ await test('marketplace git repo → uses owner as namespace', async () => {
     const { runDataMigration } = await import('../src/data-migration.js');
     await runDataMigration(dir);
 
-    // Should use 'portel-dev' as namespace (from git remote)
+    // Migrated under 'local' (getPhotonDataDir flattens 'local' ns to
+    // {base}/.data/{photon}/...). Git remote must have no effect.
     assert.ok(
-      exists(path.join(dir, '.data', 'portel-dev', 'slides', 'state', 'default', 'state.json')),
-      'should use git remote owner as namespace'
+      exists(path.join(dir, '.data', 'slides', 'state', 'default', 'state.json')),
+      'flat photon should migrate under local namespace, not git-remote owner'
+    );
+    assert.ok(
+      !exists(path.join(dir, '.data', 'portel-dev', 'slides')),
+      'git remote owner must not influence the data path'
     );
   } finally {
     cleanup(dir);
@@ -307,7 +309,7 @@ await test('MemoryProvider writes to .data/{ns}/{photon}/memory/', async () => {
     assert.deepEqual(result, ['buy milk']);
 
     // Verify physical path
-    assert.ok(exists(path.join(dir, '.data', 'local', 'todo', 'memory', 'items.json')));
+    assert.ok(exists(path.join(dir, '.data', 'todo', 'memory', 'items.json')));
   } finally {
     delete process.env.PHOTON_DIR;
     cleanup(dir);
@@ -472,7 +474,7 @@ await test('InstanceStore writes to .data/ and reads back', async () => {
     assert.deepEqual(state, { board: 'work-board' });
 
     // Verify physical path
-    assert.ok(exists(path.join(dir, '.data', 'local', 'kanban', 'state', 'work', 'state.json')));
+    assert.ok(exists(path.join(dir, '.data', 'kanban', 'state', 'work', 'state.json')));
   } finally {
     cleanup(dir);
   }

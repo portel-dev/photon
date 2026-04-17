@@ -23,7 +23,7 @@
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
-import { getDataRoot, detectNamespace, listFilesWithNamespace } from '@portel/photon-core';
+import { getDataRoot, listFilesWithNamespace } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
 
 const SENTINEL = '.migrated';
@@ -116,23 +116,30 @@ export async function runDataMigration(baseDir?: string): Promise<void> {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /**
- * Build a mapping from photon name → namespace.
- * Uses installed photon files and marketplace auto-detection.
+ * Build a mapping from photon name → namespace during the one-time
+ * .data/ migration. Namespace comes from:
+ *   - The photon file's position under baseDir (listFilesWithNamespace)
+ *   - The installation metadata's source owner (.metadata.json), when
+ *     a photon file is absent but an earlier install recorded its origin
+ *   - Otherwise 'local' — matching the Option B rule that position is
+ *     the only namespace signal (git remote is never consulted)
  */
 async function buildNamespaceMap(dir: string): Promise<Map<string, string>> {
   const map = new Map<string, string>();
-
-  // Detect namespace from git remote (for marketplace repos)
-  const detectedNs = detectNamespace(dir);
+  // Flat-root photons use an empty namespace so path.join collapses the
+  // segment and the migrated layout matches getPhotonDataDir(). A non-
+  // empty namespace only comes from a photon's directory position or
+  // from explicit install-metadata mapping.
+  const defaultNs = '';
 
   // Scan installed photons with their namespace
   try {
     const photons = await listFilesWithNamespace(dir);
     for (const p of photons) {
-      map.set(p.name, p.namespace || detectedNs);
+      map.set(p.name, p.namespace || defaultNs);
     }
   } catch {
-    // No photon files — use detected namespace for everything
+    // No photon files — fall through to metadata and default
   }
 
   // Check install metadata for additional mappings
@@ -157,13 +164,15 @@ async function buildNamespaceMap(dir: string): Promise<Map<string, string>> {
   }
 
   // Default namespace for unmapped photons
-  map.set('__default', detectedNs);
+  map.set('__default', defaultNs);
 
   return map;
 }
 
 function resolveNs(nsMap: Map<string, string>, photonName: string): string {
-  return nsMap.get(photonName) || nsMap.get('__default') || 'local';
+  const direct = nsMap.get(photonName);
+  if (direct !== undefined) return direct;
+  return nsMap.get('__default') ?? '';
 }
 
 function migrateStateDir(dir: string, dataRoot: string, nsMap: Map<string, string>): number {
