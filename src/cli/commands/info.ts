@@ -95,10 +95,12 @@ export function registerInfoCommand(program: Command): void {
       try {
         const { formatOutput, printInfo, printError, printHeader, STATUS } =
           await import('../../cli-formatter.js');
+        const { announceContext } = await import('../../shared/announce-context.js');
         // Get working directory (respects PHOTON_DIR env var)
         const workingDir = getDefaultContext().baseDir;
         const asMcp = options.mcp || false;
         const asJson = options.json || false;
+        announceContext({ action: 'Listing', photon: name, target: workingDir });
 
         const mcps = await listPhotonMCPs(workingDir);
 

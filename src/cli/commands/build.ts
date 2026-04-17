@@ -162,6 +162,8 @@ export function registerBuildCommand(program: Command) {
         const spinner = ora(`Preparing standalone build for ${file}...`).start();
         const workingDir = process.cwd();
         const photonPath = path.resolve(workingDir, file);
+        const { announceContext } = await import('../../shared/announce-context.js');
+        announceContext({ action: 'Building', target: photonPath });
 
         if (!fs.existsSync(photonPath)) {
           spinner.fail(`File not found: ${photonPath}`);

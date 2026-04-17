@@ -222,6 +222,8 @@ export function registerBeamCommand(program: Command): void {
     .action(async (photon: string | undefined, options: any, command: Command) => {
       try {
         const workingDir = getDefaultContext().baseDir;
+        const { announceContext } = await import('../../shared/announce-context.js');
+        announceContext({ action: 'Starting Beam', photon, target: workingDir });
 
         const { existsSync } = await import('fs');
 

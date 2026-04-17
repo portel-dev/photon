@@ -32,6 +32,10 @@ export function registerInitCommands(program: Command): void {
     .description('Set up shell integration for direct photon commands and tab completion')
     .action(async (options: { hook?: boolean }) => {
       const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
+      if (!options.hook) {
+        const { announceContext } = await import('../../shared/announce-context.js');
+        announceContext({ action: 'Initializing CLI integration' });
+      }
 
       // Detect shell type
       const userShell = process.env.SHELL || '';

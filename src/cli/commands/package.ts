@@ -212,6 +212,8 @@ export function registerPackageCommands(program: Command): void {
         // Get working directory from global options
         const workingDir = getDefaultContext().baseDir;
         await ensureWorkingDir(workingDir);
+        const { announceContext } = await import('../../shared/announce-context.js');
+        announceContext({ action: 'Adding', photon: name, target: workingDir });
 
         const { MarketplaceManager } = await import('../../marketplace-manager.js');
         const manager = new MarketplaceManager();

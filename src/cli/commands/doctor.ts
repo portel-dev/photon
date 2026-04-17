@@ -135,6 +135,8 @@ export function registerDoctorCommand(program: Command): void {
         const { formatOutput, printHeader, printInfo, printSuccess, printWarning, STATUS } =
           await import('../../cli-formatter.js');
         const workingDir = getDefaultContext().baseDir;
+        const { announceContext } = await import('../../shared/announce-context.js');
+        announceContext({ action: 'Diagnosing', photon: name, target: workingDir });
         const diagnostics: Record<string, any> = {};
         const suggestions: string[] = [];
         let issuesFound = 0;

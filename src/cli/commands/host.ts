@@ -32,6 +32,8 @@ export function registerHostCommand(program: Command): void {
       try {
         // Get working directory from global options
         const workingDir = getDefaultContext().baseDir;
+        const { announceContext } = await import('../../shared/announce-context.js');
+        announceContext({ action: 'Previewing', photon: name, target: workingDir });
 
         // Resolve file path from name
         const photonPath = await resolvePhotonPath(name, workingDir);
@@ -74,6 +76,8 @@ export function registerHostCommand(program: Command): void {
       try {
         // Get working directory from global options
         const workingDir = getDefaultContext().baseDir;
+        const { announceContext } = await import('../../shared/announce-context.js');
+        announceContext({ action: 'Deploying', photon: name, target: workingDir });
 
         // Resolve file path from name
         const photonPath = await resolvePhotonPath(name, workingDir);

@@ -329,6 +329,13 @@ SEE ALSO:
         return;
       }
 
+      const { announceContext } = await import('../../shared/announce-context.js');
+      announceContext({
+        action: method ? `Running ${method}` : 'Running',
+        photon,
+        target: getDefaultContext().baseDir,
+      });
+
       // Handle qualified refs (owner/repo/name) in explicit cli mode
       const ref = parseGitHubRef(photon);
       if (ref) {

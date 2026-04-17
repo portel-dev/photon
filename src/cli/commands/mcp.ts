@@ -408,6 +408,8 @@ export function registerMCPCommand(program: Command): void {
         // Get working directory from global options
         const workingDir = getDefaultContext().baseDir;
         const logOptions = getLogOptionsFromCommand(command);
+        const { announceContext } = await import('../../shared/announce-context.js');
+        announceContext({ action: 'Serving MCP', photon: name, target: workingDir });
 
         // Resolve file path - check bundled photons first, then user directory
         let filePath = await resolvePhotonPathWithBundled(name, workingDir);
