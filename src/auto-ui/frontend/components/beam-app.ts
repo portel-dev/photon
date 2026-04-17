@@ -2068,6 +2068,7 @@ export class BeamApp extends LitElement {
     | 'list'
     | 'form'
     | 'marketplace'
+    | 'daemon'
     | 'config'
     | 'diagnostics'
     | 'mcp-app'
@@ -3264,6 +3265,14 @@ export class BeamApp extends LitElement {
         return;
       }
 
+      if (photonName === 'daemon') {
+        this._selectedPhoton = null;
+        this._selectedMethod = null;
+        this._lastResult = null;
+        this._view = 'daemon';
+        return;
+      }
+
       if (!photonName || photonName === 'home') {
         this._selectedPhoton = null;
         this._selectedMethod = null;
@@ -3373,6 +3382,8 @@ export class BeamApp extends LitElement {
     let path: string;
     if (this._view === 'marketplace') {
       path = '/marketplace';
+    } else if (this._view === 'daemon') {
+      path = '/daemon';
     } else if (!this._selectedPhoton) {
       path = '/';
     } else {
@@ -4038,6 +4049,13 @@ export class BeamApp extends LitElement {
           @home=${this._goHome}
           @select=${(e: Event) => this._handlePhotonSelectMobile(e as CustomEvent)}
           @marketplace=${() => this._handleMarketplaceMobile()}
+          @daemon=${() => {
+            this._selectedPhoton = null;
+            this._selectedMethod = null;
+            this._lastResult = null;
+            this._view = 'daemon';
+            this._updateRoute();
+          }}
           @theme-change=${this._handleThemeChange}
           @open-theme-settings=${() => (this._showThemeSettings = true)}
           @show-shortcuts=${this._showHelpModal}
@@ -4302,6 +4320,23 @@ export class BeamApp extends LitElement {
           Server health and photon status.
         </p>
         ${this._renderDiagnostics()}
+      `;
+    }
+
+    if (this._view === 'daemon') {
+      return html`
+        <div style="margin-bottom: var(--space-md);">
+          <button
+            style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+            @click=${() => {
+              this._view = 'list';
+              this._updateRoute();
+            }}
+          >
+            ← Back to Dashboard
+          </button>
+        </div>
+        <daemon-panel></daemon-panel>
       `;
     }
 

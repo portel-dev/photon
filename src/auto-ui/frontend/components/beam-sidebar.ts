@@ -1240,6 +1240,14 @@ export class BeamSidebar extends LitElement {
                 ? html`<span class="update-badge">${this.updatesAvailable}</span>`
                 : ''}
             </button>
+            <button
+              class="filter-btn"
+              @click=${() => this.dispatchEvent(new CustomEvent('daemon'))}
+              aria-label="Open daemon panel"
+              title="View scheduled jobs, webhooks, and sessions"
+            >
+              ${activityIcon} Daemon
+            </button>
           </div>
         </div>
 
