@@ -1054,6 +1054,41 @@ export default class CacheTest {
 }
 `;
 
+  /**
+   * Deterministic wait: poll the photon until it returns the expected
+   * answer or the deadline elapses. The earlier sleep(800) pattern was
+   * a race-condition magnet under load — when CI runs this suite alongside
+   * the other 30+ suites, file-watcher debounce + tsc compile can easily
+   * exceed 800ms and the stale module would still be in the require cache.
+   * A bounded poll gives us the correct-path speed plus a generous ceiling
+   * for the slow-CI case.
+   */
+  async function pollUntilAnswer(
+    requestId: string,
+    expected: string,
+    deadlineMs = 8000
+  ): Promise<{ answer: string; elapsedMs: number }> {
+    const started = Date.now();
+    let last = '';
+    let attempt = 0;
+    while (Date.now() - started < deadlineMs) {
+      const response = await sendRequest({
+        type: 'command',
+        id: `${requestId}_poll_${attempt++}`,
+        photonName: 'cache-test',
+        photonPath: cacheTestFile,
+        sessionId: 'cache-session',
+        clientType: 'test',
+        method: 'value',
+        args: {},
+      });
+      last = (response.data as any)?.answer ?? '';
+      if (last === expected) return { answer: last, elapsedMs: Date.now() - started };
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return { answer: last, elapsedMs: Date.now() - started };
+  }
+
   fs.writeFileSync(cacheTestFile, SOURCE_A);
 
   await test('first load compiles and returns correct result', async () => {
@@ -1072,50 +1107,22 @@ export default class CacheTest {
   });
 
   await test('after source change + reload, new code is used (not stale cache)', async () => {
-    // Write new content
     fs.writeFileSync(cacheTestFile, SOURCE_B);
-
-    // Wait for watcher to detect and reload
-    await new Promise((r) => setTimeout(r, 800));
-
-    const response = await sendRequest({
-      type: 'command',
-      id: 'cache_v2',
-      photonName: 'cache-test',
-      photonPath: cacheTestFile,
-      sessionId: 'cache-session',
-      clientType: 'test',
-      method: 'value',
-      args: {},
-    });
-    assert.equal(response.type, 'result');
+    const { answer, elapsedMs } = await pollUntilAnswer('cache_v2', 'bravo');
     assert.equal(
-      (response.data as any).answer,
+      answer,
       'bravo',
-      `Expected "bravo" after source change, got "${(response.data as any).answer}" — stale cache!`
+      `Expected "bravo" after source change, got "${answer}" after ${elapsedMs}ms — stale cache!`
     );
   });
 
   await test('reverting source back to original also picks up fresh compile', async () => {
-    // Write back original content
     fs.writeFileSync(cacheTestFile, SOURCE_A);
-    await new Promise((r) => setTimeout(r, 800));
-
-    const response = await sendRequest({
-      type: 'command',
-      id: 'cache_v3',
-      photonName: 'cache-test',
-      photonPath: cacheTestFile,
-      sessionId: 'cache-session',
-      clientType: 'test',
-      method: 'value',
-      args: {},
-    });
-    assert.equal(response.type, 'result');
+    const { answer, elapsedMs } = await pollUntilAnswer('cache_v3', 'alpha');
     assert.equal(
-      (response.data as any).answer,
+      answer,
       'alpha',
-      `Expected "alpha" after revert, got "${(response.data as any).answer}"`
+      `Expected "alpha" after revert, got "${answer}" after ${elapsedMs}ms`
     );
   });
 }
