@@ -2741,9 +2741,10 @@ export class PhotonServer {
    */
   async stop() {
     try {
-      // Call lifecycle hook if present
+      // Call lifecycle hook if present — always pass { reason } so the
+      // photon can distinguish full shutdown from hot-reload teardown.
       if (this.mcp?.instance?.onShutdown) {
-        await this.mcp.instance.onShutdown();
+        await this.mcp.instance.onShutdown({ reason: 'shutdown' });
       }
 
       // Disconnect MCP clients
