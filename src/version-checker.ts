@@ -4,6 +4,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { listPhotonSourceFiles } from '@portel/photon-core';
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
 
 export interface VersionInfo {
@@ -124,22 +125,14 @@ export class VersionChecker {
   async checkAllUpdates(workingDir: string): Promise<Map<string, VersionInfo>> {
     const updates = new Map<string, VersionInfo>();
 
-    try {
-      const entries = await fs.readdir(workingDir, { withFileTypes: true });
+    for (const fileName of listPhotonSourceFiles(workingDir, { extensions: ['.photon.ts'] })) {
+      const mcpName = fileName.replace(/\.photon\.ts$/, '');
+      const filePath = path.join(workingDir, fileName);
+      const versionInfo = await this.checkForUpdate(mcpName, filePath);
 
-      for (const entry of entries) {
-        if (entry.isFile() && entry.name.endsWith('.photon.ts')) {
-          const mcpName = entry.name.replace('.photon.ts', '');
-          const filePath = path.join(workingDir, entry.name);
-          const versionInfo = await this.checkForUpdate(mcpName, filePath);
-
-          if (versionInfo.local || versionInfo.remote) {
-            updates.set(mcpName, versionInfo);
-          }
-        }
+      if (versionInfo.local || versionInfo.remote) {
+        updates.set(mcpName, versionInfo);
       }
-    } catch {
-      // Directory doesn't exist or other error
     }
 
     return updates;

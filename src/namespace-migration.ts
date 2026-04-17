@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
+import { listPhotonSourceFiles } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
 
 const SENTINEL = '.migrated';
@@ -41,23 +42,17 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
     return;
   }
 
-  // Check if there are any flat photon files to migrate
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return; // baseDir doesn't exist yet
-  }
+  // Check if there are any flat photon files to migrate.
+  // listPhotonSourceFiles returns bare filenames and tolerates a missing dir.
+  const photonFileNames = listPhotonSourceFiles(dir, {
+    extensions: ['.photon.ts', '.photon.js'],
+  });
 
-  const photonFiles = entries.filter(
-    (e) =>
-      (e.isFile() || e.isSymbolicLink()) &&
-      (e.name.endsWith('.photon.ts') || e.name.endsWith('.photon.js'))
-  );
-
-  if (photonFiles.length === 0) {
-    // No flat files to migrate — write sentinel and return
-    await writeSentinel(sentinelPath);
+  if (photonFileNames.length === 0) {
+    // No flat files to migrate — write sentinel (if the dir exists) and return.
+    if (fs.existsSync(dir)) {
+      await writeSentinel(sentinelPath);
+    }
     return;
   }
 
@@ -72,9 +67,9 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
 
   let migrated = 0;
 
-  for (const entry of photonFiles) {
-    const filePath = path.join(dir, entry.name);
-    const photonName = entry.name.replace(/\.photon\.(ts|js)$/, '');
+  for (const fileName of photonFileNames) {
+    const filePath = path.join(dir, fileName);
+    const photonName = fileName.replace(/\.photon\.(ts|js)$/, '');
 
     // Determine namespace — only marketplace/forked photons get namespaced.
     // Local (user-created) photons stay in root.
@@ -97,8 +92,8 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
     }
 
     // Fallback: check install metadata
-    if (!namespace && metadata[entry.name]) {
-      const meta = metadata[entry.name];
+    if (!namespace && metadata[fileName]) {
+      const meta = metadata[fileName];
       if (meta.marketplaceRepo) {
         const parts = meta.marketplaceRepo.split('/');
         if (parts.length >= 2) {
@@ -114,14 +109,20 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
 
     // Move the file to its namespace directory
     const targetDir = path.join(dir, namespace);
-    const targetPath = path.join(targetDir, entry.name);
+    const targetPath = path.join(targetDir, fileName);
 
     try {
       fs.mkdirSync(targetDir, { recursive: true });
 
-      // Move the source file
-      if (entry.isSymbolicLink()) {
-        // Preserve symlinks — read target, create new symlink
+      // Move the source file. Preserve symlinks by re-creating them rather
+      // than dereferencing into a plain file at the destination.
+      let isSymlink = false;
+      try {
+        isSymlink = fs.lstatSync(filePath).isSymbolicLink();
+      } catch {
+        // Fallthrough to rename attempt.
+      }
+      if (isSymlink) {
         const linkTarget = fs.readlinkSync(filePath);
         fs.symlinkSync(linkTarget, targetPath);
         fs.unlinkSync(filePath);
@@ -186,7 +187,7 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
       migrated++;
     } catch (err) {
       // Don't fail the whole migration for one file
-      console.warn(`[photon] Migration failed for ${entry.name}: ${(err as Error).message}`);
+      console.warn(`[photon] Migration failed for ${fileName}: ${(err as Error).message}`);
     }
   }
 
