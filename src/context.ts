@@ -12,7 +12,6 @@
  */
 
 import * as path from 'path';
-import * as os from 'os';
 import * as fs from 'fs';
 import {
   getDataRoot,
@@ -22,6 +21,7 @@ import {
   getDaemonLogPath,
   listPhotonFilesWithNamespace,
   resolvePhotonPath,
+  DEFAULT_PHOTON_DIR as HOME_PHOTON_DIR,
   type ListedPhoton,
 } from '@portel/photon-core';
 import { logger } from './shared/logger.js';
@@ -48,8 +48,9 @@ export interface PhotonContext {
   readonly stateDir: string;
 }
 
-/** Default photon directory: ~/.photon */
-const HOME_PHOTON_DIR = path.join(os.homedir(), '.photon');
+// HOME_PHOTON_DIR is the user's global ~/.photon directory — the default
+// PHOTON_DIR when no explicit override is set. Imported from photon-core
+// as the canonical DEFAULT_PHOTON_DIR constant; aliased for local clarity.
 
 /**
  * Check if a directory contains .photon.ts files (is a marketplace or photon workspace).
