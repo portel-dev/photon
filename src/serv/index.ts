@@ -123,7 +123,8 @@ export {
   type EndpointDeps,
 } from './auth/endpoints.js';
 
-// SQLite-backed stores (requires optional better-sqlite3)
+// SQLite-backed stores (requires optional better-sqlite3 on Node; uses
+// bun:sqlite natively under Bun)
 export {
   openAuthDatabase,
   SqliteAuthCodeStore,
@@ -132,6 +133,11 @@ export {
   SqliteConsentStore,
   SqlitePendingAuthorizationStore,
 } from './auth/sqlite-stores.js';
+export {
+  openOauthDatabase,
+  SqliteElicitationStore,
+  SqliteGrantStore,
+} from './auth/oauth-sqlite-stores.js';
 
 // Authorization Server Stores
 export {
