@@ -1,9 +1,27 @@
 #!/bin/bash
 # Remove the npm link so npx/bunx will fetch the published version again.
+# Also tears down the photon-core sibling symlink so the next install
+# pulls a real copy from npm.
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 echo "==> Removing npm global link for @portel/photon..."
 npm unlink -g @portel/photon 2>/dev/null || npm rm -g @portel/photon 2>/dev/null || true
+
+echo "==> Removing @portel/photon-core sibling symlink (if any)..."
+CORE_LINK="$REPO_DIR/node_modules/@portel/photon-core"
+if [ -L "$CORE_LINK" ]; then
+  rm -f "$CORE_LINK"
+  echo "    Removed — run 'npm install' to restore the npm copy."
+else
+  echo "    Not a symlink, leaving in place."
+fi
+
+echo "==> Killing any running photon daemon (it may be linked-build)..."
+pkill -f 'dist/daemon/server.js' 2>/dev/null || true
+sleep 1
 
 # Also clear stale npx/bunx caches so the next run fetches fresh
 echo "==> Clearing npx cached @portel/photon..."
