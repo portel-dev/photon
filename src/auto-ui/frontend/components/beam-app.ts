@@ -4027,9 +4027,11 @@ export class BeamApp extends LitElement {
                 this._view = 'list';
               }
             }
-            // Handle settings tab. Pre-invoke the settings method so the
-            // Configuration sub-tab can render current values; for setup-
-            // only photons just leave the rendering to _renderSettingsView.
+            // Handle settings tab. _selectedMethod is kept in sync with
+            // the settings method so the Save button can route through
+            // the existing invoke pipeline; no auto-invoke is needed —
+            // the form shows schema defaults, and the user's submissions
+            // persist via the daemon.
             if (tab === 'settings' && this._selectedPhoton) {
               const settingsMethod = this._selectedPhoton.methods?.find(
                 (m: any) => m.name === 'settings'
@@ -4037,7 +4039,6 @@ export class BeamApp extends LitElement {
               if (settingsMethod) {
                 this._selectedMethod = settingsMethod;
                 this._view = 'form';
-                this._maybeAutoInvoke(settingsMethod);
               } else {
                 // Setup-only photon — clear method state so the form panel
                 // doesn't render alongside the Setup view.
@@ -9917,11 +9918,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
         type="button"
         @click=${() => {
           this._settingsTab = id;
-          // Re-trigger settings auto-invoke when entering the configuration
-          // sub-tab so the form picks up any out-of-band updates.
-          if (id === 'configuration' && this._selectedMethod?.name === 'settings') {
-            this._maybeAutoInvoke(this._selectedMethod);
-          }
         }}
         style="
           padding: 8px 16px;
@@ -9983,7 +9979,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const params = settingsMethod.params;
     const properties = params?.properties || {};
     const propEntries = Object.entries(properties);
-    const hasResult = this._lastResult !== null;
     // Instance label: only relevant when the photon is stateful or has
     // more than one instance loaded. The picker itself lives in the
     // context-bar above; here we just give the user a "you are here"
@@ -9991,28 +9986,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const showInstanceLabel =
       !!photon?.stateful || (Array.isArray(this._instances) && this._instances.length > 1);
     const instanceName = this._currentInstance || 'default';
-
-    // Parse result into key-value pairs for the status section
-    let statusEntries: Array<[string, string]> = [];
-    if (hasResult) {
-      try {
-        const resultData =
-          typeof this._lastResult === 'string'
-            ? JSON.parse(this._lastResult)
-            : Array.isArray(this._lastResult)
-              ? this._lastResult.find((c: any) => c.type === 'text')?.text
-                ? JSON.parse(this._lastResult.find((c: any) => c.type === 'text').text)
-                : this._lastResult
-              : this._lastResult;
-        if (resultData && typeof resultData === 'object' && !Array.isArray(resultData)) {
-          statusEntries = Object.entries(resultData)
-            .filter(([, v]) => v !== null && v !== undefined)
-            .map(([k, v]) => [k, String(v)]);
-        }
-      } catch {
-        /* ignore parse errors */
-      }
-    }
 
     return html`
       ${showInstanceLabel
@@ -10074,46 +10047,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
                       : 'Save Settings'}
                   </button>
                 </div>
-              </div>
-            </div>
-          `
-        : ''}
-      ${statusEntries.length > 0
-        ? html`
-            <div class="glass-panel" style="overflow: hidden;">
-              <div
-                style="padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
-              >
-                <span
-                  style="font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); text-transform: uppercase; letter-spacing: 0.05em;"
-                  >Status</span
-                >
-              </div>
-              <div style="padding: 0;">
-                ${statusEntries.map(
-                  ([key, value], i) => html`
-                    <div
-                      style="display: grid; grid-template-columns: 200px 1fr; border-bottom: ${i <
-                      statusEntries.length - 1
-                        ? '1px solid var(--border-glass)'
-                        : 'none'};"
-                    >
-                      <div
-                        style="padding: 10px var(--space-md); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-muted); background: var(--bg-glass);"
-                      >
-                        ${key
-                          .replace(/([A-Z])/g, ' $1')
-                          .replace(/_/g, ' ')
-                          .trim()}
-                      </div>
-                      <div
-                        style="padding: 10px var(--space-md); font-size: var(--text-sm); color: var(--t-primary); word-break: break-word;"
-                      >
-                        ${value}
-                      </div>
-                    </div>
-                  `
-                )}
               </div>
             </div>
           `
