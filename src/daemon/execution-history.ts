@@ -1,15 +1,15 @@
 /**
  * Execution history for scheduled jobs.
  *
- * Per-photon append-only JSONL log of every scheduled-job firing:
- *   {PHOTON_DIR}/.data/{photon}/schedules/executions.jsonl
+ * Two backends, selected at runtime:
+ * - JSONL (default): per-photon append-only log at
+ *   `{PHOTON_DIR}/.data/{photon}/schedules/executions.jsonl`
+ *   with size rotation (10MB → .1.jsonl … .3.jsonl) and boot-time TTL sweep.
+ * - SQLite (opt-in via initExecutionHistorySqlite): single shared DB with
+ *   indexed queries. Recommended when `photon ps history` is queried often
+ *   or the daemon keeps many photons (linear full-file scans add up).
  *
- * Rotation: current file rotates at MAX_FILE_SIZE → .1.jsonl, .2.jsonl, .3.jsonl.
- * Retention: a boot sweep trims the active file to keep entries from the last
- * TTL window and cap per-method count. Archives are untouched — they exist for
- * manual forensics.
- *
- * Writes are best-effort: failures never propagate to the caller of
+ * Writes are best-effort: failures never propagate to callers of
  * recordExecution — an audit log that crashes scheduled jobs is worse than
  * a missing audit log.
  */
@@ -30,6 +30,7 @@ import { getPhotonSchedulesDir } from '@portel/photon-core';
 import { getDefaultContext } from '../context.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
+import type { ExecutionHistoryBackend } from './execution-history-sqlite.js';
 
 const logger = createLogger({ component: 'execution-history' });
 
@@ -71,6 +72,44 @@ export function executionsFile(photonName: string, workingDir?: string): string 
 }
 
 /**
+ * Active SQLite backend. When set, recordExecution and readExecutionHistory
+ * route through it; sweeps become no-ops since SQLite handles its own.
+ */
+let sqliteBackend: ExecutionHistoryBackend | null = null;
+
+/**
+ * Upgrade the execution-history writer to a SQLite backend. Call once at
+ * daemon startup; safe to call more than once. The default path lives next
+ * to the per-photon .data directories so existing deployments can keep
+ * both representations alongside during migration.
+ */
+export async function initExecutionHistorySqlite(opts: {
+  path: string;
+  ttlMs?: number;
+  maxPerMethod?: number;
+}): Promise<void> {
+  if (sqliteBackend) return;
+  const { openExecutionHistoryDatabase, SqliteExecutionHistoryBackend } =
+    await import('./execution-history-sqlite.js');
+  mkdirSync(dirname(opts.path), { recursive: true });
+  const db = await openExecutionHistoryDatabase(opts.path);
+  sqliteBackend = new SqliteExecutionHistoryBackend(db, {
+    ttlMs: opts.ttlMs,
+    maxPerMethod: opts.maxPerMethod,
+  });
+}
+
+/** Swap the SQLite backend for tests or custom providers. */
+export function setExecutionHistoryBackend(backend: ExecutionHistoryBackend | null): void {
+  sqliteBackend = backend;
+}
+
+/** Expose the active backend for sweep + query helpers. */
+export function getExecutionHistoryBackend(): ExecutionHistoryBackend | null {
+  return sqliteBackend;
+}
+
+/**
  * Append a single entry; rotate if the current file has crossed MAX_FILE_SIZE.
  * Never throws.
  */
@@ -79,6 +118,17 @@ export function recordExecution(
   entry: ExecutionEntry,
   workingDir?: string
 ): void {
+  if (sqliteBackend) {
+    try {
+      sqliteBackend.record(photonName, entry);
+      return;
+    } catch (err) {
+      logger.debug('SQLite execution record failed, falling back to JSONL', {
+        photon: photonName,
+        error: getErrorMessage(err),
+      });
+    }
+  }
   const file = executionsFile(photonName, workingDir);
   try {
     mkdirSync(dirname(file), { recursive: true });
@@ -142,6 +192,9 @@ export function readExecutionHistory(
   query: HistoryQuery = {},
   workingDir?: string
 ): ExecutionEntry[] {
+  if (sqliteBackend) {
+    return sqliteBackend.query(photonName, query);
+  }
   const entries = readEntries(executionsFile(photonName, workingDir));
   let filtered = entries;
   if (query.method) filtered = filtered.filter((e) => e.method === query.method);
