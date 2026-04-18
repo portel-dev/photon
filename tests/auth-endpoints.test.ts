@@ -11,6 +11,8 @@ import {
   handleConsent,
   handleToken,
   handleRegister,
+  handleRevoke,
+  handleIntrospect,
   DEFAULT_ENDPOINT_CONFIG,
   type EndpointConfig,
   type EndpointDeps,
@@ -988,6 +990,443 @@ async function test(name: string, fn: () => void | Promise<void>): Promise<void>
   }
 }
 
+async function testRevokeIntrospect() {
+  console.log('/revoke + /introspect:');
+
+  await test('revoke removes refresh token', async () => {
+    const { deps, codeVerifier, redirectUri, clientId } = await primeAuthorizationCode();
+    const code = await issueAuthCode(deps, clientId, redirectUri, codeVerifier);
+    const tokenRes = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+          client_id: clientId,
+        }),
+      },
+      deps
+    );
+    const { refresh_token } = JSON.parse(tokenRes.body);
+
+    const revokeRes = await handleRevoke(
+      {
+        method: 'POST',
+        url: 'https://serv.test/revoke',
+        headers: {},
+        body: formBody({ token: refresh_token, token_type_hint: 'refresh_token' }),
+      },
+      deps
+    );
+    assert.equal(revokeRes.status, 200);
+
+    // refresh token should now fail
+    const failed = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'refresh_token',
+          refresh_token,
+          client_id: clientId,
+        }),
+      },
+      deps
+    );
+    assert.equal(failed.status, 400);
+  });
+
+  await test('revoke of unknown token returns 200 (no scanning)', async () => {
+    const deps = makeDeps();
+    const res = await handleRevoke(
+      {
+        method: 'POST',
+        url: 'https://serv.test/revoke',
+        headers: {},
+        body: formBody({ token: 'bogus-token' }),
+      },
+      deps
+    );
+    assert.equal(res.status, 200);
+  });
+
+  await test('introspect returns active=true + claims for valid access token', async () => {
+    const deps = makeDeps();
+    // Register confidential client
+    const regRes = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          client_name: 'Introspect Caller',
+          redirect_uris: ['https://noop/cb'],
+          scope: 'mcp:read',
+        }),
+      },
+      deps
+    );
+    const { client_id, client_secret } = JSON.parse(regRes.body);
+
+    // Issue an access token via client_credentials
+    const basic = Buffer.from(`${client_id}:${client_secret}`).toString('base64');
+    const tokenRes = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: { authorization: `Basic ${basic}` },
+        body: formBody({ grant_type: 'client_credentials' }),
+      },
+      deps
+    );
+    const { access_token } = JSON.parse(tokenRes.body);
+
+    // Introspect the token using the same client's auth
+    const introRes = await handleIntrospect(
+      {
+        method: 'POST',
+        url: 'https://serv.test/introspect',
+        headers: { authorization: `Basic ${basic}` },
+        body: formBody({ token: access_token }),
+      },
+      deps
+    );
+    assert.equal(introRes.status, 200);
+    const introspection = JSON.parse(introRes.body);
+    assert.equal(introspection.active, true);
+    assert.equal(introspection.client_id, client_id);
+  });
+
+  await test('introspect without client auth rejected', async () => {
+    const deps = makeDeps();
+    const res = await handleIntrospect(
+      {
+        method: 'POST',
+        url: 'https://serv.test/introspect',
+        headers: {},
+        body: formBody({ token: 'anything' }),
+      },
+      deps
+    );
+    assert.equal(res.status, 401);
+  });
+
+  await test('introspect of unknown token returns active=false', async () => {
+    const deps = makeDeps();
+    const regRes = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          client_name: 'Prober',
+          redirect_uris: ['https://noop/cb'],
+          scope: 'mcp:read',
+        }),
+      },
+      deps
+    );
+    const { client_id, client_secret } = JSON.parse(regRes.body);
+    const basic = Buffer.from(`${client_id}:${client_secret}`).toString('base64');
+
+    const res = await handleIntrospect(
+      {
+        method: 'POST',
+        url: 'https://serv.test/introspect',
+        headers: { authorization: `Basic ${basic}` },
+        body: formBody({ token: 'does-not-exist' }),
+      },
+      deps
+    );
+    assert.equal(res.status, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.active, false);
+    assert.equal(Object.keys(body).length, 1, 'no extra leakage');
+  });
+}
+
+async function testTokenExchange() {
+  console.log('RFC 8693 token exchange:');
+
+  async function setupExchange(): Promise<{
+    deps: EndpointDeps;
+    subjectToken: string;
+    mcpClientId: string;
+    mcpClientSecret: string;
+  }> {
+    const deps = makeDeps();
+
+    // Register the MCP server as a confidential client (it will be the "actor")
+    const regRes = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          client_name: 'MCP Server',
+          redirect_uris: ['https://mcp.example.com/cb'],
+          scope: 'mcp:read mcp:write',
+        }),
+      },
+      deps
+    );
+    const { client_id: mcpClientId, client_secret: mcpClientSecret } = JSON.parse(regRes.body);
+
+    // Mint a subject token (simulating the user's access token)
+    const subjectToken = deps.jwtService.generateAccessToken({
+      sub: 'user-alice',
+      tenantId: 'tenant-1',
+      scope: 'mcp:read mcp:write',
+      clientId: 'claude-client',
+      expiresInSeconds: 900,
+    });
+
+    return { deps, subjectToken, mcpClientId, mcpClientSecret };
+  }
+
+  await test('happy path: user token exchanged for upstream-audience token', async () => {
+    const { deps, subjectToken, mcpClientId, mcpClientSecret } = await setupExchange();
+    const basic = Buffer.from(`${mcpClientId}:${mcpClientSecret}`).toString('base64');
+    const res = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: { authorization: `Basic ${basic}` },
+        body: formBody({
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          subject_token: subjectToken,
+          subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+          audience: 'https://upstream-api.example.com',
+          scope: 'mcp:read',
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 200);
+    const body = JSON.parse(res.body);
+    assert.ok(body.access_token);
+    assert.equal(body.issued_token_type, 'urn:ietf:params:oauth:token-type:access_token');
+    assert.equal(body.scope, 'mcp:read', 'narrowed scope');
+
+    // Decode the exchanged token and verify claims
+    const [, payloadB64] = (body.access_token as string).split('.');
+    const claims = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+    assert.equal(claims.sub, 'user-alice', 'subject preserved');
+    assert.equal(claims.aud, 'https://upstream-api.example.com', 'audience bound to target');
+    assert.deepEqual(
+      claims.act,
+      { sub: `client:${mcpClientId}` },
+      'act claim identifies the actor (MCP server)'
+    );
+  });
+
+  await test('missing audience rejected', async () => {
+    const { deps, subjectToken, mcpClientId, mcpClientSecret } = await setupExchange();
+    const basic = Buffer.from(`${mcpClientId}:${mcpClientSecret}`).toString('base64');
+    const res = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: { authorization: `Basic ${basic}` },
+        body: formBody({
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          subject_token: subjectToken,
+          subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 400);
+    assert.match(JSON.parse(res.body).error_description, /audience/);
+  });
+
+  await test('scope expansion rejected (narrow only)', async () => {
+    const { deps, subjectToken, mcpClientId, mcpClientSecret } = await setupExchange();
+    const basic = Buffer.from(`${mcpClientId}:${mcpClientSecret}`).toString('base64');
+    const res = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: { authorization: `Basic ${basic}` },
+        body: formBody({
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          subject_token: subjectToken,
+          subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+          audience: 'https://upstream/',
+          scope: 'mcp:admin', // not in subject's scope
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 400);
+    assert.equal(JSON.parse(res.body).error, 'invalid_scope');
+  });
+
+  await test('invalid subject_token rejected', async () => {
+    const { deps, mcpClientId, mcpClientSecret } = await setupExchange();
+    const basic = Buffer.from(`${mcpClientId}:${mcpClientSecret}`).toString('base64');
+    const res = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: { authorization: `Basic ${basic}` },
+        body: formBody({
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          subject_token: 'not-a-valid-jwt',
+          subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+          audience: 'https://upstream/',
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 400);
+    assert.equal(JSON.parse(res.body).error, 'invalid_grant');
+  });
+
+  await test('unauthenticated caller rejected', async () => {
+    const { deps, subjectToken } = await setupExchange();
+    const res = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          subject_token: subjectToken,
+          subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+          audience: 'https://upstream/',
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 401);
+  });
+
+  await test('delegation chain: nested act preserved', async () => {
+    const { deps, mcpClientId, mcpClientSecret } = await setupExchange();
+    // Craft a subject token that already has an `act` chain
+    const chainedSubject = deps.jwtService.exchangeSign({
+      iss: 'https://serv.test',
+      sub: 'user-alice',
+      aud: 'https://mcp.example.com',
+      exp: Math.floor(Date.now() / 1000) + 900,
+      iat: Math.floor(Date.now() / 1000),
+      jti: 'test-jti-1',
+      scope: 'mcp:read',
+      act: { sub: 'client:first-actor' },
+    });
+    const basic = Buffer.from(`${mcpClientId}:${mcpClientSecret}`).toString('base64');
+    const res = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: { authorization: `Basic ${basic}` },
+        body: formBody({
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          subject_token: chainedSubject,
+          subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+          audience: 'https://upstream/',
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 200);
+    const body = JSON.parse(res.body);
+    const [, payloadB64] = (body.access_token as string).split('.');
+    const claims = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+    assert.deepEqual(
+      claims.act,
+      { sub: `client:${mcpClientId}`, act: { sub: 'client:first-actor' } },
+      'delegation chain preserved'
+    );
+  });
+}
+
+async function testIdToken() {
+  console.log('OIDC id_token:');
+
+  await test('openid scope triggers id_token emission', async () => {
+    const { deps, codeVerifier, redirectUri, clientId } = await primeAuthorizationCode();
+    // Save consent for openid scope
+    await deps.consentStore.save({
+      userId: 'u-oidc',
+      tenantId: 'tenant-1',
+      clientId,
+      scopes: 'openid mcp:read',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      createdAt: new Date(),
+    });
+    const challenge = generateCodeChallenge(codeVerifier);
+    const authRes = await handleAuthorize(
+      {
+        method: 'GET',
+        url: buildAuthorizeUrl({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          scope: 'openid mcp:read',
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+        }),
+        headers: {},
+        userId: 'u-oidc',
+      },
+      deps
+    );
+    const code = new URL(authRes.headers.Location).searchParams.get('code')!;
+    const tokenRes = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+          client_id: clientId,
+        }),
+      },
+      deps
+    );
+    const body = JSON.parse(tokenRes.body);
+    assert.ok(body.id_token, 'id_token present when openid scope granted');
+    // Decode (skip signature verify in test)
+    const [, payloadB64] = (body.id_token as string).split('.');
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    assert.equal(payload.sub, 'u-oidc');
+    assert.equal(payload.aud, clientId, 'id_token aud is client_id per OIDC');
+    assert.equal(payload.azp, clientId);
+  });
+
+  await test('no openid scope = no id_token', async () => {
+    const { deps, codeVerifier, redirectUri, clientId } = await primeAuthorizationCode();
+    const code = await issueAuthCode(deps, clientId, redirectUri, codeVerifier);
+    const tokenRes = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+          client_id: clientId,
+        }),
+      },
+      deps
+    );
+    const body = JSON.parse(tokenRes.body);
+    assert.equal(body.id_token, undefined);
+  });
+}
+
 async function testServIntegration() {
   console.log('Serv factory:');
 
@@ -1038,6 +1477,9 @@ async function main() {
   await testAuthorize();
   await testConsent();
   await testToken();
+  await testRevokeIntrospect();
+  await testIdToken();
+  await testTokenExchange();
   await testServIntegration();
   await testIntegration();
   console.log('\nAll auth endpoint tests passed.');

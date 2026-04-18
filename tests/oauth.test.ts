@@ -141,6 +141,78 @@ async function testJwtService() {
     assert.ok(decoded, 'decode should return payload');
     assert.equal(decoded.jti, session.id);
   });
+
+  await test('RS256 sign + verify round-trip via public key', async () => {
+    const { generateKeyPairSync } = await import('crypto');
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    const rs = new JwtService({
+      issuer: TEST_ISSUER,
+      algorithm: 'RS256',
+      privateKey,
+      publicKey,
+      kid: 'test-key-1',
+    });
+    const token = rs.generateSessionToken(session, tenant);
+    const decoded = rs.verifySessionToken(token);
+    assert.ok(decoded, 'RS256 token should verify');
+    assert.equal(decoded.jti, session.id);
+    // Header should have kid
+    const header = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString());
+    assert.equal(header.alg, 'RS256');
+    assert.equal(header.kid, 'test-key-1');
+  });
+
+  await test('ES256 sign + verify round-trip', async () => {
+    const { generateKeyPairSync } = await import('crypto');
+    const { publicKey, privateKey } = generateKeyPairSync('ec', {
+      namedCurve: 'P-256',
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    const es = new JwtService({
+      issuer: TEST_ISSUER,
+      algorithm: 'ES256',
+      privateKey,
+      publicKey,
+    });
+    const token = es.generateSessionToken(session, tenant);
+    const decoded = es.verifySessionToken(token);
+    assert.ok(decoded, 'ES256 token should verify');
+  });
+
+  await test('exportJwk returns kid and alg for asymmetric algs', async () => {
+    const { generateKeyPairSync } = await import('crypto');
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    const rs = new JwtService({
+      issuer: TEST_ISSUER,
+      algorithm: 'RS256',
+      privateKey,
+      publicKey,
+      kid: 'rot-1',
+    });
+    const jwk = rs.exportJwk();
+    assert.ok(jwk);
+    assert.equal(jwk.alg, 'RS256');
+    assert.equal(jwk.use, 'sig');
+    assert.equal(jwk.kid, 'rot-1');
+    assert.equal(jwk.kty, 'RSA');
+  });
+
+  await test('HS256 exportJwk returns null (no public key)', () => {
+    assert.equal(jwt.exportJwk(), null);
+  });
+
+  await test('RS256 without privateKey throws on construction', () => {
+    assert.throws(() => new JwtService({ issuer: 'https://x', algorithm: 'RS256' }), /privateKey/);
+  });
 }
 
 // ============================================================================

@@ -493,6 +493,8 @@ async function handleTokenImpl(
       return await handleRefreshTokenGrant(form, authedClient, deps);
     case 'client_credentials':
       return await handleClientCredentialsGrant(authedClient, form, deps);
+    case 'urn:ietf:params:oauth:grant-type:token-exchange':
+      return await handleTokenExchangeGrant(form, authedClient, deps);
     default:
       return errorResponse(
         400,
@@ -500,6 +502,122 @@ async function handleTokenImpl(
         `grant_type '${grantType ?? ''}' is not supported`
       );
   }
+}
+
+/**
+ * RFC 8693 OAuth Token Exchange.
+ *
+ * Enables the confused-deputy fix for MCP: when an MCP server needs to call
+ * an upstream API on behalf of a user, it exchanges the user's delegation
+ * token for a downstream token scoped to the upstream audience, with the
+ * MCP server identified in the `act` claim.
+ *
+ * This implementation supports the 80/20 subset:
+ * - subject_token_type = access_token (JWT issued by this AS)
+ * - requested_token_type = access_token (default)
+ * - Delegation only (actor_token not required; authenticated client fills act)
+ * - Scope may be narrowed, never expanded
+ * - audience is required; emitted token's `aud` claim is set to it
+ *
+ * Out of scope: saml1/saml2/jwt subject tokens (add when needed),
+ * impersonation flows (always use delegation for audit).
+ */
+async function handleTokenExchangeGrant(
+  form: URLSearchParams,
+  authedClient: AuthenticatedClient | null,
+  deps: EndpointDeps
+): Promise<AuthResponse> {
+  if (!authedClient) {
+    return errorResponse(401, 'invalid_client', 'token exchange requires authenticated client');
+  }
+
+  const subjectToken = form.get('subject_token');
+  const subjectTokenType = form.get('subject_token_type');
+  const audience = form.get('audience');
+  const requestedTokenType =
+    form.get('requested_token_type') ?? 'urn:ietf:params:oauth:token-type:access_token';
+  const scopeParam = form.get('scope');
+
+  if (!subjectToken || !subjectTokenType) {
+    return errorResponse(
+      400,
+      'invalid_request',
+      'subject_token and subject_token_type are required'
+    );
+  }
+  if (!audience) {
+    return errorResponse(
+      400,
+      'invalid_request',
+      'audience is required; target resource must be identified'
+    );
+  }
+  if (subjectTokenType !== 'urn:ietf:params:oauth:token-type:access_token') {
+    return errorResponse(
+      400,
+      'invalid_request',
+      `subject_token_type '${subjectTokenType}' is not supported`
+    );
+  }
+  if (requestedTokenType !== 'urn:ietf:params:oauth:token-type:access_token') {
+    return errorResponse(
+      400,
+      'invalid_request',
+      `requested_token_type '${requestedTokenType}' is not supported`
+    );
+  }
+
+  // Validate subject token — signature, issuer, expiration
+  const decoded = deps.jwtService.verifySessionToken(subjectToken);
+  if (!decoded) {
+    return errorResponse(400, 'invalid_grant', 'subject_token is invalid or expired');
+  }
+
+  // Scope narrowing: requested must be subset of subject's scope
+  const subjectScope = (decoded as unknown as { scope?: string }).scope ?? '';
+  const subjectScopes = new Set(subjectScope.split(' ').filter(Boolean));
+  let scope = subjectScope;
+  if (scopeParam) {
+    const requested = scopeParam.split(/\s+/).filter(Boolean);
+    if (!requested.every((s) => subjectScopes.has(s))) {
+      return errorResponse(400, 'invalid_scope', 'requested scope exceeds subject token scope');
+    }
+    scope = requested.join(' ');
+  }
+
+  // Build act chain — nested for delegation chains (RFC 8693 §4.1)
+  const existingAct = (decoded as unknown as { act?: Record<string, unknown> }).act;
+  const act: Record<string, unknown> = { sub: `client:${authedClient.clientId}` };
+  if (existingAct) act.act = existingAct;
+
+  const now = (deps.now ?? (() => new Date()))();
+  const nowSec = Math.floor(now.getTime() / 1000);
+  const exchanged = deps.jwtService.exchangeSign({
+    sub: decoded.sub,
+    aud: audience,
+    exp: nowSec + deps.config.accessTokenTtlSeconds,
+    iat: nowSec,
+    iss: deps.config.issuer,
+    scope,
+    client_id: authedClient.clientId,
+    tenant_id: deps.tenant.id,
+    act,
+  });
+
+  deps.log?.('info', 'token_exchange_issued', {
+    sub: decoded.sub,
+    actor: authedClient.clientId,
+    audience,
+    scope,
+  });
+
+  return jsonResponse(200, {
+    access_token: exchanged,
+    issued_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+    token_type: 'Bearer',
+    expires_in: deps.config.accessTokenTtlSeconds,
+    scope,
+  });
 }
 
 async function handleAuthorizationCodeGrant(
@@ -707,13 +825,28 @@ async function issueTokens(
     await deps.refreshTokenStore.save(record);
   }
 
-  return jsonResponse(200, {
+  // OIDC id_token per OpenID Connect Core §3.1.3.3: emit when `openid` scope
+  // was granted. Contains identity claims (sub, iss, aud, exp, iat, azp),
+  // signed with the same key/alg as the access token.
+  const scopes = args.scope.split(' ').filter(Boolean);
+  const response: Record<string, unknown> = {
     access_token: accessToken,
     token_type: 'Bearer',
     expires_in: deps.config.accessTokenTtlSeconds,
     refresh_token: refreshToken,
     scope: args.scope,
-  });
+  };
+  if (scopes.includes('openid')) {
+    response.id_token = deps.jwtService.generateIdToken({
+      sub: args.userId,
+      tenantId: deps.tenant.id,
+      clientId: args.clientId,
+      expiresInSeconds: deps.config.accessTokenTtlSeconds,
+      now,
+    });
+  }
+
+  return jsonResponse(200, response);
 }
 
 // ============================================================================
@@ -842,6 +975,145 @@ interface RegisterRequestBody {
   logo_uri?: unknown;
   tos_uri?: unknown;
   policy_uri?: unknown;
+}
+
+// ============================================================================
+// /revoke (RFC 7009)
+// ============================================================================
+
+/**
+ * Token revocation endpoint per RFC 7009.
+ *
+ * Accepts `token` + `token_type_hint` (access_token|refresh_token).
+ * Always returns 200 even if the token didn't exist (spec §2.2 — prevents
+ * token scanning). Access tokens are JWTs so we can't actively revoke them
+ * without a denylist; we revoke the refresh token and rely on the 15-min
+ * access-token TTL for cleanup.
+ */
+export async function handleRevoke(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
+  const res = await handleRevokeImpl(req, deps);
+  observeAuth('revoke' as 'token', res);
+  return res;
+}
+
+async function handleRevokeImpl(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
+  if (req.method !== 'POST') {
+    return errorResponse(405, 'invalid_request', 'method must be POST');
+  }
+  const form = parseFormBody(req.body ?? '');
+  const token = form.get('token');
+  const hint = form.get('token_type_hint');
+
+  if (!token) {
+    return errorResponse(400, 'invalid_request', 'token is required');
+  }
+
+  // Authenticate the caller if possible; RFC 7009 §2.1 says the AS must
+  // authenticate confidential clients before revocation. Public clients
+  // skip auth.
+  const authedClient = await authenticateTokenClient(req, form, deps);
+
+  // RFC 7009: try the hinted type first, fall back to the other.
+  let revoked = false;
+  if (hint === 'access_token') {
+    // Access tokens are self-contained JWTs; we'd need a denylist store.
+    // For now, we only fully revoke refresh tokens.
+    revoked = false;
+  } else {
+    const existing = await deps.refreshTokenStore.find(token);
+    if (existing) {
+      if (authedClient && authedClient.clientId !== existing.clientId) {
+        return errorResponse(
+          400,
+          'invalid_client',
+          'token does not belong to authenticated client'
+        );
+      }
+      revoked = await deps.refreshTokenStore.revoke(token);
+    }
+  }
+
+  deps.log?.(revoked ? 'info' : 'info', 'token_revoke', { revoked, hint: hint ?? undefined });
+
+  // RFC 7009 §2.2: always return 200, no body
+  return { status: 200, headers: { 'Cache-Control': 'no-store' }, body: '' };
+}
+
+// ============================================================================
+// /introspect (RFC 7662)
+// ============================================================================
+
+/**
+ * Token introspection endpoint per RFC 7662.
+ *
+ * Accepts `token` and returns metadata: active (boolean), scope, client_id,
+ * sub, exp, iat. Returns `{active: false}` for unknown/expired/revoked
+ * tokens without leaking why.
+ *
+ * Caller must be an authenticated confidential client (§2.1 — "protected
+ * resource"); this prevents arbitrary callers from probing token validity.
+ */
+export async function handleIntrospect(
+  req: AuthRequest,
+  deps: EndpointDeps
+): Promise<AuthResponse> {
+  const res = await handleIntrospectImpl(req, deps);
+  observeAuth('introspect' as 'token', res);
+  return res;
+}
+
+async function handleIntrospectImpl(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
+  if (req.method !== 'POST') {
+    return errorResponse(405, 'invalid_request', 'method must be POST');
+  }
+
+  const form = parseFormBody(req.body ?? '');
+  const token = form.get('token');
+  const hint = form.get('token_type_hint');
+
+  if (!token) {
+    return errorResponse(400, 'invalid_request', 'token is required');
+  }
+
+  // RFC 7662 §2.1: only authenticated protected-resource callers may introspect
+  const authedClient = await authenticateTokenClient(req, form, deps);
+  if (!authedClient) {
+    return errorResponse(401, 'invalid_client', 'introspection requires authenticated client');
+  }
+
+  // Try refresh-token lookup first if hinted, then JWT decode
+  if (hint === 'refresh_token' || !hint) {
+    const rt = await deps.refreshTokenStore.find(token);
+    if (rt) {
+      return jsonResponse(200, {
+        active: true,
+        scope: rt.scope,
+        client_id: rt.clientId,
+        sub: rt.userId,
+        token_type: 'refresh_token',
+        exp: Math.floor(rt.expiresAt.getTime() / 1000),
+        iat: Math.floor(rt.createdAt.getTime() / 1000),
+      });
+    }
+  }
+
+  // JWT access-token path: decode + verify
+  const decoded = deps.jwtService.verifySessionToken(token);
+  if (decoded) {
+    return jsonResponse(200, {
+      active: true,
+      scope: (decoded as unknown as { scope?: string }).scope,
+      client_id: (decoded as unknown as { client_id?: string }).client_id,
+      sub: decoded.sub,
+      token_type: 'Bearer',
+      exp: decoded.exp,
+      iat: decoded.iat,
+      iss: decoded.iss,
+      aud: decoded.aud,
+    });
+  }
+
+  return jsonResponse(200, { active: false });
 }
 
 // ============================================================================

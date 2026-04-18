@@ -5,7 +5,17 @@
  * Uses HMAC-SHA256 for simplicity; can be upgraded to RSA/EC for production
  */
 
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import {
+  createHash,
+  createHmac,
+  createSign,
+  createVerify,
+  createPrivateKey,
+  createPublicKey,
+  randomBytes,
+  timingSafeEqual,
+  type KeyObject,
+} from 'crypto';
 import type { Session, SessionToken, Tenant, User, Membership } from '../types/index.js';
 
 // ============================================================================
@@ -13,14 +23,27 @@ import type { Session, SessionToken, Tenant, User, Membership } from '../types/i
 // ============================================================================
 
 export interface JwtConfig {
-  /** Secret key for signing tokens (min 32 bytes recommended) */
+  /**
+   * Signing secret for HMAC algorithms (HS256/384/512). Min 32 bytes
+   * recommended. Ignored when algorithm is an asymmetric variant.
+   */
   secret: string;
   /** Token issuer (e.g., 'https://serv.example.com') */
   issuer: string;
   /** Default token expiry in seconds */
   expirySeconds: number;
-  /** Algorithm to use */
-  algorithm: 'HS256' | 'HS384' | 'HS512';
+  /**
+   * Algorithm to use. Asymmetric variants require `privateKey` (PEM) for
+   * signing and optionally `publicKey` (PEM) for verification. If the
+   * public key is omitted it's derived from the private key.
+   */
+  algorithm: 'HS256' | 'HS384' | 'HS512' | 'RS256' | 'ES256';
+  /** PEM-encoded private key. Required for RS256/ES256. */
+  privateKey?: string;
+  /** PEM-encoded public key; derived from privateKey if omitted. */
+  publicKey?: string;
+  /** Key identifier for `kid` header. Optional; useful during key rotation. */
+  kid?: string;
 }
 
 const DEFAULT_CONFIG: Partial<JwtConfig> = {
@@ -28,19 +51,46 @@ const DEFAULT_CONFIG: Partial<JwtConfig> = {
   algorithm: 'HS256',
 };
 
+function isAsymmetric(alg: JwtConfig['algorithm']): boolean {
+  return alg === 'RS256' || alg === 'ES256';
+}
+
 // ============================================================================
 // JWT Implementation
 // ============================================================================
 
 export class JwtService {
   private config: JwtConfig;
+  private privateKey?: KeyObject;
+  private publicKey?: KeyObject;
 
-  constructor(config: Partial<JwtConfig> & { secret: string; issuer: string }) {
-    this.config = { ...DEFAULT_CONFIG, ...config } as JwtConfig;
+  constructor(config: Partial<JwtConfig> & { issuer: string; secret?: string }) {
+    this.config = { ...DEFAULT_CONFIG, ...config, secret: config.secret ?? '' } as JwtConfig;
 
-    if (this.config.secret.length < 32) {
+    if (isAsymmetric(this.config.algorithm)) {
+      if (!this.config.privateKey) {
+        throw new Error(`JWT algorithm ${this.config.algorithm} requires a privateKey`);
+      }
+      this.privateKey = createPrivateKey(this.config.privateKey);
+      this.publicKey = this.config.publicKey
+        ? createPublicKey(this.config.publicKey)
+        : createPublicKey(this.privateKey);
+    } else if (this.config.secret.length < 32) {
       console.warn('JWT secret is less than 32 characters. Consider using a stronger secret.');
     }
+  }
+
+  /**
+   * Export the public JWK for publication at `/.well-known/jwks.json`.
+   * Only meaningful for asymmetric algorithms.
+   */
+  exportJwk(): Record<string, unknown> | null {
+    if (!this.publicKey) return null;
+    const jwk = this.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    jwk.alg = this.config.algorithm;
+    jwk.use = 'sig';
+    if (this.config.kid) jwk.kid = this.config.kid;
+    return jwk;
   }
 
   /**
@@ -72,6 +122,48 @@ export class JwtService {
       client_id: args.clientId,
       scope: args.scope,
     };
+    return this.sign(payload);
+  }
+
+  /**
+   * Sign a custom payload (used by RFC 8693 token exchange, where the
+   * caller fully controls the claim set including `aud`, `act`, etc.).
+   * Caller is responsible for including `iss`, `exp`, `iat`.
+   */
+  exchangeSign(payload: Record<string, unknown>): string {
+    return this.sign(payload);
+  }
+
+  /**
+   * Generate an OpenID Connect id_token per OIDC Core §3.1.3.7.
+   *
+   * Identity assertion about the end-user. Issued when `openid` scope is
+   * granted at /token. Signed with the same key/algorithm as access tokens.
+   * `azp` (authorized party) claim identifies the client that requested it.
+   */
+  generateIdToken(args: {
+    sub: string;
+    tenantId: string;
+    clientId: string;
+    expiresInSeconds: number;
+    now?: Date;
+    /** Optional extra claims (email, name, etc.) surfaced from the profile. */
+    profile?: Record<string, unknown>;
+    /** Optional nonce echoed from the authorize request. */
+    nonce?: string;
+  }): string {
+    const nowSec = Math.floor((args.now?.getTime() ?? Date.now()) / 1000);
+    const payload: Record<string, unknown> = {
+      iss: this.config.issuer,
+      sub: args.sub,
+      aud: args.clientId, // RFC: id_token audience is the client, not the resource
+      azp: args.clientId,
+      exp: nowSec + args.expiresInSeconds,
+      iat: nowSec,
+      tenant_id: args.tenantId,
+      ...(args.profile ?? {}),
+    };
+    if (args.nonce) payload.nonce = args.nonce;
     return this.sign(payload);
   }
 
@@ -167,10 +259,11 @@ export class JwtService {
    * Sign a payload and return JWT
    */
   private sign(payload: Record<string, unknown>): string {
-    const header = {
+    const header: Record<string, unknown> = {
       alg: this.config.algorithm,
       typ: 'JWT',
     };
+    if (this.config.kid) header.kid = this.config.kid;
 
     const headerB64 = base64UrlEncode(JSON.stringify(header));
     const payloadB64 = base64UrlEncode(JSON.stringify(payload));
@@ -189,45 +282,65 @@ export class JwtService {
     if (parts.length !== 3) return null;
 
     const [headerB64, payloadB64, signatureB64] = parts;
-
-    // Verify signature
     const signatureInput = `${headerB64}.${payloadB64}`;
-    const expectedSignature = this.createSignature(signatureInput);
 
-    // Timing-safe comparison
-    const signatureBuffer = Buffer.from(signatureB64, 'base64url');
-    const expectedBuffer = Buffer.from(expectedSignature, 'base64url');
-
-    if (signatureBuffer.length !== expectedBuffer.length) {
-      return null;
+    if (isAsymmetric(this.config.algorithm)) {
+      if (!this.publicKey) return null;
+      try {
+        const verifier = createVerify(this.hashName());
+        verifier.update(signatureInput);
+        verifier.end();
+        const signature = Buffer.from(signatureB64, 'base64url');
+        const ok = verifier.verify(this.publicKey, signature);
+        if (!ok) return null;
+      } catch {
+        return null;
+      }
+    } else {
+      const expectedSignature = this.createSignature(signatureInput);
+      const signatureBuffer = Buffer.from(signatureB64, 'base64url');
+      const expectedBuffer = Buffer.from(expectedSignature, 'base64url');
+      if (signatureBuffer.length !== expectedBuffer.length) return null;
+      if (!timingSafeEqual(signatureBuffer, expectedBuffer)) return null;
     }
 
-    if (!timingSafeEqual(signatureBuffer, expectedBuffer)) {
-      return null;
-    }
-
-    // Parse payload
     try {
       return JSON.parse(base64UrlDecode(payloadB64));
     } catch {
-      return null; // malformed payload
+      return null;
     }
   }
 
   /**
-   * Create HMAC signature
+   * Create JWS signature. HMAC for symmetric algs, RSA-PSS / ECDSA for asymmetric.
    */
   private createSignature(input: string): string {
-    const algorithm =
-      this.config.algorithm === 'HS256'
-        ? 'sha256'
-        : this.config.algorithm === 'HS384'
-          ? 'sha384'
-          : 'sha512';
-
-    const hmac = createHmac(algorithm, this.config.secret);
+    if (isAsymmetric(this.config.algorithm)) {
+      if (!this.privateKey) {
+        throw new Error('asymmetric JWT signing requires privateKey');
+      }
+      const signer = createSign(this.hashName());
+      signer.update(input);
+      signer.end();
+      return signer.sign(this.privateKey).toString('base64url');
+    }
+    const hmac = createHmac(this.hashName(), this.config.secret);
     hmac.update(input);
     return hmac.digest('base64url');
+  }
+
+  private hashName(): 'sha256' | 'sha384' | 'sha512' {
+    switch (this.config.algorithm) {
+      case 'HS384':
+        return 'sha384';
+      case 'HS512':
+        return 'sha512';
+      case 'HS256':
+      case 'RS256':
+      case 'ES256':
+      default:
+        return 'sha256';
+    }
   }
 }
 

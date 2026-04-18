@@ -114,12 +114,24 @@ export {
   handleToken,
   handleRegister,
   handleConsent,
+  handleRevoke,
+  handleIntrospect,
   DEFAULT_ENDPOINT_CONFIG,
   type AuthRequest,
   type AuthResponse,
   type EndpointConfig,
   type EndpointDeps,
 } from './auth/endpoints.js';
+
+// SQLite-backed stores (requires optional better-sqlite3)
+export {
+  openAuthDatabase,
+  SqliteAuthCodeStore,
+  SqliteRefreshTokenStore,
+  SqliteClientRegistry,
+  SqliteConsentStore,
+  SqlitePendingAuthorizationStore,
+} from './auth/sqlite-stores.js';
 
 // Authorization Server Stores
 export {
