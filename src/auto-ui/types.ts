@@ -46,6 +46,11 @@ export interface ConfigParam {
    * never the actual value.
    */
   currentValue?: string | null;
+  /**
+   * Per-parameter JSDoc description, surfaced as field help under the
+   * label in the Beam Setup form.
+   */
+  description?: string;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

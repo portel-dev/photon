@@ -19,6 +19,8 @@ interface ConfigParam {
    * for already-configured photons.
    */
   currentValue?: string | null;
+  /** Per-parameter JSDoc help text from the source. */
+  description?: string;
 }
 
 interface UnconfiguredPhoton {
@@ -294,6 +296,13 @@ export class PhotonConfig extends LitElement {
             : ''}
         </label>
 
+        ${param.description
+          ? html`<p
+              style="margin: 0; color: var(--t-muted); font-size: var(--text-xs); line-height: 1.4;"
+            >
+              ${param.description}
+            </p>`
+          : ''}
         ${isBoolean
           ? this._renderToggle(param, seedValue)
           : isNumber

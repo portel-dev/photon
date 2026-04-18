@@ -708,6 +708,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       isOptional: boolean;
       hasDefault: boolean;
       defaultValue?: unknown;
+      description?: string;
     },
     photonName: string
   ): ConfigParam => {
@@ -724,6 +725,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       defaultValue: p.defaultValue,
       isSecret,
       currentValue,
+      ...(p.description ? { description: p.description } : {}),
     };
   };
 

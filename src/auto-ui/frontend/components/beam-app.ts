@@ -9984,6 +9984,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const properties = params?.properties || {};
     const propEntries = Object.entries(properties);
     const hasResult = this._lastResult !== null;
+    // Instance label: only relevant when the photon is stateful or has
+    // more than one instance loaded. The picker itself lives in the
+    // context-bar above; here we just give the user a "you are here"
+    // anchor so they don't accidentally edit the wrong instance.
+    const showInstanceLabel =
+      !!photon?.stateful || (Array.isArray(this._instances) && this._instances.length > 1);
+    const instanceName = this._currentInstance || 'default';
 
     // Parse result into key-value pairs for the status section
     let statusEntries: Array<[string, string]> = [];
@@ -10008,6 +10015,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
 
     return html`
+      ${showInstanceLabel
+        ? html`
+            <div
+              style="display: flex; align-items: center; gap: var(--space-xs); margin-bottom: var(--space-sm); font-size: var(--text-sm); color: var(--t-muted);"
+            >
+              <span>Instance:</span>
+              <span
+                style="font-family: var(--font-mono); color: var(--t-primary); background: var(--bg-glass); padding: 2px 8px; border-radius: var(--radius-xs);"
+                >${instanceName}</span
+              >
+              <span style="font-size: var(--text-xs);">
+                — switch via the picker in the header above
+              </span>
+            </div>
+          `
+        : ''}
       ${propEntries.length > 0
         ? html`
             <div class="glass-panel" style="margin-bottom: var(--space-lg); overflow: hidden;">
