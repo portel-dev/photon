@@ -5,7 +5,7 @@
  * Uses HMAC-SHA256 for simplicity; can be upgraded to RSA/EC for production
  */
 
-import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { Session, SessionToken, Tenant, User, Membership } from '../types/index.js';
 
 // ============================================================================
@@ -211,11 +211,11 @@ export function generateCodeVerifier(): string {
 }
 
 /**
- * Generate a code challenge from a verifier
+ * Generate a code challenge from a verifier (RFC 7636 §4.2, S256 method)
+ * code_challenge = BASE64URL-ENCODE(SHA256(code_verifier))
  */
 export function generateCodeChallenge(verifier: string): string {
-  const hash = createHmac('sha256', '').update(verifier).digest();
-  return hash.toString('base64url');
+  return createHash('sha256').update(verifier).digest('base64url');
 }
 
 /**

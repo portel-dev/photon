@@ -177,6 +177,14 @@ async function testPkce() {
     const wrongVerifier = generateCodeVerifier();
     assert.equal(verifyCodeChallenge(wrongVerifier, challenge), false);
   });
+
+  await test('S256 challenge matches RFC 7636 Appendix B test vector', () => {
+    // From RFC 7636 §4.2 / Appendix B. Guards against silent regressions to
+    // HMAC (previous bug) or any other non-SHA256 hash.
+    const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+    const expectedChallenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM';
+    assert.equal(generateCodeChallenge(verifier), expectedChallenge);
+  });
 }
 
 // ============================================================================

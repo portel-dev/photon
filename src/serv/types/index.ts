@@ -27,6 +27,12 @@ export interface TenantSettings {
     requestsPerMinute: number;
     requestsPerDay: number;
   };
+  /**
+   * Hostnames this tenant accepts CIMD client_ids from. Supports exact match
+   * (`claude.ai`) or leading wildcard (`*.claude.ai`). Empty / undefined = allow all.
+   * Tightening this is the primary defense against CIMD phishing.
+   */
+  allowedClientDomains?: string[];
 }
 
 // ============================================================================
@@ -184,6 +190,8 @@ export interface AuthorizationServerMetadata {
   grant_types_supported?: string[];
   code_challenge_methods_supported?: string[];
   token_endpoint_auth_methods_supported?: string[];
+  /** Draft extension: this AS resolves client_ids that are HTTPS URLs (CIMD). */
+  client_id_metadata_document_supported?: boolean;
 }
 
 // ============================================================================
