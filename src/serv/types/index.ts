@@ -195,6 +195,84 @@ export interface AuthorizationServerMetadata {
 }
 
 // ============================================================================
+// Authorization Server State (code/refresh token/client registry/consent)
+// ============================================================================
+
+/**
+ * A single-use authorization code issued by `/authorize`, exchanged at `/token`.
+ * TTL is short (60s per RFC 6749 §4.1.2); codes are deleted on consumption.
+ */
+export interface AuthorizationCode {
+  code: string;
+  clientId: string;
+  redirectUri: string;
+  scope: string;
+  userId: string;
+  tenantId: string;
+  codeChallenge: string;
+  codeChallengeMethod: 'S256';
+  expiresAt: Date;
+  createdAt: Date;
+}
+
+/**
+ * Long-lived refresh token. Rotated on every use per OAuth 2.1.
+ */
+export interface RefreshToken {
+  token: string;
+  clientId: string;
+  userId: string;
+  tenantId: string;
+  scope: string;
+  expiresAt: Date;
+  createdAt: Date;
+  /** Previous refresh token hash, for replay detection on rotation. */
+  supersedes?: string;
+}
+
+/**
+ * A client registered via RFC 7591 Dynamic Client Registration.
+ * CIMD clients are NOT stored here, their metadata lives on the client's
+ * own HTTPS URL and is fetched/cached per request.
+ */
+export interface RegisteredClient {
+  clientId: string;
+  clientSecretHash?: string; // bcrypt/argon2 hash; absent for public clients
+  clientName: string;
+  redirectUris: string[];
+  grantTypes: string[];
+  responseTypes: string[];
+  scope: string;
+  contacts?: string[];
+  logoUri?: string;
+  tosUri?: string;
+  policyUri?: string;
+  isPublic: boolean; // no client_secret issued
+  createdAt: Date;
+  /** TTL eviction: unused registrations drop after 30 days. Touched on use. */
+  lastUsedAt: Date;
+  /** User-Agent + IP at registration, for audit/deprecation-tracking. */
+  registrationContext?: {
+    userAgent?: string;
+    ipAddress?: string;
+  };
+}
+
+/**
+ * A remembered user consent for (client_id, scope_set). Skip consent screen
+ * on subsequent requests unless scopes expand beyond remembered set.
+ */
+export interface ConsentRecord {
+  userId: string;
+  tenantId: string;
+  clientId: string;
+  /** Sorted, space-joined scope list for stable key comparison. */
+  scopes: string;
+  expiresAt: Date;
+  createdAt: Date;
+}
+
+// ============================================================================
 // Request Context
 // ============================================================================
 

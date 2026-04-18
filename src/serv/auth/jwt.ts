@@ -44,6 +44,38 @@ export class JwtService {
   }
 
   /**
+   * Generate an OAuth access token JWT for the token endpoint.
+   *
+   * This is a lower-level variant of `generateSessionToken` that accepts
+   * the minimal fields needed for an OAuth 2.1 bearer token: `sub`, `scope`,
+   * `client_id`, `tenant_id`, plus a TTL. No `Session` object required.
+   */
+  generateAccessToken(args: {
+    sub: string;
+    tenantId: string;
+    scope: string;
+    clientId: string;
+    expiresInSeconds: number;
+    now?: Date;
+    /** Optional jti; random if omitted. */
+    jti?: string;
+  }): string {
+    const nowSec = Math.floor((args.now?.getTime() ?? Date.now()) / 1000);
+    const payload: Record<string, unknown> = {
+      iss: this.config.issuer,
+      sub: args.sub,
+      aud: `${this.config.issuer}/mcp`,
+      exp: nowSec + args.expiresInSeconds,
+      iat: nowSec,
+      jti: args.jti ?? randomBytes(16).toString('base64url'),
+      tenant_id: args.tenantId,
+      client_id: args.clientId,
+      scope: args.scope,
+    };
+    return this.sign(payload);
+  }
+
+  /**
    * Generate a session token
    */
   generateSessionToken(
