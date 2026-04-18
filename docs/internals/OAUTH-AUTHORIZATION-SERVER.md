@@ -6,14 +6,21 @@ SERV ships a standards-compliant OAuth 2.1 authorization server so self-hosted p
 
 - **Endpoints** (pure handlers in `src/serv/auth/endpoints.ts`, returning `{status, headers, body}`):
   - `GET /authorize` : RFC 6749 §4.1 authorization code grant, PKCE S256 mandatory
-  - `POST /token` : `authorization_code`, `refresh_token`, `client_credentials` grants
+  - `POST /token` : `authorization_code`, `refresh_token`, `client_credentials`, and RFC 8693 `token-exchange` grants
   - `POST /register` : RFC 7591 DCR
   - `GET /consent`, `POST /consent` : HTML consent screen + decision handling
+  - `POST /revoke` : RFC 7009 token revocation
+  - `POST /introspect` : RFC 7662 token introspection
 - **Well-known discovery** (`src/serv/auth/well-known.ts`):
   - `/.well-known/oauth-authorization-server` (RFC 8414) advertises `client_id_metadata_document_supported: true`
   - `/.well-known/oauth-protected-resource` (RFC 9728)
 - **CIMD resolution** with per-tenant domain allowlist, in-memory LRU cache, ETag revalidation, structured error taxonomy
-- **Stores** (in-memory defaults, interface-based for swap): auth codes, refresh tokens, DCR registry, remembered consents, paused authorizations
+- **Stores** — two implementations of every interface:
+  - In-memory defaults for single-instance self-host
+  - SQLite-backed (`src/serv/auth/sqlite-stores.ts`) for persistence across restarts; requires `better-sqlite3` (optional peer)
+- **JWT signing** — HS256/384/512 symmetric plus RS256 / ES256 asymmetric. `exportJwk()` publishes the public key for `/.well-known/jwks.json`.
+- **OIDC id_token** emitted on `/token` when `openid` scope is granted. Claims: iss, sub, aud (client), azp, exp, iat, optional nonce. Per OIDC Core §3.1.3.7.
+- **RFC 8693 token exchange** fixes MCP confused-deputy: MCP server exchanges the user's access token for a downstream-audience token with `act` claim identifying the server. Delegation chains preserved via nested `act`. Scope narrow-only.
 - **Metrics** via `@opentelemetry/api` when installed: `mcp_auth.events`, `mcp_auth.cimd.fetches`
 
 ## Design decisions
@@ -119,11 +126,9 @@ Persistent backends are not yet shipped; the interfaces are stable and implement
 
 ## Not yet implemented
 
-- Persistent store backends (SQLite/D1) — in-memory only today
-- Token introspection (RFC 7662) and revocation (RFC 7009) endpoints
-- OpenID Connect `id_token` issuance
-- Public-key crypto (RS256/ES256) — HS256 only; fine for single-issuer, revisit for federation
-- RFC 8693 token exchange for confused-deputy protection when photons call upstream APIs
+- JWKS publication endpoint (`/.well-known/jwks.json`) — `JwtService.exportJwk()` returns the JWK, but an HTTP route needs to be mounted by the SERV host app.
+- Upstream federation login UI — photon-side `/login` that consumes `return_to` and drives GitHub/Microsoft auth. Handlers + provider wiring exist (`src/serv/auth/oauth.ts`); the HTML + session-cookie glue is an integrator concern today.
+- Subject token types beyond `access_token` in RFC 8693 exchange (SAML, external JWTs).
 
 ## Metrics
 
