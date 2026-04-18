@@ -99,9 +99,46 @@ export {
   handleAuthServerRequest,
   generateWwwAuthenticate,
   fetchClientMetadata,
+  resolveClientMetadata,
+  CimdCache,
   type WellKnownConfig,
   type ClientMetadataDocument,
+  type CimdError,
+  type CimdResult,
+  type CimdFetchOptions,
 } from './auth/well-known.js';
+
+// Authorization Server Endpoints (OAuth 2.1)
+export {
+  handleAuthorize,
+  handleToken,
+  handleRegister,
+  handleConsent,
+  DEFAULT_ENDPOINT_CONFIG,
+  type AuthRequest,
+  type AuthResponse,
+  type EndpointConfig,
+  type EndpointDeps,
+} from './auth/endpoints.js';
+
+// Authorization Server Stores
+export {
+  MemoryAuthCodeStore,
+  MemoryRefreshTokenStore,
+  MemoryClientRegistry,
+  MemoryConsentStore,
+  MemoryPendingAuthorizationStore,
+  generateSecureToken,
+  hashClientSecret,
+  verifyClientSecret,
+  normalizeScopes,
+  type AuthCodeStore,
+  type RefreshTokenStore,
+  type ClientRegistry,
+  type ConsentStore,
+  type PendingAuthorizationStore,
+  type PendingAuthorization,
+} from './auth/auth-store.js';
 
 // Runtime (OAuth-aware execution)
 export {
@@ -136,7 +173,24 @@ import {
   MemoryElicitationStore,
   MemoryGrantStore,
 } from './auth/oauth.js';
-import type { WellKnownConfig } from './auth/well-known.js';
+import { CimdCache, type WellKnownConfig } from './auth/well-known.js';
+import {
+  MemoryAuthCodeStore,
+  MemoryRefreshTokenStore,
+  MemoryClientRegistry,
+  MemoryConsentStore,
+  MemoryPendingAuthorizationStore,
+  type AuthCodeStore,
+  type RefreshTokenStore,
+  type ClientRegistry,
+  type ConsentStore,
+  type PendingAuthorizationStore,
+} from './auth/auth-store.js';
+import {
+  DEFAULT_ENDPOINT_CONFIG,
+  type EndpointConfig,
+  type EndpointDeps,
+} from './auth/endpoints.js';
 import { PhotonExecutor, type ExecutionContext } from './runtime/index.js';
 
 export interface ServConfig {
@@ -160,6 +214,20 @@ export interface ServConfig {
   membershipStore?: MembershipStore;
   /** Token vault (optional, defaults to local) */
   tokenVault?: TokenVault;
+  /** Authorization-server code store (optional, defaults to memory). */
+  authCodeStore?: AuthCodeStore;
+  /** Refresh-token store (optional, defaults to memory). */
+  refreshTokenStore?: RefreshTokenStore;
+  /** DCR client registry (optional, defaults to memory). */
+  clientRegistry?: ClientRegistry;
+  /** Remembered-consent store (optional, defaults to memory). */
+  consentStore?: ConsentStore;
+  /** Paused-authorization-request store (optional, defaults to memory). */
+  pendingAuthStore?: PendingAuthorizationStore;
+  /** Overrides for endpoint config (TTLs, first-party allowlist, etc.). */
+  endpointConfig?: Partial<
+    Omit<EndpointConfig, 'issuer' | 'authorizeUrl' | 'consentUrl' | 'loginUrl'>
+  >;
 }
 
 export class Serv {
@@ -173,6 +241,14 @@ export class Serv {
   readonly oauthProviders: OAuthProviderRegistry;
   readonly oauthFlow: OAuthFlowHandler;
   readonly wellKnownConfig: WellKnownConfig;
+
+  /** Authorization-server state (see /authorize, /token, /register). */
+  readonly authCodeStore: AuthCodeStore;
+  readonly refreshTokenStore: RefreshTokenStore;
+  readonly clientRegistry: ClientRegistry;
+  readonly consentStore: ConsentStore;
+  readonly pendingAuthStore: PendingAuthorizationStore;
+  readonly cimdCache: CimdCache;
 
   private elicitationStore = new MemoryElicitationStore();
   private grantStore = new MemoryGrantStore();
@@ -223,6 +299,45 @@ export class Serv {
     // Well-known config
     this.wellKnownConfig = {
       baseUrl: config.baseUrl,
+    };
+
+    // Authorization-server stores (in-memory defaults; callers override for prod)
+    this.authCodeStore = config.authCodeStore ?? new MemoryAuthCodeStore();
+    this.refreshTokenStore = config.refreshTokenStore ?? new MemoryRefreshTokenStore();
+    this.clientRegistry = config.clientRegistry ?? new MemoryClientRegistry();
+    this.consentStore = config.consentStore ?? new MemoryConsentStore();
+    this.pendingAuthStore = config.pendingAuthStore ?? new MemoryPendingAuthorizationStore();
+    this.cimdCache = new CimdCache();
+  }
+
+  /**
+   * Build per-tenant endpoint dependencies for the OAuth 2.1 authorization
+   * server handlers. Callers pass the resulting `EndpointDeps` to
+   * `handleAuthorize` / `handleToken` / `handleRegister` / `handleConsent`.
+   *
+   * URLs are derived from the tenant slug unless overridden; Serv owns the
+   * stores and JWT service so multiple tenants share them without coupling
+   * to any HTTP framework.
+   */
+  buildEndpointDeps(tenant: Tenant): EndpointDeps {
+    const baseUri = `${this.config.baseUrl}/tenant/${tenant.slug}`;
+    return {
+      tenant,
+      config: {
+        ...DEFAULT_ENDPOINT_CONFIG,
+        issuer: baseUri,
+        authorizeUrl: `${baseUri}/authorize`,
+        consentUrl: `${baseUri}/consent`,
+        loginUrl: `${baseUri}/login`,
+        ...this.config.endpointConfig,
+      },
+      codeStore: this.authCodeStore,
+      refreshTokenStore: this.refreshTokenStore,
+      clientRegistry: this.clientRegistry,
+      consentStore: this.consentStore,
+      pendingStore: this.pendingAuthStore,
+      jwtService: this.jwtService,
+      cimdCache: this.cimdCache,
     };
   }
 

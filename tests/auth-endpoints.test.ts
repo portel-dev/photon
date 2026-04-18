@@ -988,11 +988,57 @@ async function test(name: string, fn: () => void | Promise<void>): Promise<void>
   }
 }
 
+async function testServIntegration() {
+  console.log('Serv factory:');
+
+  await test('Serv.buildEndpointDeps wires stores + derives tenant URIs', async () => {
+    const { Serv } = await import('../src/serv/index.js');
+    const { MemoryTenantStore } = await import('../src/serv/middleware/tenant.js');
+    const tenantStore = new MemoryTenantStore();
+    tenantStore.add(TEST_TENANT);
+
+    const serv = new Serv({
+      baseUrl: 'https://serv.test',
+      baseDomain: 'serv.test',
+      jwtSecret: 'test-secret-at-least-32-chars-long-1234',
+      encryptionKey: 'test-encryption-key-32-chars-long-1234',
+      stateSecret: 'test-state-secret-at-least-32-chars-12',
+      tenantStore,
+    });
+
+    const deps = serv.buildEndpointDeps(TEST_TENANT);
+    assert.equal(deps.config.issuer, 'https://serv.test/tenant/test');
+    assert.equal(deps.config.authorizeUrl, 'https://serv.test/tenant/test/authorize');
+    assert.equal(deps.config.consentUrl, 'https://serv.test/tenant/test/consent');
+    assert.equal(deps.config.loginUrl, 'https://serv.test/tenant/test/login');
+    assert.ok(deps.codeStore);
+    assert.ok(deps.jwtService);
+    assert.ok(deps.cimdCache);
+
+    // End-to-end call using the Serv-managed deps
+    const registration = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/tenant/test/register',
+        headers: {},
+        body: JSON.stringify({
+          client_name: 'Serv-factory Test',
+          redirect_uris: ['https://app.example.com/cb'],
+          token_endpoint_auth_method: 'none',
+        }),
+      },
+      deps
+    );
+    assert.equal(registration.status, 201);
+  });
+}
+
 async function main() {
   await testRegister();
   await testAuthorize();
   await testConsent();
   await testToken();
+  await testServIntegration();
   await testIntegration();
   console.log('\nAll auth endpoint tests passed.');
 }

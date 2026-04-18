@@ -202,6 +202,50 @@ export function recordCircuitStateChange(params: {
 }
 
 /**
+ * Record an OAuth authorization-server event. One counter per endpoint +
+ * status so operators can alert on error rates and track CIMD vs DCR
+ * adoption without sampling logs.
+ */
+export function recordAuthEvent(params: {
+  /** Which AS endpoint. */
+  endpoint: 'authorize' | 'token' | 'register' | 'consent';
+  /** Outcome bucket. */
+  status: 'ok' | 'error';
+  /** For /token, which grant_type was requested. */
+  grantType?: 'authorization_code' | 'refresh_token' | 'client_credentials' | 'unknown';
+  /** Client registration mode that resolved this request. */
+  clientType?: 'cimd' | 'dcr' | 'unknown';
+  /** For errors, the spec error code (invalid_grant, invalid_client, ...) for drill-down. */
+  errorCode?: string;
+}): void {
+  const attrs: Record<string, string | number | boolean> = {
+    'mcp_auth.endpoint': params.endpoint,
+    status: params.status,
+  };
+  if (params.grantType) attrs['mcp_auth.grant_type'] = params.grantType;
+  if (params.clientType) attrs['mcp_auth.client_type'] = params.clientType;
+  if (params.errorCode) attrs['mcp_auth.error_code'] = params.errorCode;
+  getCounter('mcp_auth.events', 'OAuth authorization-server endpoint events', '1').add(1, attrs);
+}
+
+/**
+ * Record a CIMD metadata-fetch outcome. `cached=true` means the document
+ * was served from the in-memory LRU without a network round-trip.
+ */
+export function recordCimdFetch(params: {
+  status: 'ok' | 'error';
+  cached: boolean;
+  errorCode?: string;
+}): void {
+  const attrs: Record<string, string | number | boolean> = {
+    status: params.status,
+    cached: params.cached,
+  };
+  if (params.errorCode) attrs['mcp_auth.cimd_error'] = params.errorCode;
+  getCounter('mcp_auth.cimd.fetches', 'CIMD document fetches', '1').add(1, attrs);
+}
+
+/**
  * Returns true if OpenTelemetry metrics are available.
  */
 export function isMetricsEnabled(): boolean {

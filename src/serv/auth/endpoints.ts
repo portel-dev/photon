@@ -43,6 +43,7 @@ import {
 } from './auth-store.js';
 import { JwtService, verifyCodeChallenge } from './jwt.js';
 import { resolveClientMetadata, CimdCache } from './well-known.js';
+import { recordAuthEvent, recordCimdFetch } from '../../telemetry/metrics.js';
 
 // ============================================================================
 // Request / Response Types
@@ -201,6 +202,12 @@ function authorizeErrorRedirect(
 // ============================================================================
 
 export async function handleAuthorize(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
+  const res = await handleAuthorizeImpl(req, deps);
+  observeAuth('authorize', res, { clientType: detectClientType(req.url) });
+  return res;
+}
+
+async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return errorResponse(405, 'invalid_request', 'method not allowed');
   }
@@ -370,6 +377,12 @@ async function issueCodeAndRedirect(
 // ============================================================================
 
 export async function handleConsent(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
+  const res = await handleConsentImpl(req, deps);
+  observeAuth('consent', res);
+  return res;
+}
+
+async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
   const url = new URL(req.url);
 
   if (req.method === 'GET') {
@@ -451,10 +464,21 @@ export async function handleConsent(req: AuthRequest, deps: EndpointDeps): Promi
 // ============================================================================
 
 export async function handleToken(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
+  const form = parseFormBody(req.body ?? '');
+  const grantTypeRaw = form.get('grant_type');
+  const res = await handleTokenImpl(req, deps, form);
+  observeAuth('token', res, { grantType: normalizeGrantType(grantTypeRaw) });
+  return res;
+}
+
+async function handleTokenImpl(
+  req: AuthRequest,
+  deps: EndpointDeps,
+  form: URLSearchParams
+): Promise<AuthResponse> {
   if (req.method !== 'POST') {
     return errorResponse(405, 'invalid_request', 'method must be POST');
   }
-  const form = parseFormBody(req.body ?? '');
   const grantType = form.get('grant_type');
 
   // Client authentication (Basic or post-body)
@@ -697,6 +721,12 @@ async function issueTokens(
 // ============================================================================
 
 export async function handleRegister(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
+  const res = await handleRegisterImpl(req, deps);
+  observeAuth('register', res);
+  return res;
+}
+
+async function handleRegisterImpl(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
   if (req.method !== 'POST') {
     return errorResponse(405, 'invalid_request', 'method must be POST');
   }
@@ -831,6 +861,11 @@ async function resolveClient(clientId: string, deps: EndpointDeps): Promise<Reso
     const result = await resolveClientMetadata(clientId, {
       cache: deps.cimdCache,
       allowedDomains: deps.tenant.settings.allowedClientDomains,
+    });
+    recordCimdFetch({
+      status: result.ok ? 'ok' : 'error',
+      cached: result.fromCache === true,
+      errorCode: result.error,
     });
     if (!result.ok || !result.metadata) {
       deps.log?.('warn', 'cimd_resolution_failed', {
@@ -990,4 +1025,69 @@ function escapeHtml(input: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// ============================================================================
+// Metrics helpers
+// ============================================================================
+
+/**
+ * Record an endpoint event from its `AuthResponse`. Extracts the OAuth
+ * `error` code from either a JSON body (RFC 6749 §5.2 token-error format)
+ * or a `Location` redirect (§4.1.2.1 authorize-error format).
+ */
+function observeAuth(
+  endpoint: 'authorize' | 'token' | 'register' | 'consent',
+  res: AuthResponse,
+  extra: {
+    grantType?: 'authorization_code' | 'refresh_token' | 'client_credentials' | 'unknown';
+    clientType?: 'cimd' | 'dcr' | 'unknown';
+  } = {}
+): void {
+  const status: 'ok' | 'error' = res.status >= 400 ? 'error' : 'ok';
+  let errorCode: string | undefined;
+  // Redirects with ?error=... are authorize-endpoint errors even though status is 302
+  if (res.headers.Location) {
+    try {
+      const loc = new URL(res.headers.Location);
+      const e = loc.searchParams.get('error');
+      if (e) errorCode = e;
+    } catch {
+      // malformed Location; skip
+    }
+  }
+  if (!errorCode && status === 'error') {
+    try {
+      const body = JSON.parse(res.body) as { error?: string };
+      if (body.error) errorCode = body.error;
+    } catch {
+      // non-JSON error body; skip
+    }
+  }
+  recordAuthEvent({
+    endpoint,
+    status: errorCode ? 'error' : status,
+    errorCode,
+    ...extra,
+  });
+}
+
+function detectClientType(url: string): 'cimd' | 'dcr' | 'unknown' {
+  try {
+    const parsed = new URL(url);
+    const clientId = parsed.searchParams.get('client_id');
+    if (!clientId) return 'unknown';
+    return clientId.startsWith('https://') ? 'cimd' : 'dcr';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function normalizeGrantType(
+  raw: string | null
+): 'authorization_code' | 'refresh_token' | 'client_credentials' | 'unknown' {
+  if (raw === 'authorization_code' || raw === 'refresh_token' || raw === 'client_credentials') {
+    return raw;
+  }
+  return 'unknown';
 }
