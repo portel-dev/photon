@@ -3,12 +3,11 @@
  *
  * Implements the same five interfaces as `auth-store.ts` (AuthCodeStore,
  * RefreshTokenStore, ClientRegistry, ConsentStore, PendingAuthorizationStore)
- * but backed by `better-sqlite3` for persistence across process restarts.
+ * with persistent storage across process restarts.
  *
- * `better-sqlite3` is an optional peer dependency. Install it explicitly when
- * you want persistent stores:
- *
- *     npm install better-sqlite3
+ * Runtime-agnostic via `src/shared/sqlite-runtime.ts`:
+ * - Under Bun: uses built-in `bun:sqlite` (zero install).
+ * - Under Node: falls back to `better-sqlite3` (optional peer dep).
  *
  * All five stores share a single database handle. Schema is created on first
  * use. TTL enforcement happens at read time (stale rows are ignored and
@@ -29,38 +28,17 @@ import type {
   PendingAuthorizationStore,
   PendingAuthorization,
 } from './auth-store.js';
-
-// ============================================================================
-// Dynamic better-sqlite3 loading
-// ============================================================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SqliteStatement = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SqliteDatabase = any;
+import {
+  openSqlite,
+  type SqliteDatabase,
+  type SqliteStatement,
+} from '../../shared/sqlite-runtime.js';
 
 /**
- * Open a SQLite database, loading better-sqlite3 dynamically.
- * Throws with a clear hint if the dependency isn't installed.
+ * Open the AS SQLite database at `path` with all schema created.
  */
 export async function openAuthDatabase(path: string): Promise<SqliteDatabase> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mod: any;
-  try {
-    const moduleName = 'better-sqlite3';
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    mod = await new Function('m', 'return import(m)')(moduleName);
-  } catch {
-    throw new Error(
-      'SQLite stores require better-sqlite3. Install with: npm install better-sqlite3'
-    );
-  }
-  const Database = mod.default ?? mod;
-  const db = new Database(path);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  initSchema(db);
-  return db;
+  return openSqlite(path, initSchema);
 }
 
 // ============================================================================

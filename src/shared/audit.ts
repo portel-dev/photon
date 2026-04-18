@@ -1,14 +1,19 @@
 /**
  * Persistent Audit Log
  *
- * Append-only JSONL writer to ~/.photon/audit.jsonl
- * Silent failure — never blocks execution for audit I/O
- * Size-based rotation: rotates at 5MB, keeps 3 archived files
+ * Two backends, selected at runtime:
+ * - JSONL (default): append-only writer to ~/.photon/audit.jsonl,
+ *   size-based rotation (5MB, 3 archives). Always available.
+ * - SQLite (opt-in via initAuditSqlite): indexed, queryable. Preferred for
+ *   daemons that need fast per-caller / per-photon audit queries.
+ *
+ * Silent failure — never blocks execution for audit I/O.
  */
 
 import { appendFileSync, mkdirSync, statSync, renameSync, unlinkSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { getAuditPath } from '@portel/photon-core';
+import type { AuditBackend, AuditQuery } from './audit-sqlite.js';
 
 const AUDIT_FILE = getAuditPath();
 const AUDIT_DIR = dirname(AUDIT_FILE);
@@ -36,6 +41,80 @@ export interface AuditEntry {
 let dirEnsured = false;
 let writeCount = 0;
 let rotating = false;
+
+/** Active SQLite backend, or null if we're using JSONL. */
+let sqliteBackend: AuditBackend | null = null;
+
+/**
+ * Upgrade the audit writer to a SQLite backend for indexed queries.
+ * Callers (daemon startup, server bootstrap) invoke this once early.
+ * Safe to call multiple times — subsequent calls are no-ops. If SQLite
+ * isn't available (no `better-sqlite3` on Node, not running under Bun),
+ * throws and the JSONL fallback remains active.
+ */
+export async function initAuditSqlite(path?: string): Promise<void> {
+  if (sqliteBackend) return;
+  const { openAuditDatabase, SqliteAuditBackend } = await import('./audit-sqlite.js');
+  const dbPath = path ?? AUDIT_FILE.replace(/\.jsonl$/i, '.db');
+  try {
+    mkdirSync(dirname(dbPath), { recursive: true });
+  } catch {
+    // non-fatal
+  }
+  const db = await openAuditDatabase(dbPath);
+  sqliteBackend = new SqliteAuditBackend(db);
+}
+
+/**
+ * Swap the SQLite backend for a pre-constructed one. For tests.
+ */
+export function setAuditBackend(backend: AuditBackend | null): void {
+  sqliteBackend = backend;
+}
+
+/**
+ * Query the audit log. Uses SQLite indexes when available, otherwise
+ * streams the JSONL file and filters in memory.
+ */
+export async function queryAudit(q: AuditQuery = {}): Promise<AuditEntry[]> {
+  if (sqliteBackend) return sqliteBackend.query(q);
+  return queryJsonl(q);
+}
+
+async function queryJsonl(q: AuditQuery): Promise<AuditEntry[]> {
+  const { readFile } = await import('fs/promises');
+  const results: AuditEntry[] = [];
+  try {
+    const raw = await readFile(AUDIT_FILE, 'utf8');
+    const lines = raw.split('\n').filter(Boolean);
+    // Newest first — iterate from the end so limit clamps cheaply
+    const ordered = q.order === 'asc' ? lines : [...lines].reverse();
+    const limit = q.limit ?? 1000;
+    for (const line of ordered) {
+      let entry: AuditEntry;
+      try {
+        entry = JSON.parse(line) as AuditEntry;
+      } catch {
+        continue;
+      }
+      if (!matchesQuery(entry, q)) continue;
+      results.push(entry);
+      if (results.length >= limit) break;
+    }
+  } catch {
+    // file missing or unreadable — empty result
+  }
+  return results;
+}
+
+function matchesQuery(entry: AuditEntry, q: AuditQuery): boolean {
+  if (q.photon && entry.photon !== q.photon) return false;
+  if (q.client && entry.client !== q.client) return false;
+  if (q.event && entry.event !== q.event) return false;
+  if (q.since && new Date(entry.ts).getTime() < q.since.getTime()) return false;
+  if (q.until && new Date(entry.ts).getTime() > q.until.getTime()) return false;
+  return true;
+}
 
 /**
  * Rotate audit log files: audit.jsonl → audit.1.jsonl → audit.2.jsonl → audit.3.jsonl
@@ -68,6 +147,15 @@ function rotateIfNeeded(): void {
 }
 
 export function audit(entry: AuditEntry): void {
+  // Prefer SQLite when initialized; fall through to JSONL on failure.
+  if (sqliteBackend) {
+    try {
+      sqliteBackend.write(entry);
+      return;
+    } catch {
+      // fall through to JSONL so the write isn't lost
+    }
+  }
   try {
     if (!dirEnsured) {
       mkdirSync(AUDIT_DIR, { recursive: true });
