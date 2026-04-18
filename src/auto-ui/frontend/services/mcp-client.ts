@@ -951,6 +951,7 @@ class MCPClientService {
             internal: tool['x-photon-internal'],
             stateful: tool['x-photon-stateful'] || false,
             hasSettings: tool['x-photon-has-settings'] || false,
+            requiredParams: tool['x-photon-required-params'] || [],
             installSource: tool['x-photon-install-source'],
             promptCount: tool['x-photon-prompt-count'] || 0,
             resourceCount: tool['x-photon-resource-count'] || 0,

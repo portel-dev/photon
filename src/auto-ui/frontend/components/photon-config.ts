@@ -11,11 +11,19 @@ interface ConfigParam {
   isOptional: boolean;
   hasDefault: boolean;
   defaultValue?: any;
+  /** Server-side flag: name matches the secret regex. */
+  isSecret?: boolean;
+  /**
+   * Echo of the currently-set value (or '***' for secret-named fields,
+   * or null when the env var is empty). Used to render placeholder text
+   * for already-configured photons.
+   */
+  currentValue?: string | null;
 }
 
 interface UnconfiguredPhoton {
   name: string;
-  configured: false;
+  configured?: boolean;
   requiredParams: ConfigParam[];
   errorMessage?: string;
 }
@@ -210,21 +218,31 @@ export class PhotonConfig extends LitElement {
   @state()
   private _formData: Record<string, string> = {};
 
+  /**
+   * When true, the parent view (Settings → Setup tab) is providing the
+   * page header; suppress the in-component title + description.
+   */
+  @property({ type: Boolean, attribute: 'embedded' })
+  embedded = false;
+
   render() {
     if (!this.photon) return html``;
 
     const params = this.photon.requiredParams || [];
 
     return html`
-      <div class="config-header">
-        <h2 class="config-title text-gradient">${this.photon.name}</h2>
-        <p class="config-description">
-          ${this.mode === 'edit'
-            ? 'Edit configuration values. Only changed fields will be updated.'
-            : this.photon.errorMessage || 'Configure this photon to enable its features'}
-        </p>
-      </div>
-
+      ${!this.embedded
+        ? html`
+            <div class="config-header">
+              <h2 class="config-title text-gradient">${this.photon.name}</h2>
+              <p class="config-description">
+                ${this.mode === 'edit'
+                  ? 'Edit configuration values. Only changed fields will be updated.'
+                  : this.photon.errorMessage || 'Configure this photon to enable its features'}
+              </p>
+            </div>
+          `
+        : ''}
       ${this.mode === 'initial' && this.photon.errorMessage
         ? html` <div class="error-banner">${this.photon.errorMessage}</div> `
         : ''}
@@ -255,23 +273,32 @@ export class PhotonConfig extends LitElement {
 
   private _renderField(param: ConfigParam) {
     const isRequired = !param.isOptional && !param.hasDefault;
-    const isSecret = this._isSecretField(param.name);
+    // Trust the server-side flag; fall back to the local heuristic for
+    // older payloads that don't carry it.
+    const isSecret = param.isSecret ?? this._isSecretField(param.name);
     const isBoolean = param.type === 'boolean';
     const isNumber = param.type === 'number';
     const defaultValue = param.hasDefault ? String(param.defaultValue ?? '') : '';
+
+    // For configured photons, prefer the live value as the field's
+    // initial input. Secret fields receive the placeholder marker only.
+    const seedValue = param.currentValue ?? defaultValue;
 
     return html`
       <div class="form-group">
         <label>
           ${formatLabel(param.name)}${isRequired ? html`<span class="required">*</span>` : ''}
           <span class="hint">${param.envVar}</span>
+          ${isSecret
+            ? html`<span class="hint" style="color: var(--accent-secondary);">secret</span>`
+            : ''}
         </label>
 
         ${isBoolean
-          ? this._renderToggle(param, defaultValue)
+          ? this._renderToggle(param, seedValue)
           : isNumber
-            ? this._renderNumberInput(param, defaultValue, isRequired)
-            : this._renderTextInput(param, defaultValue, isRequired, isSecret)}
+            ? this._renderNumberInput(param, seedValue, isRequired)
+            : this._renderTextInput(param, seedValue, isRequired, isSecret, !!param.currentValue)}
       </div>
     `;
   }
@@ -314,18 +341,29 @@ export class PhotonConfig extends LitElement {
 
   private _renderTextInput(
     param: ConfigParam,
-    defaultValue: string,
+    seedValue: string,
     isRequired: boolean,
-    isSecret: boolean
+    isSecret: boolean,
+    hasCurrentValue: boolean
   ) {
+    // For secret fields the seed is just '***' so don't surface it as the
+    // editable value — show it as placeholder so the field appears
+    // pre-filled visually but submitting blank means "leave unchanged".
+    const masked = isSecret && hasCurrentValue;
+    const placeholder = masked
+      ? '••••••• (configured — type to replace)'
+      : `Enter ${param.name}...`;
+    const value = masked
+      ? (this._formData[param.envVar] ?? '')
+      : (this._formData[param.envVar] ?? seedValue);
     return html`
       <input
         type="text"
         id="photon-${param.envVar}"
         name="${param.envVar}"
         class="${isSecret ? 'secret-field' : ''}"
-        .value=${this._formData[param.envVar] ?? defaultValue}
-        placeholder="Enter ${param.name}..."
+        .value=${value}
+        placeholder="${placeholder}"
         @input=${(e: Event) =>
           this._updateField(param.envVar, (e.target as HTMLInputElement).value)}
       />

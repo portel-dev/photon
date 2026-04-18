@@ -1033,6 +1033,10 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-internal': photon.internal,
           'x-photon-stateful': photon.stateful || false,
           'x-photon-has-settings': photon.hasSettings || false,
+          // Constructor params for the Beam Settings → Setup tab. Empty
+          // array (or missing) means the photon takes no env-injected
+          // setup. Server already masks secret-named values.
+          'x-photon-required-params': photon.requiredParams || [],
           'x-photon-short-name': photon.shortName,
           'x-photon-namespace': photon.namespace,
           'x-photon-qualified-name': photon.qualifiedName,

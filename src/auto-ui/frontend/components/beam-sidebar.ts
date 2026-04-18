@@ -935,6 +935,10 @@ export class BeamSidebar extends LitElement {
   @property({ type: Boolean })
   hasSettings = false;
 
+  /** True when the photon has constructor params that map to env vars. */
+  @property({ type: Boolean })
+  hasSetup = false;
+
   @property({ type: Boolean })
   isExternalMCP = false;
 
@@ -1661,7 +1665,9 @@ export class BeamSidebar extends LitElement {
       ...(this.isApp ? [{ id: 'app', label: 'App', icon: appTabIcon }] : []),
       { id: 'methods', label: 'Methods', icon: methodsTabIcon },
       { id: 'log', label: 'Activity', icon: activityIcon },
-      ...(this.hasSettings ? [{ id: 'settings', label: 'Settings', icon: settingsIcon }] : []),
+      ...(this.hasSettings || this.hasSetup
+        ? [{ id: 'settings', label: 'Settings', icon: settingsIcon }]
+        : []),
       ...(this.hasPath && !this.isExternalMCP
         ? [{ id: 'source', label: 'Source', icon: sourceIcon }]
         : []),

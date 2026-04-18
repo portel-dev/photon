@@ -2076,6 +2076,12 @@ export class BeamApp extends LitElement {
     | 'source' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
+  /**
+   * Sub-tab inside the Settings view. Setup is constructor params /
+   * env-injected values; Configuration is the auto-generated settings
+   * MCP tool. Default chosen on tab entry, then user-selectable.
+   */
+  @state() private _settingsTab: 'setup' | 'configuration' = 'configuration';
   private _pendingStudioOpen = false; // Open Studio after maker creates a new photon
   private _pendingTemplateSource: string | undefined; // Template source to apply after Studio opens
 
@@ -3988,6 +3994,9 @@ export class BeamApp extends LitElement {
           .hasSettings=${!!(
             this._selectedPhoton?.hasSettings && !this._selectedPhoton?.isExternalMCP
           )}
+          .hasSetup=${!!(
+            this._selectedPhoton?.requiredParams?.length && !this._selectedPhoton?.isExternalMCP
+          )}
           .isExternalMCP=${!!this._selectedPhoton?.isExternalMCP}
           .hasPath=${!!this._selectedPhoton?.path}
           @tab-change=${(e: CustomEvent) => {
@@ -4018,7 +4027,9 @@ export class BeamApp extends LitElement {
                 this._view = 'list';
               }
             }
-            // Handle settings tab
+            // Handle settings tab. Pre-invoke the settings method so the
+            // Configuration sub-tab can render current values; for setup-
+            // only photons just leave the rendering to _renderSettingsView.
             if (tab === 'settings' && this._selectedPhoton) {
               const settingsMethod = this._selectedPhoton.methods?.find(
                 (m: any) => m.name === 'settings'
@@ -4027,6 +4038,25 @@ export class BeamApp extends LitElement {
                 this._selectedMethod = settingsMethod;
                 this._view = 'form';
                 this._maybeAutoInvoke(settingsMethod);
+              } else {
+                // Setup-only photon — clear method state so the form panel
+                // doesn't render alongside the Setup view.
+                this._selectedMethod = null;
+                this._lastResult = null;
+              }
+              // Default sub-tab: configured + has settings → Configuration;
+              // else → Setup. The user can flip via the in-view tab strip.
+              const hasSetup =
+                Array.isArray(this._selectedPhoton?.requiredParams) &&
+                this._selectedPhoton.requiredParams.length > 0;
+              const hasConfig = !!settingsMethod;
+              const configured = this._selectedPhoton?.configured !== false;
+              if (hasSetup && hasConfig) {
+                this._settingsTab = configured ? 'configuration' : 'setup';
+              } else if (hasSetup) {
+                this._settingsTab = 'setup';
+              } else {
+                this._settingsTab = 'configuration';
               }
               return;
             }
@@ -9839,11 +9869,117 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const photon = this._selectedPhoton;
     if (!photon) return '';
     const settingsMethod = photon.methods?.find((m: any) => m.name === 'settings');
-    if (!settingsMethod)
+    const hasSetup = Array.isArray(photon.requiredParams) && photon.requiredParams.length > 0;
+    const hasConfiguration = !!settingsMethod;
+
+    if (!hasSetup && !hasConfiguration) {
       return html`<div style="padding: var(--space-xl); color: var(--t-muted); text-align: center;">
         No settings available for this photon.
       </div>`;
+    }
 
+    const showTabs = hasSetup && hasConfiguration;
+    const activeTab: 'setup' | 'configuration' =
+      hasConfiguration && this._settingsTab === 'configuration'
+        ? 'configuration'
+        : hasSetup && this._settingsTab === 'setup'
+          ? 'setup'
+          : hasConfiguration
+            ? 'configuration'
+            : 'setup';
+
+    return html`
+      <div style="padding: var(--space-lg); max-width: 900px; margin: 0 auto; width: 100%;">
+        <div style="margin-bottom: var(--space-lg);">
+          <h2
+            style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: var(--t-primary); margin: 0 0 4px 0;"
+          >
+            ${photon.name} Settings
+          </h2>
+          <p style="color: var(--t-muted); font-size: var(--text-sm); margin: 0; line-height: 1.5;">
+            ${activeTab === 'setup'
+              ? 'What this photon needs to run. Applies to every instance; changes take effect on next load.'
+              : 'How this photon behaves. Applies to the current instance only; changes are saved immediately.'}
+          </p>
+        </div>
+
+        ${showTabs ? this._renderSettingsTabStrip(activeTab) : ''}
+        ${activeTab === 'setup'
+          ? this._renderSettingsSetup(photon)
+          : this._renderSettingsConfiguration(photon, settingsMethod)}
+      </div>
+    `;
+  }
+
+  private _renderSettingsTabStrip(active: 'setup' | 'configuration') {
+    const tab = (id: 'setup' | 'configuration', label: string) => html`
+      <button
+        type="button"
+        @click=${() => {
+          this._settingsTab = id;
+          // Re-trigger settings auto-invoke when entering the configuration
+          // sub-tab so the form picks up any out-of-band updates.
+          if (id === 'configuration' && this._selectedMethod?.name === 'settings') {
+            this._maybeAutoInvoke(this._selectedMethod);
+          }
+        }}
+        style="
+          padding: 8px 16px;
+          background: ${active === id ? 'var(--bg-glass-strong)' : 'transparent'};
+          color: ${active === id ? 'var(--t-primary)' : 'var(--t-muted)'};
+          border: none;
+          border-bottom: 2px solid ${active === id ? 'var(--accent-primary)' : 'transparent'};
+          cursor: pointer;
+          font-size: var(--text-sm);
+          font-weight: ${active === id ? '600' : '500'};
+          transition: all 0.15s;
+        "
+      >
+        ${label}
+      </button>
+    `;
+    return html`
+      <div
+        role="tablist"
+        style="display: flex; gap: 4px; border-bottom: 1px solid var(--border-glass); margin-bottom: var(--space-lg);"
+      >
+        ${tab('setup', 'Setup')} ${tab('configuration', 'Configuration')}
+      </div>
+    `;
+  }
+
+  private _renderSettingsSetup(photon: any) {
+    const isInitial = photon.configured === false;
+    return html`
+      <div class="glass-panel" style="overflow: hidden;">
+        <div
+          style="padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
+        >
+          <span
+            style="font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); text-transform: uppercase; letter-spacing: 0.05em;"
+            >Setup</span
+          >
+        </div>
+        <div style="padding: var(--space-lg);">
+          <photon-config
+            embedded
+            .photon=${{
+              ...photon,
+              // photon-config expects an UnconfiguredPhoton-shape with a
+              // requiredParams field. Pass the existing data through.
+              requiredParams: photon.requiredParams || [],
+            }}
+            .mode=${isInitial ? 'initial' : 'edit'}
+            @configure=${(e: Event) => {
+              void this._handleConfigure(e as CustomEvent);
+            }}
+          ></photon-config>
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderSettingsConfiguration(photon: any, settingsMethod: any) {
     const params = settingsMethod.params;
     const properties = params?.properties || {};
     const propEntries = Object.entries(properties);
@@ -9872,114 +10008,93 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
 
     return html`
-      <div style="padding: var(--space-lg); max-width: 900px; margin: 0 auto; width: 100%;">
-        <!-- Settings Header -->
-        <div style="margin-bottom: var(--space-xl);">
-          <h2
-            style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: var(--t-primary); margin: 0 0 4px 0;"
-          >
-            ${photon.name} Settings
-          </h2>
-          ${settingsMethod.description
-            ? html`<p
-                style="color: var(--t-muted); font-size: var(--text-sm); margin: 0; line-height: 1.5;"
+      ${propEntries.length > 0
+        ? html`
+            <div class="glass-panel" style="margin-bottom: var(--space-lg); overflow: hidden;">
+              <div
+                style="padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
               >
-                View or update photon configuration. Changes are applied immediately.
-              </p>`
-            : ''}
-        </div>
-
-        <!-- Configuration Section -->
-        ${propEntries.length > 0
-          ? html`
-              <div class="glass-panel" style="margin-bottom: var(--space-lg); overflow: hidden;">
-                <div
-                  style="padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
+                <span
+                  style="font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); text-transform: uppercase; letter-spacing: 0.05em;"
+                  >Configuration</span
                 >
-                  <span
-                    style="font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); text-transform: uppercase; letter-spacing: 0.05em;"
-                    >Configuration</span
+              </div>
+              <div class="method-detail" style="padding: 0;">
+                <invoke-form
+                  .params=${params}
+                  .loading=${this._isExecuting}
+                  .photonName=${photon.name}
+                  .methodName=${'settings'}
+                  .rememberValues=${this._rememberFormValues}
+                  .sharedValues=${this._sharedFormParams ?? this._lastFormParams}
+                  .settingsLayout=${true}
+                  @submit=${(e: Event) => void this._handleExecute(e as CustomEvent)}
+                  @cancel=${() => {}}
+                ></invoke-form>
+                <div
+                  style="display: flex; justify-content: flex-end; padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-glass);"
+                >
+                  <button
+                    class="btn-primary"
+                    style="font-size: var(--text-sm); padding: 6px 20px;"
+                    @click=${(e: Event) => {
+                      const panel = (e.target as HTMLElement).closest('.glass-panel');
+                      const form: any = panel?.querySelector('invoke-form');
+                      form?.handleSubmit();
+                    }}
+                    ?disabled=${this._isExecuting}
                   >
+                    ${this._isExecuting
+                      ? html`<span class="btn-loading"
+                          ><span class="spinner"></span>Saving...</span
+                        >`
+                      : 'Save Settings'}
+                  </button>
                 </div>
-                <div class="method-detail" style="padding: 0;">
-                  <invoke-form
-                    .params=${params}
-                    .loading=${this._isExecuting}
-                    .photonName=${photon.name}
-                    .methodName=${'settings'}
-                    .rememberValues=${this._rememberFormValues}
-                    .sharedValues=${this._sharedFormParams ?? this._lastFormParams}
-                    .settingsLayout=${true}
-                    @submit=${(e: Event) => void this._handleExecute(e as CustomEvent)}
-                    @cancel=${() => {}}
-                  ></invoke-form>
-                  <div
-                    style="display: flex; justify-content: flex-end; padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-glass);"
-                  >
-                    <button
-                      class="btn-primary"
-                      style="font-size: var(--text-sm); padding: 6px 20px;"
-                      @click=${(e: Event) => {
-                        const panel = (e.target as HTMLElement).closest('.glass-panel');
-                        const form: any = panel?.querySelector('invoke-form');
-                        form?.handleSubmit();
-                      }}
-                      ?disabled=${this._isExecuting}
+              </div>
+            </div>
+          `
+        : ''}
+      ${statusEntries.length > 0
+        ? html`
+            <div class="glass-panel" style="overflow: hidden;">
+              <div
+                style="padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
+              >
+                <span
+                  style="font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); text-transform: uppercase; letter-spacing: 0.05em;"
+                  >Status</span
+                >
+              </div>
+              <div style="padding: 0;">
+                ${statusEntries.map(
+                  ([key, value], i) => html`
+                    <div
+                      style="display: grid; grid-template-columns: 200px 1fr; border-bottom: ${i <
+                      statusEntries.length - 1
+                        ? '1px solid var(--border-glass)'
+                        : 'none'};"
                     >
-                      ${this._isExecuting
-                        ? html`<span class="btn-loading"
-                            ><span class="spinner"></span>Saving...</span
-                          >`
-                        : 'Save Settings'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            `
-          : ''}
-
-        <!-- Status Section (from last result) -->
-        ${statusEntries.length > 0
-          ? html`
-              <div class="glass-panel" style="overflow: hidden;">
-                <div
-                  style="padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
-                >
-                  <span
-                    style="font-family: var(--font-display); font-size: var(--text-sm); font-weight: 600; color: var(--t-primary); text-transform: uppercase; letter-spacing: 0.05em;"
-                    >Status</span
-                  >
-                </div>
-                <div style="padding: 0;">
-                  ${statusEntries.map(
-                    ([key, value], i) => html`
                       <div
-                        style="display: grid; grid-template-columns: 200px 1fr; border-bottom: ${i <
-                        statusEntries.length - 1
-                          ? '1px solid var(--border-glass)'
-                          : 'none'};"
+                        style="padding: 10px var(--space-md); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-muted); background: var(--bg-glass);"
                       >
-                        <div
-                          style="padding: 10px var(--space-md); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-muted); background: var(--bg-glass);"
-                        >
-                          ${key
-                            .replace(/([A-Z])/g, ' $1')
-                            .replace(/_/g, ' ')
-                            .trim()}
-                        </div>
-                        <div
-                          style="padding: 10px var(--space-md); font-size: var(--text-sm); color: var(--t-primary); word-break: break-word;"
-                        >
-                          ${value}
-                        </div>
+                        ${key
+                          .replace(/([A-Z])/g, ' $1')
+                          .replace(/_/g, ' ')
+                          .trim()}
                       </div>
-                    `
-                  )}
-                </div>
+                      <div
+                        style="padding: 10px var(--space-md); font-size: var(--text-sm); color: var(--t-primary); word-break: break-word;"
+                      >
+                        ${value}
+                      </div>
+                    </div>
+                  `
+                )}
               </div>
-            `
-          : ''}
-      </div>
+            </div>
+          `
+        : ''}
     `;
   }
 

@@ -32,6 +32,20 @@ export interface ConfigParam {
   hasDefault: boolean;
   /** The default value if present */
   defaultValue?: unknown;
+  /**
+   * Whether the param's name matches the secret-name regex
+   * (apiKey, password, secret, token, bearer, ...). The Beam Setup
+   * form relies on this to mask the input control and to keep
+   * `currentValue` from carrying real credentials.
+   */
+  isSecret?: boolean;
+  /**
+   * Echo of the value currently in `process.env[envVar]` so the Setup
+   * form can render "currently set to ..." for configured photons.
+   * For secret fields this is `'***'` when set or `null` when missing,
+   * never the actual value.
+   */
+  currentValue?: string | null;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

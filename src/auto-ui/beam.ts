@@ -689,6 +689,44 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     return false;
   };
 
+  // Param names that almost always carry credentials. Same pattern the
+  // doctor lint uses; kept inline to avoid pulling a CLI helper into the
+  // Beam server bundle.
+  const SECRET_NAME_REGEX =
+    /^(api[_-]?key|password|passwd|pwd|secret|token|access[_-]?token|bearer)$/i;
+
+  /**
+   * Convert raw extractor params into the Beam-shaped ConfigParam, with
+   * isSecret flagged by name and currentValue echoed from process.env.
+   * Secret-named env vars are masked to '***' (or null when absent) so
+   * Beam's network response never carries a credential in the clear.
+   */
+  const enrichParam = (
+    p: {
+      name: string;
+      type: string;
+      isOptional: boolean;
+      hasDefault: boolean;
+      defaultValue?: unknown;
+    },
+    photonName: string
+  ): ConfigParam => {
+    const envVar = toEnvVarName(photonName, p.name);
+    const isSecret = SECRET_NAME_REGEX.test(p.name);
+    const raw = process.env[envVar];
+    const currentValue = raw === undefined ? null : isSecret ? '***' : raw;
+    return {
+      name: p.name,
+      envVar,
+      type: p.type,
+      isOptional: p.isOptional,
+      hasDefault: p.hasDefault,
+      defaultValue: p.defaultValue,
+      isSecret,
+      currentValue,
+    };
+  };
+
   // Helper: load a single photon, returning the info to push into photons[]
   async function loadSinglePhoton(name: string): Promise<AnyPhotonInfo | null> {
     const photonPath =
@@ -734,16 +772,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (source) {
         const params = extractor.extractConstructorParams(source);
 
-        constructorParams = params
-          .filter((p) => p.isPrimitive)
-          .map((p) => ({
-            name: p.name,
-            envVar: toEnvVarName(name, p.name),
-            type: p.type,
-            isOptional: p.isOptional,
-            hasDefault: p.hasDefault,
-            defaultValue: p.defaultValue,
-          }));
+        constructorParams = params.filter((p) => p.isPrimitive).map((p) => enrichParam(p, name));
 
         // Extract @ui template path from class-level JSDoc
         const classJsdocMatch =
@@ -2324,14 +2353,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 const params = extractor.extractConstructorParams(source);
                 constructorParams = params
                   .filter((p: ConstructorParam) => p.isPrimitive)
-                  .map((p: ConstructorParam) => ({
-                    name: p.name,
-                    envVar: toEnvVarName(photonName, p.name),
-                    type: p.type,
-                    isOptional: p.isOptional,
-                    hasDefault: p.hasDefault,
-                    defaultValue: p.defaultValue,
-                  }));
+                  .map((p: ConstructorParam) => enrichParam(p, photonName));
               } catch {
                 // Can't extract params, try to load anyway
               }
@@ -2482,14 +2504,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 const reloadParams = extractor.extractConstructorParams(reloadSource);
                 reloadConstructorParams = reloadParams
                   .filter((p: ConstructorParam) => p.isPrimitive)
-                  .map((p: ConstructorParam) => ({
-                    name: p.name,
-                    envVar: toEnvVarName(photonName, p.name),
-                    type: p.type,
-                    isOptional: p.isOptional,
-                    hasDefault: p.hasDefault,
-                    defaultValue: p.defaultValue,
-                  }));
+                  .map((p: ConstructorParam) => enrichParam(p, photonName));
               } catch {
                 // Can't extract params
               }
@@ -2572,14 +2587,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                   const params = extractor.extractConstructorParams(source);
                   constructorParams = params
                     .filter((p: ConstructorParam) => p.isPrimitive)
-                    .map((p: ConstructorParam) => ({
-                      name: p.name,
-                      envVar: toEnvVarName(photonName, p.name),
-                      type: p.type,
-                      isOptional: p.isOptional,
-                      hasDefault: p.hasDefault,
-                      defaultValue: p.defaultValue,
-                    }));
+                    .map((p: ConstructorParam) => enrichParam(p, photonName));
                 } catch {
                   // Ignore extraction errors
                 }
