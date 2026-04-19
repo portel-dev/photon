@@ -302,12 +302,15 @@ function buildKeyValueColumn(obj: Record<string, unknown>): Tree {
 
   keys.forEach((key, i) => {
     const rowId = `row${i}`;
+    // RFC 6901: encode ~ as ~0 and / as ~1 when a key is embedded in a JSON
+    // Pointer. Order matters — ~0 first would double-encode / produced by ~1.
+    const pointerKey = key.replace(/~/g, '~0').replace(/\//g, '~1');
     components.push({
       id: rowId,
       component: 'Text',
       text: {
         call: 'formatString',
-        args: { value: `**${key}:** \${/${key}}` },
+        args: { value: `**${key}:** \${/${pointerKey}}` },
       },
     });
     childIds.push(rowId);

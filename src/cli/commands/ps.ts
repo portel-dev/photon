@@ -14,19 +14,15 @@
 
 import type { Command } from 'commander';
 import { getErrorMessage } from '../../shared/error-handler.js';
-import { getDefaultContext } from '../../context.js';
 
-/**
- * Resolve the base to send with a schedule IPC. Explicit --base wins; else
- * default to the current PHOTON_DIR (resolved from env/cwd/config) so a user
- * in a specific workspace doesn't have to spell it every time. Passing
- * nothing would leave the daemon to guess — and in multi-base setups that
- * manifests as an "ambiguous" error even when the user is unambiguously
- * operating in one base.
- */
-function resolveScheduleBase(explicit?: string): string {
-  return explicit ?? getDefaultContext().baseDir;
-}
+// NOTE: ps subcommands intentionally forward `opts.base` as-is. Defaulting
+// to `getDefaultContext().baseDir` sounded convenient but it prevents
+// legitimate cross-base ops: a schedule declared in base B is invisible
+// when the shell defaults to base A. The daemon performs cross-base
+// resolution when workingDir is omitted and returns an ambiguity error
+// listing the candidate bases if more than one declaration matches —
+// that's the UX we want. Explicit --base wins when the user knows which
+// base they mean.
 
 async function ensureDaemonRunning(): Promise<void> {
   const { isGlobalDaemonReachable, ensureDaemon } = await import('../../daemon/manager.js');
@@ -176,7 +172,7 @@ export function registerPsCommands(program: Command): void {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { enableSchedule } = await import('../../daemon/client.js');
-        const result = (await enableSchedule(photon, method, resolveScheduleBase(opts.base))) as {
+        const result = (await enableSchedule(photon, method, opts.base)) as {
           photon: string;
           method: string;
           base: string;
@@ -202,7 +198,7 @@ export function registerPsCommands(program: Command): void {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { disableSchedule } = await import('../../daemon/client.js');
-        await disableSchedule(photon, method, resolveScheduleBase(opts.base));
+        await disableSchedule(photon, method, opts.base);
         const { printSuccess } = await import('../../cli-formatter.js');
         printSuccess(`Disabled ${photon}:${method}`);
       } catch (error) {
@@ -221,7 +217,7 @@ export function registerPsCommands(program: Command): void {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { pauseSchedule } = await import('../../daemon/client.js');
-        await pauseSchedule(photon, method, resolveScheduleBase(opts.base));
+        await pauseSchedule(photon, method, opts.base);
         const { printSuccess } = await import('../../cli-formatter.js');
         printSuccess(`Paused ${photon}:${method}`);
       } catch (error) {
@@ -240,7 +236,7 @@ export function registerPsCommands(program: Command): void {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { resumeSchedule } = await import('../../daemon/client.js');
-        await resumeSchedule(photon, method, resolveScheduleBase(opts.base));
+        await resumeSchedule(photon, method, opts.base);
         const { printSuccess } = await import('../../cli-formatter.js');
         printSuccess(`Resumed ${photon}:${method}`);
       } catch (error) {
@@ -275,7 +271,7 @@ export function registerPsCommands(program: Command): void {
           const resp = await fetchExecutionHistory(photon, method, {
             limit,
             sinceTs,
-            workingDir: resolveScheduleBase(opts.base),
+            workingDir: opts.base,
           });
 
           // Parent `ps` also defines --json; commander resolves the flag on
