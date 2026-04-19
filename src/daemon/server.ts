@@ -2401,8 +2401,11 @@ async function autoRegisterFromMetadata(
     // declaredKey so a photon enabled via `photon ps enable` doesn't end up
     // running twice — once under the legacy `${photon}:${method}` ID and
     // once under the new `<base>::${photon}:${method}` ID.
-    const sessionWorkingDir = (session as unknown as { workingDir?: string; baseDir?: string })
-      .workingDir;
+    //
+    // SessionManager.getOrCreateSession() doesn't attach workingDir to the
+    // session object, so read it from the underlying loader — the same
+    // source of truth used for the per-base schedules dir below.
+    const sessionWorkingDir = manager.loader?.baseDir;
     for (const tool of tools) {
       if (tool.scheduled) {
         const jobId = declaredKey(photonName, tool.name, sessionWorkingDir);
