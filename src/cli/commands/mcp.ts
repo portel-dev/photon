@@ -23,6 +23,31 @@ import { printHeader } from '../../cli-formatter.js';
 import { getDefaultContext, resolvePhotonFromAllSources } from '../../context.js';
 import { getBundledPhotonPath, DEFAULT_BUNDLED_PHOTONS, detectRunner } from '../../shared-utils.js';
 import { toEnvVarName } from '../../shared/config-docs.js';
+import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
+
+/**
+ * Return a `PHOTON_DIR` value to persist in the generated MCP client config,
+ * or `null` when the global default applies (and writing it would be noise).
+ *
+ * Claude/Cursor/other clients don't inherit the shell that ran `photon mcp
+ * install`, so any non-default photon location has to be baked into the env
+ * block. Otherwise the client spawns `photon mcp <name>` with no PHOTON_DIR,
+ * resolves baseDir to `~/.photon`, and can't find a workspace-scaffolded photon.
+ */
+function resolveInstalledPhotonDir(workingDir: string, filePath: string): string | null {
+  const resolvedWorking = path.resolve(workingDir);
+  const resolvedHome = path.resolve(DEFAULT_PHOTON_DIR);
+  if (resolvedWorking !== resolvedHome) return resolvedWorking;
+  // workingDir is the global default but the file itself lives elsewhere —
+  // e.g. a scaffold under ~/myproj/foo/foo.photon.ts that the resolver found
+  // via an explicit path. Walk up from the file to find the nearest dir that
+  // contains it so the client can spawn with the right baseDir.
+  const resolvedFile = path.resolve(filePath);
+  if (!resolvedFile.startsWith(resolvedHome + path.sep) && resolvedFile !== resolvedHome) {
+    return path.dirname(resolvedFile);
+  }
+  return null;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -252,8 +277,14 @@ async function showConfigTemplate(
     }
   });
 
-  if (process.env.PHOTON_DIR) {
-    envExample.PHOTON_DIR = workingDir;
+  // Persist PHOTON_DIR when the install originated from a non-default workspace
+  // so the client can spawn `photon mcp <name>` against the right baseDir.
+  // Relying on `process.env.PHOTON_DIR` here misses the case where cwd auto-
+  // detected a workspace OR the user scaffolded a photon outside ~/.photon
+  // without explicitly exporting the env var.
+  const resolvedPhotonDir = resolveInstalledPhotonDir(workingDir, filePath);
+  if (resolvedPhotonDir) {
+    envExample.PHOTON_DIR = resolvedPhotonDir;
   }
   const config = {
     mcpServers: {
@@ -307,8 +338,11 @@ export async function installToClient(
         : `<your-${param.name}>`;
     env[envVarName] = defaultDisplay;
   }
-  if (process.env.PHOTON_DIR) {
-    env.PHOTON_DIR = workingDir;
+  // See resolveInstalledPhotonDir above — we need to capture non-default
+  // workspaces even when the shell running `install` didn't export PHOTON_DIR.
+  const resolvedPhotonDir = resolveInstalledPhotonDir(workingDir, filePath);
+  if (resolvedPhotonDir) {
+    env.PHOTON_DIR = resolvedPhotonDir;
   }
 
   const serverEntry: Record<string, unknown> = {
