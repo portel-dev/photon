@@ -28,6 +28,9 @@ const DEFAULT_MAX_PER_METHOD = 500;
 const LEGACY_BASE = '-';
 
 function initSchema(db: SqliteDatabase): void {
+  // Phase 1: table + base-independent indexes. Indexes that reference the
+  // `base` column wait until Phase 3 so they don't fail on databases that
+  // predate the column.
   db.exec(`
     CREATE TABLE IF NOT EXISTS execution_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,14 +44,12 @@ function initSchema(db: SqliteDatabase): void {
       error_message TEXT,
       output_preview TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_exec_photon_base_ts ON execution_history(photon, base, ts);
-    CREATE INDEX IF NOT EXISTS idx_exec_photon_method_ts ON execution_history(photon, base, method, ts);
     CREATE INDEX IF NOT EXISTS idx_exec_ts ON execution_history(ts);
     CREATE INDEX IF NOT EXISTS idx_exec_status_ts ON execution_history(status, ts);
   `);
 
-  // Backfill: older databases predating multi-base partitioning had no
-  // `base` column. Add it if missing so upgrades don't throw.
+  // Phase 2: backfill the `base` column on databases predating multi-base
+  // partitioning. Must run before Phase 3 so the indexes can reference it.
   try {
     const cols = db.prepare('PRAGMA table_info(execution_history)').all() as Array<{
       name: string;
@@ -59,8 +60,16 @@ function initSchema(db: SqliteDatabase): void {
       );
     }
   } catch {
-    // Pragma failures are non-fatal; the CREATE above handled a fresh DB.
+    // PRAGMA failures are non-fatal on a fresh DB (CREATE TABLE above
+    // already included `base`, so the migration is a no-op anyway).
   }
+
+  // Phase 3: indexes that reference `base`. Safe now: column is guaranteed
+  // to exist on both freshly-created and just-migrated databases.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_exec_photon_base_ts ON execution_history(photon, base, ts);
+    CREATE INDEX IF NOT EXISTS idx_exec_photon_method_ts ON execution_history(photon, base, method, ts);
+  `);
 }
 
 export async function openExecutionHistoryDatabase(path: string): Promise<SqliteDatabase> {
@@ -144,14 +153,17 @@ export class SqliteExecutionHistoryBackend implements ExecutionHistoryBackend {
     try {
       const ttlRes = this.deleteOlderThan.run(now - ttl);
       removed += (ttlRes.changes as number) ?? 0;
-      // Per-method cap: for each (photon, method), keep newest maxPer rows.
-      // Window function support is standard in both bun:sqlite and better-sqlite3.
+      // Per-method cap: for each (photon, base, method) keep newest maxPer rows.
+      // The base column must be in PARTITION BY — otherwise two bases with the
+      // same `foo:tick` photon get merged and the newer base silently drops
+      // the older base's history. Window function support is standard in both
+      // bun:sqlite and better-sqlite3.
       const overflow = this.db.prepare(
         `DELETE FROM execution_history
          WHERE id IN (
            SELECT id FROM (
              SELECT id, ROW_NUMBER() OVER (
-               PARTITION BY photon, method ORDER BY ts DESC
+               PARTITION BY photon, base, method ORDER BY ts DESC
              ) AS rn FROM execution_history
            ) WHERE rn > ?
          )`

@@ -10,6 +10,7 @@ import {
   openExecutionHistoryDatabase,
   SqliteExecutionHistoryBackend,
 } from '../dist/daemon/execution-history-sqlite.js';
+import type { SqliteDatabase } from '../dist/shared/sqlite-runtime.js';
 
 function tempDbPath(): string {
   const dir = mkdtempSync(join(tmpdir(), 'photon-exec-hist-sqlite-'));
@@ -224,7 +225,86 @@ async function testSweep() {
     assert.ok(!ids.includes('c-0'));
   });
 
+  await test('per-method cap partitions by base — no cross-base eviction', () => {
+    const BASE_A = '/workspace/sweep-a';
+    const BASE_B = '/workspace/sweep-b';
+    // Each base gets 8 rows for the same `foo:tick`. With maxPerMethod=5 the
+    // sweep must keep 5 from BASE_A AND 5 from BASE_B, not 5 across both.
+    for (let i = 0; i < 8; i++) {
+      backend.record(
+        'foo',
+        { ts: Date.now() + i, jobId: `a-${i}`, method: 'tick', durationMs: 1, status: 'success' },
+        BASE_A
+      );
+      backend.record(
+        'foo',
+        {
+          ts: Date.now() + 100 + i,
+          jobId: `b-${i}`,
+          method: 'tick',
+          durationMs: 1,
+          status: 'success',
+        },
+        BASE_B
+      );
+    }
+    backend.sweep({ maxPerMethod: 5 });
+    const aOnly = backend.query('foo', { method: 'tick' }, BASE_A);
+    const bOnly = backend.query('foo', { method: 'tick' }, BASE_B);
+    assert.equal(aOnly.length, 5, 'BASE_A should retain 5 newest rows');
+    assert.equal(bOnly.length, 5, 'BASE_B should retain 5 newest rows');
+    // No leakage of jobIds across bases.
+    assert.ok(aOnly.every((r) => r.jobId.startsWith('a-')));
+    assert.ok(bOnly.every((r) => r.jobId.startsWith('b-')));
+  });
+
   backend.close();
+  rmSync(dbPath, { force: true });
+}
+
+async function testLegacySchemaUpgrade() {
+  console.log('Legacy schema upgrade (pre-base column):');
+  // Simulate a v1.22-era database: the table exists without the `base` column
+  // and without the base-aware indexes. Opening it with the new schema must
+  // backfill the column before creating indexes that reference it.
+  const dbPath = tempDbPath();
+  const { openSqlite } = await import('../dist/shared/sqlite-runtime.js');
+
+  // Create the legacy table directly, no `base` column.
+  const legacyDb = await openSqlite(dbPath, (db: SqliteDatabase) => {
+    db.exec(`
+      CREATE TABLE execution_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        photon TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        job_id TEXT NOT NULL,
+        method TEXT NOT NULL,
+        duration_ms INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        error_message TEXT,
+        output_preview TEXT
+      );
+    `);
+    // Insert a legacy row to verify it survives the upgrade.
+    db.prepare(
+      'INSERT INTO execution_history (photon, ts, job_id, method, duration_ms, status) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('legacy-photon', Date.now(), 'legacy-1', 'm', 1, 'success');
+  });
+  legacyDb.close();
+
+  await test('opening a pre-base-column DB does not throw', async () => {
+    // This is the regression: the previous initSchema created indexes that
+    // referenced `base` BEFORE the ALTER TABLE migration, throwing
+    // `no such column: base` and breaking every existing v1.22 upgrade.
+    const db = await openExecutionHistoryDatabase(dbPath);
+    const backend = new SqliteExecutionHistoryBackend(db);
+    // Existing legacy row should still be queryable.
+    const legacy = backend.query('legacy-photon', {});
+    assert.equal(legacy.length, 1);
+    assert.equal(legacy[0].jobId, 'legacy-1');
+    backend.close();
+  });
+
   rmSync(dbPath, { force: true });
 }
 
@@ -269,6 +349,7 @@ async function main() {
   await testBasics();
   await testMultiBase();
   await testSweep();
+  await testLegacySchemaUpgrade();
   await testDispatcher();
   console.log('\nAll execution-history-sqlite tests passed.');
 }
