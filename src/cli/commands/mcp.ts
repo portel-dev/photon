@@ -38,19 +38,18 @@ import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
 function resolveInstalledPhotonDir(workingDir: string, filePath: string): string | null {
   const resolvedWorking = path.resolve(workingDir);
   const resolvedHome = path.resolve(DEFAULT_PHOTON_DIR);
+  const resolvedFile = path.resolve(filePath);
+  // Bundled photons live inside our package install (node_modules, npx cache,
+  // global install). Treating any of that as PHOTON_DIR points .data/cache/
+  // config at a read-only location and prevents the user's ~/.photon state
+  // from applying. Short-circuit BEFORE the workingDir branch — otherwise a
+  // bundled install from a non-default cwd would pin PHOTON_DIR to that cwd.
+  if (isBundledPhotonPath(resolvedFile)) return null;
   if (resolvedWorking !== resolvedHome) return resolvedWorking;
   // workingDir is the global default but the file itself lives elsewhere —
   // e.g. a scaffold under ~/myproj/foo/foo.photon.ts that the resolver found
   // via an explicit path. Walk up from the file to find the nearest dir that
   // contains it so the client can spawn with the right baseDir.
-  const resolvedFile = path.resolve(filePath);
-  if (isBundledPhotonPath(resolvedFile)) {
-    // Bundled photons live inside our package install (node_modules, npx cache,
-    // global install). Treating that as PHOTON_DIR would point .data, cache,
-    // and config at a read-only location. Skip — bundled photons run fine
-    // against the default ~/.photon baseDir.
-    return null;
-  }
   if (!resolvedFile.startsWith(resolvedHome + path.sep) && resolvedFile !== resolvedHome) {
     // Walk up from the file looking for a workspace marker (.marketplace,
     // photon.config.json, or package.json). Stops at the file's parent if

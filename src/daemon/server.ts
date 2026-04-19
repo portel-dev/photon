@@ -3153,6 +3153,22 @@ async function handleRequest(
       jobTimers.delete(key);
     }
     scheduledJobs.delete(key);
+    // Defensive sweep: during upgrade transitions a daemon may still hold
+    // timers registered under the pre-base-scoping `${photon}:${method}` key
+    // format. Report-success-but-keep-firing is worse than a noisy sweep, so
+    // also drop any job whose photonName/method match this request.
+    for (const staleKey of Array.from(scheduledJobs.keys())) {
+      const job = scheduledJobs.get(staleKey);
+      if (!job) continue;
+      if (job.photonName !== photon || job.method !== method) continue;
+      if (staleKey === key) continue; // already handled above
+      const staleTimer = jobTimers.get(staleKey);
+      if (staleTimer) {
+        clearTimeout(staleTimer);
+        jobTimers.delete(staleKey);
+      }
+      scheduledJobs.delete(staleKey);
+    }
     return {
       type: 'result',
       id: request.id,
