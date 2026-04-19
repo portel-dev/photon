@@ -1281,12 +1281,14 @@ async function scanOneForProactiveMetadata(
     source = await fsp.readFile(filePath, 'utf-8');
   } catch (err) {
     // File may have been deleted/renamed mid-flight — drop its declarations.
-    return dropProactiveMetadataFor(photonName);
+    // Scope to workingDir so a missing copy in base A doesn't wipe base B's
+    // declarations of the same photon name.
+    return dropProactiveMetadataFor(photonName, workingDir);
   }
 
   if (!/@(scheduled|cron|webhook)\b/.test(source) && !/\basync\s+handle[A-Z]/.test(source)) {
     // No proactive tags anymore — clear anything we had for this photon.
-    return dropProactiveMetadataFor(photonName);
+    return dropProactiveMetadataFor(photonName, workingDir);
   }
 
   let changed = false;
@@ -1383,15 +1385,33 @@ async function scanOneForProactiveMetadata(
 }
 
 /** Remove all proactive-metadata entries owned by a photon. */
-function dropProactiveMetadataFor(photonName: string): boolean {
+/**
+ * Drop proactive declarations for a photon. When `workingDir` is supplied,
+ * scope the deletion to that PHOTON_DIR — required for multi-base setups
+ * where the same photon name can legitimately exist in two registered
+ * bases. Without scoping, deleting (or briefly failing to read) one copy
+ * would silently wipe the other base's schedules + webhooks.
+ *
+ * webhookRoutes is currently keyed by photon name only and isn't multi-base
+ * aware; we only delete that map's entry when no working dir is supplied
+ * (the legacy "wipe everything" path).
+ */
+function dropProactiveMetadataFor(photonName: string, workingDir?: string): boolean {
   let changed = false;
+  const resolvedDir = workingDir ? path.resolve(workingDir) : undefined;
   for (const [key, decl] of declaredSchedules.entries()) {
-    if (decl.photon === photonName) {
-      declaredSchedules.delete(key);
-      changed = true;
+    if (decl.photon !== photonName) continue;
+    if (resolvedDir) {
+      const declDir = decl.workingDir ? path.resolve(decl.workingDir) : undefined;
+      if (declDir !== resolvedDir) continue;
     }
+    declaredSchedules.delete(key);
+    changed = true;
   }
-  if (webhookRoutes.delete(photonName)) changed = true;
+  // Only wipe webhook routes when no base scope was given. Webhook
+  // multi-base scoping is tracked separately; over-deletion here is the
+  // higher-impact regression so we err on the side of preserving routes.
+  if (!resolvedDir && webhookRoutes.delete(photonName)) changed = true;
   return changed;
 }
 

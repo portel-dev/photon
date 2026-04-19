@@ -60,9 +60,14 @@ export function looksLikeA2UIStream(arr: unknown[]): boolean {
  * updateDataModel. The component list always contains exactly one `root`.
  */
 export function resultToA2UIMessages(result: unknown, options: MapperOptions = {}): A2UIMessage[] {
-  const surfaceId = options.surfaceId ?? `s-${randomUUID()}`;
+  const tree = buildTree(result);
+  // Escape-hatch overrides win over caller options when both are present —
+  // the escape hatch is the photon author's explicit intent, options are
+  // the transport's defaults.
+  const surfaceId = tree.surfaceId ?? options.surfaceId ?? `s-${randomUUID()}`;
+  const theme = tree.theme ?? options.theme;
 
-  const { components, data } = buildTree(result);
+  const { components, data } = tree;
   assertSingleRoot(components);
 
   const messages: A2UIMessage[] = [
@@ -71,7 +76,7 @@ export function resultToA2UIMessages(result: unknown, options: MapperOptions = {
       createSurface: {
         surfaceId,
         catalogId: A2UI_BASIC_CATALOG,
-        ...(options.theme ? { theme: options.theme } : {}),
+        ...(theme ? { theme } : {}),
       },
     },
     {
@@ -94,6 +99,10 @@ export function resultToA2UIMessages(result: unknown, options: MapperOptions = {
 interface Tree {
   components: A2UIComponent[];
   data: unknown;
+  /** Escape-hatch override for the createSurface surfaceId. */
+  surfaceId?: string;
+  /** Escape-hatch override for the createSurface theme. */
+  theme?: MapperOptions['theme'];
 }
 
 function buildTree(result: unknown): Tree {
@@ -132,6 +141,8 @@ function buildFromEscapeHatch(hatch: A2UIEscapeHatch): Tree {
   return {
     components: hatch.components,
     data: hatch.data ?? {},
+    surfaceId: hatch.surfaceId,
+    theme: hatch.theme,
   };
 }
 

@@ -51,9 +51,49 @@ function resolveInstalledPhotonDir(workingDir: string, filePath: string): string
     return null;
   }
   if (!resolvedFile.startsWith(resolvedHome + path.sep) && resolvedFile !== resolvedHome) {
-    return path.dirname(resolvedFile);
+    // Walk up from the file looking for a workspace marker (.marketplace,
+    // photon.config.json, or package.json). Stops at the file's parent if
+    // nothing matches — better to land at the immediate dir than to write
+    // PHOTON_DIR pointing at $HOME or /. Avoids the nested-photon trap
+    // where dirname(`/repo/team/foo.photon.ts`) yields `/repo/team`
+    // instead of the actual workspace root `/repo`.
+    return findWorkspaceRoot(path.dirname(resolvedFile));
   }
   return null;
+}
+
+/**
+ * Walk up from `start` looking for a directory that smells like a workspace
+ * root: contains `.marketplace/`, `photon.config.json`, or `package.json`.
+ * Falls back to `start` if no marker is found before reaching the filesystem
+ * root or the user's home directory.
+ */
+function findWorkspaceRoot(start: string): string {
+  const home = path.resolve(os.homedir());
+  let current = start;
+  while (true) {
+    if (
+      existsSyncSafe(path.join(current, '.marketplace')) ||
+      existsSyncSafe(path.join(current, 'photon.config.json')) ||
+      existsSyncSafe(path.join(current, 'package.json'))
+    ) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current || parent === home || parent === path.dirname(home)) break;
+    current = parent;
+  }
+  return start;
+}
+
+function existsSyncSafe(p: string): boolean {
+  try {
+    // Lazy import: keep the dep graph small for tests that mock `fs`.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('fs').existsSync(p);
+  } catch {
+    return false;
+  }
 }
 
 /**
