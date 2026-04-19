@@ -435,10 +435,37 @@ export function generateRenderersScript(): string {
     });
   };
 
+  // Mirror of looksLikeA2UIStream in src/a2ui/mapper.ts — keep the Beam
+  // renderer consistent with CLI/AG-UI. Requires: non-empty array whose
+  // elements all have (version:string) + exactly one wrapper key whose
+  // value is an object with a string surfaceId. Without this guard, row
+  // data that happens to include an updateDataModel column is silently
+  // treated as a pre-built A2UI stream and renders empty in Beam.
+  function a2uiLooksLikeStream(arr) {
+    if (!Array.isArray(arr) || arr.length === 0) return false;
+    var wrapperKeys = ['createSurface','updateComponents','updateDataModel','deleteSurface'];
+    for (var i = 0; i < arr.length; i++) {
+      var m = arr[i];
+      if (!m || typeof m !== 'object') return false;
+      if (typeof m.version !== 'string') return false;
+      var count = 0;
+      for (var k = 0; k < wrapperKeys.length; k++) {
+        var key = wrapperKeys[k];
+        if (!(key in m)) continue;
+        count++;
+        var wrapped = m[key];
+        if (!wrapped || typeof wrapped !== 'object' || Array.isArray(wrapped)) return false;
+        if (typeof wrapped.surfaceId !== 'string') return false;
+      }
+      if (count !== 1) return false;
+    }
+    return true;
+  }
+
   // Extract {components, data} from a v0.9 JSONL message array if the caller
   // passed one (e.g. the AG-UI CUSTOM event stream replayed as data).
   function a2uiExtractSurface(data) {
-    if (!Array.isArray(data)) return null;
+    if (!a2uiLooksLikeStream(data)) return null;
     var components = null;
     var dataModel = {};
     for (var i = 0; i < data.length; i++) {
