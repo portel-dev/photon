@@ -425,15 +425,51 @@ export function generateRenderersScript(): string {
       + a2uiRender('root', byId, surface.data, null)
       + '</div>';
     container.innerHTML = html;
-    // ── 3. Wire button actions (non-destructive toast feedback) ──
+
+    // ── 3. Local data-model snapshot. Starts as a clone of the data the
+    // server seeded the surface with, then absorbs every TextField edit so
+    // the snapshot the action carries reflects current user input.
+    var localData = a2uiCloneData(surface.data);
+    container.querySelectorAll('input[data-a2ui-input]').forEach(function(input) {
+      input.addEventListener('input', function() {
+        var ptr = input.getAttribute('data-a2ui-input') || '';
+        a2uiSetByPath(localData, ptr, input.value);
+      });
+    });
+
+    // ── 4. Button clicks dispatch a bubbling CustomEvent. The host (Beam
+    // result-viewer) catches it and routes to <photon>/<actionName>. If
+    // nothing handles it (preventDefault), fall back to a toast so the
+    // renderer is still useful in standalone iframes.
     container.querySelectorAll('[data-a2ui-action]').forEach(function(btn) {
       btn.addEventListener('click', function(ev) {
-        var name = btn.getAttribute('data-a2ui-action') || '';
-        a2uiToast(container, 'A2UI action: ' + name);
         ev.preventDefault();
+        var name = btn.getAttribute('data-a2ui-action') || '';
+        var detail = { name: name, context: localData, surfaceId: surface.surfaceId || null };
+        var dispatched = container.dispatchEvent(new CustomEvent('a2ui:action', {
+          detail: detail,
+          bubbles: true,
+          composed: true,
+          cancelable: true
+        }));
+        if (dispatched) {
+          // No host caught it — show the toast so dev still sees the click
+          a2uiToast(container, 'A2UI action: ' + name);
+        }
       });
     });
   };
+
+  // Cheap structured clone — covers what the mapper produces (plain objects,
+  // arrays, primitives). Avoids structuredClone() so we don't depend on a
+  // newer DOM API in iframe contexts that might not have it.
+  function a2uiCloneData(value) {
+    if (value == null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map(a2uiCloneData);
+    var out = {};
+    for (var k in value) if (Object.prototype.hasOwnProperty.call(value, k)) out[k] = a2uiCloneData(value[k]);
+    return out;
+  }
 
   // Mirror of looksLikeA2UIStream in src/a2ui/mapper.ts — keep the Beam
   // renderer consistent with CLI/AG-UI. Requires: non-empty array whose
@@ -468,9 +504,13 @@ export function generateRenderersScript(): string {
     if (!a2uiLooksLikeStream(data)) return null;
     var components = null;
     var dataModel = {};
+    var surfaceId = null;
     for (var i = 0; i < data.length; i++) {
       var m = data[i];
       if (!m || typeof m !== 'object') continue;
+      if (m.createSurface && m.createSurface.surfaceId) {
+        surfaceId = m.createSurface.surfaceId;
+      }
       if (m.updateComponents && m.updateComponents.components) {
         components = m.updateComponents.components;
       } else if (m.updateDataModel) {
@@ -482,7 +522,7 @@ export function generateRenderersScript(): string {
         }
       }
     }
-    return components ? { components: components, data: dataModel } : null;
+    return components ? { components: components, data: dataModel, surfaceId: surfaceId } : null;
   }
 
   // Client-side mapper — mirrors src/a2ui/mapper.ts heuristics. Kept in sync
@@ -689,9 +729,13 @@ export function generateRenderersScript(): string {
         var fieldLabel = a2uiResolveDynamic(c.label, dataModel, scope);
         var valuePath = c.value && c.value.path;
         var val = valuePath ? a2uiResolvePath(dataModel, valuePath, scope) : '';
+        // data-a2ui-input carries the JSON Pointer to write user edits back
+        // into the local data-model snapshot so the next button click ships
+        // current input values in its action context.
+        var inputAttr = valuePath ? ' data-a2ui-input="' + esc(String(valuePath)) + '"' : '';
         return '<label style="display:flex;flex-direction:column;gap:4px;font-size:13px">' +
           (fieldLabel ? '<span style="color:' + colors.textMuted + '">' + esc(String(fieldLabel)) + '</span>' : '') +
-          '<input type="text" value="' + esc(String(val == null ? '' : val)) + '" style="padding:8px;border:1px solid ' + colors.border + ';border-radius:6px;background:' + colors.bg + ';color:' + colors.text + '" />' +
+          '<input type="text" value="' + esc(String(val == null ? '' : val)) + '"' + inputAttr + ' style="padding:8px;border:1px solid ' + colors.border + ';border-radius:6px;background:' + colors.bg + ';color:' + colors.text + '" />' +
           '</label>';
       }
       default: {

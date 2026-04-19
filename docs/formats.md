@@ -393,9 +393,59 @@ async surface() {
 
 - **CLI:** prints the JSONL sequence (one message per line).
 - **MCP / AG-UI:** each A2UI message is broadcast as an AG-UI `CUSTOM` event named `a2ui.message`. A consumer reassembles the JSONL stream. This is the primary integration path — paste the captured stream into [A2UI Theater](https://a2ui-composer.ag-ui.com/theater) to see it render.
-- **Beam:** a preview renderer shows the raw JSONL (full A2UI rendering in Beam is a future feature).
+- **Beam:** native renderer that walks the component tree, binds JSON Pointer values, and dispatches button actions back to the photon (see "Action round-trip" below).
 
-Non-goals for the current version: stateful surface lifecycle across turns, action round-trip from the A2UI renderer back into photon methods, custom catalogs.
+### Action round-trip — button name === method name
+
+When a Beam user clicks an A2UI Button, the renderer dispatches an `a2ui:action` event and the Beam result-viewer routes it to the same photon by calling the method whose name matches `action.event.name`. No new contract — write a method, name a button after it, the click hits it.
+
+```typescript
+/**
+ * Stateful counter — view() returns the surface; increment() and reset()
+ * are the action handlers. Each one returns the same surface shape, so
+ * Beam re-renders in place after the click.
+ *
+ * @stateful
+ */
+export default class Counter {
+  /** @format a2ui */
+  async view() { return this.surface(await this.read()); }
+
+  /** @format a2ui */
+  async increment() {
+    const next = (await this.read()) + 1;
+    await this.memory.set('value', next);
+    return this.surface(next);
+  }
+
+  /** @format a2ui */
+  async reset() {
+    await this.memory.set('value', 0);
+    return this.surface(0);
+  }
+
+  private surface(value: number) {
+    return {
+      __a2ui: true,
+      components: [
+        { id: 'root', component: 'Card', child: 'col' },
+        { id: 'col', component: 'Column', children: ['v', 'inc', 'reset'] },
+        { id: 'v', component: 'Text', variant: 'h1',
+          text: { call: 'formatString', args: { value: 'Value: ${/value}' } } },
+        { id: 'inc', component: 'Button', text: 'Increment',
+          action: { event: { name: 'increment' } } },
+        { id: 'reset', component: 'Button', text: 'Reset',
+          action: { event: { name: 'reset' } } },
+      ],
+      data: { value },
+    };
+  }
+}
+```
+
+Action context: any TextField a user has edited gets captured into a local data-model snapshot and shipped as the call's `arguments`, so a `Button { event: { name: 'submit' } }` clicked next to `TextField { value: { path: '/email' } }` calls `photon.submit({ email: '...' })`.
+
+Non-goals: stateful surface lifecycle across turns (each call replaces the surface), custom catalogs, two-way binding for non-TextField inputs.
 
 ---
 

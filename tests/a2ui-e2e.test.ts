@@ -171,7 +171,57 @@ async function runAll(): Promise<void> {
     assert.equal(a2ui.length, 0);
   });
 
-  // ── 3. Wire format: AG-UI event envelope is valid JSON-RPC 2.0 ──
+  // ── 3. Round-trip convention: button name === method name ──
+  // The action round-trip contract — Beam routes a click on a button with
+  // event.name="increment" to <photon>/increment. This test dogfoods the
+  // a2ui-counter fixture, which encodes that convention.
+
+  await test('counter fixture round-trip: each action method matches a button event.name', async () => {
+    const counterPath = path.join(__dirname, 'fixtures', 'a2ui-counter.photon.ts');
+    const counterMod = (await import(counterPath)) as {
+      default: new () => Record<string, () => Promise<unknown>> & {
+        memory?: {
+          get: (k: string) => Promise<unknown>;
+          set: (k: string, v: unknown) => Promise<void>;
+        };
+      };
+    };
+    const counter = new counterMod.default();
+    // Stub the memory dependency the runtime would inject — we're not
+    // exercising persistence here, only the convention that button
+    // event.name === method name.
+    const store = new Map<string, unknown>();
+    counter.memory = {
+      get: async (k) => store.get(k) ?? null,
+      set: async (k, v) => {
+        store.set(k, v);
+      },
+    };
+    const surface = (await counter.view()) as {
+      components: Array<{
+        component: string;
+        action?: { event?: { name?: string } };
+      }>;
+    };
+    const buttonNames = surface.components
+      .filter((c) => c.component === 'Button')
+      .map((c) => c.action?.event?.name)
+      .filter((n): n is string => typeof n === 'string');
+    assert.ok(buttonNames.length >= 3, 'fixture should declare ≥3 action buttons');
+    for (const name of buttonNames) {
+      assert.equal(
+        typeof (counter as Record<string, unknown>)[name],
+        'function',
+        `button name "${name}" must map to a method on the photon`
+      );
+    }
+    // Smoke-call increment to confirm the contract works end-to-end.
+    await counter.increment();
+    const after = (await counter.view()) as { data: { value: number } };
+    assert.equal(after.data.value, 1, 'increment should persist a +1 in memory');
+  });
+
+  // ── 4. Wire format: AG-UI event envelope is valid JSON-RPC 2.0 ──
 
   await test('every A2UI event is wrapped as a valid ag-ui/event JSON-RPC notification', async () => {
     const events = await runMethod('a2uiRows');

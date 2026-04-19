@@ -94,5 +94,33 @@ test('a2ui is registered in FORMAT_CATALOG', async () => {
   assert.ok('a2ui' in FORMAT_CATALOG, 'FORMAT_CATALOG.a2ui missing');
 });
 
+test('button click dispatches a bubbling a2ui:action CustomEvent (not toast-only)', () => {
+  // The round-trip contract: clicks must dispatch a cancelable, composed,
+  // bubbling CustomEvent so the Beam result-viewer can route to the photon.
+  // Toast is the fallback when nothing handles the event.
+  assert.ok(
+    /dispatchEvent\(new CustomEvent\('a2ui:action'/.test(script),
+    "renderer must dispatch CustomEvent('a2ui:action') on click"
+  );
+  assert.ok(
+    /bubbles:\s*true/.test(script) && /composed:\s*true/.test(script),
+    'a2ui:action must be bubbles+composed so it crosses shadow DOM'
+  );
+  assert.ok(
+    /cancelable:\s*true/.test(script),
+    'a2ui:action must be cancelable so the host can preventDefault to suppress the toast'
+  );
+});
+
+test('TextField inputs are tagged with data-a2ui-input for edit capture', () => {
+  // Without this attribute the renderer cannot capture user edits into the
+  // local data-model snapshot, so action context would always carry stale
+  // initial values.
+  assert.ok(
+    /data-a2ui-input/.test(script),
+    'TextField must render a data-a2ui-input attribute carrying the JSON Pointer'
+  );
+});
+
 console.log(`\n  ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

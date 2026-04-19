@@ -4307,7 +4307,10 @@ export class ResultViewer extends LitElement {
   /**
    * Render an A2UI v0.9 surface by handing the result off to the shared
    * photon-renderers.js runtime. The renderer walks the component tree
-   * (auto-mapped from the raw result) and produces the final DOM.
+   * (auto-mapped from the raw result) and produces the final DOM, then
+   * dispatches `a2ui:action` events when buttons fire — we route those to
+   * `<photonName>/<actionName>` per the convention documented in
+   * docs/formats.md (button name == method name on the same photon).
    */
   private _renderA2UI(filteredData: unknown): TemplateResult {
     const data = filteredData;
@@ -4316,7 +4319,46 @@ export class ResultViewer extends LitElement {
       const target = this.shadowRoot?.getElementById(slotId) as HTMLElement | null;
       if (target) this._renderSlideFormat(target, data, 'a2ui');
     });
-    return html`<div id=${slotId} class="a2ui-host" style="padding: 4px"></div>`;
+    // The @a2ui:action handler is attached by Lit on every render — Lit
+    // reuses the host div across re-renders, so attaching imperatively
+    // would stack listeners and cause N-fold action duplication.
+    return html`<div
+      id=${slotId}
+      class="a2ui-host"
+      style="padding: 4px"
+      @a2ui:action=${this._handleA2UIAction}
+    ></div>`;
+  }
+
+  private _handleA2UIAction = (ev: Event): void => {
+    ev.preventDefault();
+    const detail = (ev as CustomEvent).detail as {
+      name: string;
+      context?: Record<string, unknown>;
+    };
+    void this._invokeA2UIAction(detail.name, detail.context ?? {});
+  };
+
+  /**
+   * Invoke a photon method that an A2UI button asked for and re-render the
+   * surface with the new result. Action name comes from the button's
+   * `event.name`; context is the local data-model snapshot (TextField edits
+   * captured by the renderer).
+   */
+  private async _invokeA2UIAction(
+    actionName: string,
+    context: Record<string, unknown>
+  ): Promise<void> {
+    if (!this.photonName || !actionName) return;
+    try {
+      const result = await mcpClient.callTool(`${this.photonName}/${actionName}`, context);
+      const next = mcpClient.parseToolResult(result);
+      // Setting the @property triggers Lit re-render; _renderA2UI mounts
+      // the renderer again with the new data.
+      this.result = next;
+    } catch (err) {
+      console.error('[a2ui] action failed:', actionName, err);
+    }
   }
 
   private _renderTable(data: any[]): TemplateResult {
