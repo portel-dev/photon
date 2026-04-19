@@ -17,6 +17,24 @@ import * as crypto from 'crypto';
 import * as path from 'path';
 
 /**
+ * Branded key types. `ScopedKey<'...'>` is structurally a string, but
+ * TypeScript refuses to assign a plain `string` to it. That means any
+ * `Map<ScopedKey<'schedule'>, V>` can ONLY be indexed by the result of
+ * `declaredKey(...)`. Bare-string lookups — the cause of the whole
+ * multi-base cascade — stop compiling.
+ *
+ * The brand is erased at runtime; this is purely a compile-time guardrail.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const __brand: unique symbol;
+export type ScopedKey<Tag extends string> = string & { readonly [__brand]: Tag };
+
+export type ScheduleKey = ScopedKey<'schedule'>;
+export type WebhookRouteKey = ScopedKey<'webhook'>;
+export type LocationKey = ScopedKey<'location'>;
+export type PhotonCompositeKey = ScopedKey<'photon'>;
+
+/**
  * Composite cache/session key: `<photon>` for the default base, else
  * `<photon>:<hash8>` where hash8 is sha256(baseDir) truncated. Preserves
  * legacy behavior when the workingDir matches the supplied default base,
@@ -26,10 +44,10 @@ export function compositeKey(
   photonName: string,
   workingDir: string | undefined,
   defaultBase: string
-): string {
-  if (!workingDir || workingDir === defaultBase) return photonName;
+): PhotonCompositeKey {
+  if (!workingDir || workingDir === defaultBase) return photonName as PhotonCompositeKey;
   const dirHash = crypto.createHash('sha256').update(workingDir).digest('hex').slice(0, 8);
-  return `${photonName}:${dirHash}`;
+  return `${photonName}:${dirHash}` as PhotonCompositeKey;
 }
 
 /**
@@ -42,9 +60,9 @@ export function compositeKey(
  * scheduled-job maps use the base segment as discriminator so same-named
  * photon methods in different bases don't collide.
  */
-export function declaredKey(photon: string, method: string, workingDir?: string): string {
+export function declaredKey(photon: string, method: string, workingDir?: string): ScheduleKey {
   const base = workingDir ? path.resolve(workingDir) : '-';
-  return `${base}::${photon}:${method}`;
+  return `${base}::${photon}:${method}` as ScheduleKey;
 }
 
 /**
@@ -53,9 +71,9 @@ export function declaredKey(photon: string, method: string, workingDir?: string)
  * know the base), so callers that need cross-base search use
  * `findMatching(map, photon)` over the values instead of a direct .get().
  */
-export function webhookKey(photon: string, workingDir?: string): string {
+export function webhookKey(photon: string, workingDir?: string): WebhookRouteKey {
   const base = workingDir ? path.resolve(workingDir) : '-';
-  return `${base}::${photon}`;
+  return `${base}::${photon}` as WebhookRouteKey;
 }
 
 /**
@@ -63,9 +81,9 @@ export function webhookKey(photon: string, workingDir?: string): string {
  * intentionally kept separate because the two maps hold different value
  * types and could drift in the future.
  */
-export function locationKey(photon: string, workingDir?: string): string {
+export function locationKey(photon: string, workingDir?: string): LocationKey {
   const base = workingDir ? path.resolve(workingDir) : '-';
-  return `${base}::${photon}`;
+  return `${base}::${photon}` as LocationKey;
 }
 
 /**
@@ -82,7 +100,10 @@ export interface PhotonScoped {
  * Used by callers that only have a photon name in scope (HTTP webhook
  * handler, IPC clients that don't pre-know the base).
  */
-export function findByPhoton<V extends PhotonScoped>(map: Map<string, V>, photon: string): V[] {
+export function findByPhoton<V extends PhotonScoped>(
+  map: Map<ScopedKey<string>, V> | Map<string, V>,
+  photon: string
+): V[] {
   const out: V[] = [];
   for (const entry of map.values()) {
     if (entry.photon === photon) out.push(entry);

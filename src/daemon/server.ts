@@ -332,6 +332,9 @@ import {
   webhookKey as _webhookKey,
   locationKey as _locationKey,
   findByPhoton,
+  type ScheduleKey,
+  type WebhookRouteKey,
+  type LocationKey,
 } from './registry-keys.js';
 
 /**
@@ -1313,10 +1316,10 @@ async function scanOneForProactiveMetadata(
 
   // Collect the new shape, then diff against current state so callers
   // only fire change events on actual differences.
-  const nextSchedules = new Map<
-    string,
-    typeof declaredSchedules extends Map<string, infer V> ? V : never
-  >();
+  // Typed with the branded ScheduleKey so the diff loop against
+  // declaredSchedules below can feed its keys straight into .get/.set.
+  // See src/daemon/registry-keys.ts for the branded-key rationale.
+  const nextSchedules = new Map<ScheduleKey, DeclaredSchedule>();
   const nextRoutes = new Map<string, string>(); // routePath → methodName
 
   for (const rawTool of meta.tools) {
@@ -2294,7 +2297,11 @@ interface WebhookRouteEntry {
   routes: Map<string, string>;
   workingDir?: string;
 }
-const webhookRoutes = new Map<string, WebhookRouteEntry>();
+// Typed with WebhookRouteKey so bare-string .get() no longer compiles —
+// every access must go through webhookKey(photon, workingDir) or
+// findByPhoton(webhookRoutes, photon). This is the compile-time
+// guardrail against the cascade that hit us post-v1.22.1.
+const webhookRoutes = new Map<WebhookRouteKey, WebhookRouteEntry>();
 
 /** Composite key for the webhookRoutes map. Delegates to registry-keys.ts. */
 const webhookKey = _webhookKey;
@@ -2321,7 +2328,7 @@ interface ProactiveLocation {
 // Keyed by `<base>::<photonName>` so multi-base discovery doesn't clobber:
 // two PHOTON_DIRs can host a photon with the same name and the webhook
 // server must be able to lazy-load each one from its own file.
-const proactivePhotonLocations = new Map<string, ProactiveLocation>();
+const proactivePhotonLocations = new Map<LocationKey, ProactiveLocation>();
 
 const locationKey = _locationKey;
 
@@ -2352,7 +2359,7 @@ interface DeclaredSchedule {
   photonPath: string;
   workingDir?: string;
 }
-const declaredSchedules = new Map<string, DeclaredSchedule>();
+const declaredSchedules = new Map<ScheduleKey, DeclaredSchedule>();
 
 /**
  * Identity key for declared schedules and scheduled jobs. Delegates to
