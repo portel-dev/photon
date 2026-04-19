@@ -56,6 +56,7 @@ function initSchema(db: SqliteDatabase): void {
       tenant_id TEXT NOT NULL,
       code_challenge TEXT NOT NULL,
       code_challenge_method TEXT NOT NULL,
+      nonce TEXT,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL
     );
@@ -111,6 +112,7 @@ function initSchema(db: SqliteDatabase): void {
       redirect_uri TEXT NOT NULL,
       scope TEXT NOT NULL,
       state TEXT,
+      nonce TEXT,
       code_challenge TEXT NOT NULL,
       code_challenge_method TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -136,8 +138,8 @@ export class SqliteAuthCodeStore implements AuthCodeStore {
   constructor(private db: SqliteDatabase) {
     this.insert = db.prepare(`
       INSERT INTO auth_codes (code, client_id, redirect_uri, scope, user_id, tenant_id,
-        code_challenge, code_challenge_method, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        code_challenge, code_challenge_method, nonce, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.select = db.prepare('SELECT * FROM auth_codes WHERE code = ?');
     this.remove = db.prepare('DELETE FROM auth_codes WHERE code = ?');
@@ -155,6 +157,7 @@ export class SqliteAuthCodeStore implements AuthCodeStore {
         code.tenantId,
         code.codeChallenge,
         code.codeChallengeMethod,
+        code.nonce ?? null,
         code.expiresAt.getTime(),
         code.createdAt.getTime()
       );
@@ -196,6 +199,7 @@ function rowToAuthCode(row: any): AuthorizationCode {
     tenantId: row.tenant_id,
     codeChallenge: row.code_challenge,
     codeChallengeMethod: row.code_challenge_method,
+    nonce: row.nonce ?? undefined,
     expiresAt: new Date(row.expires_at),
     createdAt: new Date(row.created_at),
   };
@@ -454,10 +458,10 @@ export class SqlitePendingAuthorizationStore implements PendingAuthorizationStor
   constructor(private db: SqliteDatabase) {
     this.insert = db.prepare(`
       INSERT INTO pending_auth
-        (id, client_id, redirect_uri, scope, state, code_challenge,
+        (id, client_id, redirect_uri, scope, state, nonce, code_challenge,
          code_challenge_method, user_id, tenant_id, response_type,
          expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.select = db.prepare('SELECT * FROM pending_auth WHERE id = ?');
     this.remove = db.prepare('DELETE FROM pending_auth WHERE id = ?');
@@ -471,6 +475,7 @@ export class SqlitePendingAuthorizationStore implements PendingAuthorizationStor
       req.redirectUri,
       req.scope,
       req.state ?? null,
+      req.nonce ?? null,
       req.codeChallenge,
       req.codeChallengeMethod,
       req.userId,
@@ -507,6 +512,7 @@ function rowToPending(row: any): PendingAuthorization {
     redirectUri: row.redirect_uri,
     scope: row.scope,
     state: row.state ?? undefined,
+    nonce: row.nonce ?? undefined,
     codeChallenge: row.code_challenge,
     codeChallengeMethod: row.code_challenge_method,
     userId: row.user_id,

@@ -260,6 +260,8 @@ export interface PendingAuthorization {
   redirectUri: string;
   scope: string;
   state?: string;
+  /** OIDC nonce — preserved across consent so the id_token can echo it. */
+  nonce?: string;
   codeChallenge: string;
   codeChallengeMethod: 'S256';
   userId: string;

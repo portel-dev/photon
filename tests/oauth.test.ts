@@ -184,6 +184,38 @@ async function testJwtService() {
     assert.ok(decoded, 'ES256 token should verify');
   });
 
+  await test('ES256 uses IEEE-P1363 r||s signature per RFC 7518 §3.4', async () => {
+    // Regression test: previously we emitted DER-encoded signatures which are
+    // self-consistent but rejected by every external OIDC library (jose, okta).
+    // P-256 r and s are each 32 bytes, so the raw signature must be exactly 64.
+    const { generateKeyPairSync, createVerify } = await import('crypto');
+    const { publicKey, privateKey } = generateKeyPairSync('ec', {
+      namedCurve: 'P-256',
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    const es = new JwtService({
+      issuer: TEST_ISSUER,
+      algorithm: 'ES256',
+      privateKey,
+      publicKey,
+    });
+    const token = es.generateSessionToken(session, tenant);
+    const [, , sigB64] = token.split('.');
+    const sig = Buffer.from(sigB64, 'base64url');
+    assert.equal(sig.length, 64, 'ES256 signature must be 64 bytes (r||s P-256)');
+
+    // Independent verification using an external verifier signature path:
+    // create a fresh Node verifier with ieee-p1363 encoding and confirm it
+    // accepts the token's signature. This simulates what jose/okta do.
+    const signingInput = token.split('.').slice(0, 2).join('.');
+    const externalVerifier = createVerify('sha256');
+    externalVerifier.update(signingInput);
+    externalVerifier.end();
+    const valid = externalVerifier.verify({ key: publicKey, dsaEncoding: 'ieee-p1363' }, sig);
+    assert.ok(valid, 'External verifier must accept ES256 token');
+  });
+
   await test('exportJwk returns kid and alg for asymmetric algs', async () => {
     const { generateKeyPairSync } = await import('crypto');
     const { publicKey, privateKey } = generateKeyPairSync('rsa', {

@@ -290,7 +290,12 @@ export class JwtService {
         const verifier = createVerify(this.hashName());
         verifier.update(signatureInput);
         verifier.end();
-        const signature = Buffer.from(signatureB64, 'base64url');
+        const raw = Buffer.from(signatureB64, 'base64url');
+        // ES256/384/512 carry IEEE-P1363 r||s per RFC 7518 §3.4. Node's verifier
+        // expects DER internally on some runtimes (Bun in particular), so we
+        // convert P1363→DER before calling verify. `dsaEncoding: 'ieee-p1363'`
+        // option is Node-only and errors on Bun.
+        const signature = this.config.algorithm === 'ES256' ? p1363ToDer(raw) : raw;
         const ok = verifier.verify(this.publicKey, signature);
         if (!ok) return null;
       } catch {
@@ -322,7 +327,16 @@ export class JwtService {
       const signer = createSign(this.hashName());
       signer.update(input);
       signer.end();
-      return signer.sign(this.privateKey).toString('base64url');
+      // Node.js signs ECDSA with DER by default. RFC 7518 §3.4 requires
+      // the IEEE-P1363 r||s concatenation for JWS, so we convert after
+      // signing. The `dsaEncoding: 'ieee-p1363'` sign option would work
+      // on Node but throws on Bun ("Length out of range"), so we do the
+      // conversion manually for runtime-agnosticism.
+      const der = signer.sign(this.privateKey);
+      if (this.config.algorithm === 'ES256') {
+        return derToP1363(der, 32).toString('base64url');
+      }
+      return der.toString('base64url');
     }
     const hmac = createHmac(this.hashName(), this.config.secret);
     hmac.update(input);
@@ -437,6 +451,85 @@ function base64UrlEncode(str: string): string {
 function base64UrlDecode(str: string): string {
   return Buffer.from(str, 'base64url').toString('utf-8');
 }
+
+// ============================================================================
+// ECDSA signature encoding (DER ↔ IEEE-P1363)
+// ============================================================================
+
+/**
+ * Convert a DER-encoded ECDSA signature (Node's default output from
+ * `createSign().sign()`) into the IEEE-P1363 r||s encoding required by
+ * RFC 7518 §3.4 for JWS ES256/ES384/ES512.
+ *
+ * DER layout: 0x30 [totalLen] 0x02 [rLen] [r...] 0x02 [sLen] [s...]
+ * r and s are encoded as signed integers — DER prepends 0x00 if the high
+ * bit of the first byte would otherwise make them negative. P1363 strips
+ * that padding and left-zero-pads each component to `componentLen` bytes.
+ */
+function derToP1363(der: Buffer, componentLen: number): Buffer {
+  if (der[0] !== 0x30) {
+    throw new Error('invalid DER signature: missing SEQUENCE');
+  }
+  // Skip SEQUENCE header (1-byte length for signatures we produce).
+  let offset = 2;
+  if ((der[1] & 0x80) !== 0) {
+    offset += der[1] & 0x7f;
+  }
+  const readInt = (): Buffer => {
+    if (der[offset] !== 0x02) {
+      throw new Error('invalid DER signature: expected INTEGER');
+    }
+    const len = der[offset + 1];
+    const start = offset + 2;
+    let value = der.subarray(start, start + len);
+    offset = start + len;
+    // Strip leading 0x00 padding that keeps DER integers positive.
+    while (value.length > 1 && value[0] === 0x00) {
+      value = value.subarray(1);
+    }
+    if (value.length > componentLen) {
+      throw new Error(`ECDSA component overflow: ${value.length} > ${componentLen}`);
+    }
+    return value;
+  };
+  const r = readInt();
+  const s = readInt();
+  const out = Buffer.alloc(componentLen * 2);
+  r.copy(out, componentLen - r.length);
+  s.copy(out, componentLen * 2 - s.length);
+  return out;
+}
+
+/**
+ * Convert a P1363 r||s signature into DER for Node's `verifier.verify()`.
+ * Inverse of `derToP1363`. Used on the verify path so signatures received
+ * in spec-compliant JWS form can still be handed to Node's DER-only API.
+ */
+function p1363ToDer(p1363: Buffer): Buffer {
+  if (p1363.length % 2 !== 0) {
+    throw new Error('invalid P1363 signature: odd length');
+  }
+  const half = p1363.length / 2;
+  const encodeInt = (value: Buffer): Buffer => {
+    // Strip leading zeros (but leave at least one byte).
+    let v = value;
+    while (v.length > 1 && v[0] === 0x00) {
+      v = v.subarray(1);
+    }
+    // If high bit is set, prepend 0x00 so DER reads it as positive.
+    if ((v[0] & 0x80) !== 0) {
+      v = Buffer.concat([Buffer.from([0x00]), v]);
+    }
+    return Buffer.concat([Buffer.from([0x02, v.length]), v]);
+  };
+  const r = encodeInt(p1363.subarray(0, half));
+  const s = encodeInt(p1363.subarray(half));
+  const body = Buffer.concat([r, s]);
+  return Buffer.concat([Buffer.from([0x30, body.length]), body]);
+}
+
+/** Internal exports for tests only. */
+export const __test_ecdsa__ = { derToP1363, p1363ToDer };
 
 // ============================================================================
 // Factory Function

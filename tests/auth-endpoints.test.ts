@@ -1404,6 +1404,131 @@ async function testIdToken() {
     assert.equal(payload.azp, clientId);
   });
 
+  await test('nonce from /authorize is echoed into id_token', async () => {
+    // RFC regression: previously /authorize parsed nonce but never plumbed
+    // it through PendingAuthorization or AuthorizationCode, so the id_token
+    // always had it missing. OIDC code-flow clients rejected our tokens.
+    const { deps, codeVerifier, redirectUri, clientId } = await primeAuthorizationCode();
+    await deps.consentStore.save({
+      userId: 'u-nonce',
+      tenantId: 'tenant-1',
+      clientId,
+      scopes: 'openid mcp:read',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      createdAt: new Date(),
+    });
+    const challenge = generateCodeChallenge(codeVerifier);
+    const nonceValue = 'client-supplied-nonce-' + Math.random();
+    const authRes = await handleAuthorize(
+      {
+        method: 'GET',
+        url: buildAuthorizeUrl({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          scope: 'openid mcp:read',
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          nonce: nonceValue,
+        }),
+        headers: {},
+        userId: 'u-nonce',
+      },
+      deps
+    );
+    const code = new URL(authRes.headers.Location).searchParams.get('code')!;
+    const tokenRes = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+          client_id: clientId,
+        }),
+      },
+      deps
+    );
+    const body = JSON.parse(tokenRes.body);
+    assert.ok(body.id_token);
+    const [, payloadB64] = (body.id_token as string).split('.');
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    assert.equal(payload.nonce, nonceValue, 'id_token must echo the authorize nonce');
+  });
+
+  await test('nonce survives consent screen detour', async () => {
+    // Third-party client (no pre-saved consent) goes through pending stash +
+    // consent approve before the code is issued. Nonce must survive that trip.
+    const deps = makeDeps();
+    const regRes = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          client_name: 'Nonce Consent Client',
+          redirect_uris: ['https://app.example.com/cb'],
+          token_endpoint_auth_method: 'none',
+        }),
+      },
+      deps
+    );
+    const { client_id } = JSON.parse(regRes.body);
+    const verifier = generateSecureToken(32);
+    const challenge = generateCodeChallenge(verifier);
+    const authRes = await handleAuthorize(
+      {
+        method: 'GET',
+        url: buildAuthorizeUrl({
+          client_id,
+          redirect_uri: 'https://app.example.com/cb',
+          response_type: 'code',
+          scope: 'openid mcp:read',
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          nonce: 'consent-path-nonce',
+        }),
+        headers: {},
+        userId: 'u-consent-nonce',
+      },
+      deps
+    );
+    const pendingId = new URL(authRes.headers.Location).searchParams.get('req')!;
+    const consentRes = await handleConsent(
+      {
+        method: 'POST',
+        url: 'https://serv.test/consent',
+        headers: {},
+        body: formBody({ req: pendingId, decision: 'approve' }),
+        userId: 'u-consent-nonce',
+      },
+      deps
+    );
+    const code = new URL(consentRes.headers.Location).searchParams.get('code')!;
+    const tokenRes = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: 'https://app.example.com/cb',
+          code_verifier: verifier,
+          client_id,
+        }),
+      },
+      deps
+    );
+    const body = JSON.parse(tokenRes.body);
+    const [, payloadB64] = (body.id_token as string).split('.');
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    assert.equal(payload.nonce, 'consent-path-nonce');
+  });
+
   await test('no openid scope = no id_token', async () => {
     const { deps, codeVerifier, redirectUri, clientId } = await primeAuthorizationCode();
     const code = await issueAuthCode(deps, clientId, redirectUri, codeVerifier);

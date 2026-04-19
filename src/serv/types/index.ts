@@ -211,6 +211,8 @@ export interface AuthorizationCode {
   tenantId: string;
   codeChallenge: string;
   codeChallengeMethod: 'S256';
+  /** OIDC nonce from the authorize request; echoed into id_token at /token. */
+  nonce?: string;
   expiresAt: Date;
   createdAt: Date;
 }

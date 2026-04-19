@@ -223,6 +223,7 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
   const codeChallenge = params.get('code_challenge');
   const codeChallengeMethod = params.get('code_challenge_method');
   const prompt = params.get('prompt') ?? undefined;
+  const nonce = params.get('nonce') ?? undefined;
 
   // Pre-redirect validations return error JSON (can't trust the redirect_uri yet).
   if (!clientId) {
@@ -300,6 +301,7 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
       redirectUri,
       scope: normalizeScopes(requestedScopes.join(' ')),
       state,
+      nonce,
       codeChallenge,
       codeChallengeMethod: 'S256',
       userId,
@@ -321,6 +323,7 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
       redirectUri,
       scope: requestedScopes.join(' '),
       state,
+      nonce,
       codeChallenge,
       userId,
     },
@@ -338,6 +341,7 @@ async function issueCodeAndRedirect(
     redirectUri: string;
     scope: string;
     state?: string;
+    nonce?: string;
     codeChallenge: string;
     userId: string;
   },
@@ -354,6 +358,7 @@ async function issueCodeAndRedirect(
     tenantId: deps.tenant.id,
     codeChallenge: args.codeChallenge,
     codeChallengeMethod: 'S256',
+    nonce: args.nonce,
     expiresAt: new Date(now.getTime() + deps.config.codeTtlSeconds * 1000),
     createdAt: now,
   };
@@ -449,6 +454,7 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
         redirectUri: pending.redirectUri,
         scope: pending.scope,
         state: pending.state,
+        nonce: pending.nonce,
         codeChallenge: pending.codeChallenge,
         userId,
       },
@@ -671,6 +677,7 @@ async function handleAuthorizationCodeGrant(
       clientId: stored.clientId,
       userId: stored.userId,
       scope: stored.scope,
+      nonce: stored.nonce,
     },
     deps
   );
@@ -797,6 +804,8 @@ async function issueTokens(
     scope: string;
     /** If provided, use this refresh token value instead of generating. */
     preRotated?: string;
+    /** OIDC nonce from the authorize request, echoed into id_token. */
+    nonce?: string;
   },
   deps: EndpointDeps
 ): Promise<AuthResponse> {
@@ -842,6 +851,7 @@ async function issueTokens(
       tenantId: deps.tenant.id,
       clientId: args.clientId,
       expiresInSeconds: deps.config.accessTokenTtlSeconds,
+      nonce: args.nonce,
       now,
     });
   }
