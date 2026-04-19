@@ -1865,7 +1865,11 @@ function startWebhookServer(port: number): void {
       // location (proactivePhotonLocations is keyed by base+photon).
       const webhookBase = resolvingEntry?.workingDir;
 
-      let sessionManager = sessionManagers.get(photonName);
+      // Scope sessionManagers lookup by (photon, webhookBase) so a webhook
+      // for base B doesn't reuse an existing base-A session when the two
+      // PHOTON_DIRs share a photon name.
+      const sessionKey = compositeKey(photonName, webhookBase);
+      let sessionManager = sessionManagers.get(sessionKey);
       if (!sessionManager) {
         const candidates = findLocationsFor(photonName);
         const loc =
@@ -2452,8 +2456,13 @@ async function autoRegisterFromMetadata(
   photonName: string,
   manager: SessionManager
 ): Promise<void> {
-  if (autoRegistered.has(photonName)) return;
-  autoRegistered.add(photonName);
+  // Key by (photon, base) so loading photon foo from base B doesn't skip
+  // auto-registration just because foo from base A already registered.
+  // Without this, the second copy silently loses its @scheduled and
+  // @webhook metadata until daemon restart.
+  const autoKey = compositeKey(photonName, manager.loader?.baseDir);
+  if (autoRegistered.has(autoKey)) return;
+  autoRegistered.add(autoKey);
 
   try {
     // Get a session to access the loaded photon's tools
