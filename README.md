@@ -272,7 +272,10 @@ Things you don't build because Photon handles them:
 | **Persistent memory** | `this.memory` gives your photon per-instance key-value storage, no database needed |
 | **Scheduled execution** | `@scheduled` runs any method on a cron schedule |
 | **Webhooks** | `@webhook` exposes any method as an HTTP endpoint |
-| **OAuth** | Built-in OAuth 2.0 flows for Google, GitHub, Microsoft |
+| **OAuth (client)** | Built-in OAuth 2.0 flows for Google, GitHub, Microsoft |
+| **OAuth Authorization Server** | Issue tokens to MCP clients yourself: CIMD + DCR, PKCE, OIDC id_token, RFC 8693 token exchange |
+| **SQLite persistence** | Audit log, execution history, and OAuth grants survive daemon restart (bun:sqlite or better-sqlite3) |
+| **Daemon ops** | `photon ps` lists and controls scheduled jobs, webhooks, and live sessions |
 | **Distributed locks** | `@locked` serializes access: one caller at a time, across processes |
 | **Cross-photon calls** | `this.call()` invokes another photon's methods |
 | **Real-time events** | `this.emit()` fires named events to the browser UI with zero wiring |
@@ -380,6 +383,7 @@ photon upgrade                    # Upgrade all
 # Ops
 photon doctor                     # Diagnose environment
 photon test                       # Run tests
+photon ps                         # Observe & control scheduled jobs, webhooks, sessions
 ```
 
 ### Install from GitHub
@@ -447,6 +451,9 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 |---|---|
 | [Custom UI](./docs/guides/CUSTOM-UI.md) | Build rich interactive interfaces with the photon bridge API |
 | [OAuth](./docs/guides/AUTH.md) | Built-in OAuth 2.0 with Google, GitHub, Microsoft |
+| [MCP Client Registration](./docs/guides/mcp-client-registration.md) | Register MCP clients with Photon's AS via CIMD or DCR |
+| [Observability](./docs/guides/observability.md) | OpenTelemetry traces, metrics, logs, and structured errors |
+| [Protocol Features](./docs/guides/PROTOCOL-FEATURES.md) | Capability handshake, structured errors, trace correlation |
 | [Daemon Pub/Sub](./docs/internals/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
 | [Webhooks](./docs/reference/WEBHOOKS.md) | HTTP endpoints for external services |
 | [Locks](./docs/reference/LOCKS.md) | Distributed locks for exclusive access |
@@ -460,9 +467,8 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | [Security](./SECURITY.md) | Best practices and audit checklist |
 | [Marketplace Publishing](./docs/guides/MARKETPLACE-PUBLISHING.md) | Create and share team marketplaces |
 | [Best Practices](./docs/guides/BEST-PRACTICES.md) | Patterns for production photons |
-| [Comparison](./docs/COMPARISON.md) | Benchmarks vs official MCP implementations |
 
-**Reference:** [Complete Developer Guide](./docs/GUIDE.md) · [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) · [Naming Conventions](./docs/guides/NAMING-CONVENTIONS.md) · [Architecture](./docs/internals/ARCHITECTURE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
+**Reference:** [Complete Developer Guide](./docs/GUIDE.md) · [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) · [Naming Conventions](./docs/guides/NAMING-CONVENTIONS.md) · [Architecture](./docs/internals/ARCHITECTURE.md) · [OAuth Authorization Server](./docs/internals/OAUTH-AUTHORIZATION-SERVER.md) · [Lifecycle & Ingress](./docs/internals/LIFECYCLE-AND-INGRESS.md) · [PHOTON_DIR & Namespace](./docs/internals/PHOTON-DIR-AND-NAMESPACE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
 
 ---
 

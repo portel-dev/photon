@@ -56,10 +56,13 @@ Photon implements the following security controls:
 - **Request authentication** ensuring only local processes can invoke tools
 - **Input validation** on package names, URLs, and template expressions
 - **Body size limits** to prevent memory exhaustion
-- **Rate limiting** on public-facing endpoints
+- **Rate limiting** on public-facing endpoints (default 60/min on `/mcp` and webhook transports)
 - **Security headers** (X-Content-Type-Options, X-Frame-Options, Referrer-Policy)
 - **HTTPS enforcement** for marketplace fetches
 - **Command injection prevention** using `execFile` over `exec`
+- **OAuth 2.1 Authorization Server** (RFC 6749 + 7636 PKCE S256, RFC 7591 DCR, RFC 7009 revocation, RFC 7662 introspection, RFC 8693 token exchange, OIDC Core 1.0 id_token, RS256/ES256 with RFC 7518 P1363 encoding) — see [OAuth AS internals](./docs/internals/OAUTH-AUTHORIZATION-SERVER.md)
+- **CIMD client identity** with per-tenant domain allowlist, ETag revalidation, structured error taxonomy
+- **Webhook source allowlist** via CIDR ranges to restrict which IPs can hit `@webhook` endpoints
 
 ### Hall of Fame
 

@@ -58,6 +58,14 @@ Detailed documentation for contributors can be found in `docs/internals/`:
 - [Daemon PubSub Protocol](docs/internals/DAEMON-PUBSUB.md) — Protocol for the Photon Daemon's pub/sub system
 - [Elicitation Architecture](docs/internals/ELICITATION-ARCHITECTURE.md) — Architecture of the elicitation system
 - [MCP Elicitation Implementation](docs/internals/MCP-ELICITATION-IMPLEMENTATION.md) — Implementation details for MCP elicitation
+- [Constructor Context](docs/internals/CONSTRUCTOR-CONTEXT.md) — Per-call context plumbed through the constructor
+- [Constructor Injection](docs/internals/CONSTRUCTOR-INJECTION.md) — How env vars, MCPs, and photons get injected
+- [Middleware](docs/internals/MIDDLEWARE.md) — The 12-phase method-call pipeline
+- [Rendering Engine](docs/internals/RENDERING-ENGINE.md) — How `@format` results render across CLI, Beam, MCP
+- [Stateful State Sync](docs/internals/STATEFUL-STATE-SYNC.md) — Event emission and patch streaming for `@stateful` photons
+- [Lifecycle & Ingress](docs/internals/LIFECYCLE-AND-INGRESS.md) — Lifecycle hooks and the ingress/visibility model
+- [OAuth Authorization Server](docs/internals/OAUTH-AUTHORIZATION-SERVER.md) — OAuth 2.1 AS, CIMD, DCR, OIDC id_token, RFC 8693 token exchange
+- [PHOTON_DIR & Namespace](docs/internals/PHOTON-DIR-AND-NAMESPACE.md) — How a photon's source location determines where its data lives
 - [UX Guidelines](docs/internals/UX-GUIDELINES.md) — Guidelines for consistent CLI and UI experience
 
 For general usage and development of Photon MCPs:
