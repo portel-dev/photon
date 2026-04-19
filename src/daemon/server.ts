@@ -332,6 +332,7 @@ import {
   webhookKey as _webhookKey,
   locationKey as _locationKey,
   findByPhoton,
+  asScheduleKey,
   type ScheduleKey,
   type WebhookRouteKey,
   type LocationKey,
@@ -566,11 +567,19 @@ staleMapCleanupInterval.unref();
 // SCHEDULED JOBS
 // ════════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Scheduled-jobs registry. Keyed by ScheduleKey (branded) so bare-string
+ * lookups fail at compile time — the same guardrail as declaredSchedules.
+ * scheduleJob()/unscheduleJob() are the ONLY correct way to mutate the
+ * (scheduledJobs, jobTimers) pair together. Direct map writes leave one
+ * of the two half-populated and were the cause of at least two rounds of
+ * codex regression findings.
+ */
 const scheduledJobs = new Map<
-  string,
+  ScheduleKey,
   ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string }
 >();
-const jobTimers = new Map<string, NodeJS.Timeout>();
+const jobTimers = new Map<ScheduleKey, NodeJS.Timeout>();
 
 function parseCronField(field: string, min: number, max: number): number[] | null {
   if (field === '*') {
@@ -732,19 +741,23 @@ function scheduleJob(
     return false;
   }
 
+  // ScheduledJob.id is typed string at the protocol boundary, but every
+  // producer inside this daemon creates it via declaredKey(). Coerce once
+  // here so downstream map access gets the branded type.
+  const jobKey = asScheduleKey(job.id);
   job.nextRun = nextRun;
-  scheduledJobs.set(job.id, job);
+  scheduledJobs.set(jobKey, job);
 
-  const existingTimer = jobTimers.get(job.id);
+  const existingTimer = jobTimers.get(jobKey);
   if (existingTimer) {
     clearTimeout(existingTimer);
   }
 
   const delay = nextRun - Date.now();
   const timer = setTimeout(() => {
-    void runJob(job.id);
+    void runJob(jobKey);
   }, delay);
-  jobTimers.set(job.id, timer);
+  jobTimers.set(jobKey, timer);
 
   logger.info('Job scheduled', {
     jobId: job.id,
@@ -755,7 +768,7 @@ function scheduleJob(
   return true;
 }
 
-async function runJob(jobId: string): Promise<void> {
+async function runJob(jobId: ScheduleKey): Promise<void> {
   const job = scheduledJobs.get(jobId);
   if (!job) return;
 
@@ -844,7 +857,7 @@ async function runJob(jobId: string): Promise<void> {
   scheduleJob(job);
 }
 
-function unscheduleJob(jobId: string): boolean {
+function unscheduleJob(jobId: ScheduleKey): boolean {
   const timer = jobTimers.get(jobId);
   if (timer) {
     clearTimeout(timer);
@@ -924,7 +937,7 @@ function updatePersistedSchedule(
   if (!schedMatch && !ipcMatch) return;
   const taskId = schedMatch ? schedMatch[1] : ipcMatch![1];
 
-  const workingDir = scheduledJobs.get(jobId)?.workingDir;
+  const workingDir = scheduledJobs.get(asScheduleKey(jobId))?.workingDir;
   const filePath = findPersistedScheduleFile(photonName, taskId, workingDir);
   if (!filePath) return;
 
@@ -988,7 +1001,7 @@ function deletePersistedIpcSchedule(jobId: string, photonName: string): void {
   if (!match) return;
   const taskId = match[1];
 
-  const workingDir = scheduledJobs.get(jobId)?.workingDir;
+  const workingDir = scheduledJobs.get(asScheduleKey(jobId))?.workingDir;
   const filePath = findPersistedScheduleFile(photonName, taskId, workingDir);
   if (!filePath) return;
 
@@ -2379,8 +2392,8 @@ function findDeclarationsFor(
   photon: string,
   method: string,
   preferredBase?: string
-): Array<{ key: string; decl: DeclaredSchedule }> {
-  const matches: Array<{ key: string; decl: DeclaredSchedule }> = [];
+): Array<{ key: ScheduleKey; decl: DeclaredSchedule }> {
+  const matches: Array<{ key: ScheduleKey; decl: DeclaredSchedule }> = [];
   const preferredResolved = preferredBase ? path.resolve(preferredBase) : undefined;
   for (const [key, decl] of declaredSchedules.entries()) {
     if (decl.photon !== photon || decl.method !== method) continue;
@@ -2552,7 +2565,7 @@ async function autoRegisterFromMetadata(
           const task = JSON.parse(content);
           if (task.status !== 'active') continue;
           const jobId = `${photonName}:sched:${task.id}`;
-          if (scheduledJobs.has(jobId)) continue;
+          if (scheduledJobs.has(asScheduleKey(jobId))) continue;
 
           const job = {
             id: jobId,
@@ -2976,7 +2989,7 @@ async function handleRequest(
       ? `${photonName}:${dirHash}:ipc:${request.jobId!}`
       : `${photonName}:ipc:${request.jobId!}`;
 
-    const existing = scheduledJobs.get(ipcJobId);
+    const existing = scheduledJobs.get(asScheduleKey(ipcJobId));
     const job: ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string } = {
       id: ipcJobId,
       method: request.method!,
@@ -3005,9 +3018,11 @@ async function handleRequest(
 
   // Handle job unscheduling
   if (request.type === 'unschedule') {
-    const jobId = request.jobId!;
+    // IPC input: coerce at the boundary. Job IDs shipped over the protocol
+    // are already ScheduleKey-shaped (<base>::<photon>:<method>).
+    const jobId = asScheduleKey(request.jobId!);
     // Try exact match first, then look for IPC-prefixed version
-    let actualJobId = jobId;
+    let actualJobId: ScheduleKey = jobId;
     if (!scheduledJobs.has(jobId)) {
       // Search for IPC-prefixed job
       for (const key of scheduledJobs.keys()) {
@@ -3213,14 +3228,12 @@ async function handleRequest(
     writeActiveSchedulesFile(base, file);
     // Clear the timer if one is running. Use the declaration's key when we
     // have it; otherwise scan to find any scheduled job for this (photon, method)
-    // that's scoped to the resolved base.
+    // that's scoped to the resolved base. unscheduleJob does the atomic
+    // clearTimeout + scheduledJobs.delete + jobTimers.delete dance; calling
+    // the three map ops manually was the class of bug that codex round 9
+    // flagged.
     const key = match?.key ?? declaredKey(photon, method, base);
-    const existingTimer = jobTimers.get(key);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-      jobTimers.delete(key);
-    }
-    scheduledJobs.delete(key);
+    unscheduleJob(key);
     // Defensive sweep: during upgrade transitions a daemon may still hold
     // timers registered under the pre-base-scoping `${photon}:${method}` key
     // format. Report-success-but-keep-firing is worse than a noisy sweep, so
@@ -3236,12 +3249,7 @@ async function handleRequest(
       // Only sweep legacy keys (no base prefix) and keys scoped to `base`.
       const jobBase = job.workingDir ? path.resolve(job.workingDir) : undefined;
       if (jobBase && jobBase !== base) continue;
-      const staleTimer = jobTimers.get(staleKey);
-      if (staleTimer) {
-        clearTimeout(staleTimer);
-        jobTimers.delete(staleKey);
-      }
-      scheduledJobs.delete(staleKey);
+      unscheduleJob(staleKey);
     }
     return {
       type: 'result',
@@ -3291,12 +3299,7 @@ async function handleRequest(
     entry.paused = pause;
     writeActiveSchedulesFile(base, file);
     if (pause) {
-      const existingTimer = jobTimers.get(key);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-        jobTimers.delete(key);
-      }
-      scheduledJobs.delete(key);
+      unscheduleJob(key);
     } else if (decl) {
       scheduleJob({
         id: key,

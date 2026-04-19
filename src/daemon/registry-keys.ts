@@ -35,6 +35,25 @@ export type LocationKey = ScopedKey<'location'>;
 export type PhotonCompositeKey = ScopedKey<'photon'>;
 
 /**
+ * Coerce a raw string to a ScheduleKey at a trust boundary (IPC protocol
+ * input, persisted file read, etc.). The boundary is where you explicitly
+ * accept that TypeScript can't verify the value's shape. Use sparingly —
+ * prefer producing keys through declaredKey() when the photon/method/base
+ * are known at compile time.
+ */
+export function asScheduleKey(raw: string): ScheduleKey {
+  return raw as ScheduleKey;
+}
+
+export function asWebhookRouteKey(raw: string): WebhookRouteKey {
+  return raw as WebhookRouteKey;
+}
+
+export function asLocationKey(raw: string): LocationKey {
+  return raw as LocationKey;
+}
+
+/**
  * Composite cache/session key: `<photon>` for the default base, else
  * `<photon>:<hash8>` where hash8 is sha256(baseDir) truncated. Preserves
  * legacy behavior when the workingDir matches the supplied default base,
