@@ -1893,7 +1893,11 @@ function startWebhookServer(port: number): void {
         return;
       }
 
-      const webhookKey = compositeKey(photonName);
+      // Scope the in-flight tracker to the same base the session manager
+      // is keyed by. Without webhookBase here, drain/reload logic waiting
+      // on the base-scoped key wouldn't see this execution and could
+      // hot-reload the photon mid-webhook.
+      const webhookKey = compositeKey(photonName, webhookBase);
       trackExecution(webhookKey);
       try {
         const session = await sessionManager.getOrCreateSession('webhook', 'webhook');

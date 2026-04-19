@@ -497,8 +497,17 @@ export function generateRenderersScript(): string {
         data: { items: result }
       };
     }
-    // Card-shaped: { title, description?, actions? }
-    if (typeof result.title === 'string' && (result.actions === undefined || Array.isArray(result.actions))) {
+    // Card-shaped: {title, description?, actions?}. Must mirror the server
+    // mapper's stricter rule (src/a2ui/mapper.ts): the object's keys have to
+    // be a subset of {title, description, actions}. Otherwise a result with
+    // a title plus non-card fields would render as a Card on the Beam
+    // preview while CLI/AG-UI render a key/value column, and the non-title
+    // fields would silently disappear in Beam.
+    var cardKeys = ['title','description','actions'];
+    var isCardShape = typeof result.title === 'string'
+      && (result.actions === undefined || Array.isArray(result.actions))
+      && Object.keys(result).every(function(k) { return cardKeys.indexOf(k) !== -1; });
+    if (isCardShape) {
       var contentIds = ['cardTitle'];
       var cardComponents = [
         {id:'root', component:'Card', child:'cardBody'},
