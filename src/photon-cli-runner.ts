@@ -395,14 +395,17 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   // Handle formats that the base formatter doesn't support in CLI.
   // These fall through silently in @portel/cli's formatDataWithHint switch.
   // We intercept here and render using available primitives.
+  //
+  // @format a2ui is special: resultToA2UIMessages() supports null/undefined
+  // and emits a valid empty lifecycle. Route a2ui BEFORE the null-guard so
+  // methods that intentionally return null produce the same three-message
+  // stream on CLI as they do over AG-UI.
+  if (hint === 'a2ui') {
+    printA2UIJsonl(result);
+    return true;
+  }
   if (hint && result !== undefined && result !== null) {
     const hintStr = hint as string;
-
-    // a2ui — emit the v0.9 JSONL message sequence
-    if (hintStr === 'a2ui') {
-      printA2UIJsonl(result);
-      return true;
-    }
 
     // slides — render as paginated markdown in terminal
     if ((hintStr === 'slides' || hintStr === 'presentation') && typeof result === 'string') {

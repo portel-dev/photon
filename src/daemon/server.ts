@@ -1383,7 +1383,11 @@ async function scanOneForProactiveMetadata(
     changed = true;
   }
 
-  proactivePhotonLocations.set(photonName, { photonPath: filePath, workingDir });
+  proactivePhotonLocations.set(locationKey(photonName, workingDir), {
+    photon: photonName,
+    photonPath: filePath,
+    workingDir,
+  });
   return changed;
 }
 
@@ -1823,12 +1827,49 @@ function startWebhookServer(port: number): void {
         return;
       }
 
+      // Resolve method from webhook route map BEFORE lazy-load. In
+      // multi-base setups the same photon name may be registered in
+      // several PHOTON_DIRs; search every matching entry for one that
+      // actually exposes this route rather than picking an arbitrary
+      // first entry (which would 404 routes that only exist in a
+      // different base's copy).
+      let resolvedMethod = method;
+      let resolvingEntry: WebhookRouteEntry | undefined;
+      const webhookEntries = findWebhookEntriesFor(photonName);
+      const registeredEntries = webhookEntries.filter((e) => e.routes.size > 0);
+      if (registeredEntries.length > 0) {
+        const matchingEntries = registeredEntries.filter((e) => e.routes.has(method));
+        if (matchingEntries.length === 0) {
+          const allRoutes = new Set<string>();
+          for (const e of registeredEntries) for (const k of e.routes.keys()) allRoutes.add(k);
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: `No webhook route '${method}' on photon '${photonName}'`,
+              availableRoutes: [...allRoutes],
+            })
+          );
+          return;
+        }
+        if (matchingEntries.length > 1) {
+          logger.warn('Webhook route exists in multiple PHOTON_DIRs; routing to first match', {
+            photon: photonName,
+            method,
+            bases: matchingEntries.map((e) => e.workingDir ?? '-'),
+          });
+        }
+        resolvingEntry = matchingEntries[0];
+        resolvedMethod = resolvingEntry.routes.get(method)!;
+      }
+      // Use the resolving entry's workingDir to pick the right file
+      // location (proactivePhotonLocations is keyed by base+photon).
+      const webhookBase = resolvingEntry?.workingDir;
+
       let sessionManager = sessionManagers.get(photonName);
-      // Lazy-load: if a @webhook route was registered proactively at boot
-      // (photon discovered in a known base but never invoked), spin up
-      // the session now rather than return 503 to the caller.
       if (!sessionManager) {
-        const loc = proactivePhotonLocations.get(photonName);
+        const candidates = findLocationsFor(photonName);
+        const loc =
+          (webhookBase && candidates.find((c) => c.workingDir === webhookBase)) ?? candidates[0];
         if (loc) {
           try {
             sessionManager =
@@ -1846,31 +1887,6 @@ function startWebhookServer(port: number): void {
         res.writeHead(503, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `Photon '${photonName}' not initialized` }));
         return;
-      }
-
-      // Resolve method from webhook route map (if routes are registered).
-      // Multi-base lookup: pick the first matching registration. If the
-      // same photon name is registered in multiple PHOTON_DIRs, the FIRST
-      // registered entry wins — callers wanting to disambiguate should
-      // scope by PHOTON_DIR at registration time or stop duplicating names.
-      let resolvedMethod = method;
-      const webhookEntries = findWebhookEntriesFor(photonName);
-      const routeEntry = webhookEntries[0];
-      const routes = routeEntry?.routes;
-      if (routes && routes.size > 0) {
-        // Only allow methods that have @webhook tag
-        const mapped = routes.get(method);
-        if (!mapped) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              error: `No webhook route '${method}' on photon '${photonName}'`,
-              availableRoutes: [...routes.keys()],
-            })
-          );
-          return;
-        }
-        resolvedMethod = mapped;
       }
 
       const webhookKey = compositeKey(photonName);
@@ -2292,10 +2308,32 @@ function findWebhookEntriesFor(photonName: string): WebhookRouteEntry[] {
  * absolute source path and the PHOTON_DIR the photon was discovered in.
  */
 interface ProactiveLocation {
+  photon: string;
   photonPath: string;
   workingDir?: string;
 }
+// Keyed by `<base>::<photonName>` so multi-base discovery doesn't clobber:
+// two PHOTON_DIRs can host a photon with the same name and the webhook
+// server must be able to lazy-load each one from its own file.
 const proactivePhotonLocations = new Map<string, ProactiveLocation>();
+
+function locationKey(photon: string, workingDir?: string): string {
+  const base = workingDir ? path.resolve(workingDir) : '-';
+  return `${base}::${photon}`;
+}
+
+/**
+ * Find every proactive-location entry registered for this photon name.
+ * The HTTP webhook handler uses this plus the resolving webhook entry's
+ * base to pick the right file.
+ */
+function findLocationsFor(photonName: string): ProactiveLocation[] {
+  const matches: ProactiveLocation[] = [];
+  for (const loc of proactivePhotonLocations.values()) {
+    if (loc.photon === photonName) matches.push(loc);
+  }
+  return matches;
+}
 
 /**
  * Declared-schedule registry (two-step scheduling).
@@ -3026,7 +3064,7 @@ async function handleRequest(
     const webhooks: Array<{ photon: string; route: string; method: string; workingDir?: string }> =
       [];
     for (const entry of webhookRoutes.values()) {
-      const loc = proactivePhotonLocations.get(entry.photon);
+      const loc = proactivePhotonLocations.get(locationKey(entry.photon, entry.workingDir));
       const owningDir = entry.workingDir ?? loc?.workingDir ?? defaultBase;
       for (const [route, methodName] of entry.routes.entries()) {
         webhooks.push({
