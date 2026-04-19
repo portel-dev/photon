@@ -57,6 +57,7 @@ import {
   OutputFormat,
   formatKey,
 } from './cli-formatter.js';
+import { resultToA2UIMessages } from './a2ui/mapper.js';
 
 const BASE_FORMATS = new Set([
   'primitive',
@@ -73,14 +74,49 @@ const BASE_FORMATS = new Set([
   'xml',
   'html',
   'code',
+  'a2ui',
 ]);
 
 function baseFormatOutput(data: any, hint?: OutputFormat): void {
+  if (hint === ('a2ui' as OutputFormat)) {
+    printA2UIJsonl(data);
+    return;
+  }
   const safeHint =
     hint && (BASE_FORMATS.has(hint as string) || (hint as string).startsWith('code:'))
       ? hint
       : undefined;
   rawBaseFormatOutput(data, safeHint);
+}
+
+function printA2UIJsonl(data: unknown): void {
+  const messages =
+    Array.isArray(data) && looksLikeA2UIStream(data) ? data : resultToA2UIMessages(data);
+  for (const msg of messages) {
+    process.stdout.write(JSON.stringify(msg) + '\n');
+  }
+}
+
+/** Wrapper keys that identify each A2UI message variant per src/a2ui/types.ts. */
+const A2UI_MESSAGE_KEYS = ['createSurface', 'updateComponents', 'updateDataModel', 'deleteSurface'];
+
+function looksLikeA2UIStream(arr: unknown[]): boolean {
+  // Empty arrays are valid `@format a2ui` results (an empty list); without
+  // this guard `every()` is vacuously true and the empty array is treated
+  // as an already-serialized stream, which prints nothing instead of
+  // emitting the standard createSurface / updateComponents / updateDataModel
+  // lifecycle for an empty list.
+  if (arr.length === 0) return false;
+  // Each element must look like an A2UI message: an object with `version`
+  // AND one of the known wrapper keys (createSurface, updateComponents,
+  // updateDataModel, deleteSurface). Plain row data with a `version` column
+  // — e.g. `[{ version: '1.2.3', name: 'api' }]` — must NOT qualify.
+  return arr.every((m) => {
+    if (typeof m !== 'object' || m === null) return false;
+    const rec = m as Record<string, unknown>;
+    if (typeof rec.version !== 'string') return false;
+    return A2UI_MESSAGE_KEYS.some((k) => k in rec);
+  });
 }
 import { getErrorMessage, exitWithError, ExitCode } from './shared/error-handler.js';
 import * as os from 'os';
@@ -382,6 +418,12 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   // We intercept here and render using available primitives.
   if (hint && result !== undefined && result !== null) {
     const hintStr = hint as string;
+
+    // a2ui — emit the v0.9 JSONL message sequence
+    if (hintStr === 'a2ui') {
+      printA2UIJsonl(result);
+      return true;
+    }
 
     // slides — render as paginated markdown in terminal
     if ((hintStr === 'slides' || hintStr === 'presentation') && typeof result === 'string') {

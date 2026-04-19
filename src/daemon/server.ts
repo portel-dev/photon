@@ -1420,7 +1420,13 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
       continue;
     }
 
-    const workingDir = basePath === defaultBase ? undefined : basePath;
+    // Always pass basePath so declaredKey produces a stable resolved-path
+    // key. Previously this set workingDir=undefined for the default base,
+    // which yielded `-::photon:method` keys at boot — but the restore-from-
+    // active path used `declaredKey(entry, basePath)` and produced
+    // `<defaultBase>::photon:method`, so default-base schedules never
+    // re-armed after a daemon restart.
+    const workingDir = basePath;
     for (const p of photons) {
       photonsScanned++;
       const before = {
