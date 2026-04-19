@@ -138,6 +138,44 @@ async function testBasics() {
   rmSync(dbPath, { force: true });
 }
 
+async function testMultiBase() {
+  console.log('Multi-base partitioning:');
+  const dbPath = tempDbPath();
+  const db = await openExecutionHistoryDatabase(dbPath);
+  const backend = new SqliteExecutionHistoryBackend(db);
+
+  const BASE_A = '/workspace/proj-a';
+  const BASE_B = '/workspace/proj-b';
+
+  await test('same photon name in two bases stays partitioned', () => {
+    backend.record(
+      'foo',
+      { ts: Date.now(), jobId: 'a1', method: 'tick', durationMs: 1, status: 'success' },
+      BASE_A
+    );
+    backend.record(
+      'foo',
+      { ts: Date.now(), jobId: 'b1', method: 'tick', durationMs: 1, status: 'success' },
+      BASE_B
+    );
+    const aOnly = backend.query('foo', {}, BASE_A);
+    const bOnly = backend.query('foo', {}, BASE_B);
+    assert.equal(aOnly.length, 1);
+    assert.equal(aOnly[0].jobId, 'a1');
+    assert.equal(bOnly.length, 1);
+    assert.equal(bOnly[0].jobId, 'b1');
+  });
+
+  await test('omitting workingDir returns cross-base results (legacy behavior)', () => {
+    const all = backend.query('foo', {});
+    // At least the two above, no base filter applied.
+    assert.ok(all.length >= 2);
+  });
+
+  backend.close();
+  rmSync(dbPath, { force: true });
+}
+
 async function testSweep() {
   console.log('Sweep:');
   const dbPath = tempDbPath();
@@ -229,6 +267,7 @@ async function test(name: string, fn: () => void | Promise<void>): Promise<void>
 
 async function main() {
   await testBasics();
+  await testMultiBase();
   await testSweep();
   await testDispatcher();
   console.log('\nAll execution-history-sqlite tests passed.');

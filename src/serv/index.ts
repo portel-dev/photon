@@ -245,10 +245,15 @@ export interface ServConfig {
   consentStore?: ConsentStore;
   /** Paused-authorization-request store (optional, defaults to memory). */
   pendingAuthStore?: PendingAuthorizationStore;
-  /** Overrides for endpoint config (TTLs, first-party allowlist, etc.). */
-  endpointConfig?: Partial<
-    Omit<EndpointConfig, 'issuer' | 'authorizeUrl' | 'consentUrl' | 'loginUrl'>
-  >;
+  /**
+   * Overrides for endpoint config (TTLs, first-party allowlist, loginUrl).
+   * `issuer` / `authorizeUrl` / `consentUrl` are derived from the tenant
+   * and can't be overridden; `loginUrl` is left open because the AS
+   * adapter doesn't serve a `/login` handler — embedders MUST point it at
+   * whatever login flow they actually serve (federated login, custom HTML,
+   * PHOTON_SINGLE_USER short-circuit, etc.).
+   */
+  endpointConfig?: Partial<Omit<EndpointConfig, 'issuer' | 'authorizeUrl' | 'consentUrl'>>;
 }
 
 export class Serv {
@@ -342,6 +347,13 @@ export class Serv {
    */
   buildEndpointDeps(tenant: Tenant): EndpointDeps {
     const baseUri = `${this.config.baseUrl}/tenant/${tenant.slug}`;
+    // The login URL is the embedder's responsibility — the AS adapter
+    // doesn't serve a `/login` handler, it only knows how to redirect
+    // there. Default to a clearly-external path under the tenant prefix
+    // so unauth `/authorize` requests 404 loudly instead of looping into
+    // a path the AS pretends to own. Embedders override this via
+    // endpointConfig.loginUrl to point at their real login flow.
+    const defaultLoginUrl = this.config.endpointConfig?.loginUrl ?? `${this.config.baseUrl}/login`;
     return {
       tenant,
       config: {
@@ -349,7 +361,7 @@ export class Serv {
         issuer: baseUri,
         authorizeUrl: `${baseUri}/authorize`,
         consentUrl: `${baseUri}/consent`,
-        loginUrl: `${baseUri}/login`,
+        loginUrl: defaultLoginUrl,
         ...this.config.endpointConfig,
       },
       codeStore: this.authCodeStore,

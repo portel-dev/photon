@@ -13,17 +13,26 @@
  * Beam daemon panel.
  */
 
+import * as path from 'path';
 import type { ExecutionEntry, ExecutionStatus, HistoryQuery } from './execution-history.js';
 import { openSqlite, type SqliteDatabase, type SqliteStatement } from '../shared/sqlite-runtime.js';
 
+function normalizeBase(workingDir?: string): string {
+  return workingDir ? path.resolve(workingDir) : '-';
+}
+
 const DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_PER_METHOD = 500;
+
+/** Sentinel stored in `base` when the caller didn't supply workingDir. */
+const LEGACY_BASE = '-';
 
 function initSchema(db: SqliteDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS execution_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       photon TEXT NOT NULL,
+      base TEXT NOT NULL DEFAULT '${LEGACY_BASE}',
       ts INTEGER NOT NULL,
       job_id TEXT NOT NULL,
       method TEXT NOT NULL,
@@ -32,11 +41,26 @@ function initSchema(db: SqliteDatabase): void {
       error_message TEXT,
       output_preview TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_exec_photon_ts ON execution_history(photon, ts);
-    CREATE INDEX IF NOT EXISTS idx_exec_photon_method_ts ON execution_history(photon, method, ts);
+    CREATE INDEX IF NOT EXISTS idx_exec_photon_base_ts ON execution_history(photon, base, ts);
+    CREATE INDEX IF NOT EXISTS idx_exec_photon_method_ts ON execution_history(photon, base, method, ts);
     CREATE INDEX IF NOT EXISTS idx_exec_ts ON execution_history(ts);
     CREATE INDEX IF NOT EXISTS idx_exec_status_ts ON execution_history(status, ts);
   `);
+
+  // Backfill: older databases predating multi-base partitioning had no
+  // `base` column. Add it if missing so upgrades don't throw.
+  try {
+    const cols = db.prepare('PRAGMA table_info(execution_history)').all() as Array<{
+      name: string;
+    }>;
+    if (!cols.some((c) => c.name === 'base')) {
+      db.exec(
+        `ALTER TABLE execution_history ADD COLUMN base TEXT NOT NULL DEFAULT '${LEGACY_BASE}'`
+      );
+    }
+  } catch {
+    // Pragma failures are non-fatal; the CREATE above handled a fresh DB.
+  }
 }
 
 export async function openExecutionHistoryDatabase(path: string): Promise<SqliteDatabase> {
@@ -44,8 +68,8 @@ export async function openExecutionHistoryDatabase(path: string): Promise<Sqlite
 }
 
 export interface ExecutionHistoryBackend {
-  record(photon: string, entry: ExecutionEntry): void;
-  query(photon: string, q: HistoryQuery): ExecutionEntry[];
+  record(photon: string, entry: ExecutionEntry, workingDir?: string): void;
+  query(photon: string, q: HistoryQuery, workingDir?: string): ExecutionEntry[];
   sweep(opts?: { ttlMs?: number; maxPerMethod?: number; now?: number }): number;
   close(): void;
 }
@@ -60,16 +84,17 @@ export class SqliteExecutionHistoryBackend implements ExecutionHistoryBackend {
   ) {
     this.insert = db.prepare(`
       INSERT INTO execution_history
-        (photon, ts, job_id, method, duration_ms, status, error_message, output_preview)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (photon, base, ts, job_id, method, duration_ms, status, error_message, output_preview)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.deleteOlderThan = db.prepare('DELETE FROM execution_history WHERE ts < ?');
   }
 
-  record(photon: string, entry: ExecutionEntry): void {
+  record(photon: string, entry: ExecutionEntry, workingDir?: string): void {
     try {
       this.insert.run(
         photon,
+        normalizeBase(workingDir),
         entry.ts,
         entry.jobId,
         entry.method,
@@ -83,9 +108,15 @@ export class SqliteExecutionHistoryBackend implements ExecutionHistoryBackend {
     }
   }
 
-  query(photon: string, q: HistoryQuery = {}): ExecutionEntry[] {
+  query(photon: string, q: HistoryQuery = {}, workingDir?: string): ExecutionEntry[] {
     const clauses = ['photon = ?'];
     const params: (string | number)[] = [photon];
+    // Scope by base when provided so `photon ps history --base A foo:bar`
+    // doesn't leak runs from a same-named photon in base B.
+    if (workingDir !== undefined) {
+      clauses.push('base = ?');
+      params.push(normalizeBase(workingDir));
+    }
     if (q.method) {
       clauses.push('method = ?');
       params.push(q.method);

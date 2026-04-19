@@ -120,7 +120,7 @@ export function recordExecution(
 ): void {
   if (sqliteBackend) {
     try {
-      sqliteBackend.record(photonName, entry);
+      sqliteBackend.record(photonName, entry, workingDir);
       return;
     } catch (err) {
       logger.debug('SQLite execution record failed, falling back to JSONL', {
@@ -193,7 +193,7 @@ export function readExecutionHistory(
   workingDir?: string
 ): ExecutionEntry[] {
   if (sqliteBackend) {
-    return sqliteBackend.query(photonName, query);
+    return sqliteBackend.query(photonName, query, workingDir);
   }
   const entries = readEntries(executionsFile(photonName, workingDir));
   let filtered = entries;

@@ -882,8 +882,17 @@ function unscheduleJob(jobId: ScheduleKey): boolean {
 /**
  * Resolve the canonical schedules dir for a photon under the Option B
  * contract: {workingDir || default baseDir}/.data/{photonName}/schedules/.
- * Subdirectory namespaces are not yet threaded through the scheduled job
- * record; the flat-root common case is served here.
+ *
+ * KNOWN LIMITATION: this path uses only the bare `photonName` — no
+ * namespace/subdirectory is threaded through. Two photons with the same
+ * filename under different subdirectories in one PHOTON_DIR (e.g.
+ * `alice/foo.photon.ts` and `bob/foo.photon.ts`) resolve to the same
+ * `.data/foo/schedules/` tree and therefore share schedule state. This
+ * predates the post-v1.22.1 multi-base work and fixing it cleanly
+ * requires photon-core to accept a namespace in getPhotonSchedulesDir
+ * and every scheduled-job record to carry that namespace. Do NOT load
+ * namespaced duplicates of a photon into the same daemon until this
+ * is resolved. Flagged by codex review 2026-04-19.
  */
 function resolveScheduleDir(photonName: string, workingDir?: string): string {
   return getPhotonSchedulesDir('', photonName, workingDir || getDefaultContext().baseDir);
