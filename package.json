@@ -75,6 +75,7 @@
     "test:e2e:ui": "npm run build && npx playwright test --ui",
     "test:visual": "npm run build && npm run build:beam && npx tsx tests/beam/visual/visual.test.ts",
     "test:contracts": "npx tsx tests/contract/format-coverage.test.ts && npx tsx tests/contract/schema-contract.test.ts",
+    "test:a2ui": "npm run build && npx tsx tests/a2ui-mapper.test.ts && npx tsx tests/a2ui-e2e.test.ts && npx tsx tests/a2ui-renderer-script.test.ts",
     "test:dom": "npm run build && npm run build:beam && npx tsx tests/contract/dom-structure.test.ts",
     "test:promises": "npm run build && npm run build:beam && npx tsx tests/promises.test.ts",
     "release": "release-it",

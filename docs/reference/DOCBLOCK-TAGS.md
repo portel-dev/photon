@@ -637,6 +637,7 @@ The `@format` tag on methods supports multiple format types:
 | `diff` | Unified diff or before/after comparison |
 | `log` | Structured log viewer with level-based coloring |
 | `embed` | Embed an external URL in an iframe |
+| `a2ui` | [A2UI v0.9](https://a2ui.org) declarative UI — emits a JSONL message stream over AG-UI as `CUSTOM` events named `a2ui.message`. Auto-maps arrays, objects, card-shaped results; escape hatch via `{ __a2ui: true, components, data }`. See [formats guide](../formats.md#declarative-ui-a2ui-v09) for details. |
 
 **`diff` data shape:** Unified diff string, or `{ before, after, filename? }`
 

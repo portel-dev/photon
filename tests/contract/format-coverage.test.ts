@@ -189,6 +189,40 @@ test('All documented formats have MIME type mapping', () => {
   assert.ok(true, 'MIME mapping exists in photon-core exports');
 });
 
+// ── A2UI (@format a2ui) wiring ───────────────────────────────
+// a2ui is a Photon-side format (not in @portel/photon-core's OutputFormat),
+// so verify each integration point directly. Enforces P4.1 for this format.
+
+test('a2ui format is registered in FORMAT_CATALOG', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'src/auto-ui/bridge/renderers.ts'), 'utf-8');
+  assert.ok(/\ba2ui:\s*\{/.test(source), "FORMAT_CATALOG must contain an 'a2ui' entry");
+  assert.ok(
+    /renderers\.a2ui\s*=\s*function/.test(source),
+    'Beam renderer for a2ui must be registered in the generated script'
+  );
+});
+
+test('a2ui format is accepted by the CLI runner', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'src/photon-cli-runner.ts'), 'utf-8');
+  assert.ok(/'a2ui'/.test(source), "photon-cli-runner.ts BASE_FORMATS must include 'a2ui'");
+  assert.ok(
+    /printA2UIJsonl\s*\(/.test(source),
+    'CLI must route a2ui through printA2UIJsonl for JSONL emission'
+  );
+});
+
+test('AG-UI adapter handles outputFormat: a2ui', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'src/ag-ui/adapter.ts'), 'utf-8');
+  assert.ok(
+    /options\.outputFormat\s*===\s*'a2ui'/.test(source),
+    'AG-UI adapter must branch on outputFormat === a2ui in finish()'
+  );
+  assert.ok(
+    /'a2ui\.message'/.test(source),
+    'AG-UI adapter must emit CUSTOM events named a2ui.message'
+  );
+});
+
 // ── Report ───────────────────────────────────────────────────
 
 // Print full coverage matrix

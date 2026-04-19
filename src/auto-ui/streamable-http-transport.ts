@@ -796,7 +796,16 @@ const handlers: Record<string, RequestHandler> = {
       return { jsonrpc: '2.0', id: req.id, result: { success: false } };
     }
 
-    const agui = createAGUIOutputHandler(photonName, methodName, runId, broadcast);
+    // Look up the method's declared @format so the adapter can emit A2UI
+    // messages as CUSTOM events when format === 'a2ui'. ctx.photons is the
+    // same registry used to resolve UI metadata elsewhere in this transport.
+    const aguiPhotonInfo = ctx.photons?.find((p) => p.name === photonName);
+    const aguiMethodInfo = aguiPhotonInfo?.configured
+      ? aguiPhotonInfo.methods?.find((m) => m.name === methodName)
+      : undefined;
+    const agui = createAGUIOutputHandler(photonName, methodName, runId, broadcast, {
+      outputFormat: aguiMethodInfo?.outputFormat,
+    });
 
     try {
       // Build args from input messages (last user message content) or forwarded props

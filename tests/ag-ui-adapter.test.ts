@@ -487,6 +487,64 @@ async function testProxy(): Promise<void> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// 3b. A2UI output format (@format a2ui)
+// ════════════════════════════════════════════════════════════════════════════════
+
+async function testA2UIFormat(): Promise<void> {
+  console.log('\n  A2UI Output Format');
+
+  await test('outputFormat: a2ui emits CUSTOM events named a2ui.message before STATE_SNAPSHOT', () => {
+    const events: any[] = [];
+    const { finish } = createAGUIOutputHandler('p', 'm', 'r1', (n) => events.push(n), {
+      outputFormat: 'a2ui',
+    });
+    finish([
+      { name: 'Alice', role: 'Eng' },
+      { name: 'Bob', role: 'PM' },
+    ]);
+
+    const types = events.map((e) => e.params.type);
+    const customs = events.filter(
+      (e) => e.params.type === AGUIEventType.CUSTOM && e.params.name === 'a2ui.message'
+    );
+    assert.ok(customs.length >= 3, 'at least createSurface + updateComponents + updateDataModel');
+
+    const snapshotIdx = types.indexOf(AGUIEventType.STATE_SNAPSHOT);
+    const lastCustomIdx = events.findLastIndex(
+      (e) => e.params.type === AGUIEventType.CUSTOM && e.params.name === 'a2ui.message'
+    );
+    assert.ok(lastCustomIdx < snapshotIdx, 'A2UI messages should be emitted before STATE_SNAPSHOT');
+  });
+
+  await test('A2UI messages are valid v0.9 JSON-RPC notifications', () => {
+    const events: any[] = [];
+    const { finish } = createAGUIOutputHandler('p', 'm', 'r1', (n) => events.push(n), {
+      outputFormat: 'a2ui',
+    });
+    finish({ host: 'prod-01' });
+
+    const customs = events
+      .map((e) => e.params)
+      .filter((p) => p.type === AGUIEventType.CUSTOM && p.name === 'a2ui.message');
+
+    const first = customs[0].value as { version: string; createSurface: unknown };
+    assert.equal(first.version, 'v0.9');
+    assert.ok(first.createSurface, 'first message is createSurface');
+  });
+
+  await test('no A2UI events when outputFormat is not a2ui', () => {
+    const events: any[] = [];
+    const { finish } = createAGUIOutputHandler('p', 'm', 'r1', (n) => events.push(n));
+    finish({ a: 1 });
+
+    const a2uiEvents = events.filter(
+      (e) => e.params.type === AGUIEventType.CUSTOM && e.params.name === 'a2ui.message'
+    );
+    assert.equal(a2uiEvents.length, 0);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // 4. Event Ordering Guarantees
 // ════════════════════════════════════════════════════════════════════════════════
 
@@ -584,6 +642,7 @@ async function testMCPCompatibility(): Promise<void> {
 
   await testEventTypes();
   await testOutputHandler();
+  await testA2UIFormat();
   await testProxy();
   await testEventOrdering();
   await testMCPCompatibility();

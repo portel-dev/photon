@@ -41,6 +41,24 @@ export default class MyAgent {
 
 **When to use:** When your photon needs to stream results to CopilotKit, AG-UI-compatible UIs, or other agent frameworks that consume the AG-UI event protocol.
 
+### A2UI v0.9 (declarative UI on AG-UI)
+
+Methods tagged `@format a2ui` emit a valid [A2UI v0.9](https://a2ui.org) JSONL message sequence (`createSurface` → `updateComponents` → `updateDataModel`) derived from the return value. Each message rides as an AG-UI `CUSTOM` event with `name: 'a2ui.message'`, so any AG-UI consumer that also speaks A2UI can render the output without a Photon-specific integration. Google frames this as a "day-zero bridge" — AG-UI is the pipe, A2UI is the payload.
+
+```typescript
+/** @format a2ui */
+async dashboard() {
+  return [
+    { title: 'API latency', value: '42ms', trend: '-5%' },
+    { title: 'Error rate', value: '0.12%', trend: '+0.01%' },
+  ];
+}
+```
+
+Auto-mapping covers the common shapes (array of rows, single object, card with actions, primitive). For full control, return `{ __a2ui: true, components, data }` and emit the A2UI component tree verbatim. See [formats guide](../formats.md#declarative-ui-a2ui-v09) for the full matrix.
+
+Current version is producer-side only: the runtime emits valid A2UI output but does not yet route `action` messages from the renderer back into photon methods, and does not ship a Beam-side A2UI renderer. Use an external A2UI consumer (web_core, Lit, React) or paste the stream into [A2UI Theater](https://a2ui-composer.ag-ui.com/theater) to render.
+
 ---
 
 ## Bidirectional State

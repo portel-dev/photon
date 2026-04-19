@@ -348,4 +348,55 @@ Hints are specified in curly braces after the format name:
 
 ---
 
+## Declarative UI (A2UI v0.9)
+
+### `@format a2ui`
+
+Emits an [A2UI v0.9](https://a2ui.org) JSONL message stream derived from the return value. A2UI is Google's framework-agnostic declarative UI protocol; it rides on top of AG-UI, which Photon already speaks, so any AG-UI consumer that understands A2UI can render Photon output with no custom integration.
+
+```typescript
+/** @format a2ui */
+async list() {
+  return [
+    { name: 'Alice', role: 'Eng' },
+    { name: 'Bob', role: 'PM' },
+  ];
+}
+```
+
+**Auto-mapping** (v1, Basic catalog only):
+
+| Return shape | A2UI layout |
+|---|---|
+| Array of objects | `List` with a `Card` template row |
+| Single object | `Column` of `Text` rows (one per key) |
+| `{ title, description, actions: [...] }` | `Card` with action buttons |
+| Primitive | Single `Text` component |
+
+**Escape hatch.** For full control, return the verbatim shape:
+
+```typescript
+/** @format a2ui */
+async surface() {
+  return {
+    __a2ui: true,
+    components: [
+      { id: 'root', component: 'Card', child: 'header' },
+      { id: 'header', component: 'Text', text: 'Custom', variant: 'h1' },
+    ],
+    data: {},
+  };
+}
+```
+
+**How it ships across transports:**
+
+- **CLI:** prints the JSONL sequence (one message per line).
+- **MCP / AG-UI:** each A2UI message is broadcast as an AG-UI `CUSTOM` event named `a2ui.message`. A consumer reassembles the JSONL stream. This is the primary integration path — paste the captured stream into [A2UI Theater](https://a2ui-composer.ag-ui.com/theater) to see it render.
+- **Beam:** a preview renderer shows the raw JSONL (full A2UI rendering in Beam is a future feature).
+
+Non-goals for the current version: stateful surface lifecycle across turns, action round-trip from the A2UI renderer back into photon methods, custom catalogs.
+
+---
+
 For the complete tag reference including non-format tags (caching, validation, middleware, MCP annotations), see [Tag Reference](reference/DOCBLOCK-TAGS.md).

@@ -103,6 +103,80 @@ async function runTests() {
     assert.ok(out.includes('10') || out.includes('value'), `Data dropped: ${out.slice(0, 100)}`);
   });
 
+  // A2UI v0.9 — every method emits a valid three-message JSONL lifecycle
+  console.log('\n── A2UI v0.9 JSONL output ──\n');
+
+  function parseA2UIJsonl(raw: string): Array<Record<string, unknown>> {
+    return raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('{') && l.endsWith('}'))
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+  }
+
+  test('@format a2ui on array of rows emits valid v0.9 JSONL', () => {
+    const out = cli('a2uiRows');
+    const msgs = parseA2UIJsonl(out);
+    assert.ok(msgs.length >= 3, `expected ≥3 messages, got ${msgs.length}`);
+    assert.equal(msgs[0].version, 'v0.9');
+    assert.ok('createSurface' in msgs[0], 'first message must be createSurface');
+    assert.ok(
+      msgs.some((m) => 'updateComponents' in m),
+      'updateComponents missing'
+    );
+    assert.ok(
+      msgs.some((m) => 'updateDataModel' in m),
+      'updateDataModel missing'
+    );
+  });
+
+  test('@format a2ui uses the Basic catalog', () => {
+    const out = cli('a2uiObject');
+    const msgs = parseA2UIJsonl(out);
+    const create = msgs.find((m) => 'createSurface' in m);
+    const surface = (create as { createSurface: { catalogId: string } }).createSurface;
+    assert.ok(
+      surface.catalogId.includes('basic_catalog.json'),
+      `expected Basic catalog, got ${surface.catalogId}`
+    );
+  });
+
+  test('@format a2ui surfaceId is consistent across the lifecycle', () => {
+    const out = cli('a2uiRows');
+    const msgs = parseA2UIJsonl(out);
+    const ids = new Set(
+      msgs.map((m) => {
+        const payload = (m.createSurface ?? m.updateComponents ?? m.updateDataModel) as {
+          surfaceId: string;
+        };
+        return payload.surfaceId;
+      })
+    );
+    assert.equal(ids.size, 1, `expected one surfaceId across the triple, got ${ids.size}`);
+  });
+
+  test('@format a2ui escape hatch emits components verbatim', () => {
+    const out = cli('a2uiEscape');
+    const msgs = parseA2UIJsonl(out);
+    const update = msgs.find((m) => 'updateComponents' in m) as {
+      updateComponents: { components: Array<{ id: string; component: string; text?: string }> };
+    };
+    const titleNode = update.updateComponents.components.find((c) => c.id === 'title');
+    assert.equal(titleNode?.text, 'Verbatim surface', 'escape hatch text should pass through');
+  });
+
+  test('@format a2ui card-shaped result becomes a Card with action buttons', () => {
+    const out = cli('a2uiCard');
+    const msgs = parseA2UIJsonl(out);
+    const update = msgs.find((m) => 'updateComponents' in m) as {
+      updateComponents: { components: Array<{ id: string; component: string }> };
+    };
+    const root = update.updateComponents.components.find((c) => c.id === 'root');
+    assert.equal(root?.component, 'Card');
+    const buttons = update.updateComponents.components.filter((c) => c.component === 'Button');
+    assert.equal(buttons.length, 2, 'Deploy + Cancel buttons expected');
+  });
+
   // MCP verification
   console.log('\n── MCP response verification ──\n');
 

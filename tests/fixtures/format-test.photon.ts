@@ -50,4 +50,43 @@ export default class FormatTest {
   async unknown() {
     return [{ x: 1, y: 2, value: 10 }];
   }
+
+  // ── A2UI v0.9 declarative UI ──
+
+  /** @format a2ui */
+  async a2uiRows() {
+    return [
+      { name: 'Alice', role: 'Eng' },
+      { name: 'Bob', role: 'PM' },
+    ];
+  }
+
+  /** @format a2ui */
+  async a2uiObject() {
+    return { host: 'prod-01', region: 'us-east', cpu: '42%' };
+  }
+
+  /** @format a2ui */
+  async a2uiCard() {
+    return {
+      title: 'Deploy release',
+      description: 'Ship v1.22.0 to production',
+      actions: [
+        { label: 'Deploy', name: 'deploy' },
+        { label: 'Cancel', name: 'cancel' },
+      ],
+    };
+  }
+
+  /** @format a2ui */
+  async a2uiEscape() {
+    return {
+      __a2ui: true,
+      components: [
+        { id: 'root', component: 'Card', child: 'title' },
+        { id: 'title', component: 'Text', text: 'Verbatim surface', variant: 'h1' },
+      ],
+      data: {},
+    };
+  }
 }

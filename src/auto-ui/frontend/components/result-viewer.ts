@@ -95,7 +95,8 @@ type LayoutType =
   | 'checklist'
   | 'article'
   | 'magazine'
-  | 'ring';
+  | 'ring'
+  | 'a2ui';
 
 interface LayoutHints {
   title?: string;
@@ -3950,6 +3951,7 @@ export class ResultViewer extends LitElement {
           'checklist',
           'article',
           'magazine',
+          'a2ui',
         ].includes(format)
       ) {
         return format as LayoutType;
@@ -4294,10 +4296,27 @@ export class ResultViewer extends LitElement {
       case 'magazine':
       case 'article':
         return this._renderMagazine(filteredData);
+      case 'a2ui':
+        return this._renderA2UI(filteredData);
       case 'json':
       default:
         return this._renderJson(filteredData);
     }
+  }
+
+  /**
+   * Render an A2UI v0.9 surface by handing the result off to the shared
+   * photon-renderers.js runtime. The renderer walks the component tree
+   * (auto-mapped from the raw result) and produces the final DOM.
+   */
+  private _renderA2UI(filteredData: unknown): TemplateResult {
+    const data = filteredData;
+    const slotId = `a2ui-${Math.random().toString(36).slice(2)}`;
+    queueMicrotask(() => {
+      const target = this.shadowRoot?.getElementById(slotId) as HTMLElement | null;
+      if (target) this._renderSlideFormat(target, data, 'a2ui');
+    });
+    return html`<div id=${slotId} class="a2ui-host" style="padding: 4px"></div>`;
   }
 
   private _renderTable(data: any[]): TemplateResult {
