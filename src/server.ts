@@ -2918,15 +2918,29 @@ export class PhotonServer {
       // the photon author to manually copy fields in onInitialize. Photons
       // only need custom handling for non-copyable resources (sockets,
       // timers, DB connections) via the oldInstance context below.
+      //
+      // Skip keys that the new instance has already populated (via field
+      // initializer, constructor body, or injected dependency). Without
+      // this guard, changing `count = 0` to `count = 10` in the source
+      // would not take effect on hot reload — the old value would stomp
+      // the new initializer. Runtime-accumulated state (old has a value,
+      // new hasn't set one yet) still flows through.
       if (oldInstance?.instance && newMcp?.instance && typeof oldInstance.instance === 'object') {
+        const newRec = newMcp.instance as Record<string, unknown>;
         for (const key of Object.keys(oldInstance.instance)) {
+          if (key === 'constructor') continue;
           const value = (oldInstance.instance as Record<string, unknown>)[key];
-          if (typeof value !== 'function' && key !== 'constructor') {
-            try {
-              (newMcp.instance as Record<string, unknown>)[key] = value;
-            } catch {
-              // Some properties may be read-only (e.g. settings proxy)
-            }
+          if (typeof value === 'function') continue;
+          // If the freshly-constructed new instance already has a defined
+          // value for this key, trust the new one — the developer changed
+          // the source and expects the new initializer to apply.
+          if (Object.prototype.hasOwnProperty.call(newRec, key) && newRec[key] !== undefined) {
+            continue;
+          }
+          try {
+            newRec[key] = value;
+          } catch {
+            // Some properties may be read-only (e.g. settings proxy)
           }
         }
       }
