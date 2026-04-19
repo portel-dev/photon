@@ -8,6 +8,7 @@ import type { Command } from 'commander';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { SchemaExtractor, ConstructorParam } from '@portel/photon-core';
 import {
@@ -73,9 +74,9 @@ function findWorkspaceRoot(start: string): string {
   let current = start;
   while (true) {
     if (
-      existsSyncSafe(path.join(current, '.marketplace')) ||
-      existsSyncSafe(path.join(current, 'photon.config.json')) ||
-      existsSyncSafe(path.join(current, 'package.json'))
+      existsSync(path.join(current, '.marketplace')) ||
+      existsSync(path.join(current, 'photon.config.json')) ||
+      existsSync(path.join(current, 'package.json'))
     ) {
       return current;
     }
@@ -84,16 +85,6 @@ function findWorkspaceRoot(start: string): string {
     current = parent;
   }
   return start;
-}
-
-function existsSyncSafe(p: string): boolean {
-  try {
-    // Lazy import: keep the dep graph small for tests that mock `fs`.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('fs').existsSync(p);
-  } catch {
-    return false;
-  }
 }
 
 /**

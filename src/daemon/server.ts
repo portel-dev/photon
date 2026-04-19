@@ -1364,18 +1364,20 @@ async function scanOneForProactiveMetadata(
 
   // Webhooks diff — keyed per photon, replace the whole route table for
   // this photon since it's small and authoritative.
-  const prevRoutes = webhookRoutes.get(photonName);
+  const prevEntry = webhookRoutes.get(photonName);
+  const prevRoutes = prevEntry?.routes;
   const prevKeys = prevRoutes ? Array.from(prevRoutes.keys()) : [];
   const nextKeys = Array.from(nextRoutes.keys());
   if (nextKeys.length > 0) {
-    webhookRoutes.set(photonName, nextRoutes);
+    webhookRoutes.set(photonName, { routes: nextRoutes, workingDir });
     if (
       prevKeys.length !== nextKeys.length ||
-      prevKeys.some((k) => nextRoutes.get(k) !== prevRoutes?.get(k))
+      prevKeys.some((k) => nextRoutes.get(k) !== prevRoutes?.get(k)) ||
+      prevEntry?.workingDir !== workingDir
     ) {
       changed = true;
     }
-  } else if (prevRoutes) {
+  } else if (prevEntry) {
     webhookRoutes.delete(photonName);
     changed = true;
   }
@@ -1408,10 +1410,17 @@ function dropProactiveMetadataFor(photonName: string, workingDir?: string): bool
     declaredSchedules.delete(key);
     changed = true;
   }
-  // Only wipe webhook routes when no base scope was given. Webhook
-  // multi-base scoping is tracked separately; over-deletion here is the
-  // higher-impact regression so we err on the side of preserving routes.
-  if (!resolvedDir && webhookRoutes.delete(photonName)) changed = true;
+  // Webhook routes are now tracked per (photon, owning base). When a
+  // workingDir is supplied, only delete the entry if THIS base owns it.
+  // Without scope, fall back to legacy "wipe everything" semantics.
+  const wEntry = webhookRoutes.get(photonName);
+  if (wEntry) {
+    const ownerDir = wEntry.workingDir ? path.resolve(wEntry.workingDir) : undefined;
+    if (!resolvedDir || ownerDir === resolvedDir) {
+      webhookRoutes.delete(photonName);
+      changed = true;
+    }
+  }
   return changed;
 }
 
@@ -1451,7 +1460,7 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
       photonsScanned++;
       const before = {
         schedules: Array.from(declaredSchedules.values()).filter((d) => d.photon === p.name).length,
-        routes: webhookRoutes.get(p.name)?.size ?? 0,
+        routes: webhookRoutes.get(p.name)?.routes.size ?? 0,
       };
       try {
         await scanOneForProactiveMetadata(p.name, p.filePath, workingDir);
@@ -1465,7 +1474,7 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
       }
       const after = {
         schedules: Array.from(declaredSchedules.values()).filter((d) => d.photon === p.name).length,
-        routes: webhookRoutes.get(p.name)?.size ?? 0,
+        routes: webhookRoutes.get(p.name)?.routes.size ?? 0,
       };
       schedulesRegistered += Math.max(0, after.schedules - before.schedules);
       webhooksRegistered += Math.max(0, after.routes - before.routes);
@@ -1837,7 +1846,8 @@ function startWebhookServer(port: number): void {
 
       // Resolve method from webhook route map (if routes are registered)
       let resolvedMethod = method;
-      const routes = webhookRoutes.get(photonName);
+      const routeEntry = webhookRoutes.get(photonName);
+      const routes = routeEntry?.routes;
       if (routes && routes.size > 0) {
         // Only allow methods that have @webhook tag
         const mapped = routes.get(method);
@@ -2237,8 +2247,15 @@ async function getOrCreateSessionManager(
 
 // Track which photons have had their metadata auto-registered
 const autoRegistered = new Set<string>();
-// Webhook route map: photonName → Set<allowed method names>
-const webhookRoutes = new Map<string, Map<string, string>>();
+// Webhook route map: photonName → { routes (route → method), workingDir }
+// The workingDir is tracked so multi-base setups can scope route deletion:
+// removing photon foo from base X must not wipe foo's webhook routes
+// registered under base Y.
+interface WebhookRouteEntry {
+  routes: Map<string, string>;
+  workingDir?: string;
+}
+const webhookRoutes = new Map<string, WebhookRouteEntry>();
 
 /**
  * Photon source locations known to the daemon from boot-time discovery.
@@ -2380,10 +2397,15 @@ async function autoRegisterFromMetadata(
     const session = await manager.getOrCreateSession('__autoregister', 'system');
     const tools: any[] = session.instance?.tools || [];
 
-    // Auto-register @scheduled jobs
+    // Auto-register @scheduled jobs. Use the same base-scoped key format as
+    // declaredKey so a photon enabled via `photon ps enable` doesn't end up
+    // running twice — once under the legacy `${photon}:${method}` ID and
+    // once under the new `<base>::${photon}:${method}` ID.
+    const sessionWorkingDir = (session as unknown as { workingDir?: string; baseDir?: string })
+      .workingDir;
     for (const tool of tools) {
       if (tool.scheduled) {
-        const jobId = `${photonName}:${tool.name}`;
+        const jobId = declaredKey(photonName, tool.name, sessionWorkingDir);
         if (!scheduledJobs.has(jobId)) {
           const job = {
             id: jobId,
@@ -2394,6 +2416,7 @@ async function autoRegisterFromMetadata(
             createdAt: Date.now(),
             createdBy: 'auto',
             photonName,
+            workingDir: sessionWorkingDir,
           };
           const ok = scheduleJob(job);
           if (ok) {
@@ -2407,21 +2430,22 @@ async function autoRegisterFromMetadata(
         }
       }
 
-      // Build webhook route map
+      // Build webhook route map. Track the owning workingDir so multi-base
+      // setups can scope deletion (see WebhookRouteEntry).
       if (tool.webhook !== undefined) {
-        let routes = webhookRoutes.get(photonName);
-        if (!routes) {
-          routes = new Map();
-          webhookRoutes.set(photonName, routes);
+        let entry = webhookRoutes.get(photonName);
+        if (!entry) {
+          entry = { routes: new Map(), workingDir: sessionWorkingDir };
+          webhookRoutes.set(photonName, entry);
         }
         // Custom path from @webhook <path>, or method name
         const routePath = typeof tool.webhook === 'string' ? tool.webhook : tool.name;
-        routes.set(routePath, tool.name);
+        entry.routes.set(routePath, tool.name);
       }
     }
 
     if (webhookRoutes.has(photonName)) {
-      const routes = webhookRoutes.get(photonName)!;
+      const routes = webhookRoutes.get(photonName)!.routes;
       logger.info('Auto-registered webhook routes from @webhook tags', {
         photon: photonName,
         routes: [...routes.keys()],
@@ -2971,14 +2995,15 @@ async function handleRequest(
     });
     const webhooks: Array<{ photon: string; route: string; method: string; workingDir?: string }> =
       [];
-    for (const [photon, routes] of webhookRoutes.entries()) {
-      for (const [route, methodName] of routes.entries()) {
-        const loc = proactivePhotonLocations.get(photon);
+    for (const [photon, entry] of webhookRoutes.entries()) {
+      const loc = proactivePhotonLocations.get(photon);
+      const owningDir = entry.workingDir ?? loc?.workingDir ?? defaultBase;
+      for (const [route, methodName] of entry.routes.entries()) {
         webhooks.push({
           photon,
           route,
           method: methodName,
-          workingDir: loc?.workingDir ?? defaultBase,
+          workingDir: owningDir,
         });
       }
     }
