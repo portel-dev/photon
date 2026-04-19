@@ -123,6 +123,9 @@ export {
   type EndpointDeps,
 } from './auth/endpoints.js';
 
+// HTTP adapter for the AS endpoints (Node http compatible)
+export { handleAuthServerHTTP, type AuthServerHTTPOptions } from './auth/http-adapter.js';
+
 // SQLite-backed stores (requires optional better-sqlite3 on Node; uses
 // bun:sqlite natively under Bun)
 export {
