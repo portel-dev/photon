@@ -1315,7 +1315,7 @@ async function scanOneForProactiveMetadata(
   for (const rawTool of meta.tools) {
     const tool = rawTool as { name: string; scheduled?: string; webhook?: string | boolean };
     if (tool.scheduled) {
-      nextSchedules.set(declaredKey(photonName, tool.name), {
+      nextSchedules.set(declaredKey(photonName, tool.name, workingDir), {
         photon: photonName,
         method: tool.name,
         cron: tool.scheduled,
@@ -1329,10 +1329,17 @@ async function scanOneForProactiveMetadata(
     }
   }
 
-  // Schedules diff — add/update new, remove stale entries owned by this photon.
+  // Schedules diff — add/update new, remove stale entries owned by this photon
+  // AT THIS PHOTON_DIR. Scoping by workingDir matters: another base may have
+  // the same photon+method scheduled and we must not stomp on it.
+  const resolvedWorkingDir = workingDir ? path.resolve(workingDir) : undefined;
   const existingScheduleKeys = new Set(
     Array.from(declaredSchedules.entries())
-      .filter(([, v]) => v.photon === photonName)
+      .filter(([, v]) => {
+        if (v.photon !== photonName) return false;
+        const vBase = v.workingDir ? path.resolve(v.workingDir) : undefined;
+        return vBase === resolvedWorkingDir;
+      })
       .map(([k]) => k)
   );
   for (const [key, decl] of nextSchedules) {
@@ -1596,10 +1603,11 @@ function syncActiveSchedulesAtBoot(): void {
       }
     }
 
-    // Register timers for active (non-paused) entries.
+    // Register timers for active (non-paused) entries. Keys are scoped to
+    // basePath so two PHOTON_DIRs with the same photon:method don't collide.
     for (const entry of file.active) {
       if (entry.paused) continue;
-      const key = declaredKey(entry.photon, entry.method);
+      const key = declaredKey(entry.photon, entry.method, basePath);
       const decl = declaredSchedules.get(key);
       if (!decl) {
         missingRefs++;
@@ -2235,8 +2243,42 @@ interface DeclaredSchedule {
 }
 const declaredSchedules = new Map<string, DeclaredSchedule>();
 
-function declaredKey(photon: string, method: string): string {
-  return `${photon}:${method}`;
+/**
+ * Identity key for declared schedules and scheduled jobs.
+ *
+ * Includes the resolved base dir so two PHOTON_DIRs can legitimately host the
+ * same photon name + method without colliding in declaredSchedules /
+ * scheduledJobs / jobTimers. `workingDir` normalizes to a canonical absolute
+ * path; an unresolvable value falls back to `-` so callers that don't track a
+ * base (legacy CLI paths, fallback wipes) still get a stable key.
+ */
+function declaredKey(photon: string, method: string, workingDir?: string): string {
+  const base = workingDir ? path.resolve(workingDir) : '-';
+  return `${base}::${photon}:${method}`;
+}
+
+/**
+ * Scan declaredSchedules for the declaration matching (photon, method).
+ * When an IPC caller doesn't know which PHOTON_DIR owns the schedule (the CLI
+ * hits a per-user daemon but the user may have multiple bases), search all
+ * declarations. If `preferredBase` is supplied, prefer that match. If multiple
+ * declarations match across bases, return them so the caller can surface an
+ * ambiguity error instead of silently picking one.
+ */
+function findDeclarationsFor(
+  photon: string,
+  method: string,
+  preferredBase?: string
+): Array<{ key: string; decl: DeclaredSchedule }> {
+  const matches: Array<{ key: string; decl: DeclaredSchedule }> = [];
+  const preferredResolved = preferredBase ? path.resolve(preferredBase) : undefined;
+  for (const [key, decl] of declaredSchedules.entries()) {
+    if (decl.photon !== photon || decl.method !== method) continue;
+    const declBase = decl.workingDir ? path.resolve(decl.workingDir) : undefined;
+    if (preferredResolved && declBase && declBase !== preferredResolved) continue;
+    matches.push({ key, decl });
+  }
+  return matches;
 }
 
 /** Entry shape in {PHOTON_DIR}/.data/.active-schedules.json */
@@ -2883,15 +2925,18 @@ async function handleRequest(
       workingDir: j.workingDir ?? defaultBase,
       createdBy: j.createdBy,
     }));
-    const declared = Array.from(declaredSchedules.values()).map((d) => ({
-      key: declaredKey(d.photon, d.method),
-      photon: d.photon,
-      method: d.method,
-      cron: d.cron,
-      photonPath: d.photonPath,
-      workingDir: d.workingDir ?? defaultBase,
-      active: scheduledJobs.has(declaredKey(d.photon, d.method)),
-    }));
+    const declared = Array.from(declaredSchedules.values()).map((d) => {
+      const k = declaredKey(d.photon, d.method, d.workingDir);
+      return {
+        key: k,
+        photon: d.photon,
+        method: d.method,
+        cron: d.cron,
+        photonPath: d.photonPath,
+        workingDir: d.workingDir ?? defaultBase,
+        active: scheduledJobs.has(k),
+      };
+    });
     const webhooks: Array<{ photon: string; route: string; method: string; workingDir?: string }> =
       [];
     for (const [photon, routes] of webhookRoutes.entries()) {
@@ -2940,17 +2985,28 @@ async function handleRequest(
         error: '`enable_schedule` requires photonName and method',
       };
     }
-    const key = declaredKey(photon, method);
-    const decl = declaredSchedules.get(key);
-    if (!decl) {
+    const preferredBase = (request as { workingDir?: string }).workingDir;
+    const matches = findDeclarationsFor(photon, method, preferredBase);
+    if (matches.length === 0) {
       return {
         type: 'error',
         id: request.id,
         error:
-          `No @scheduled declaration found for ${key}. ` +
+          `No @scheduled declaration found for ${photon}:${method}. ` +
           `Did the source file get renamed or deleted?`,
       };
     }
+    if (matches.length > 1) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Ambiguous: ${photon}:${method} is declared in multiple PHOTON_DIRs ` +
+          `(${matches.map((m) => m.decl.workingDir ?? '-').join(', ')}). ` +
+          `Pass workingDir to target one.`,
+      };
+    }
+    const { key, decl } = matches[0];
     const base = path.resolve(decl.workingDir || getDefaultContext().baseDir);
     const file = readActiveSchedulesFile(base);
     const existing = file.active.find((e) => e.photon === photon && e.method === method);
@@ -3004,19 +3060,33 @@ async function handleRequest(
         error: '`disable_schedule` requires photonName and method',
       };
     }
-    const key = declaredKey(photon, method);
-    const decl = declaredSchedules.get(key);
+    const preferredBase = (request as { workingDir?: string }).workingDir;
+    const matches = findDeclarationsFor(photon, method, preferredBase);
+    if (matches.length > 1) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Ambiguous: ${photon}:${method} is declared in multiple PHOTON_DIRs ` +
+          `(${matches.map((m) => m.decl.workingDir ?? '-').join(', ')}). ` +
+          `Pass workingDir to target one.`,
+      };
+    }
+    const match = matches[0];
+    // Disable tolerates a missing declaration so the caller can clean up
+    // orphan active-schedule rows after the source file is deleted.
     const base = path.resolve(
-      decl?.workingDir ||
-        (request as { workingDir?: string }).workingDir ||
-        getDefaultContext().baseDir
+      match?.decl.workingDir ?? preferredBase ?? getDefaultContext().baseDir
     );
     const file = readActiveSchedulesFile(base);
     const before = file.active.length;
     file.active = file.active.filter((e) => !(e.photon === photon && e.method === method));
     const removed = before - file.active.length;
     writeActiveSchedulesFile(base, file);
-    // Clear the timer if one is running.
+    // Clear the timer if one is running. Use the declaration's key when we
+    // have it; otherwise scan to find any scheduled job for this (photon, method)
+    // that's scoped to the resolved base.
+    const key = match?.key ?? declaredKey(photon, method, base);
     const existingTimer = jobTimers.get(key);
     if (existingTimer) {
       clearTimeout(existingTimer);
@@ -3043,20 +3113,29 @@ async function handleRequest(
         error: `\`${pause ? 'pause_schedule' : 'resume_schedule'}\` requires photonName and method`,
       };
     }
-    const key = declaredKey(photon, method);
-    const decl = declaredSchedules.get(key);
-    const base = path.resolve(
-      decl?.workingDir ||
-        (request as { workingDir?: string }).workingDir ||
-        getDefaultContext().baseDir
-    );
+    const preferredBase = (request as { workingDir?: string }).workingDir;
+    const matches = findDeclarationsFor(photon, method, preferredBase);
+    if (matches.length > 1) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Ambiguous: ${photon}:${method} is declared in multiple PHOTON_DIRs ` +
+          `(${matches.map((m) => m.decl.workingDir ?? '-').join(', ')}). ` +
+          `Pass workingDir to target one.`,
+      };
+    }
+    const match = matches[0];
+    const decl = match?.decl;
+    const base = path.resolve(decl?.workingDir ?? preferredBase ?? getDefaultContext().baseDir);
+    const key = match?.key ?? declaredKey(photon, method, base);
     const file = readActiveSchedulesFile(base);
     const entry = file.active.find((e) => e.photon === photon && e.method === method);
     if (!entry) {
       return {
         type: 'error',
         id: request.id,
-        error: `No active enrollment for ${key} under ${base}. Enable it first.`,
+        error: `No active enrollment for ${photon}:${method} under ${base}. Enable it first.`,
       };
     }
     entry.paused = pause;
@@ -3103,12 +3182,23 @@ async function handleRequest(
       };
     }
     // Prefer the caller-supplied workingDir; fall back to the declaration's
-    // base; finally to the default base.
-    const decl = declaredSchedules.get(declaredKey(photon, method));
-    const workingDir =
-      (request as { workingDir?: string }).workingDir ||
-      decl?.workingDir ||
-      getDefaultContext().baseDir;
+    // base; finally to the default base. Multiple PHOTON_DIRs can legitimately
+    // carry the same photon:method — if workingDir wasn't provided and there's
+    // more than one declaration, return an ambiguity error so the caller picks.
+    const preferredBase = (request as { workingDir?: string }).workingDir;
+    const historyMatches = findDeclarationsFor(photon, method, preferredBase);
+    if (historyMatches.length > 1 && !preferredBase) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Ambiguous: ${photon}:${method} is declared in multiple PHOTON_DIRs ` +
+          `(${historyMatches.map((m) => m.decl.workingDir ?? '-').join(', ')}). ` +
+          `Pass workingDir to target one.`,
+      };
+    }
+    const decl = historyMatches[0]?.decl;
+    const workingDir = preferredBase || decl?.workingDir || getDefaultContext().baseDir;
     const entries = readExecutionHistory(
       photon,
       { method, limit: request.limit, sinceTs: request.sinceTs },
