@@ -405,6 +405,273 @@ export function generateRenderersScript(): string {
     container.innerHTML = '<pre style="font-size:12px;line-height:1.5;color:' + colors.text + ';background:' + colors.bgAlt + ';padding:12px;border-radius:6px;overflow:auto;max-height:400px;margin:0">' + esc(text) + '</pre>';
   };
 
+  // ─── A2UI v0.9 ───
+  // Renders Google A2UI v0.9 "Basic catalog" surfaces. Accepts either:
+  //   (a) a v0.9 JSONL message array (createSurface/updateComponents/updateDataModel)
+  //   (b) a raw method result, auto-mapped via the same heuristics as src/a2ui/mapper.ts
+  // Kept inline (no external runtime) so it stays consistent with the other
+  // @format renderers served from /api/photon-renderers.js.
+  renderers.a2ui = function(container, data) {
+    // ── 1. Normalize input to { components, dataModel } ──
+    var surface = a2uiExtractSurface(data) || a2uiMapResult(data);
+    var byId = {};
+    (surface.components || []).forEach(function(c) { byId[c.id] = c; });
+    if (!byId.root) {
+      container.innerHTML = '<pre style="color:' + colors.text + ';background:' + colors.bgAlt + ';padding:12px;border-radius:6px;margin:0">A2UI error: missing root component</pre>';
+      return;
+    }
+    // ── 2. Render from root ──
+    var html = '<div class="a2ui-surface" style="color:' + colors.text + ';font-size:14px;line-height:1.5">'
+      + a2uiRender('root', byId, surface.data, null)
+      + '</div>';
+    container.innerHTML = html;
+    // ── 3. Wire button actions (non-destructive toast feedback) ──
+    container.querySelectorAll('[data-a2ui-action]').forEach(function(btn) {
+      btn.addEventListener('click', function(ev) {
+        var name = btn.getAttribute('data-a2ui-action') || '';
+        a2uiToast(container, 'A2UI action: ' + name);
+        ev.preventDefault();
+      });
+    });
+  };
+
+  // Extract {components, data} from a v0.9 JSONL message array if the caller
+  // passed one (e.g. the AG-UI CUSTOM event stream replayed as data).
+  function a2uiExtractSurface(data) {
+    if (!Array.isArray(data)) return null;
+    var components = null;
+    var dataModel = {};
+    for (var i = 0; i < data.length; i++) {
+      var m = data[i];
+      if (!m || typeof m !== 'object') continue;
+      if (m.updateComponents && m.updateComponents.components) {
+        components = m.updateComponents.components;
+      } else if (m.updateDataModel) {
+        var path = m.updateDataModel.path || '/';
+        if (path === '/' || path === '') {
+          dataModel = m.updateDataModel.value;
+        } else {
+          a2uiSetByPath(dataModel, path, m.updateDataModel.value);
+        }
+      }
+    }
+    return components ? { components: components, data: dataModel } : null;
+  }
+
+  // Client-side mapper — mirrors src/a2ui/mapper.ts heuristics. Kept in sync
+  // by intent; see tests/a2ui-mapper.test.ts for the contract.
+  function a2uiMapResult(result) {
+    if (result && typeof result === 'object' && result.__a2ui === true && Array.isArray(result.components)) {
+      return { components: result.components, data: result.data || {} };
+    }
+    if (result == null || result === '') {
+      return { components: [{id:'root', component:'Text', text:''}], data: { value: '' } };
+    }
+    if (typeof result !== 'object') {
+      return { components: [{id:'root', component:'Text', text: String(result)}], data: { value: String(result) } };
+    }
+    if (Array.isArray(result)) {
+      if (result.length === 0) {
+        return { components: [{id:'root', component:'Text', text:'(empty list)'}], data: { value:'(empty list)' } };
+      }
+      var first = result[0];
+      if (first == null || typeof first !== 'object' || Array.isArray(first)) {
+        var items = result.map(function(v, i) { return { label: String(v), index: i }; });
+        return {
+          components: [
+            {id:'root', component:'List', list:{template:{id:'rowCard'}, data:{path:'/items'}}},
+            {id:'rowCard', component:'Card', child:'rowText'},
+            {id:'rowText', component:'Text', text:{path:'label'}}
+          ],
+          data: { items: items }
+        };
+      }
+      var keys = Object.keys(first);
+      var titleKey = ['title','name','label','subject'].filter(function(k){return keys.indexOf(k)>=0;})[0] || keys[0] || 'value';
+      return {
+        components: [
+          {id:'root', component:'List', list:{template:{id:'rowCard'}, data:{path:'/items'}}},
+          {id:'rowCard', component:'Card', child:'rowText'},
+          {id:'rowText', component:'Text', text:{path:titleKey}}
+        ],
+        data: { items: result }
+      };
+    }
+    // Card-shaped: { title, description?, actions? }
+    if (typeof result.title === 'string' && (result.actions === undefined || Array.isArray(result.actions))) {
+      var contentIds = ['cardTitle'];
+      var cardComponents = [
+        {id:'root', component:'Card', child:'cardBody'},
+        {id:'cardTitle', component:'Text', text:{path:'/title'}, variant:'h2'}
+      ];
+      if (result.description) {
+        cardComponents.push({id:'cardDesc', component:'Text', text:{path:'/description'}});
+        contentIds.push('cardDesc');
+      }
+      (result.actions || []).forEach(function(a, i) {
+        var btnId = 'cardBtn' + i;
+        cardComponents.push({id: btnId, component:'Button', text: a.label, variant: i===0 ? 'primary' : 'borderless', action: {event:{name: a.name || a.label}}});
+        contentIds.push(btnId);
+      });
+      cardComponents.push({id:'cardBody', component:'Column', children: contentIds});
+      return { components: cardComponents, data: result };
+    }
+    // Plain object → Column of markdown-style key rows
+    var objKeys = Object.keys(result);
+    if (objKeys.length === 0) {
+      return { components: [{id:'root', component:'Text', text:'(empty object)'}], data: { value:'(empty object)' } };
+    }
+    var childIds = [];
+    var objComponents = [];
+    objKeys.forEach(function(k, i) {
+      var rowId = 'row' + i;
+      objComponents.push({id: rowId, component:'Text', text: {call:'formatString', args:{value:'**'+k+':** \${/'+k+'}'}}});
+      childIds.push(rowId);
+    });
+    objComponents.unshift({id:'root', component:'Column', children: childIds});
+    return { components: objComponents, data: result };
+  }
+
+  // JSON Pointer (RFC 6901) resolve, with a "relative" fallback used inside
+  // List template scopes. Leading '/' ⇒ absolute; anything else ⇒ resolved
+  // against the current scope (current list item).
+  function a2uiResolvePath(dataModel, ptr, scope) {
+    if (!ptr && ptr !== '') return undefined;
+    var absolute = typeof ptr === 'string' && ptr.indexOf('/') === 0;
+    var parts = absolute ? ptr.slice(1).split('/') : String(ptr).split('/');
+    var cur = absolute ? dataModel : (scope != null ? scope : dataModel);
+    for (var i = 0; i < parts.length; i++) {
+      var key = parts[i];
+      if (key === '') continue;
+      if (cur == null) return undefined;
+      // RFC 6901 escape unescape
+      key = key.replace(/~1/g, '/').replace(/~0/g, '~');
+      cur = cur[key];
+    }
+    return cur;
+  }
+
+  function a2uiSetByPath(root, ptr, value) {
+    var parts = ptr.replace(/^\\//,'').split('/').filter(Boolean);
+    if (parts.length === 0) return;
+    var cur = root;
+    for (var i = 0; i < parts.length - 1; i++) {
+      // RFC 6901: decode ~1 -> "/" and ~0 -> "~" (in that order, ~1 first).
+      // a2uiResolvePath decodes these — the write path must match or keys
+      // with slashes in their name land under the wrong property.
+      var k = parts[i].replace(/~1/g, '/').replace(/~0/g, '~');
+      if (typeof cur[k] !== 'object' || cur[k] == null) cur[k] = {};
+      cur = cur[k];
+    }
+    var last = parts[parts.length - 1].replace(/~1/g, '/').replace(/~0/g, '~');
+    cur[last] = value;
+  }
+
+  // DynamicString / DynamicNumber / DynamicBoolean resolver: literal | {path} | {call: formatString, ...}
+  function a2uiResolveDynamic(v, dataModel, scope) {
+    if (v == null) return '';
+    if (typeof v !== 'object') return v;
+    if ('path' in v) return a2uiResolvePath(dataModel, v.path, scope);
+    if ('call' in v && v.call === 'formatString') {
+      var tpl = String((v.args && v.args.value) || '');
+      return tpl.replace(/\\\$\\\{([^}]+)\\\}/g, function(_, p) {
+        var val = a2uiResolvePath(dataModel, p, scope);
+        return val == null ? '' : String(val);
+      });
+    }
+    return '';
+  }
+
+  // Minimal markdown: **bold**, *italic*, \`code\` — safe because esc() ran first.
+  function a2uiLightMarkdown(str) {
+    return String(str)
+      .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
+      .replace(/\\*([^*]+)\\*/g, '<em>$1</em>')
+      .replace(/\`([^\`]+)\`/g, '<code style="background:' + colors.bgAlt + ';padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
+  }
+
+  // Render a component by id. Recursive.
+  function a2uiRender(id, byId, dataModel, scope) {
+    var c = byId[id];
+    if (!c) return '<span style="color:' + colors.textMuted + ';font-size:12px">[missing: ' + esc(String(id)) + ']</span>';
+    var kind = c.component;
+    switch (kind) {
+      case 'Text': {
+        var text = a2uiResolveDynamic(c.text, dataModel, scope);
+        var safe = esc(String(text == null ? '' : text));
+        var rendered = a2uiLightMarkdown(safe);
+        var v = c.variant || '';
+        if (v === 'h1') return '<h1 style="font-size:22px;font-weight:700;margin:0 0 8px;color:' + colors.text + '">' + rendered + '</h1>';
+        if (v === 'h2') return '<h2 style="font-size:18px;font-weight:600;margin:0 0 6px;color:' + colors.text + '">' + rendered + '</h2>';
+        if (v === 'h3') return '<h3 style="font-size:15px;font-weight:600;margin:0 0 4px;color:' + colors.text + '">' + rendered + '</h3>';
+        if (v === 'caption') return '<span style="font-size:12px;color:' + colors.textMuted + '">' + rendered + '</span>';
+        return '<div style="margin:2px 0">' + rendered + '</div>';
+      }
+      case 'Column': {
+        var colKids = (c.children || []).map(function(k) { return a2uiRender(k, byId, dataModel, scope); }).join('');
+        return '<div style="display:flex;flex-direction:column;gap:8px">' + colKids + '</div>';
+      }
+      case 'Row': {
+        var rowKids = (c.children || []).map(function(k) { return a2uiRender(k, byId, dataModel, scope); }).join('');
+        return '<div style="display:flex;flex-direction:row;gap:8px;align-items:center">' + rowKids + '</div>';
+      }
+      case 'Card': {
+        var inner = c.child ? a2uiRender(c.child, byId, dataModel, scope) : '';
+        return '<div style="border:1px solid ' + colors.border + ';border-radius:8px;padding:12px;background:' + colors.bg + '">' + inner + '</div>';
+      }
+      case 'Divider': {
+        return '<hr style="border:0;border-top:1px solid ' + colors.border + ';margin:8px 0" />';
+      }
+      case 'Image': {
+        var url = a2uiResolveDynamic(c.url, dataModel, scope);
+        var alt = a2uiResolveDynamic(c.alt, dataModel, scope);
+        return '<img src="' + esc(String(url || '')) + '" alt="' + esc(String(alt || '')) + '" style="max-width:100%;border-radius:6px" />';
+      }
+      case 'List': {
+        var list = c.list || {};
+        var tplId = list.template && list.template.id;
+        var pathObj = list.data && list.data.path ? list.data.path : '';
+        var items = a2uiResolvePath(dataModel, pathObj, scope);
+        if (!tplId || !Array.isArray(items)) return '';
+        return '<div style="display:flex;flex-direction:column;gap:8px">' +
+          items.map(function(item, i) {
+            return '<div data-a2ui-list-index="' + i + '">' + a2uiRender(tplId, byId, dataModel, item) + '</div>';
+          }).join('') +
+          '</div>';
+      }
+      case 'Button': {
+        var label = a2uiResolveDynamic(c.text, dataModel, scope);
+        var variant = c.variant || 'primary';
+        var actionName = (c.action && c.action.event && c.action.event.name) ||
+                         (c.action && c.action.functionCall && c.action.functionCall.call) || '';
+        var style = variant === 'primary'
+          ? 'background:' + colors.accent + ';color:#fff;border:0;padding:8px 14px;border-radius:6px;font-weight:500;cursor:pointer'
+          : 'background:transparent;color:' + colors.accent + ';border:0;padding:8px 14px;border-radius:6px;font-weight:500;cursor:pointer';
+        return '<button data-a2ui-action="' + esc(String(actionName)) + '" style="' + style + '">' + esc(String(label || '')) + '</button>';
+      }
+      case 'TextField': {
+        var fieldLabel = a2uiResolveDynamic(c.label, dataModel, scope);
+        var valuePath = c.value && c.value.path;
+        var val = valuePath ? a2uiResolvePath(dataModel, valuePath, scope) : '';
+        return '<label style="display:flex;flex-direction:column;gap:4px;font-size:13px">' +
+          (fieldLabel ? '<span style="color:' + colors.textMuted + '">' + esc(String(fieldLabel)) + '</span>' : '') +
+          '<input type="text" value="' + esc(String(val == null ? '' : val)) + '" style="padding:8px;border:1px solid ' + colors.border + ';border-radius:6px;background:' + colors.bg + ';color:' + colors.text + '" />' +
+          '</label>';
+      }
+      default: {
+        return '<div style="font-size:12px;color:' + colors.textMuted + ';padding:8px;border:1px dashed ' + colors.border + ';border-radius:6px">[A2UI: unsupported \\u201C' + esc(String(kind)) + '\\u201D component in Basic catalog]</div>';
+      }
+    }
+  }
+
+  function a2uiToast(container, message) {
+    var el = document.createElement('div');
+    el.textContent = message;
+    el.style.cssText = 'position:fixed;bottom:16px;right:16px;background:' + colors.accent + ';color:#fff;padding:10px 14px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15)';
+    document.body.appendChild(el);
+    setTimeout(function() { el.remove(); }, 2500);
+  }
+
   // ─── Code (syntax-highlighted) ───
   renderers.code = function(container, data) {
     var text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
@@ -2097,6 +2364,31 @@ export const FORMAT_CATALOG: Record<string, FormatSpec> = {
   'empty-state': {
     data: '{ title?, description?, icon? }',
     example: { title: 'No results', description: 'Try a different query', icon: '🔍' },
+  },
+
+  // ── Declarative UI (A2UI v0.9 draft) ──
+  a2ui: {
+    data: 'Array<A2UIMessage> | { __a2ui: true, components, data }',
+    example: [
+      {
+        version: 'v0.9',
+        createSurface: {
+          surfaceId: 's-1',
+          catalogId: 'https://a2ui.org/specification/v0_9/basic_catalog.json',
+        },
+      },
+      {
+        version: 'v0.9',
+        updateComponents: {
+          surfaceId: 's-1',
+          components: [{ id: 'root', component: 'Text', text: 'Hello' }],
+        },
+      },
+      {
+        version: 'v0.9',
+        updateDataModel: { surfaceId: 's-1', path: '/', value: {} },
+      },
+    ],
   },
 };
 

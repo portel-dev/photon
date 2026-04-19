@@ -50,7 +50,19 @@ export function looksLikeA2UIStream(arr: unknown[]): boolean {
     if (typeof m !== 'object' || m === null) return false;
     const rec = m as Record<string, unknown>;
     if (typeof rec.version !== 'string') return false;
-    return A2UI_MESSAGE_KEYS.some((k) => k in rec);
+    // Must carry EXACTLY ONE wrapper key whose value is itself an object
+    // with the surfaceId that A2UI messages always include. This rejects
+    // row data that happens to carry both a `version` string and a key
+    // named `updateDataModel` / similar as arbitrary column values.
+    let wrapperCount = 0;
+    for (const k of A2UI_MESSAGE_KEYS) {
+      if (!(k in rec)) continue;
+      wrapperCount++;
+      const wrapped = rec[k];
+      if (!wrapped || typeof wrapped !== 'object' || Array.isArray(wrapped)) return false;
+      if (typeof (wrapped as Record<string, unknown>).surfaceId !== 'string') return false;
+    }
+    return wrapperCount === 1;
   });
 }
 
@@ -213,11 +225,25 @@ interface CardShaped {
   actions?: Array<{ label: string; name?: string }>;
 }
 
+/**
+ * Does this object look like a Card result? Card layout renders only
+ * `title` + optional `description` + optional `actions`; anything else
+ * would silently be dropped. Require that there are no extra "data"
+ * fields — a result like `{ title: 'prod-01', region: 'us-east', cpu: '42%' }`
+ * should go through buildKeyValueColumn instead so every field renders.
+ */
+const CARD_KEYS = new Set(['title', 'description', 'actions']);
 function isCardShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const obj = value as Record<string, unknown>;
   if (typeof obj.title !== 'string') return false;
-  return obj.actions === undefined || Array.isArray(obj.actions);
+  if (obj.actions !== undefined && !Array.isArray(obj.actions)) return false;
+  // Reject objects that carry fields beyond the card schema — those are
+  // data-bearing records, not cards.
+  for (const key of Object.keys(obj)) {
+    if (!CARD_KEYS.has(key)) return false;
+  }
+  return true;
 }
 
 function buildCard(card: CardShaped): Tree {
