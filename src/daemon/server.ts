@@ -203,13 +203,17 @@ interface ExecutionTracker {
   drainResolve?: () => void;
 }
 
-/** Tracks active executeTool calls per composite key */
-const activeExecutions = new Map<string, ExecutionTracker>();
+/**
+ * Tracks active executeTool calls per (photon, base) composite key.
+ * Typed on PhotonCompositeKey so bare-string `.get(photonName)` stops
+ * compiling — same guardrail as the schedule maps.
+ */
+const activeExecutions = new Map<PhotonCompositeKey, ExecutionTracker>();
 
 /** Per-key mutex to prevent concurrent reloads (format-on-save race) */
-const reloadMutex = new Map<string, Promise<any>>();
+const reloadMutex = new Map<PhotonCompositeKey, Promise<any>>();
 
-function trackExecution(key: string): void {
+function trackExecution(key: PhotonCompositeKey): void {
   const tracker = activeExecutions.get(key);
   if (tracker) {
     tracker.count++;
@@ -218,7 +222,7 @@ function trackExecution(key: string): void {
   }
 }
 
-function untrackExecution(key: string): void {
+function untrackExecution(key: PhotonCompositeKey): void {
   const tracker = activeExecutions.get(key);
   if (!tracker) return;
   tracker.count--;
@@ -232,11 +236,12 @@ function untrackExecution(key: string): void {
 }
 
 // Map of compositeKey -> SessionManager (lazy initialized)
-const sessionManagers = new Map<string, SessionManager>();
-const photonPaths = new Map<string, string>(); // compositeKey -> photonPath
-const workingDirs = new Map<string, string>(); // compositeKey -> workingDir
+const sessionManagers = new Map<PhotonCompositeKey, SessionManager>();
+const photonPaths = new Map<PhotonCompositeKey, string>(); // compositeKey -> photonPath
+const workingDirs = new Map<PhotonCompositeKey, string>(); // compositeKey -> workingDir
+// Keyed by resolved file path (realpathSync), not composite key.
 const fileWatchers = new Map<string, SafeWatcher>();
-const watchDebounce = new Map<string, NodeJS.Timeout>();
+const watchDebounce = new Map<string, NodeJS.Timeout>(); // keyed by base:filename, not photon
 
 // Source-stat gate (prototype — see docs/internals/STAT-GATE.md when landed):
 // compositeKey → last observed stat of the photon's source file. Used by
@@ -248,7 +253,7 @@ interface PhotonSourceStat {
   size: number;
   ino: number;
 }
-const photonSourceStats = new Map<string, PhotonSourceStat>();
+const photonSourceStats = new Map<PhotonCompositeKey, PhotonSourceStat>();
 
 /** Snapshot the stat fields we use as change signal. Null on ENOENT etc. */
 function statOrNull(filePath: string): PhotonSourceStat | null {
@@ -261,7 +266,7 @@ function statOrNull(filePath: string): PhotonSourceStat | null {
 }
 
 /** Record the current stat for a photon after a successful load or reload. */
-function recordPhotonSourceStat(key: string, photonPath: string | undefined): void {
+function recordPhotonSourceStat(key: PhotonCompositeKey, photonPath: string | undefined): void {
   if (!photonPath) return;
   const s = statOrNull(photonPath);
   if (s) photonSourceStats.set(key, s);
@@ -275,7 +280,7 @@ function recordPhotonSourceStat(key: string, photonPath: string | undefined): vo
  * surface a richer error downstream.
  */
 async function statGate(
-  key: string,
+  key: PhotonCompositeKey,
   photonName: string,
   photonPath: string | undefined,
   workingDir: string | undefined
@@ -336,13 +341,16 @@ import {
   type ScheduleKey,
   type WebhookRouteKey,
   type LocationKey,
+  type PhotonCompositeKey,
 } from './registry-keys.js';
 
 /**
  * Create a composite key from photonName + workingDir for map lookups.
  * Delegates to registry-keys.ts (the single source of truth for key shapes).
+ * Return type is branded so every caller that indexes a PhotonCompositeKey
+ * map has to route through this helper — bare-string lookups won't compile.
  */
-function compositeKey(photonName: string, workingDir?: string): string {
+function compositeKey(photonName: string, workingDir?: string): PhotonCompositeKey {
   return _compositeKey(photonName, workingDir, getDefaultContext().baseDir);
 }
 
@@ -2136,7 +2144,13 @@ async function getOrCreateSessionManager(
       logger.info('Spawning worker thread for @worker photon', { photonName, key });
       const info = await workerManager.spawn(key, photonName, pathToUse, workingDir);
       photonPaths.set(key, pathToUse);
-      if (!photonPaths.has(photonName)) photonPaths.set(photonName, pathToUse);
+      // Also mirror under the bare photon name so legacy helpers
+      // (snapshotState, persistInstanceState) without a workingDir still
+      // resolve in the default-base case. `compositeKey(name, undefined)`
+      // collapses to the bare name and is branded, so this round-trips
+      // through the type system without a raw cast.
+      const legacyKey = compositeKey(photonName);
+      if (!photonPaths.has(legacyKey)) photonPaths.set(legacyKey, pathToUse);
       if (workingDir) workingDirs.set(key, workingDir);
       watchPhotonFile(photonName, pathToUse);
 
@@ -2260,9 +2274,13 @@ async function getOrCreateSessionManager(
 
     sessionManagers.set(key, manager);
     photonPaths.set(key, pathToUse);
-    // Also store under bare photonName so snapshotState/persistInstanceState can find it
-    if (!photonPaths.has(photonName)) {
-      photonPaths.set(photonName, pathToUse);
+    // Legacy callers without a workingDir (snapshotState, persistInstanceState)
+    // reach this map via bare photon name. compositeKey(name, undefined)
+    // collapses to that bare name for the default base and is branded, so
+    // the mirror entry preserves the legacy lookup path type-safely.
+    const legacyKey = compositeKey(photonName);
+    if (!photonPaths.has(legacyKey)) {
+      photonPaths.set(legacyKey, pathToUse);
     }
     // Baseline the stat-gate for this session so subsequent dispatches can
     // detect source edits the file watcher hasn't processed yet.
@@ -2300,7 +2318,7 @@ async function getOrCreateSessionManager(
 }
 
 // Track which photons have had their metadata auto-registered
-const autoRegistered = new Set<string>();
+const autoRegistered = new Set<PhotonCompositeKey>();
 // Webhook route map. Keyed by `<base>::<photonName>` so two different
 // PHOTON_DIRs can register webhooks on the same photon name without the
 // second registration clobbering the first. Before scoping, a foo.photon.ts
@@ -3975,6 +3993,9 @@ const stateKeysCache = new Map<string, string[]>();
  * State params: non-primitive with default on @stateful photon.
  */
 async function getStateKeys(photonName: string, photonPath: string): Promise<string[]> {
+  // stateKeysCache is photon-code-derived (independent of base), so it's
+  // safe to use bare photonName as the cache key regardless of which
+  // PHOTON_DIR loaded the file — all copies produce the same state schema.
   if (stateKeysCache.has(photonName)) {
     return stateKeysCache.get(photonName)!;
   }
@@ -4007,9 +4028,12 @@ async function getStateKeys(photonName: string, photonPath: string): Promise<str
  */
 async function snapshotState(
   instance: any,
-  photonName: string
+  photonName: string,
+  workingDir?: string
 ): Promise<Record<string, any> | null> {
-  const photonPath = photonPaths.get(photonName);
+  // Composite key collapses to bare photon name for the default base, so
+  // pre-multi-base callers that passed just photonName still resolve.
+  const photonPath = photonPaths.get(compositeKey(photonName, workingDir));
   if (!photonPath) return null;
 
   const keys = await getStateKeys(photonName, photonPath);
@@ -4042,7 +4066,7 @@ async function persistInstanceState(
   workingDir?: string
 ): Promise<void> {
   try {
-    const photonPath = photonPaths.get(photonName);
+    const photonPath = photonPaths.get(compositeKey(photonName, workingDir));
     if (!photonPath) return;
 
     const keys = await getStateKeys(photonName, photonPath);
@@ -4207,11 +4231,12 @@ function pushUndoEntry(photonName: string, instance: string, entry: UndoEntry): 
 async function applyPatchToInstance(
   instance: any,
   photonName: string,
-  ops: Operation[]
+  ops: Operation[],
+  workingDir?: string
 ): Promise<void> {
   // Use the already-imported fastJsonPatch module
   const applyPatch = fastJsonPatch.applyPatch.bind(fastJsonPatch);
-  const photonPath = photonPaths.get(photonName);
+  const photonPath = photonPaths.get(compositeKey(photonName, workingDir));
   if (!photonPath) return;
 
   const keys = await getStateKeys(photonName, photonPath);
@@ -4768,7 +4793,7 @@ async function doReloadPhoton(
   photonName: string,
   newPhotonPath: string,
   workingDir: string | undefined,
-  key: string
+  key: PhotonCompositeKey
 ): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
   try {
     logger.info('Hot-reloading photon', { photonName, key, path: newPhotonPath });
@@ -5112,7 +5137,7 @@ function startupWatchPhotons(): void {
 
     const photonName = entry.name.slice(0, -ext.length);
     const photonPath = path.join(photonDir, entry.name);
-    photonPaths.set(photonName, photonPath);
+    photonPaths.set(compositeKey(photonName), photonPath);
     watchPhotonFile(photonName, photonPath);
   }
 
@@ -5185,20 +5210,22 @@ function startupWatchPhotons(): void {
       const photonName = filename.slice(0, -ext.length);
       const filePath = path.join(photonDir, filename);
 
+      const photonKey = compositeKey(photonName);
       // New file added — register and watch it
-      if (!photonPaths.has(photonName) && fs.existsSync(filePath)) {
-        photonPaths.set(photonName, filePath);
+      if (!photonPaths.has(photonKey) && fs.existsSync(filePath)) {
+        photonPaths.set(photonKey, filePath);
         watchPhotonFile(photonName, filePath);
         logger.info('Auto-discovered new photon', { photonName, path: filePath });
       }
 
       // File removed — clean up
-      if (photonPaths.has(photonName) && !fs.existsSync(filePath)) {
-        photonPaths.delete(photonName);
-        const watcher = fileWatchers.get(photonName);
+      if (photonPaths.has(photonKey) && !fs.existsSync(filePath)) {
+        photonPaths.delete(photonKey);
+        // fileWatchers is keyed by file path, not composite key
+        const watcher = fileWatchers.get(filePath);
         if (watcher) {
           watcher.close();
-          fileWatchers.delete(photonName);
+          fileWatchers.delete(filePath);
         }
         logger.info('Photon file removed', { photonName, path: filePath });
       }
