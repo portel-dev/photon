@@ -392,34 +392,6 @@ class BeamCompatTransport implements Transport {
   }
 }
 
-/**
- * Detect "empty default" values that the hot-reload merge should overwrite
- * with old runtime state. The intent is: if the new instance's field looks
- * like a fresh field initializer (empty array/map/set/object, zero, empty
- * string, false), the runtime data accumulated in the old instance is more
- * valuable than the empty placeholder. Anything else (non-zero number,
- * non-empty string, populated container, custom class instance) is treated
- * as an intentional initial value the developer wants preserved.
- */
-function isEmptyDefault(value: unknown): boolean {
-  if (value === null || value === undefined) return true;
-  if (Array.isArray(value)) return value.length === 0;
-  if (value instanceof Map || value instanceof Set) return value.size === 0;
-  if (typeof value === 'string') return value.length === 0;
-  if (typeof value === 'number') return value === 0;
-  if (typeof value === 'boolean') return value === false;
-  if (typeof value === 'object') {
-    // Treat plain objects with no own keys as empty. Class instances and
-    // populated objects are kept as the new initializer.
-    const proto = Object.getPrototypeOf(value);
-    if (proto === Object.prototype || proto === null) {
-      return Object.keys(value).length === 0;
-    }
-    return false;
-  }
-  return false;
-}
-
 export class PhotonServer {
   private loader: PhotonLoader;
   private mcp: PhotonClassExtended | null = null;
@@ -2947,31 +2919,25 @@ export class PhotonServer {
       // only need custom handling for non-copyable resources (sockets,
       // timers, DB connections) via the oldInstance context below.
       //
-      // The merge rule balances two needs:
-      // 1. Preserve runtime-accumulated state across reload (the original
-      //    use case — `items.push(...)` calls survive `tsc --watch`).
-      // 2. Honor source edits to field initializers — changing
-      //    `count = 0` to `count = 10` should take effect.
-      //
-      // Heuristic: if the freshly-constructed new instance has a non-empty
-      // value for a key, the developer's initializer wins. Empty defaults
-      // (`= []`, `= new Map()`, `= 0`, `= ''`) yield to old runtime data.
+      // Known tradeoff: hot reload preserves runtime state at the cost of
+      // not applying field-initializer source changes on the fly. Changes
+      // like `count = 0` → `count = 10`, or `items = ['seed']` → `items = []`
+      // will not take effect until the next full daemon restart. We pick this
+      // side because the mainstream reason to hot reload is to keep
+      // accumulated data alive while iterating on method bodies; any
+      // heuristic that tries to distinguish "intentional reset" from
+      // "unchanged initializer I haven't touched" drops state or drops
+      // edits depending on which direction it leans. Developers who change
+      // field initializer defaults should restart the daemon.
       if (oldInstance?.instance && newMcp?.instance && typeof oldInstance.instance === 'object') {
         const newRec = newMcp.instance as Record<string, unknown>;
         const oldRec = oldInstance.instance as Record<string, unknown>;
         for (const key of Object.keys(oldRec)) {
           if (key === 'constructor') continue;
-          const oldValue = oldRec[key];
-          if (typeof oldValue === 'function') continue;
-          const hasNew = Object.prototype.hasOwnProperty.call(newRec, key);
-          const newValue = hasNew ? newRec[key] : undefined;
-          // Skip when the new instance carries a meaningful (non-empty)
-          // value — the developer's initializer wins. Empty containers and
-          // the zero/empty-string primitives yield to runtime state so
-          // hot reload preserves accumulated data.
-          if (hasNew && newValue !== undefined && !isEmptyDefault(newValue)) continue;
+          const value = oldRec[key];
+          if (typeof value === 'function') continue;
           try {
-            newRec[key] = oldValue;
+            newRec[key] = value;
           } catch {
             // Some properties may be read-only (e.g. settings proxy)
           }

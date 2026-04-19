@@ -156,13 +156,14 @@ export function registerPsCommands(program: Command): void {
 
   ps.command('enable')
     .argument('<target>', 'Enroll a declared schedule: <photon>:<method>')
+    .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
     .description('Activate a declared @scheduled method so its cron fires')
-    .action(async (target: string) => {
+    .action(async (target: string, opts: { base?: string }) => {
       try {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { enableSchedule } = await import('../../daemon/client.js');
-        const result = (await enableSchedule(photon, method)) as {
+        const result = (await enableSchedule(photon, method, opts.base)) as {
           photon: string;
           method: string;
           base: string;
@@ -181,13 +182,14 @@ export function registerPsCommands(program: Command): void {
 
   ps.command('disable')
     .argument('<target>', 'Remove an active schedule: <photon>:<method>')
+    .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
     .description('Drop a schedule from the active list and cancel its timer')
-    .action(async (target: string) => {
+    .action(async (target: string, opts: { base?: string }) => {
       try {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { disableSchedule } = await import('../../daemon/client.js');
-        await disableSchedule(photon, method);
+        await disableSchedule(photon, method, opts.base);
         const { printSuccess } = await import('../../cli-formatter.js');
         printSuccess(`Disabled ${photon}:${method}`);
       } catch (error) {
@@ -199,13 +201,14 @@ export function registerPsCommands(program: Command): void {
 
   ps.command('pause')
     .argument('<target>', '<photon>:<method>')
+    .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
     .description('Keep the enrollment record but stop firing until resumed')
-    .action(async (target: string) => {
+    .action(async (target: string, opts: { base?: string }) => {
       try {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { pauseSchedule } = await import('../../daemon/client.js');
-        await pauseSchedule(photon, method);
+        await pauseSchedule(photon, method, opts.base);
         const { printSuccess } = await import('../../cli-formatter.js');
         printSuccess(`Paused ${photon}:${method}`);
       } catch (error) {
@@ -217,13 +220,14 @@ export function registerPsCommands(program: Command): void {
 
   ps.command('resume')
     .argument('<target>', '<photon>:<method>')
+    .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
     .description('Re-enable a paused schedule')
-    .action(async (target: string) => {
+    .action(async (target: string, opts: { base?: string }) => {
       try {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { resumeSchedule } = await import('../../daemon/client.js');
-        await resumeSchedule(photon, method);
+        await resumeSchedule(photon, method, opts.base);
         const { printSuccess } = await import('../../cli-formatter.js');
         printSuccess(`Resumed ${photon}:${method}`);
       } catch (error) {
@@ -237,12 +241,13 @@ export function registerPsCommands(program: Command): void {
     .argument('<target>', '<photon>:<method>')
     .option('--limit <n>', 'Show at most N most-recent entries', '20')
     .option('--since <iso>', 'Only entries at or after this ISO timestamp')
+    .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
     .option('--json', 'Output structured JSON')
     .description('Show recent firings of a scheduled method')
     .action(
       async (
         target: string,
-        opts: { limit?: string; since?: string; json?: boolean },
+        opts: { limit?: string; since?: string; base?: string; json?: boolean },
         cmd: Command
       ) => {
         try {
@@ -254,7 +259,11 @@ export function registerPsCommands(program: Command): void {
           if (opts.since && (!sinceTs || Number.isNaN(sinceTs))) {
             throw new Error(`Invalid --since value "${opts.since}" (expected ISO 8601)`);
           }
-          const resp = await fetchExecutionHistory(photon, method, { limit, sinceTs });
+          const resp = await fetchExecutionHistory(photon, method, {
+            limit,
+            sinceTs,
+            workingDir: opts.base,
+          });
 
           // Parent `ps` also defines --json; commander resolves the flag on
           // whichever command matches first, so check both.

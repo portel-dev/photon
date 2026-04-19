@@ -1327,17 +1327,33 @@ async function sendSimpleDaemonRequest<T = unknown>(
 export async function fetchPsSnapshot(): Promise<PsSnapshot> {
   return sendSimpleDaemonRequest<PsSnapshot>({ type: 'ps' });
 }
-export async function enableSchedule(photonName: string, method: string): Promise<unknown> {
-  return sendSimpleDaemonRequest({ type: 'enable_schedule', photonName, method });
+export async function enableSchedule(
+  photonName: string,
+  method: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'enable_schedule', photonName, method, workingDir });
 }
-export async function disableSchedule(photonName: string, method: string): Promise<unknown> {
-  return sendSimpleDaemonRequest({ type: 'disable_schedule', photonName, method });
+export async function disableSchedule(
+  photonName: string,
+  method: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'disable_schedule', photonName, method, workingDir });
 }
-export async function pauseSchedule(photonName: string, method: string): Promise<unknown> {
-  return sendSimpleDaemonRequest({ type: 'pause_schedule', photonName, method });
+export async function pauseSchedule(
+  photonName: string,
+  method: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'pause_schedule', photonName, method, workingDir });
 }
-export async function resumeSchedule(photonName: string, method: string): Promise<unknown> {
-  return sendSimpleDaemonRequest({ type: 'resume_schedule', photonName, method });
+export async function resumeSchedule(
+  photonName: string,
+  method: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'resume_schedule', photonName, method, workingDir });
 }
 
 export interface ExecutionHistoryEntry {
