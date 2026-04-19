@@ -326,15 +326,20 @@ const stateDirWatchers = new Map<string, SafeWatcher>();
 // without a daemon restart. See watchBaseForProactiveMetadata().
 const baseDirWatchers = new Map<string, SafeWatcher>();
 
+import {
+  compositeKey as _compositeKey,
+  declaredKey as _declaredKey,
+  webhookKey as _webhookKey,
+  locationKey as _locationKey,
+  findByPhoton,
+} from './registry-keys.js';
+
 /**
  * Create a composite key from photonName + workingDir for map lookups.
- * When workingDir is the default (~/.photon), returns just the photonName
- * for backwards compatibility.
+ * Delegates to registry-keys.ts (the single source of truth for key shapes).
  */
 function compositeKey(photonName: string, workingDir?: string): string {
-  if (!workingDir || workingDir === getDefaultContext().baseDir) return photonName;
-  const dirHash = crypto.createHash('sha256').update(workingDir).digest('hex').slice(0, 8);
-  return `${photonName}:${dirHash}`;
+  return _compositeKey(photonName, workingDir, getDefaultContext().baseDir);
 }
 
 /**
@@ -2291,19 +2296,12 @@ interface WebhookRouteEntry {
 }
 const webhookRoutes = new Map<string, WebhookRouteEntry>();
 
-/** Composite key for the webhookRoutes map. Mirrors declaredKey's shape. */
-function webhookKey(photon: string, workingDir?: string): string {
-  const base = workingDir ? path.resolve(workingDir) : '-';
-  return `${base}::${photon}`;
-}
+/** Composite key for the webhookRoutes map. Delegates to registry-keys.ts. */
+const webhookKey = _webhookKey;
 
 /** Find every webhook entry registered under `photonName` (any base). */
 function findWebhookEntriesFor(photonName: string): WebhookRouteEntry[] {
-  const matches: WebhookRouteEntry[] = [];
-  for (const entry of webhookRoutes.values()) {
-    if (entry.photon === photonName) matches.push(entry);
-  }
-  return matches;
+  return findByPhoton(webhookRoutes, photonName);
 }
 
 /**
@@ -2325,10 +2323,7 @@ interface ProactiveLocation {
 // server must be able to lazy-load each one from its own file.
 const proactivePhotonLocations = new Map<string, ProactiveLocation>();
 
-function locationKey(photon: string, workingDir?: string): string {
-  const base = workingDir ? path.resolve(workingDir) : '-';
-  return `${base}::${photon}`;
-}
+const locationKey = _locationKey;
 
 /**
  * Find every proactive-location entry registered for this photon name.
@@ -2336,11 +2331,7 @@ function locationKey(photon: string, workingDir?: string): string {
  * base to pick the right file.
  */
 function findLocationsFor(photonName: string): ProactiveLocation[] {
-  const matches: ProactiveLocation[] = [];
-  for (const loc of proactivePhotonLocations.values()) {
-    if (loc.photon === photonName) matches.push(loc);
-  }
-  return matches;
+  return findByPhoton(proactivePhotonLocations, photonName);
 }
 
 /**
@@ -2364,18 +2355,10 @@ interface DeclaredSchedule {
 const declaredSchedules = new Map<string, DeclaredSchedule>();
 
 /**
- * Identity key for declared schedules and scheduled jobs.
- *
- * Includes the resolved base dir so two PHOTON_DIRs can legitimately host the
- * same photon name + method without colliding in declaredSchedules /
- * scheduledJobs / jobTimers. `workingDir` normalizes to a canonical absolute
- * path; an unresolvable value falls back to `-` so callers that don't track a
- * base (legacy CLI paths, fallback wipes) still get a stable key.
+ * Identity key for declared schedules and scheduled jobs. Delegates to
+ * registry-keys.ts — see that module for the key-shape rationale.
  */
-function declaredKey(photon: string, method: string, workingDir?: string): string {
-  const base = workingDir ? path.resolve(workingDir) : '-';
-  return `${base}::${photon}:${method}`;
-}
+const declaredKey = _declaredKey;
 
 /**
  * Scan declaredSchedules for the declaration matching (photon, method).
