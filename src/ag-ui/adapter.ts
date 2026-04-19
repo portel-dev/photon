@@ -16,6 +16,7 @@
 import { randomUUID } from 'crypto';
 import { AGUIEventType, type AGUIEvent, type RunAgentInput, type BaseEvent } from './types.js';
 import { getRequestContext } from '../telemetry/context.js';
+import { resultToA2UIMessages, looksLikeA2UIStream } from '../a2ui/mapper.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -199,11 +200,21 @@ export async function proxyExternalAgent(
  * Returns { outputHandler, finish, error } — call finish() after successful
  * execution or error() on failure to emit the terminal event.
  */
+export interface AGUIOutputHandlerOptions {
+  /**
+   * When the underlying method declares `@format a2ui`, set this to 'a2ui'.
+   * The handler will map the final result into A2UI v0.9 messages and emit
+   * each as a CUSTOM event named 'a2ui.message' before the STATE_SNAPSHOT.
+   */
+  outputFormat?: string;
+}
+
 export function createAGUIOutputHandler(
   photonName: string,
   toolName: string,
   runId: string,
-  broadcast: BroadcastFn
+  broadcast: BroadcastFn,
+  options: AGUIOutputHandlerOptions = {}
 ): {
   outputHandler: (yieldValue: any) => void;
   finish: (result?: unknown) => void;
@@ -381,6 +392,42 @@ export function createAGUIOutputHandler(
           timestamp: ts,
         })
       );
+    }
+
+    // A2UI: map the result to v0.9 messages and emit each as a CUSTOM event.
+    // Consumers reassemble the JSONL stream. Emitted before STATE_SNAPSHOT so
+    // non-A2UI clients still see the raw data snapshot.
+    //
+    // Methods are allowed to return a pre-serialized A2UI stream (an array
+    // of message objects); forward it verbatim so AG-UI matches the CLI's
+    // behavior. Remapping pre-built streams would corrupt custom surfaces.
+    if (options.outputFormat === 'a2ui') {
+      try {
+        const messages =
+          Array.isArray(result) && looksLikeA2UIStream(result)
+            ? (result as ReturnType<typeof resultToA2UIMessages>)
+            : resultToA2UIMessages(result);
+        for (const message of messages) {
+          broadcast(
+            wrapNotification({
+              type: AGUIEventType.CUSTOM,
+              name: 'a2ui.message',
+              value: message,
+              timestamp: ts,
+            })
+          );
+        }
+      } catch (err) {
+        // Don't kill the run on mapping failure — surface it and carry on.
+        broadcast(
+          wrapNotification({
+            type: AGUIEventType.CUSTOM,
+            name: 'a2ui.error',
+            value: { message: err instanceof Error ? err.message : String(err) },
+            timestamp: ts,
+          })
+        );
+      }
     }
 
     // If result is an object, emit as state snapshot

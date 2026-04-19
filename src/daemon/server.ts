@@ -1473,7 +1473,7 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
  * editors that save-twice don't trigger two scans. Skips files that
  * aren't `.photon.ts`.
  */
-function watchBaseForProactiveMetadata(basePath: string, isDefaultBase: boolean): void {
+function watchBaseForProactiveMetadata(basePath: string, _isDefaultBase: boolean): void {
   if (baseDirWatchers.has(basePath)) return;
   try {
     if (!fs.existsSync(basePath)) return;
@@ -1481,7 +1481,13 @@ function watchBaseForProactiveMetadata(basePath: string, isDefaultBase: boolean)
     return;
   }
 
-  const workingDir = isDefaultBase ? undefined : basePath;
+  // Always use the resolved basePath so hot-rescan keys match boot
+  // discovery (see the same pattern in discoverProactiveMetadataAtBoot).
+  // Previously this was `isDefaultBase ? undefined : basePath`, which
+  // produced `-::photon:method` keys on edit and left the original
+  // `<defaultBase>::photon:method` declaration stale — schedule changes
+  // in the default base were ignored until daemon restart.
+  const workingDir = basePath;
   const onChange = (filename: string | null): void => {
     if (!filename || !filename.endsWith('.photon.ts')) return;
     // Only watch files at the base root for now. Namespace subdirs get
