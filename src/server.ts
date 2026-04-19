@@ -392,6 +392,34 @@ class BeamCompatTransport implements Transport {
   }
 }
 
+/**
+ * Detect "empty default" values that the hot-reload merge should overwrite
+ * with old runtime state. The intent is: if the new instance's field looks
+ * like a fresh field initializer (empty array/map/set/object, zero, empty
+ * string, false), the runtime data accumulated in the old instance is more
+ * valuable than the empty placeholder. Anything else (non-zero number,
+ * non-empty string, populated container, custom class instance) is treated
+ * as an intentional initial value the developer wants preserved.
+ */
+function isEmptyDefault(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (value instanceof Map || value instanceof Set) return value.size === 0;
+  if (typeof value === 'string') return value.length === 0;
+  if (typeof value === 'number') return value === 0;
+  if (typeof value === 'boolean') return value === false;
+  if (typeof value === 'object') {
+    // Treat plain objects with no own keys as empty. Class instances and
+    // populated objects are kept as the new initializer.
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      return Object.keys(value).length === 0;
+    }
+    return false;
+  }
+  return false;
+}
+
 export class PhotonServer {
   private loader: PhotonLoader;
   private mcp: PhotonClassExtended | null = null;
@@ -2919,26 +2947,31 @@ export class PhotonServer {
       // only need custom handling for non-copyable resources (sockets,
       // timers, DB connections) via the oldInstance context below.
       //
-      // Skip keys that the new instance has already populated (via field
-      // initializer, constructor body, or injected dependency). Without
-      // this guard, changing `count = 0` to `count = 10` in the source
-      // would not take effect on hot reload — the old value would stomp
-      // the new initializer. Runtime-accumulated state (old has a value,
-      // new hasn't set one yet) still flows through.
+      // The merge rule balances two needs:
+      // 1. Preserve runtime-accumulated state across reload (the original
+      //    use case — `items.push(...)` calls survive `tsc --watch`).
+      // 2. Honor source edits to field initializers — changing
+      //    `count = 0` to `count = 10` should take effect.
+      //
+      // Heuristic: if the freshly-constructed new instance has a non-empty
+      // value for a key, the developer's initializer wins. Empty defaults
+      // (`= []`, `= new Map()`, `= 0`, `= ''`) yield to old runtime data.
       if (oldInstance?.instance && newMcp?.instance && typeof oldInstance.instance === 'object') {
         const newRec = newMcp.instance as Record<string, unknown>;
-        for (const key of Object.keys(oldInstance.instance)) {
+        const oldRec = oldInstance.instance as Record<string, unknown>;
+        for (const key of Object.keys(oldRec)) {
           if (key === 'constructor') continue;
-          const value = (oldInstance.instance as Record<string, unknown>)[key];
-          if (typeof value === 'function') continue;
-          // If the freshly-constructed new instance already has a defined
-          // value for this key, trust the new one — the developer changed
-          // the source and expects the new initializer to apply.
-          if (Object.prototype.hasOwnProperty.call(newRec, key) && newRec[key] !== undefined) {
-            continue;
-          }
+          const oldValue = oldRec[key];
+          if (typeof oldValue === 'function') continue;
+          const hasNew = Object.prototype.hasOwnProperty.call(newRec, key);
+          const newValue = hasNew ? newRec[key] : undefined;
+          // Skip when the new instance carries a meaningful (non-empty)
+          // value — the developer's initializer wins. Empty containers and
+          // the zero/empty-string primitives yield to runtime state so
+          // hot reload preserves accumulated data.
+          if (hasNew && newValue !== undefined && !isEmptyDefault(newValue)) continue;
           try {
-            newRec[key] = value;
+            newRec[key] = oldValue;
           } catch {
             // Some properties may be read-only (e.g. settings proxy)
           }

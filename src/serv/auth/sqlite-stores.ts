@@ -123,6 +123,25 @@ function initSchema(db: SqliteDatabase): void {
     );
     CREATE INDEX IF NOT EXISTS idx_pending_expires ON pending_auth(expires_at);
   `);
+
+  // Backfill columns added after the original schema. CREATE TABLE IF NOT EXISTS
+  // is a no-op against an existing table, so explicit ALTERs are required.
+  // ALTER COLUMN ADD on SQLite is idempotent only via PRAGMA inspection — the
+  // raw statement throws "duplicate column" on a re-run, which we swallow.
+  addColumnIfMissing(db, 'auth_codes', 'nonce', 'TEXT');
+  addColumnIfMissing(db, 'pending_auth', 'nonce', 'TEXT');
+}
+
+/** Idempotent ALTER TABLE ADD COLUMN. SQLite's table_info is the safest probe. */
+function addColumnIfMissing(db: SqliteDatabase, table: string, column: string, type: string): void {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (cols.some((c) => c.name === column)) return;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  } catch {
+    // Table missing or PRAGMA unavailable — initial CREATE above will have
+    // produced the column; this is purely an upgrade-from-pre-nonce path.
+  }
 }
 
 // ============================================================================

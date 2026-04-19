@@ -292,6 +292,97 @@ async function testPendingStore() {
   rmSync(dbPath, { force: true });
 }
 
+async function testNonceMigration() {
+  console.log('Schema migration: nonce backfill:');
+  // Simulate an "old" SERV database that pre-dates the nonce column.
+  // Manually create the legacy schema, then re-open via openAuthDatabase
+  // and expect the ALTER TABLE migration to add the column without erroring.
+  const dbPath = tempDbPath();
+  const { default: BetterSqlite3 } = await import('better-sqlite3');
+  const legacy = new BetterSqlite3(dbPath);
+  legacy.exec(`
+    CREATE TABLE auth_codes (
+      code TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL,
+      redirect_uri TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      code_challenge TEXT NOT NULL,
+      code_challenge_method TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE pending_auth (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL,
+      redirect_uri TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      state TEXT,
+      code_challenge TEXT NOT NULL,
+      code_challenge_method TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      response_type TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  legacy.close();
+
+  await test('openAuthDatabase backfills nonce on legacy schema', async () => {
+    const db = await openAuthDatabase(dbPath);
+    const codeStore = new SqliteAuthCodeStore(db);
+    // Insert with a nonce — would fail with "table has no column nonce"
+    // before the migration was added.
+    await codeStore.save({
+      code: 'mig-1',
+      clientId: 'c',
+      redirectUri: 'https://app/cb',
+      scope: 'openid',
+      userId: 'u',
+      tenantId: 't',
+      codeChallenge: 'xxx',
+      codeChallengeMethod: 'S256',
+      nonce: 'preserved-nonce',
+      expiresAt: new Date(Date.now() + 60_000),
+      createdAt: new Date(),
+    });
+    const consumed = await codeStore.consume('mig-1');
+    assert.ok(consumed);
+    assert.equal(consumed.nonce, 'preserved-nonce');
+
+    // Pending too
+    const pendingStore = new SqlitePendingAuthorizationStore(db);
+    await pendingStore.save({
+      id: 'mig-pend',
+      clientId: 'c',
+      redirectUri: 'https://app/cb',
+      scope: 'openid',
+      nonce: 'pending-nonce',
+      codeChallenge: 'xxx',
+      codeChallengeMethod: 'S256',
+      userId: 'u',
+      tenantId: 't',
+      responseType: 'code',
+      expiresAt: new Date(Date.now() + 60_000),
+      createdAt: new Date(),
+    });
+    const p = await pendingStore.consume('mig-pend');
+    assert.ok(p);
+    assert.equal(p.nonce, 'pending-nonce');
+
+    db.close();
+  });
+
+  await test('re-running openAuthDatabase is idempotent (no duplicate column error)', async () => {
+    const db = await openAuthDatabase(dbPath);
+    db.close();
+  });
+
+  rmSync(dbPath, { force: true });
+}
+
 async function testPersistence() {
   console.log('Persistence across DB handles:');
   const dbPath = tempDbPath();
@@ -337,6 +428,7 @@ async function main() {
   await testClientRegistry();
   await testConsentStore();
   await testPendingStore();
+  await testNonceMigration();
   await testPersistence();
   console.log('\nAll SQLite store tests passed.');
 }

@@ -43,10 +43,32 @@ function resolveInstalledPhotonDir(workingDir: string, filePath: string): string
   // via an explicit path. Walk up from the file to find the nearest dir that
   // contains it so the client can spawn with the right baseDir.
   const resolvedFile = path.resolve(filePath);
+  if (isBundledPhotonPath(resolvedFile)) {
+    // Bundled photons live inside our package install (node_modules, npx cache,
+    // global install). Treating that as PHOTON_DIR would point .data, cache,
+    // and config at a read-only location. Skip — bundled photons run fine
+    // against the default ~/.photon baseDir.
+    return null;
+  }
   if (!resolvedFile.startsWith(resolvedHome + path.sep) && resolvedFile !== resolvedHome) {
     return path.dirname(resolvedFile);
   }
   return null;
+}
+
+/**
+ * Heuristic: a photon path is "bundled" when it's served from inside our
+ * package install — node_modules tree, npx cache, or globally-installed
+ * photon dist. None of those should be persisted as PHOTON_DIR.
+ */
+function isBundledPhotonPath(absPath: string): boolean {
+  const sep = path.sep;
+  return (
+    absPath.includes(`${sep}node_modules${sep}`) ||
+    absPath.includes(`${sep}.npm${sep}_npx${sep}`) ||
+    absPath.includes(`${sep}.bun${sep}install${sep}`) ||
+    absPath.includes(`${sep}@portel${sep}photon${sep}`)
+  );
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
