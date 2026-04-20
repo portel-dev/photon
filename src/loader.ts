@@ -1140,8 +1140,12 @@ export class PhotonLoader {
           });
         }
 
-        if (caps.has('call') && !instance.call) {
-          // Inject call() for cross-photon communication
+        // Inject call() for cross-photon communication. Always-inject (no
+        // capability-detection gate) because the underlying _callHandler
+        // is ALWAYS wired above. Gating on a regex that matches literal
+        // `this.call(` misses typed-access patterns like
+        // `(this as any).call(...)` and fails silently at runtime.
+        if (!instance.call) {
           instance.call = async (
             target: string,
             params: Record<string, any> = {},
@@ -1742,7 +1746,8 @@ export class PhotonLoader {
         });
       }
 
-      if (caps.has('call') && !instance.call) {
+      // Always-inject call() (see the primary load path for rationale).
+      if (!instance.call) {
         instance.call = async (
           target: string,
           params: Record<string, any> = {},
