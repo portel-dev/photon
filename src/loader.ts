@@ -1073,9 +1073,12 @@ export class PhotonLoader {
 
         this.injectPathHelpers(instance, tsContent);
 
-        if (caps.has('emit')) {
-          // Inject emit() that reads from executionContext (set during executeTool)
-          // Falls back to last known outputHandler for timer-based emits after method returns
+        // Always-inject emit + its helpers (render/toast/log/status/progress/
+        // thinking). The injection is a pure closure — zero cost if unused.
+        // Dropping the capability-detection gate means typed-access patterns
+        // like `(this as any).emit(...)` work even if the photon-core regex
+        // misses them. User-defined emit on the class wins (no clobber).
+        if (!instance.emit) {
           instance.emit = (data: any) => {
             const store = executionContext.getStore();
             const emitData =
@@ -1171,7 +1174,8 @@ export class PhotonLoader {
           };
         }
 
-        if (caps.has('mcp') && !instance.mcp) {
+        // Always-inject mcp(). Pure closure. User-defined mcp wins.
+        if (!instance.mcp) {
           // Inject mcp() accessor for external MCP server access
           const mcpClients = new Map<string, any>();
           instance.mcp = (mcpName: string) => {
@@ -1188,11 +1192,10 @@ export class PhotonLoader {
           };
         }
 
-        if (
-          caps.has('caller') &&
-          !Object.getOwnPropertyDescriptor(Object.getPrototypeOf(instance), 'caller')
-        ) {
-          // Inject caller getter that reads from executionContext
+        // Always-inject caller getter. The prototype check preserves any
+        // user-defined getter on the class (e.g. Photon base class has its
+        // own) so we don't clobber.
+        if (!Object.getOwnPropertyDescriptor(Object.getPrototypeOf(instance), 'caller')) {
           Object.defineProperty(instance, 'caller', {
             get() {
               const store = executionContext.getStore();
@@ -1202,8 +1205,8 @@ export class PhotonLoader {
           });
         }
 
-        if (caps.has('lock') && !instance.withLock) {
-          // Inject withLock() helper
+        // Always-inject withLock. Pure closure. User-defined wins.
+        if (!instance.withLock) {
           instance.withLock = async <T>(
             lockName: string,
             fn: () => Promise<T>,
@@ -1262,7 +1265,9 @@ export class PhotonLoader {
           }
         }
 
-        if (caps.has('allInstances')) {
+        // Always-inject allInstances. The async generator is lazy — directory
+        // reads only happen when the caller iterates. User-defined wins.
+        if (!instance.allInstances) {
           // Inject cross-instance iterator. Walks the Option B layout —
           // `.data/{photon}/state/{instance}/state.json` — one subdirectory
           // per instance. getInstanceStatePath keeps the path source truth
@@ -1689,7 +1694,8 @@ export class PhotonLoader {
       if (detectEmitHelperUsage(tsContent)) caps.add('emit');
       this.injectPathHelpers(instance, tsContent);
 
-      if (caps.has('emit')) {
+      // Always-inject emit (see primary path). User-defined wins.
+      if (!instance.emit) {
         instance.emit = (data: any) => {
           const store = executionContext.getStore();
           const emitData =
