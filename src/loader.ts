@@ -920,6 +920,11 @@ export class PhotonLoader {
       // Set photon name and namespace for event source identification and data paths
       instance._photonName = name;
       instance._photonNamespace = this.resolveNamespace(absolutePath);
+      // Pin baseDir so this.memory (and any other .data/-rooted state)
+      // resolves to the same root no matter which process reads back.
+      // Without this, MemoryProvider falls through to getDefaultContext()
+      // and drifts between cwd-derived locations across daemon restarts.
+      instance._baseDir = this.baseDir;
 
       // Inject instance name for named instances (runtime concept, not code)
       instance.instanceName = options?.instanceName ?? '';
@@ -1544,6 +1549,9 @@ export class PhotonLoader {
 
     instance._photonName = name;
     instance._photonNamespace = this.resolveNamespace(absolutePath);
+    // Same pin as the file-load path above — see that comment for why
+    // this.memory drifts without it.
+    instance._baseDir = this.baseDir;
     instance.instanceName = options?.instanceName ?? '';
 
     // Inject file path for storage()/assets() resolution.
