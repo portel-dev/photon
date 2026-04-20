@@ -188,6 +188,14 @@ export class SqliteAuthCodeStore implements AuthCodeStore {
     }
   }
 
+  async peek(code: string): Promise<AuthorizationCode | null> {
+    const row = this.select.get(code);
+    if (!row) return null;
+    const expiresAt = new Date(row.expires_at);
+    if (expiresAt.getTime() < Date.now()) return null;
+    return rowToAuthCode(row);
+  }
+
   async consume(code: string): Promise<AuthorizationCode | null> {
     const tx = this.db.transaction((c: string) => {
       const row = this.select.get(c);
@@ -503,6 +511,13 @@ export class SqlitePendingAuthorizationStore implements PendingAuthorizationStor
       req.expiresAt.getTime(),
       req.createdAt.getTime()
     );
+  }
+
+  async peek(id: string): Promise<PendingAuthorization | null> {
+    const row = this.select.get(id);
+    if (!row) return null;
+    if (row.expires_at < Date.now()) return null;
+    return rowToPending(row);
   }
 
   async consume(id: string): Promise<PendingAuthorization | null> {

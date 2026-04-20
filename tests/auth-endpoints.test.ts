@@ -527,6 +527,46 @@ async function testConsent() {
     assert.equal(res.status, 403);
   });
 
+  await test('wrong-user POST does NOT consume the pending request', async () => {
+    // Regression: previous flow consumed the pending request before
+    // verifying ownership, so a stray wrong-session POST killed the
+    // legitimate user's consent attempt and forced them to restart
+    // /authorize.
+    const { deps, pendingId } = await depsWithPending();
+
+    // Stray POST from wrong user.
+    const reject = await handleConsent(
+      {
+        method: 'POST',
+        url: 'https://serv.test/consent',
+        headers: {},
+        body: formBody({ req: pendingId, decision: 'approve' }),
+        userId: 'different-user',
+      },
+      deps
+    );
+    assert.equal(reject.status, 403);
+
+    // Legitimate user's request must still be available.
+    const still = await deps.pendingStore.peek(pendingId);
+    assert.ok(still, 'pending request must survive wrong-user POST');
+    assert.equal(still.userId, 'user-1');
+
+    // And the legitimate user can approve normally.
+    const ok = await handleConsent(
+      {
+        method: 'POST',
+        url: 'https://serv.test/consent',
+        headers: {},
+        body: formBody({ req: pendingId, decision: 'approve' }),
+        userId: 'user-1',
+      },
+      deps
+    );
+    assert.equal(ok.status, 302);
+    assert.ok(ok.headers.Location.includes('code='));
+  });
+
   await test('GET with unknown req returns 400', async () => {
     const deps = makeDeps();
     const res = await handleConsent(
@@ -623,6 +663,56 @@ async function testToken() {
     );
     assert.equal(res.status, 400);
     assert.equal(JSON.parse(res.body).error, 'invalid_grant');
+  });
+
+  await test('validation-failed retries do NOT burn a valid code', async () => {
+    // Regression: the old flow consumed the code before verifying PKCE /
+    // client_id / redirect_uri, so any fat-fingered retry killed an
+    // otherwise-valid code and forced the user back through /authorize.
+    const { deps, codeVerifier, redirectUri, clientId } = await primeAuthorizationCode();
+    const code = await issueAuthCode(deps, clientId, redirectUri, codeVerifier);
+
+    // First: wrong verifier → should fail WITHOUT consuming the code.
+    const badRetry = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: 'wrong-verifier',
+          client_id: clientId,
+        }),
+      },
+      deps
+    );
+    assert.equal(badRetry.status, 400);
+
+    // Code must still be peekable — proves the bad retry did NOT consume it.
+    const stillThere = await deps.codeStore.peek(code);
+    assert.ok(stillThere, 'code must survive a validation failure');
+
+    // Second: correct verifier → must succeed on the SAME code.
+    const good = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+          client_id: clientId,
+        }),
+      },
+      deps
+    );
+    assert.equal(good.status, 200);
+    const body = JSON.parse(good.body);
+    assert.ok(body.access_token);
   });
 
   await test('code replay rejected (single-use)', async () => {

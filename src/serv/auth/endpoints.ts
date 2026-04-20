@@ -397,7 +397,7 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
     }
     // Peek without consuming — we consume on POST approve.
     // A tiny race exists here (expiry between GET and POST); acceptable for 10-min window.
-    const pending = await peekPending(deps.pendingStore, pendingId);
+    const pending = await deps.pendingStore.peek(pendingId);
     if (!pending) {
       return errorResponse(400, 'invalid_request', 'pending request not found or expired');
     }
@@ -415,7 +415,10 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
     if (!pendingId) {
       return errorResponse(400, 'invalid_request', 'missing req field');
     }
-    const pending = await deps.pendingStore.consume(pendingId);
+    // Peek so a wrong-session submission returns 403 without burning
+    // the legitimate user's pending request. Consume only after ownership
+    // is verified — the caller can then restart consent if needed.
+    const pending = await deps.pendingStore.peek(pendingId);
     if (!pending) {
       return errorResponse(400, 'invalid_request', 'pending request not found or expired');
     }
@@ -427,10 +430,17 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
       return errorResponse(403, 'forbidden', 'pending request does not belong to this user');
     }
 
+    // Ownership verified — consume atomically. A parallel approve/deny
+    // from the same user races here and the loser gets a fresh 400.
+    const consumed = await deps.pendingStore.consume(pendingId);
+    if (!consumed) {
+      return errorResponse(400, 'invalid_request', 'pending request not found or expired');
+    }
+
     if (decision !== 'approve') {
       return authorizeErrorRedirect(
-        pending.redirectUri,
-        pending.state,
+        consumed.redirectUri,
+        consumed.state,
         'access_denied',
         'user denied consent'
       );
@@ -441,8 +451,8 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
     const record: ConsentRecord = {
       userId,
       tenantId: deps.tenant.id,
-      clientId: pending.clientId,
-      scopes: pending.scope,
+      clientId: consumed.clientId,
+      scopes: consumed.scope,
       expiresAt: new Date(now.getTime() + deps.config.consentTtlDays * 24 * 60 * 60 * 1000),
       createdAt: now,
     };
@@ -450,12 +460,12 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
 
     return await issueCodeAndRedirect(
       {
-        clientId: pending.clientId,
-        redirectUri: pending.redirectUri,
-        scope: pending.scope,
-        state: pending.state,
-        nonce: pending.nonce,
-        codeChallenge: pending.codeChallenge,
+        clientId: consumed.clientId,
+        redirectUri: consumed.redirectUri,
+        scope: consumed.scope,
+        state: consumed.state,
+        nonce: consumed.nonce,
+        codeChallenge: consumed.codeChallenge,
         userId,
       },
       deps
@@ -644,7 +654,11 @@ async function handleAuthorizationCodeGrant(
     );
   }
 
-  const stored = await deps.codeStore.consume(code);
+  // Peek first so malformed retries (wrong verifier, missing Basic auth,
+  // mismatched redirect_uri) don't permanently burn a valid code. The code
+  // is consumed atomically below after every check passes — race between
+  // two concurrent requests with the same code still loses to consume().
+  const stored = await deps.codeStore.peek(code);
   if (!stored) {
     return errorResponse(400, 'invalid_grant', 'authorization code is invalid or expired');
   }
@@ -670,14 +684,22 @@ async function handleAuthorizationCodeGrant(
     return errorResponse(401, 'invalid_client', 'confidential client must authenticate');
   }
 
-  await deps.clientRegistry.touch(stored.clientId);
+  // All checks passed — consume atomically. If another request already
+  // consumed the code between peek and now, reject (RFC 6749 §4.1.3
+  // single-use requirement).
+  const consumed = await deps.codeStore.consume(code);
+  if (!consumed) {
+    return errorResponse(400, 'invalid_grant', 'authorization code is invalid or expired');
+  }
+
+  await deps.clientRegistry.touch(consumed.clientId);
 
   return await issueTokens(
     {
-      clientId: stored.clientId,
-      userId: stored.userId,
-      scope: stored.scope,
-      nonce: stored.nonce,
+      clientId: consumed.clientId,
+      userId: consumed.userId,
+      scope: consumed.scope,
+      nonce: consumed.nonce,
     },
     deps
   );
@@ -1232,16 +1254,6 @@ function firstHeaderValue(raw: string | string[] | undefined): string | undefine
   if (raw === undefined) return undefined;
   if (Array.isArray(raw)) return raw[0];
   return raw;
-}
-
-async function peekPending(
-  store: PendingAuthorizationStore,
-  id: string
-): Promise<PendingAuthorization | null> {
-  const entry = await store.consume(id);
-  if (!entry) return null;
-  await store.save(entry); // put it back
-  return entry;
 }
 
 // ============================================================================

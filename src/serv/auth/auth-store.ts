@@ -26,6 +26,12 @@ import type {
 export interface AuthCodeStore {
   /** Store a freshly minted code; fails if code already exists. */
   save(code: AuthorizationCode): Promise<void>;
+  /**
+   * Read a code without consuming it. Callers validate PKCE, client auth,
+   * and redirect_uri against this peeked value, then call `consume()` on
+   * the happy path — malformed retries don't burn a valid code.
+   */
+  peek(code: string): Promise<AuthorizationCode | null>;
   /** Atomically consume a code (single-use per RFC 6749 §4.1.2). */
   consume(code: string): Promise<AuthorizationCode | null>;
   /** Remove expired entries. */
@@ -40,6 +46,13 @@ export class MemoryAuthCodeStore implements AuthCodeStore {
       throw new Error('authorization code collision');
     }
     this.codes.set(code.code, code);
+  }
+
+  async peek(code: string): Promise<AuthorizationCode | null> {
+    const entry = this.codes.get(code);
+    if (!entry) return null;
+    if (entry.expiresAt.getTime() < Date.now()) return null;
+    return entry;
   }
 
   async consume(code: string): Promise<AuthorizationCode | null> {
@@ -273,6 +286,13 @@ export interface PendingAuthorization {
 
 export interface PendingAuthorizationStore {
   save(req: PendingAuthorization): Promise<void>;
+  /**
+   * Read a pending request without consuming it. Callers verify
+   * user/tenant ownership against the peeked value before calling
+   * `consume()` — a wrong-session submission shouldn't burn the
+   * legitimate user's pending request.
+   */
+  peek(id: string): Promise<PendingAuthorization | null>;
   consume(id: string): Promise<PendingAuthorization | null>;
   sweep(now?: Date): Promise<number>;
 }
@@ -282,6 +302,13 @@ export class MemoryPendingAuthorizationStore implements PendingAuthorizationStor
 
   async save(req: PendingAuthorization): Promise<void> {
     this.pending.set(req.id, req);
+  }
+
+  async peek(id: string): Promise<PendingAuthorization | null> {
+    const entry = this.pending.get(id);
+    if (!entry) return null;
+    if (entry.expiresAt.getTime() < Date.now()) return null;
+    return entry;
   }
 
   async consume(id: string): Promise<PendingAuthorization | null> {
