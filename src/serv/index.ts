@@ -349,11 +349,11 @@ export class Serv {
     const baseUri = `${this.config.baseUrl}/tenant/${tenant.slug}`;
     // The login URL is the embedder's responsibility — the AS adapter
     // doesn't serve a `/login` handler, it only knows how to redirect
-    // there. Default to a clearly-external path under the tenant prefix
-    // so unauth `/authorize` requests 404 loudly instead of looping into
-    // a path the AS pretends to own. Embedders override this via
-    // endpointConfig.loginUrl to point at their real login flow.
-    const defaultLoginUrl = this.config.endpointConfig?.loginUrl ?? `${this.config.baseUrl}/login`;
+    // there. Default to a tenant-scoped path so multi-tenant embeds that
+    // rely on the default wiring point users at the per-tenant login
+    // (typically `/tenant/<slug>/login`). Embedders override via
+    // endpointConfig.loginUrl if their login lives elsewhere.
+    const defaultLoginUrl = this.config.endpointConfig?.loginUrl ?? `${baseUri}/login`;
     return {
       tenant,
       config: {
