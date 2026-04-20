@@ -34,7 +34,7 @@ import {
   recordBulkheadRejection,
 } from './telemetry/metrics.js';
 import { runWithRequestContext } from './telemetry/context.js';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import {
   SchemaExtractor,
   DependencyManager,
@@ -932,6 +932,46 @@ export class PhotonLoader {
       // Inject file path for storage()/assets() resolution
       instance._photonFilePath = absolutePath;
 
+      // Inject this.shell — execSync wrapper with cwd defaulted to the
+      // photon's own folder. Shelling out from a photon method should run
+      // from where the photon lives, not the daemon's cwd, so that
+      // `photon cli peer method` inherits the same marketplace context the
+      // user would see when running the command from that folder directly.
+      // User-defined shell() on the class wins (no clobber).
+      if (typeof instance.shell !== 'function') {
+        const photonDir = path.dirname(absolutePath);
+        const loaderLogger = this.logger;
+        instance.shell = (cmd: string, timeoutMs: number = 30000): string => {
+          try {
+            return execSync(cmd, {
+              cwd: photonDir,
+              timeout: timeoutMs,
+              encoding: 'utf-8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+            });
+          } catch (err) {
+            // execSync throws on non-zero exit or timeout. Preserve any
+            // partial stdout for callers that parse incremental output;
+            // surface stderr through the loader logger so the failure is
+            // not silent.
+            const e = err as {
+              stdout?: string | Buffer;
+              stderr?: string | Buffer;
+              message?: string;
+            };
+            const stderr = typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8');
+            if (stderr) {
+              loaderLogger.warn(`this.shell error in ${name}`, {
+                cmd,
+                stderr: stderr.slice(0, 500),
+              });
+            }
+            const stdout = typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8');
+            return stdout ?? '';
+          }
+        };
+      }
+
       // Stat-gate baseline for CLI-direct dispatch. Daemon-routed calls
       // have their own equivalent at src/daemon/server.ts; this ensures
       // `photon cli foo bar` run immediately after a `sed -i` sees the
@@ -1562,6 +1602,38 @@ export class PhotonLoader {
     // Assets still use absolutePath (resolved from embedded source paths).
     const storagePath = path.join(this.baseDir, path.basename(absolutePath));
     instance._photonFilePath = storagePath;
+
+    // Inject this.shell — see the primary load path for rationale.
+    // User-defined shell() wins; we don't clobber.
+    if (typeof instance.shell !== 'function') {
+      const photonDir = path.dirname(absolutePath);
+      const loaderLogger = this.logger;
+      instance.shell = (cmd: string, timeoutMs: number = 30000): string => {
+        try {
+          return execSync(cmd, {
+            cwd: photonDir,
+            timeout: timeoutMs,
+            encoding: 'utf-8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+        } catch (err) {
+          const e = err as {
+            stdout?: string | Buffer;
+            stderr?: string | Buffer;
+            message?: string;
+          };
+          const stderr = typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8');
+          if (stderr) {
+            loaderLogger.warn(`this.shell error in ${name}`, {
+              cmd,
+              stderr: stderr.slice(0, 500),
+            });
+          }
+          const stdout = typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8');
+          return stdout ?? '';
+        }
+      };
+    }
 
     // Inject dynamic photon resolver for this.photon.use()
     instance._photonResolver = (photonName: string, instanceName?: string) => {
