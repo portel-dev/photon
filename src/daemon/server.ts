@@ -18,6 +18,7 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import { SessionManager } from './session-manager.js';
 import { transferHotReloadState } from './hot-reload-state.js';
+import { resolveWithGlobalFallback } from './session-resolver.js';
 import {
   DaemonRequest,
   DaemonResponse,
@@ -2079,14 +2080,33 @@ async function getOrCreateSessionManager(
   workingDir?: string
 ): Promise<SessionManager | null> {
   const key = compositeKey(photonName, workingDir);
-  let manager = sessionManagers.get(key);
+  let manager: SessionManager | null = null;
 
-  if (manager) {
-    return manager;
+  // Marketplace → global walk for the session manager. Name resolution is
+  // always caller's marketplace first, then `~/.photon`. This is what makes
+  // `this.call('peer.method')` from within one marketplace reach a peer
+  // that only lives in the global install — same rule the outer CLI uses.
+  const defaultBase = getDefaultContext().baseDir;
+  const resolved = resolveWithGlobalFallback(photonName, workingDir, defaultBase, (k) =>
+    sessionManagers.get(k)
+  );
+  if (resolved) {
+    if (resolved.key !== key) {
+      logger.debug('Session manager resolved via global fallback', {
+        photonName,
+        callerBase: workingDir,
+        resolvedKey: resolved.key,
+      });
+    }
+    return resolved.value;
   }
 
-  // Need photonPath to initialize
-  const storedPath = photonPaths.get(key);
+  // Need photonPath to initialize. Walk the path hint the same way — a
+  // globally-registered path serves a caller from any marketplace.
+  const resolvedPath = resolveWithGlobalFallback(photonName, workingDir, defaultBase, (k) =>
+    photonPaths.get(k)
+  );
+  const storedPath = resolvedPath?.value;
   const pathToUse = photonPath || storedPath;
 
   if (!pathToUse) {
