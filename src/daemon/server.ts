@@ -35,6 +35,7 @@ import {
   getPhotonStateLogPath,
   listActiveBases,
   pruneBasesRegistry,
+  resolvePhotonPath,
 } from '@portel/photon-core';
 import type {
   ChannelBroker,
@@ -2107,7 +2108,33 @@ async function getOrCreateSessionManager(
     photonPaths.get(k)
   );
   const storedPath = resolvedPath?.value;
-  const pathToUse = photonPath || storedPath;
+  let pathToUse = photonPath || storedPath;
+
+  // Disk fallback. When the in-memory maps miss (peer wasn't pre-loaded
+  // or auto-registered), walk the filesystem the same way the outer CLI
+  // does: caller's marketplace first, then the daemon's default base.
+  // This closes the same-marketplace `this.call('peer.method')` gap where
+  // the caller and the peer live side-by-side on disk but the peer was
+  // never loaded by anyone, so neither in-memory map had it.
+  if (!pathToUse) {
+    if (workingDir) {
+      const localResolved = await resolvePhotonPath(photonName, workingDir);
+      if (localResolved) pathToUse = localResolved;
+    }
+    if (!pathToUse && defaultBase && defaultBase !== workingDir) {
+      const globalResolved = await resolvePhotonPath(photonName, defaultBase);
+      if (globalResolved) pathToUse = globalResolved;
+    }
+    if (pathToUse) {
+      // Cache at the caller's composite key so the next call hits fast.
+      photonPaths.set(key, pathToUse);
+      logger.info('Peer photon resolved via disk fallback', {
+        photonName,
+        callerBase: workingDir,
+        resolvedPath: pathToUse,
+      });
+    }
+  }
 
   if (!pathToUse) {
     logger.warn('Cannot initialize photon - no path provided', { photonName, key });
