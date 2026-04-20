@@ -17,6 +17,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { SessionManager } from './session-manager.js';
+import { transferHotReloadState } from './hot-reload-state.js';
 import {
   DaemonRequest,
   DaemonResponse,
@@ -4917,17 +4918,13 @@ async function doReloadPhoton(
         // This covers in-memory state (maps, arrays, flags, caches) without requiring
         // every photon to manually copy fields in onInitialize. Photons only need
         // onInitialize for non-copyable resources (sockets, timers, DB connections).
+        //
+        // Exception: loader-injected settings fields carry the OLD schema/backing.
+        // The fresh instance has already been wired with the new schema and reloaded
+        // the persisted values from disk — overwriting them here keeps the daemon
+        // serving the pre-reload settings shape until a full restart.
         if (oldMcp?.instance && newMcp?.instance && typeof oldMcp.instance === 'object') {
-          for (const key of Object.keys(oldMcp.instance)) {
-            const value = oldMcp.instance[key];
-            if (typeof value !== 'function' && key !== 'constructor') {
-              try {
-                newMcp.instance[key] = value;
-              } catch {
-                // Some properties may be read-only (e.g. settings proxy)
-              }
-            }
-          }
+          transferHotReloadState(oldMcp.instance, newMcp.instance);
         }
 
         // Call onInitialize on the new instance with hot-reload context.
