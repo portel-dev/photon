@@ -162,10 +162,34 @@ ${js}
 }
 
 /**
+ * Detect the "esbuild binary not installed" failure shape. Fires when
+ * Bun blocked esbuild's postinstall (default for non-trusted packages),
+ * so the platform-specific native binary was never downloaded. The
+ * message is actionable rather than mysterious.
+ */
+function esbuildBinaryMissingHint(message: string): string | null {
+  if (
+    /binary was not found|Cannot find module '@esbuild\/|prebuilt|ELIFECYCLE|postinstall/i.test(
+      message
+    )
+  ) {
+    return (
+      'esbuild native binary is missing — its install script was blocked.\n' +
+      '  Fix (Bun):  bun pm -g trust esbuild\n' +
+      '  Fix (npm):  npm rebuild esbuild\n' +
+      'This blocks .tsx view compilation and `photon build`. Other commands still work.'
+    );
+  }
+  return null;
+}
+
+/**
  * Wrap an esbuild error in a developer-friendly HTML error page.
  */
 function wrapError(filePath: string, error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const hint = esbuildBinaryMissingHint(rawMessage);
+  const message = hint ? `${hint}\n\nOriginal error:\n${rawMessage}` : rawMessage;
   const escaped = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<!doctype html>
 <html lang="en">

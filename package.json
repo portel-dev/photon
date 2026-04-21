@@ -129,6 +129,10 @@
   "optionalDependencies": {
     "better-sqlite3": "^12.9.0"
   },
+  "trustedDependencies": [
+    "better-sqlite3",
+    "esbuild"
+  ],
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.1",

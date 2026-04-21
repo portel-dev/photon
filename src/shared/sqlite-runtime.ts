@@ -52,9 +52,20 @@ export async function loadSqliteCtor(): Promise<SqliteCtor> {
     const mod = await dynamicImport('better-sqlite3');
     cachedCtor = (mod.default ?? mod) as SqliteCtor;
     return cachedCtor;
-  } catch {
+  } catch (err) {
+    // Two common causes: not installed, or install script was blocked by
+    // Bun's default trust gate so the native binding never compiled.
+    // Surface both with copy-pasteable fix commands.
+    const msg = err instanceof Error ? err.message : String(err);
+    const looksTrustBlocked =
+      /MODULE_NOT_FOUND|Cannot find module|find the prebuilt|ELIFECYCLE|postinstall/i.test(msg);
     throw new Error(
-      'SQLite not available on Node: install the optional dependency with `npm install better-sqlite3`. Under Bun no install is needed (bun:sqlite is built in).'
+      looksTrustBlocked
+        ? 'SQLite backend requires better-sqlite3 but its install script was blocked.\n' +
+            '  Fix (Bun):  bun pm -g trust better-sqlite3\n' +
+            '  Fix (npm):  npm rebuild better-sqlite3\n' +
+            '  Under Bun, bun:sqlite works out of the box without better-sqlite3.'
+        : 'SQLite not available on Node: install with `npm install better-sqlite3`. Under Bun no install is needed (bun:sqlite is built in).'
     );
   }
 }
