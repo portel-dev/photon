@@ -1403,6 +1403,16 @@ const handlers: Record<string, RequestHandler> = {
       arguments?: Record<string, unknown>;
     };
 
+    // MCP spec: if the caller supplied `_meta.progressToken`, every
+    // notifications/progress we emit for this request MUST echo that
+    // token so the client can correlate progress events with the
+    // specific in-flight request. Falling back to a synthetic token
+    // stranded progress notifications — clients filtered them out
+    // because no listener was registered for the synthetic key.
+    const clientProgressToken = (
+      req.params as { _meta?: { progressToken?: string | number } } | undefined
+    )?._meta?.progressToken;
+
     // Handle beam system tools
     if (name === 'beam/configure') {
       return handleBeamConfigure(req, ctx, args || {});
@@ -1887,6 +1897,13 @@ const handlers: Record<string, RequestHandler> = {
       const outputHandler = (yieldValue: any) => {
         if (!ctx.broadcast) return;
 
+        // Echo the caller's progressToken when supplied so the client
+        // can route notifications back to the originating panel. Fall
+        // back to the synthetic `progress_<photon>_<method>` only when
+        // the caller didn't send one (e.g. server-initiated task
+        // progress with no user request to correlate against).
+        const progressToken = clientProgressToken ?? `progress_${photonName}_${methodName}`;
+
         // Forward progress events as MCP notifications
         if (yieldValue?.emit === 'progress') {
           const rawValue = typeof yieldValue.value === 'number' ? yieldValue.value : 0;
@@ -1895,7 +1912,7 @@ const handlers: Record<string, RequestHandler> = {
             jsonrpc: '2.0',
             method: 'notifications/progress',
             params: {
-              progressToken: `progress_${photonName}_${methodName}`,
+              progressToken,
               progress,
               total: 100,
               message: yieldValue.message || null,
@@ -1910,7 +1927,7 @@ const handlers: Record<string, RequestHandler> = {
             jsonrpc: '2.0',
             method: 'notifications/progress',
             params: {
-              progressToken: `progress_${photonName}_${methodName}`,
+              progressToken,
               progress: 0,
               total: 100,
               message: yieldValue.message || '',
