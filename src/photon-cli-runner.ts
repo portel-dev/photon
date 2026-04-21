@@ -78,7 +78,10 @@ const BASE_FORMATS = new Set([
 ]);
 
 function baseFormatOutput(data: any, hint?: OutputFormat): void {
-  if (hint === ('a2ui' as OutputFormat)) {
+  // `hint as string` — 'a2ui' joined OutputFormat in photon-core 2.24.0;
+  // CI may still install ^2.23.0 until photon-core is published, and
+  // narrowing OutputFormat to 'a2ui' then has no overlap.
+  if ((hint as string) === 'a2ui') {
     printA2UIJsonl(data);
     return;
   }
@@ -400,7 +403,11 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   // and emits a valid empty lifecycle. Route a2ui BEFORE the null-guard so
   // methods that intentionally return null produce the same three-message
   // stream on CLI as they do over AG-UI.
-  if (hint === 'a2ui') {
+  //
+  // `hint as string` sidesteps a type drift: 'a2ui' is in photon-core's
+  // OutputFormat starting v2.24.0, but the published ^2.23.0 dep installed
+  // in CI doesn't know about it yet. Same pattern used above for 'markdown'.
+  if ((hint as string) === 'a2ui') {
     printA2UIJsonl(result);
     return true;
   }
