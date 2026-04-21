@@ -64,8 +64,23 @@ function extractBeamRendererFormats(): string[] {
   }
   assert.ok(switchStart > 0, 'Could not find _renderContent switch (layout) in result-viewer.ts');
 
-  // Extract a generous chunk after the switch start
-  const chunk = source.slice(switchStart, switchStart + 2000);
+  // Walk forward from the opening `{` of the switch body to the matching
+  // closing `}`, tracking brace depth. A fixed-size window misses cases
+  // near the tail when the switch grows — which is exactly how `json`
+  // and `a2ui` got silently dropped from the scan.
+  const bodyStart = source.indexOf('{', switchStart);
+  assert.ok(bodyStart > switchStart, 'switch body opening brace not found');
+  let depth = 1;
+  let bodyEnd = bodyStart + 1;
+  while (bodyEnd < source.length && depth > 0) {
+    const ch = source[bodyEnd];
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+    bodyEnd++;
+  }
+  assert.equal(depth, 0, 'switch body was not brace-balanced');
+
+  const chunk = source.slice(bodyStart, bodyEnd);
   const formats: string[] = [];
   const caseRegex = /case\s+'([^']+)'/g;
   let m;

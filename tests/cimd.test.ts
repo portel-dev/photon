@@ -39,9 +39,12 @@ function mockFetch(
     const url = input.toString();
     const result = handler(url, init);
     const headers = new Headers(result.headers ?? { 'content-type': 'application/json' });
+    // WHATWG fetch forbids a non-null body on "null-body" statuses
+    // (101/103/204/205/304). Default to null when the handler didn't
+    // specify a body — covers 304 revalidation responses in particular.
     const body =
       result.body === undefined
-        ? ''
+        ? null
         : typeof result.body === 'string'
           ? result.body
           : JSON.stringify(result.body);
