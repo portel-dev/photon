@@ -4038,13 +4038,15 @@ export async function handleStreamableHTTP(
     // Store SSE response for server-initiated messages
     session.sseResponse = res;
 
-    // Keep connection alive with SSE data events (every 15s for better reliability)
+    // Keep connection alive with SSE comments (every 15s). Comments are
+    // silently dropped by all spec-compliant parsers including the MCP
+    // SDK's EventSourceParserStream, so they don't clutter JSON-RPC
+    // message routing. Prevents intermediary proxies (nginx) from closing
+    // idle connections.
     const keepAlive = setInterval(() => {
-      // Check if response is still writable before sending keepalive
       if (!res.writableEnded && !res.destroyed) {
         try {
-          // Send as data event so client onmessage handler fires and updates lastMessageTime
-          res.write('data: {"type":"keepalive"}\n\n');
+          res.write(': keepalive\n\n');
         } catch (err) {
           // If write fails, connection is dead - clean up
           clearInterval(keepAlive);
