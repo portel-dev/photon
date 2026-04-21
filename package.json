@@ -129,11 +129,6 @@
   "optionalDependencies": {
     "better-sqlite3": "^12.9.0"
   },
-  "peerDependenciesMeta": {
-    "better-sqlite3": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.1",

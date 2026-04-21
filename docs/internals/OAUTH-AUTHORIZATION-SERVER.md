@@ -112,23 +112,23 @@ The caller is responsible for:
 
 ## Store implementations
 
-All five stores (`AuthCodeStore`, `RefreshTokenStore`, `ClientRegistry`, `ConsentStore`, `PendingAuthorizationStore`) ship with in-memory implementations suitable for single-instance self-host. Multi-instance deployments must provide shared backends:
+All five stores (`AuthCodeStore`, `RefreshTokenStore`, `ClientRegistry`, `ConsentStore`, `PendingAuthorizationStore`) ship with two implementations: in-memory for single-instance self-host, and SQLite-backed for persistence across restarts.
 
-| Store | In-memory | Needed for multi-instance |
+| Store | In-memory (default) | SQLite backend |
 |---|---|---|
-| AuthCodeStore | Yes | SQLite/Redis with 60s TTL |
-| RefreshTokenStore | Yes | SQLite/Redis with 30-day TTL |
-| ClientRegistry | Yes | SQLite/D1 (persistent) |
-| ConsentStore | Yes | SQLite/D1 (persistent) |
-| PendingAuthorizationStore | Yes | SQLite/Redis with 10-min TTL |
+| AuthCodeStore | Yes, 60s TTL | Yes (`src/serv/auth/sqlite-stores.ts`) |
+| RefreshTokenStore | Yes, 30-day TTL | Yes |
+| ClientRegistry | Yes | Yes |
+| ConsentStore | Yes | Yes |
+| PendingAuthorizationStore | Yes, 10-min TTL | Yes |
 
-Persistent backends are not yet shipped; the interfaces are stable and implementing them is straightforward.
+The SQLite backend is opt-in via the runtime-agnostic loader: `bun:sqlite` under Bun, `better-sqlite3` under Node (declared as an optional dependency so the Bun path never needs it). All five stores share a single database handle. Multi-instance deployments that need truly shared state (not just persistence) can implement the same five interfaces against Redis, D1, or any transport of choice — the shapes are stable and the memory/SQLite variants are the reference implementations.
 
-## Not yet implemented
+## Known limitations
 
-- JWKS publication endpoint (`/.well-known/jwks.json`) — `JwtService.exportJwk()` returns the JWK, but an HTTP route needs to be mounted by the SERV host app.
-- Upstream federation login UI — photon-side `/login` that consumes `return_to` and drives GitHub/Microsoft auth. Handlers + provider wiring exist (`src/serv/auth/oauth.ts`); the HTML + session-cookie glue is an integrator concern today.
-- Subject token types beyond `access_token` in RFC 8693 exchange (SAML, external JWTs).
+- **JWKS HTTP route** — `JwtService.exportJwk()` returns the JWK public half, but exposing it on `/.well-known/jwks.json` is the SERV host app's responsibility. The HTTP adapter (`src/serv/auth/http-adapter.ts`) does not currently mount this route itself.
+- **Upstream federation login UI** — photon-side `/login` that consumes `return_to` and drives GitHub / Microsoft auth. Handler plumbing + provider wiring exist (`src/serv/auth/oauth.ts`); the HTML page + session-cookie glue is an integrator concern today. The AS redirects to `endpointConfig.loginUrl` (tenant-scoped by default since v1.23) and treats whatever sends the user back as trusted.
+- **RFC 8693 subject token types** — only `access_token` is accepted as the `subject_token_type`. SAML assertions and external JWTs are not yet supported as subject tokens. Actor-token chaining works with `access_token` actors.
 
 ## Metrics
 

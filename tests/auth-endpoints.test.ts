@@ -1700,7 +1700,14 @@ async function main() {
   console.log('\nAll auth endpoint tests passed.');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Some suites open HTTP servers or keep-alive handles that don't close
+    // on main() completion. Force exit so CI doesn't hang waiting for the
+    // event loop to drain.
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

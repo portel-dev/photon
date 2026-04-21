@@ -372,7 +372,13 @@ async function main() {
   console.log('\nAll serv-http-auth integration tests passed.');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // HTTP integration tests leave keep-alive handles; force exit so CI
+    // doesn't hang waiting for the event loop to drain.
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

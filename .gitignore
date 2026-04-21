@@ -67,3 +67,13 @@ beam-kanban-photon-board.png
 kanban-markdown-checkboxes.png
 .gstack/
 hackathon/
+
+# Personal / generated runtime artifacts that can collect at the repo root
+# or under tests/fixtures when running local scenarios. Never belong in git.
+/marketplaces.json
+/setup-*.sh
+tests/fixtures/.migrated
+tests/fixtures/marketplaces.json
+# Symlinks into personal demo directories. Developer-specific.
+tests/beam/fixtures/agent-router
+tests/beam/fixtures/agent-router.photon.ts

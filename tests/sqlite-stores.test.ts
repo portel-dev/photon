@@ -298,9 +298,12 @@ async function testNonceMigration() {
   // Manually create the legacy schema, then re-open via openAuthDatabase
   // and expect the ALTER TABLE migration to add the column without erroring.
   const dbPath = tempDbPath();
-  const { default: BetterSqlite3 } = await import('better-sqlite3');
-  const legacy = new BetterSqlite3(dbPath);
-  legacy.exec(`
+  // Use the shared runtime-agnostic loader so this test works under Bun
+  // (bun:sqlite) as well as Node (better-sqlite3). Directly importing
+  // better-sqlite3 fails under Bun due to N-API version mismatch.
+  const { openSqlite } = await import('../dist/shared/sqlite-runtime.js');
+  const legacyLoader = await openSqlite(dbPath, () => {});
+  legacyLoader.exec(`
     CREATE TABLE auth_codes (
       code TEXT PRIMARY KEY,
       client_id TEXT NOT NULL,
@@ -328,7 +331,7 @@ async function testNonceMigration() {
       created_at INTEGER NOT NULL
     );
   `);
-  legacy.close();
+  legacyLoader.close();
 
   await test('openAuthDatabase backfills nonce on legacy schema', async () => {
     const db = await openAuthDatabase(dbPath);

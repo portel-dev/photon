@@ -30,8 +30,10 @@ if [ $? -ne 0 ]; then
 fi
 
 # Define test suites (name:command)
-# $RUN and $VITEST are expanded at eval time
+# $RUN and $VITEST are expanded at eval time.
+# Append new suites here whenever a test file is added under tests/.
 SUITES=(
+  # Core
   "security:$RUN tests/security.test.ts"
   "schema:$RUN tests/schema-extractor.test.ts"
   "marketplace:$RUN tests/marketplace-manager.test.ts"
@@ -67,6 +69,33 @@ SUITES=(
   "phase6d:$RUN tests/phase6d-integration.test.ts"
   "promises:$RUN tests/promises.test.ts"
   "readme:bash tests/readme-validation.sh"
+  # v1.23 additions
+  "a2ui-mapper:$RUN tests/a2ui-mapper.test.ts"
+  "a2ui-e2e:$RUN tests/a2ui-e2e.test.ts"
+  "a2ui-renderer-script:$RUN tests/a2ui-renderer-script.test.ts"
+  "ag-ui-adapter:$RUN tests/ag-ui-adapter.test.ts"
+  "audit-sqlite:$RUN tests/audit-sqlite.test.ts"
+  "auth-endpoints:$RUN tests/auth-endpoints.test.ts"
+  "call-always-injected:$RUN tests/call-always-injected.test.ts"
+  "cimd:$RUN tests/cimd.test.ts"
+  "format-coverage:$RUN tests/contract/format-coverage.test.ts"
+  "daemon-multibase-keys:$RUN tests/daemon-multibase-keys.test.ts"
+  "daemon-protocol-validation:$RUN tests/daemon-protocol-validation.test.ts"
+  "daemon-schedule-provider:$RUN tests/daemon-schedule-provider.test.ts"
+  "execution-history-sqlite:$RUN tests/execution-history-sqlite.test.ts"
+  "format-snapshot:$RUN tests/format-snapshot.test.ts"
+  "hot-reload-state-transfer:$RUN tests/hot-reload-state-transfer.test.ts"
+  "memory-baseDir-regression:$RUN tests/memory-baseDir-regression.test.ts"
+  "oauth:$RUN tests/oauth.test.ts"
+  "oauth-sqlite-stores:$RUN tests/oauth-sqlite-stores.test.ts"
+  "schedule-baseDir-regression:$RUN tests/schedule-baseDir-regression.test.ts"
+  "serv-http-auth:$RUN tests/serv-http-auth.test.ts"
+  "session-resolver:$RUN tests/session-resolver.test.ts"
+  "session-resolver-disk-fallback:$RUN tests/session-resolver-disk-fallback.test.ts"
+  "shell-cwd-injection:$RUN tests/shell-cwd-injection.test.ts"
+  "sqlite-stores:$RUN tests/sqlite-stores.test.ts"
+  "typed-access-capabilities:$RUN tests/typed-access-capabilities.test.ts"
+  "version-dev-marker:$RUN tests/version-dev-marker.test.ts"
 )
 
 TOTAL=0
