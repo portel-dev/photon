@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.23.1](https://github.com/portel-dev/photon/compare/v1.23.0...v1.23.1) (2026-04-21)
+
+### Bug Fixes
+
+* **install:** auto-trust native deps + actionable error messages ([678445f](https://github.com/portel-dev/photon/commit/678445f631e73e6438515b7f4ae21b15c3fb2fbe))
+
 ## [1.23.0](https://github.com/portel-dev/photon/compare/v1.22.1...v1.23.0) (2026-04-21)
 
 ### Features
