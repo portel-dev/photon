@@ -96,6 +96,7 @@ SUITES=(
   "sqlite-stores:$RUN tests/sqlite-stores.test.ts"
   "typed-access-capabilities:$RUN tests/typed-access-capabilities.test.ts"
   "version-dev-marker:$RUN tests/version-dev-marker.test.ts"
+  "mcp-client-sdk:$RUN tests/mcp-client-sdk.test.ts"
 )
 
 TOTAL=0
