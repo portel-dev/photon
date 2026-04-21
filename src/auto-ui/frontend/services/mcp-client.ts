@@ -1,15 +1,28 @@
 /**
  * MCP Client Service for Beam UI
  *
- * Delegates all wire-protocol work to MCPClientSDK (built on
- * `@modelcontextprotocol/sdk`'s StreamableHTTPClientTransport). This
- * class owns only app-level glue: auth state, queue-for-retry on
- * connection drop, Beam-specific notification fan-out, and
- * configurationSchema introspection from the initialize response.
+ * Pure Streamable HTTP transport implementation (2025-03-26 spec).
+ * Uses POST for requests and SSE for server notifications.
+ * No WebSocket - acts like a standard external MCP client.
  */
 
-import { MCPClientSDK } from './mcp-client-sdk.js';
 import { getGlobalSessionManager } from './photon-instance-manager.js';
+
+type JSONRPCMessage = {
+  jsonrpc: '2.0';
+  id?: string | number;
+  method?: string;
+  params?: Record<string, unknown>;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+};
+
+interface ProgressNotification {
+  progressToken: string | number;
+  progress: number;
+  total?: number;
+  message?: string;
+}
 
 interface MCPTool {
   name: string;
@@ -43,8 +56,8 @@ interface MCPResourceContent {
 }
 
 /**
- * Configuration schema for unconfigured photons (SEP-1596 inspired).
- * Uses OpenAPI-compliant format values where possible.
+ * Configuration schema for unconfigured photons (SEP-1596 inspired)
+ * Uses OpenAPI-compliant format values where possible
  */
 interface ConfigurationSchema {
   [photonName: string]: {
@@ -57,14 +70,13 @@ interface ConfigurationSchema {
         type: string;
         description?: string;
         default?: any;
-        format?: string;
-        writeOnly?: boolean;
-        'x-env-var'?: string;
+        format?: string; // 'password', 'path', 'email', 'uri', etc.
+        writeOnly?: boolean; // OpenAPI standard for sensitive fields
+        'x-env-var'?: string; // Custom: maps to environment variable
       }
     >;
     required?: string[];
     'x-error-message'?: string;
-    'x-configured'?: boolean;
   };
 }
 
@@ -75,104 +87,75 @@ type MCPEventType =
   | 'tools-changed'
   | 'progress'
   | 'configuration-available'
-  | 'photons'
-  | 'hot-reload'
-  | 'elicitation'
-  | 'elicitation-deferred'
-  | 'approval-resolved'
-  | 'board-update'
-  | 'channel-event'
-  | 'refresh-needed'
-  | 'result'
-  | 'configured'
-  | 'notification'
-  | 'operation-queued'
-  | 'queue-processed'
-  | 'ui-tool-result'
-  | 'ui-tool-input'
-  | 'ui-tool-input-partial'
-  | 'state-changed'
-  | 'reconnect'
-  | 'auth-required'
-  | 'auth-changed'
-  | 'auth-error'
-  | 'render'
-  | 'canvas'
-  | 'toast'
-  | 'thinking'
-  | 'log'
-  | 'photon-notification';
+  | 'photons' // Photon list changed
+  | 'hot-reload' // File changed, photon reloaded
+  | 'elicitation' // User input needed
+  | 'board-update' // Kanban board update (legacy, triggers refresh)
+  | 'channel-event' // Specific event with delta (task-moved, task-updated, etc.)
+  | 'refresh-needed' // Server signals stale client, full sync required
+  | 'result' // Tool execution result
+  | 'configured' // Photon configuration complete
+  | 'notification' // Generic notification
+  | 'operation-queued' // Operation queued for retry
+  | 'queue-processed' // Queued operations processed
+  | 'ui-tool-result' // MCP Apps: tool result notification
+  | 'ui-tool-input' // MCP Apps: tool input notification
+  | 'ui-tool-input-partial' // MCP Apps: partial tool input (streaming)
+  | 'state-changed' // Stateful photon state changed (via daemon)
+  | 'reconnect' // SSE reconnected after disconnect
+  | 'auth-required' // MCP OAuth: server requires authentication
+  | 'auth-changed' // MCP OAuth: auth state changed (login/logout)
+  | 'auth-error' // MCP OAuth: auth flow error
+  | 'render' // Streaming render event (generator yield / this.render())
+  | 'canvas'; // Canvas two-stream UI+data events
 
-// Pending operation for offline queue.
+// Pending operation for offline queue
 interface PendingOperation {
   id: number;
-  name: string;
-  args: Record<string, unknown>;
-  progressToken?: string | number;
-  resolve: (value: any) => void;
+  method: string;
+  params: Record<string, unknown>;
+  resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timestamp: number;
 }
 
-/**
- * Server-pushed notification methods → outer event names. Any method
- * not in this map falls through to a generic `notification` event.
- */
-const NOTIFICATION_EVENT_MAP: Record<string, MCPEventType> = {
-  'notifications/tools/list_changed': 'tools-changed',
-  'notifications/progress': 'progress',
-  'beam/photons': 'photons',
-  'beam/hot-reload': 'hot-reload',
-  'beam/elicitation': 'elicitation',
-  'beam/elicitation-deferred': 'elicitation-deferred',
-  'beam/approval-resolved': 'approval-resolved',
-  'beam/result': 'result',
-  'beam/configured': 'configured',
-  'beam/error': 'error',
-  'beam/toast': 'toast',
-  'beam/thinking': 'thinking',
-  'beam/log': 'log',
-  'beam/render': 'render',
-  'beam/canvas': 'canvas',
-  'photon/board-update': 'board-update',
-  'photon/channel-event': 'channel-event',
-  'photon/refresh-needed': 'refresh-needed',
-  'state-changed': 'state-changed',
-  'photon/notification': 'photon-notification',
-  'ui/notifications/tool-result': 'ui-tool-result',
-  'ui/notifications/tool-input': 'ui-tool-input',
-  'ui/notifications/tool-input-partial': 'ui-tool-input-partial',
-};
-
 class MCPClientService {
-  private sdk: MCPClientSDK | null = null;
+  private sessionId: string | null = null;
+  private requestId = 0;
   private connected = false;
+  private eventSource: EventSource | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = Infinity; // Infinite retries by default, can be set to 0 to disable
+  private reconnectDelay = 1000;
+  private readonly MAX_RECONNECT_DELAY_MS = 30000; // Cap backoff at 30s
   private eventListeners = new Map<MCPEventType, Set<(data?: unknown) => void>>();
   private baseUrl: string;
   private _configurationSchema: ConfigurationSchema | null = null;
   private _serverVersion = '';
+  private lastMessageTime = 0;
+  private heartbeatInterval: number | null = null;
+  private visibilityHandler: (() => void) | null = null;
 
   // ═══ MCP OAuth Auth State ═══
   private _authToken: string | null = null;
   private _authRequired = false;
   private _resourceMetadataUrl: string | null = null;
-
-  // ═══ Queue for Retry ═══
+  private readonly HEARTBEAT_TIMEOUT_MS = 45000; // 45s - server sends keepalive every 15s (3x interval)
   private pendingOperations: PendingOperation[] = [];
-  private nextOpId = 0;
-  private retryTimer: number | null = null;
-  private readonly MAX_QUEUE_AGE_MS = 30000;
-  private readonly QUEUE_RETRY_INTERVAL_MS = 2000;
+  private isProcessingQueue = false;
+  private readonly MAX_QUEUE_AGE_MS = 30000; // Discard operations older than 30s
 
   constructor() {
     this.baseUrl = `${window.location.protocol}//${window.location.host}/mcp`;
+    // Restore saved auth token
     this._authToken = localStorage.getItem('photon_auth_token');
 
-    // Listen for token from OAuth popup callback.
+    // Listen for token from OAuth popup callback
     window.addEventListener('message', (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'photon-auth-token' && event.data.token) {
         this.setAuthToken(event.data.token);
+        // Reconnect with the new token
         this.connect().catch(() => {});
       }
     });
@@ -180,34 +163,38 @@ class MCPClientService {
 
   // ═══ MCP OAuth Auth ═══
 
+  /** Whether the server requires auth (detected from 401 on connect) */
   get authRequired(): boolean {
     return this._authRequired;
   }
 
+  /** Current auth token (null if not authenticated) */
   get authToken(): string | null {
     return this._authToken;
   }
 
+  /** Set auth token (after OAuth flow completes) */
   setAuthToken(token: string): void {
     this._authToken = token;
     localStorage.setItem('photon_auth_token', token);
     this.emit('auth-changed', { authenticated: true });
   }
 
+  /** Clear auth token (logout) */
   clearAuthToken(): void {
     this._authToken = null;
     localStorage.removeItem('photon_auth_token');
     this.emit('auth-changed', { authenticated: false });
   }
 
+  /** Whether the client is authenticated */
   get isAuthenticated(): boolean {
     return !!this._authToken;
   }
 
   /**
-   * Discover the OAuth authorization server from PRM metadata.
-   * Returns authorization_servers URL(s) from
-   * /.well-known/oauth-protected-resource.
+   * Discover the OAuth authorization server from PRM metadata
+   * Returns the authorization_servers URL(s) from /.well-known/oauth-protected-resource
    */
   async discoverAuthServer(): Promise<{
     authorizationServers?: string[];
@@ -227,12 +214,18 @@ class MCPClientService {
     }
   }
 
+  /**
+   * Start OAuth flow by opening the authorization URL in a popup
+   * The popup will redirect back to /auth/callback which sets the token
+   */
   async startOAuthFlow(): Promise<void> {
     const discovery = await this.discoverAuthServer();
     if (!discovery?.authorizationServers?.length) {
       this.emit('auth-error', { message: 'No authorization server configured' });
       return;
     }
+
+    // Emit event so the UI can show the OAuth popup/redirect
     this.emit('auth-required', {
       authorizationServers: discovery.authorizationServers,
       scopes: discovery.scopes,
@@ -241,57 +234,24 @@ class MCPClientService {
   }
 
   /**
-   * fetch wrapper injected into the SDK transport. Captures
-   * WWW-Authenticate → resource_metadata_url on 401 so startOAuthFlow()
-   * has discovery info when we catch the subsequent 401 error.
-   */
-  private wrappedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    return fetch(input, init).then((response) => {
-      if (response.status === 401) {
-        const wwwAuth = response.headers.get('WWW-Authenticate') || '';
-        const metaMatch = wwwAuth.match(/resource_metadata="([^"]+)"/);
-        if (metaMatch) {
-          this._resourceMetadataUrl = metaMatch[1];
-        }
-        this._authRequired = true;
-      }
-      return response;
-    });
-  };
-
-  /**
-   * Connect to the MCP endpoint via Streamable HTTP. Initializes a new
-   * SDK transport on each call; old one is torn down first.
+   * Connect to the MCP endpoint via Streamable HTTP
    */
   async connect(): Promise<void> {
-    // Tear down any previous SDK instance first — reconnect after login.
-    if (this.sdk) {
-      try {
-        await this.sdk.disconnect();
-      } catch {
-        // best-effort
-      }
-      this.sdk = null;
-    }
-
-    this.sdk = new MCPClientSDK(this.baseUrl, {
-      authToken: this._authToken ?? undefined,
-      fetch: this.wrappedFetch,
-    });
-
-    this.wireSdkEvents(this.sdk);
-
     try {
-      await this.sdk.connect();
+      // Initialize session via POST
       await this.initialize();
+
+      // Open SSE stream for server notifications
+      this.openSSEStream();
+
       this.connected = true;
+      this.reconnectAttempts = 0;
       this.emit('connect');
-      // Flush anything queued while disconnected.
-      this.scheduleQueueRetry();
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (this._authRequired || message.includes('401')) {
+      // Check if this is a 401 auth required response
+      if (error instanceof Error && error.message.includes('401')) {
         this._authRequired = true;
+        // Try to start OAuth flow
         await this.startOAuthFlow();
         this.emit('auth-required', { message: 'Authentication required' });
         return;
@@ -301,58 +261,228 @@ class MCPClientService {
     }
   }
 
+  /**
+   * Disconnect from the MCP endpoint
+   */
   disconnect(): void {
+    this.maxReconnectAttempts = 0;
+    this.stopHeartbeatCheck();
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
     this.connected = false;
-    if (this.retryTimer !== null) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-    if (this.sdk) {
-      void this.sdk.disconnect().catch(() => {});
-      this.sdk = null;
-    }
+    this.sessionId = null;
     this.emit('disconnect');
   }
 
-  isConnected(): boolean {
-    return this.connected;
-  }
-
-  // ═══ Session bootstrap ═══
-
+  /**
+   * Initialize MCP session
+   */
   private async initialize(): Promise<void> {
-    const sdk = this.sdk!;
-    const result = await sdk.request('initialize', {
+    const result = (await this.sendRequest('initialize', {
       protocolVersion: '2025-03-26',
       capabilities: {
         roots: { listChanged: false },
         sampling: {},
       },
       clientInfo: {
-        name: 'beam',
+        name: 'beam', // Identifies as Beam client for server-side notifications
         version: '1.0.0',
       },
-    });
+    })) as {
+      protocolVersion: string;
+      serverInfo: { name: string; version: string };
+      capabilities: Record<string, unknown>;
+      configurationSchema?: ConfigurationSchema;
+    };
 
+    // Capture server version for runtime tag completions
     if (result.serverInfo?.version) {
       this._serverVersion = result.serverInfo.version;
     }
+
+    // Capture configuration schema for unconfigured photons
     if (result.configurationSchema) {
       this._configurationSchema = result.configurationSchema;
       this.emit('configuration-available', this._configurationSchema);
     }
 
-    await sdk.notify('notifications/initialized', {});
+    // Send initialized notification
+    await this.sendNotification('notifications/initialized', {});
   }
 
-  // ═══ Tool / Resource API ═══
+  /**
+   * Open SSE stream for server-to-client notifications
+   */
+  private openSSEStream(): void {
+    // Build URL with session ID and auth token if available
+    // EventSource doesn't support custom headers, so we pass token via query param
+    const params = new URLSearchParams();
+    if (this.sessionId) {
+      params.set('sessionId', this.sessionId);
+    }
+    if (this._authToken) {
+      params.set('token', this._authToken);
+    }
+    const query = params.toString();
+    const sseUrl = query ? `${this.baseUrl}?${query}` : this.baseUrl;
 
+    this.eventSource = new EventSource(sseUrl);
+
+    this.eventSource.onopen = () => {
+      // SSE connected - check if this is a reconnection
+      const wasDisconnected = this.reconnectAttempts > 0;
+      this.reconnectAttempts = 0;
+      this.connected = true;
+      this.lastMessageTime = Date.now();
+      this.startHeartbeatCheck();
+      // Process any queued operations
+      void this.processQueue();
+      // Notify listeners if we recovered from a disconnect
+      if (wasDisconnected) {
+        this.emit('reconnect');
+      }
+    };
+
+    this.eventSource.onmessage = (event) => {
+      this.lastMessageTime = Date.now();
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'keepalive') {
+          return; // Don't process keepalives further
+        }
+      } catch {
+        // Not JSON or not a keepalive, continue normal processing
+      }
+      this.handleSSEMessage(event.data);
+    };
+
+    this.eventSource.onerror = () => {
+      if (this.eventSource?.readyState === EventSource.CLOSED) {
+        this.handleSSEDisconnect();
+      }
+    };
+  }
+
+  /**
+   * Start heartbeat check to detect stale connections
+   * Only polls when tab is visible - stops when hidden to save resources
+   */
+  private startHeartbeatCheck(): void {
+    this.stopHeartbeatCheck();
+
+    // Check for stale connection
+    const checkStale = () => {
+      const elapsed = Date.now() - this.lastMessageTime;
+      if (elapsed > this.HEARTBEAT_TIMEOUT_MS && this.connected) {
+        console.warn('[MCP] Connection stale, reconnecting...');
+        this.handleSSEDisconnect();
+      }
+    };
+
+    // Start/stop polling based on visibility
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        // Tab became visible - check immediately and start polling
+        checkStale();
+        if (!this.heartbeatInterval) {
+          this.heartbeatInterval = window.setInterval(checkStale, 15000);
+        }
+      } else {
+        // Tab hidden - stop polling to save resources
+        if (this.heartbeatInterval) {
+          clearInterval(this.heartbeatInterval);
+          this.heartbeatInterval = null;
+        }
+      }
+    };
+
+    this.visibilityHandler = handleVisibility;
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Start polling if currently visible
+    if (document.visibilityState === 'visible') {
+      this.heartbeatInterval = window.setInterval(checkStale, 15000);
+    }
+  }
+
+  /**
+   * Stop heartbeat check
+   */
+  private stopHeartbeatCheck(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
+  }
+
+  /**
+   * Handle SSE disconnect with reconnection
+   */
+  private handleSSEDisconnect(): void {
+    this.stopHeartbeatCheck();
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+
+    this.reconnectAttempts++;
+
+    // Check if we should stop reconnecting
+    if (this.reconnectAttempts > this.maxReconnectAttempts) {
+      this.connected = false;
+      this.emit('disconnect');
+      console.warn('[MCP] Max reconnect attempts reached, giving up');
+      return;
+    }
+
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+      this.MAX_RECONNECT_DELAY_MS
+    );
+
+    // Emit disconnect after first failure so UI can show status
+    if (this.reconnectAttempts === 1) {
+      this.emit('disconnect');
+    }
+
+    setTimeout(() => {
+      this.openSSEStream();
+    }, delay);
+  }
+
+  /**
+   * Handle incoming SSE message
+   */
+  private handleSSEMessage(data: string): void {
+    try {
+      const message = JSON.parse(data) as JSONRPCMessage;
+
+      // Server notifications come through SSE
+      if (message.method && message.id === undefined) {
+        this.handleNotification(message);
+      }
+    } catch (error) {
+      this.emit('error', error);
+    }
+  }
+
+  /**
+   * List available tools
+   */
   async listTools(): Promise<MCPTool[]> {
-    const sdk = this.requireSdk();
-    const result = await sdk.request('tools/list', {});
+    const result = (await this.sendRequest('tools/list', {})) as { tools: MCPTool[] };
     return result.tools || [];
   }
 
+  /**
+   * Call a tool - queues operation if connection fails
+   */
   async callTool(
     name: string,
     args: Record<string, unknown>,
@@ -362,57 +492,154 @@ class MCPClientService {
     structuredContent?: unknown;
     isError?: boolean;
   }> {
-    const sdk = this.requireSdk();
+    const params: Record<string, unknown> = { name, arguments: args };
+
+    if (progressToken !== undefined) {
+      params._meta = { progressToken };
+    }
+
     try {
-      return (await sdk.callTool(name, args, {
-        progressToken,
-      })) as {
+      const result = (await this.sendRequest('tools/call', params)) as {
         content: Array<{ type: string; text?: string }>;
         structuredContent?: unknown;
         isError?: boolean;
       };
+      return result;
     } catch (error) {
+      // Queue the operation for retry if it's a connection error
       if (this.isConnectionError(error)) {
-        return this.queueOperation(name, args, progressToken);
+        return this.queueOperation('tools/call', params);
       }
       throw error;
     }
   }
 
+  /**
+   * Check if error is a connection-related error
+   */
+  private isConnectionError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const msg = error.message.toLowerCase();
+      return (
+        msg.includes('network') ||
+        msg.includes('fetch') ||
+        msg.includes('connection') ||
+        msg.includes('timeout') ||
+        msg.includes('http error: 0') ||
+        msg.includes('failed to fetch')
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Queue an operation for retry when connection is restored
+   */
+  private queueOperation(
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<{
+    content: Array<{ type: string; text?: string }>;
+    structuredContent?: unknown;
+    isError?: boolean;
+  }> {
+    return new Promise((resolve, reject) => {
+      const operation: PendingOperation = {
+        id: ++this.requestId,
+        method,
+        params,
+        resolve,
+        reject,
+        timestamp: Date.now(),
+      };
+      this.pendingOperations.push(operation);
+      console.log(`[MCP] Operation queued (${this.pendingOperations.length} pending)`);
+      this.emit('operation-queued', { count: this.pendingOperations.length, method, params });
+    });
+  }
+
+  /**
+   * Process queued operations after reconnection
+   */
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.pendingOperations.length === 0) return;
+
+    this.isProcessingQueue = true;
+    const now = Date.now();
+
+    // Filter out stale operations
+    this.pendingOperations = this.pendingOperations.filter((op) => {
+      if (now - op.timestamp > this.MAX_QUEUE_AGE_MS) {
+        op.reject(new Error('Operation expired'));
+        return false;
+      }
+      return true;
+    });
+
+    console.log(`[MCP] Processing ${this.pendingOperations.length} queued operations`);
+
+    while (this.pendingOperations.length > 0) {
+      const operation = this.pendingOperations.shift()!;
+      try {
+        const result = await this.sendRequest(operation.method, operation.params);
+        operation.resolve(result);
+      } catch (error) {
+        // If still failing, re-queue if not too old
+        if (this.isConnectionError(error) && now - operation.timestamp < this.MAX_QUEUE_AGE_MS) {
+          this.pendingOperations.unshift(operation);
+          break; // Stop processing, wait for next reconnect
+        }
+        operation.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+
+    this.isProcessingQueue = false;
+    this.emit('queue-processed', { remaining: this.pendingOperations.length });
+  }
+
+  /**
+   * List available resources (MCP Apps Extension - ui:// scheme)
+   */
   async listResources(): Promise<MCPResource[]> {
-    const sdk = this.requireSdk();
-    const result = await sdk.request('resources/list', {});
+    const result = (await this.sendRequest('resources/list', {})) as { resources: MCPResource[] };
     return result.resources || [];
   }
 
+  /**
+   * Read a resource by URI (MCP Apps Extension - ui:// scheme)
+   */
   async readResource(uri: string): Promise<MCPResourceContent | null> {
-    const sdk = this.requireSdk();
-    const result = await sdk.request('resources/read', { uri });
+    const result = (await this.sendRequest('resources/read', { uri })) as {
+      contents: MCPResourceContent[];
+    };
     return result.contents?.[0] || null;
   }
 
-  async notifyViewing(photonId: string, itemId: string): Promise<void> {
-    if (!this.connected || !this.sdk) return;
-    await this.sdk.notify('beam/viewing', { photonId, itemId });
-  }
-
-  // ═══ Config / server metadata ═══
-
+  /**
+   * Get the photon runtime version reported by the server
+   */
   getServerVersion(): string {
     return this._serverVersion;
   }
 
+  /**
+   * Get configuration schema for unconfigured photons
+   */
   getConfigurationSchema(): ConfigurationSchema | null {
     return this._configurationSchema;
   }
 
+  /**
+   * Check if a photon needs configuration
+   */
   needsConfiguration(photonName: string): boolean {
     const entry = this._configurationSchema?.[photonName];
     return !!entry && !entry['x-configured'];
   }
 
-  // ═══ Beam helpers (thin wrappers over callTool) ═══
-
+  /**
+   * Configure a photon via beam/configure tool
+   */
   async configurePhoton(
     photonName: string,
     config: Record<string, string>
@@ -422,20 +649,28 @@ class MCPClientService {
         photon: photonName,
         config,
       });
+
       if (result.isError) {
         const errorText =
           result.content.find((c) => c.type === 'text')?.text || 'Configuration failed';
         return { success: false, error: errorText };
       }
+
+      // Mark as configured (keep schema for reconfiguration)
       if (this._configurationSchema?.[photonName]) {
         this._configurationSchema[photonName]['x-configured'] = true;
       }
+
       return { success: true };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
     }
   }
 
+  /**
+   * Browse server filesystem via beam/browse tool
+   */
   async browseFilesystem(
     path?: string,
     filter?: string
@@ -446,47 +681,66 @@ class MCPClientService {
   } | null> {
     try {
       const result = await this.callTool('beam/browse', { path, filter });
-      if (result.isError) return null;
-      return this.parseToolResult(result) as any;
+
+      if (result.isError) {
+        return null;
+      }
+
+      const data = this.parseToolResult(result);
+      return data as any;
     } catch {
-      return null;
+      return null; // tool call failed
     }
   }
 
+  /**
+   * Reload a photon via beam/reload tool
+   */
   async reloadPhoton(photonName: string): Promise<{ success: boolean; error?: string }> {
     try {
       const result = await this.callTool('beam/reload', { photon: photonName });
+
       if (result.isError) {
         const errorText = result.content.find((c) => c.type === 'text')?.text || 'Reload failed';
         return { success: false, error: errorText };
       }
+
       return { success: true };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
     }
   }
 
+  /**
+   * Remove a photon via beam/remove tool
+   */
   async removePhoton(photonName: string): Promise<{ success: boolean; error?: string }> {
     try {
       const result = await this.callTool('beam/remove', { photon: photonName });
+
       if (result.isError) {
         const errorText = result.content.find((c) => c.type === 'text')?.text || 'Remove failed';
         return { success: false, error: errorText };
       }
+
       return { success: true };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
     }
   }
 
+  /**
+   * Send elicitation response back to server
+   */
   async sendElicitationResponse(
     elicitationId: string,
     value: any,
     cancelled = false
   ): Promise<{ success: boolean }> {
     try {
-      const sdk = this.requireSdk();
-      await sdk.request('beam/elicitation-response', {
+      await this.sendRequest('beam/elicitation-response', {
         elicitationId,
         value,
         cancelled,
@@ -497,14 +751,16 @@ class MCPClientService {
     }
   }
 
+  /**
+   * Send approval response (approve/reject) for a pending approval
+   */
   async sendApprovalResponse(
     approvalId: string,
     photon: string,
     approved: boolean
   ): Promise<{ success: boolean }> {
     try {
-      const sdk = this.requireSdk();
-      await sdk.request('beam/approval-response', {
+      await this.sendRequest('beam/approval-response', {
         approvalId,
         photon,
         approved,
@@ -515,26 +771,39 @@ class MCPClientService {
     }
   }
 
+  /**
+   * Fetch all pending approvals from the server
+   */
   async fetchPendingApprovals(): Promise<any[]> {
     try {
-      const sdk = this.requireSdk();
-      const result = await sdk.request('beam/approvals-list', {});
+      const result = await this.sendRequest('beam/approvals-list', {});
       return (result as any)?.approvals || [];
     } catch {
       return [];
     }
   }
 
+  /**
+   * Get rich help documentation for a photon via beam/photon-help tool
+   */
   async getPhotonHelp(photonName: string): Promise<string | null> {
     try {
       const result = await this.callTool('beam/photon-help', { photon: photonName });
-      if (result.isError) return null;
-      return result.content.find((c) => c.type === 'text')?.text || null;
+
+      if (result.isError) {
+        return null;
+      }
+
+      const textContent = result.content.find((c) => c.type === 'text');
+      return textContent?.text || null;
     } catch {
-      return null;
+      return null; // tool call failed
     }
   }
 
+  /**
+   * Update photon or method metadata via beam/update-metadata tool
+   */
   async updateMetadata(
     photonName: string,
     methodName: string | null,
@@ -542,34 +811,27 @@ class MCPClientService {
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const args: Record<string, unknown> = { photon: photonName, metadata };
-      if (methodName) args.method = methodName;
+      if (methodName) {
+        args.method = methodName;
+      }
+
       const result = await this.callTool('beam/update-metadata', args);
+
       if (result.isError) {
         const errorText = result.content.find((c) => c.type === 'text')?.text || 'Update failed';
         return { success: false, error: errorText };
       }
+
       return { success: true };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
     }
   }
 
-  async reconnectMCP(name: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const result = await this.callTool('beam/reconnect-mcp', { name });
-      const text = result.content?.[0]?.text || '';
-      return {
-        success: !result.isError,
-        error: result.isError ? text : undefined,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
+  /**
+   * Parse tool result content to data
+   */
   parseToolResult(result: { content: Array<{ type: string; text?: string }> }): unknown {
     if (result.content && result.content.length > 0) {
       const textContent = result.content.find((c) => c.type === 'text');
@@ -584,6 +846,10 @@ class MCPClientService {
     return null;
   }
 
+  /**
+   * Convert MCP tools to photons format
+   * Returns { photons, externalMCPs } with external MCPs separated
+   */
   toolsToPhotons(tools: MCPTool[]): {
     photons: Array<{
       id: string;
@@ -638,25 +904,29 @@ class MCPClientService {
 
       const serverName = tool.name.slice(0, slashIndex);
       const methodName = tool.name.slice(slashIndex + 1);
+
+      // Check if this is an external MCP tool
       const isExternalMCP = !!(tool as any)['x-external-mcp'];
 
       if (isExternalMCP) {
+        // Handle external MCP
         if (!externalMCPMap.has(serverName)) {
           externalMCPMap.set(serverName, {
             id: (tool as any)['x-external-mcp-id'] || serverName,
             name: serverName,
-            description: (tool as any)['x-photon-description'],
-            icon: (tool as any)['x-photon-icon'] || '🔌',
-            promptCount: (tool as any)['x-photon-prompt-count'] || 0,
-            resourceCount: (tool as any)['x-photon-resource-count'] || 0,
+            description: tool['x-photon-description'],
+            icon: tool['x-photon-icon'] || '🔌',
+            promptCount: tool['x-photon-prompt-count'] || 0,
+            resourceCount: tool['x-photon-resource-count'] || 0,
             connected: true,
             isExternalMCP: true,
-            hasMcpApp: (tool as any)['x-has-mcp-app'] || false,
-            mcpAppUri: (tool as any)['x-mcp-app-uri'],
-            mcpAppUris: (tool as any)['x-mcp-app-uris'] || [],
+            hasMcpApp: tool['x-has-mcp-app'] || false,
+            mcpAppUri: tool['x-mcp-app-uri'],
+            mcpAppUris: tool['x-mcp-app-uris'] || [],
             methods: [],
           });
         }
+
         externalMCPMap.get(serverName).methods.push({
           name: methodName,
           description: tool.description || '',
@@ -666,29 +936,34 @@ class MCPClientService {
           visibility: tool._meta?.ui?.visibility,
         });
       } else {
+        // Handle regular photon
         if (!photonMap.has(serverName)) {
           photonMap.set(serverName, {
-            id: tool['x-photon-id'] || serverName,
+            id: tool['x-photon-id'] || serverName, // Use hash ID, fallback to name
             name: serverName,
-            shortName: (tool as any)['x-photon-short-name'],
-            namespace: (tool as any)['x-photon-namespace'],
-            qualifiedName: (tool as any)['x-photon-qualified-name'],
-            path: (tool as any)['x-photon-path'],
-            editable: (tool as any)['x-photon-editable'] ?? false,
-            description: (tool as any)['x-photon-description'],
-            icon: (tool as any)['x-photon-icon'],
-            internal: (tool as any)['x-photon-internal'],
-            stateful: (tool as any)['x-photon-stateful'] || false,
-            hasSettings: (tool as any)['x-photon-has-settings'] || false,
-            requiredParams: (tool as any)['x-photon-required-params'] || [],
-            installSource: (tool as any)['x-photon-install-source'],
-            promptCount: (tool as any)['x-photon-prompt-count'] || 0,
-            resourceCount: (tool as any)['x-photon-resource-count'] || 0,
+            shortName: tool['x-photon-short-name'],
+            namespace: tool['x-photon-namespace'],
+            qualifiedName: tool['x-photon-qualified-name'],
+            path: tool['x-photon-path'], // File path for View Source
+            editable: tool['x-photon-editable'] ?? false, // User-owned (at baseDir root)
+            description: tool['x-photon-description'],
+            icon: tool['x-photon-icon'],
+            internal: tool['x-photon-internal'],
+            stateful: tool['x-photon-stateful'] || false,
+            hasSettings: tool['x-photon-has-settings'] || false,
+            requiredParams: tool['x-photon-required-params'] || [],
+            installSource: tool['x-photon-install-source'],
+            promptCount: tool['x-photon-prompt-count'] || 0,
+            resourceCount: tool['x-photon-resource-count'] || 0,
             configured: true,
             methods: [],
           });
         }
-        // Skip internal runtime tools (_use, _instances, _undo, _redo).
+
+        // Skip internal runtime tools (_use, _instances, _undo, _redo) — they are not user-facing.
+        // Note: x-photon-internal on a tool means the tool itself is a system method,
+        // not that the parent photon is @internal. Internal photons (maker, marketplace)
+        // still have user-facing methods that need to be displayed.
         if (!methodName.startsWith('_')) {
           photonMap.get(serverName).methods.push({
             name: methodName,
@@ -710,6 +985,7 @@ class MCPClientService {
       }
     }
 
+    // Post-process: set isApp and appEntry for photons with main()
     for (const photon of photonMap.values()) {
       const mainMethod = photon.methods.find((m: any) => m.name === 'main');
       if (mainMethod) {
@@ -724,8 +1000,28 @@ class MCPClientService {
     };
   }
 
-  // ═══ Event API ═══
+  /**
+   * Reconnect a disconnected external MCP
+   */
+  async reconnectMCP(name: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.callTool('beam/reconnect-mcp', { name });
+      const text = result.content?.[0]?.text || '';
+      return {
+        success: !result.isError,
+        error: result.isError ? text : undefined,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 
+  /**
+   * Add event listener
+   */
   on(event: MCPEventType, callback: (data?: unknown) => void): void {
     if (!this.eventListeners.has(event)) {
       this.eventListeners.set(event, new Set());
@@ -733,149 +1029,254 @@ class MCPClientService {
     this.eventListeners.get(event)!.add(callback);
   }
 
+  /**
+   * Remove event listener
+   */
   off(event: MCPEventType, callback: (data?: unknown) => void): void {
     this.eventListeners.get(event)?.delete(callback);
   }
 
+  /**
+   * Emit event
+   */
   private emit(event: MCPEventType, data?: unknown): void {
     this.eventListeners.get(event)?.forEach((callback) => callback(data));
   }
 
-  // ═══ SDK event wiring ═══
+  /**
+   * Send JSON-RPC request via HTTP POST
+   */
+  private async sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
+    const id = ++this.requestId;
+    const request: JSONRPCMessage = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params,
+    };
 
-  private wireSdkEvents(sdk: MCPClientSDK): void {
-    // Protocol connect/disconnect/error from transport.
-    sdk.on('disconnected', () => {
-      if (!this.connected) return;
-      this.connected = false;
-      this.emit('disconnect');
-    });
-    sdk.on('error', (err) => {
-      this.emit('error', err);
-    });
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
 
-    // Map known server notifications → outer events. The SDK emits an
-    // event for every incoming notification method; forward listed ones
-    // under their existing MCPEventType names, plus special-case
-    // `state-changed` to apply patches to the global session manager.
-    for (const [method, outerEvent] of Object.entries(NOTIFICATION_EVENT_MAP)) {
-      if (method === 'state-changed') continue;
-      sdk.on(method, (params) => {
-        this.emit(outerEvent, params);
-      });
+    // Include session ID if we have one
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
     }
 
-    sdk.on('state-changed', (params) => {
-      const p = params as { instance?: string; patches?: any[] } | undefined;
-      if (p?.instance && p?.patches) {
-        try {
-          const manager = getGlobalSessionManager();
-          manager.applyPatches(p.instance, p.patches);
-        } catch (error) {
-          console.error('Failed to apply patches to session', error);
+    // Include auth token if available (MCP OAuth)
+    if (this._authToken) {
+      headers['Authorization'] = `Bearer ${this._authToken}`;
+    }
+
+    const response = await fetch(this.baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(request),
+      // 5 min hard wall-clock timeout. Long-running tools (browser
+      // automation, LLM prompts, rendering pipelines) regularly exceed
+      // the old 60s cap and the user-facing failure is a generic
+      // "request aborted" with no context. The right architectural fix
+      // is SSE streaming (Accept: text/event-stream) with idle-reset
+      // timeout — the server already supports it; the client path isn't
+      // wired yet. Tracked as a follow-up.
+      signal: AbortSignal.timeout(300000),
+    });
+
+    // Capture session ID from response
+    const newSessionId = response.headers.get('Mcp-Session-Id');
+    if (newSessionId) {
+      this.sessionId = newSessionId;
+    }
+
+    // Handle 401 — extract resource metadata URL from WWW-Authenticate header
+    if (response.status === 401) {
+      const wwwAuth = response.headers.get('WWW-Authenticate') || '';
+      const metaMatch = wwwAuth.match(/resource_metadata="([^"]+)"/);
+      if (metaMatch) {
+        this._resourceMetadataUrl = metaMatch[1];
+      }
+      this._authRequired = true;
+      throw new Error(`HTTP error: 401 Unauthorized`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
+    }
+
+    const result = (await response.json()) as JSONRPCMessage;
+
+    if (result.error) {
+      throw new Error(result.error.message);
+    }
+
+    return result.result;
+  }
+
+  /**
+   * Notify server that client is viewing a resource (for on-demand subscriptions)
+   * @param photonId - Hash of photon path (unique across servers)
+   * @param itemId - Whatever the photon uses to identify the item (e.g., board name)
+   */
+  async notifyViewing(photonId: string, itemId: string): Promise<void> {
+    if (!this.connected) return;
+    await this.sendNotification('beam/viewing', { photonId, itemId });
+  }
+
+  /**
+   * Send JSON-RPC notification via HTTP POST
+   */
+  private async sendNotification(method: string, params: Record<string, unknown>): Promise<void> {
+    const notification: JSONRPCMessage = {
+      jsonrpc: '2.0',
+      method,
+      params,
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
+    }
+
+    if (this._authToken) {
+      headers['Authorization'] = `Bearer ${this._authToken}`;
+    }
+
+    await fetch(this.baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(notification),
+      signal: AbortSignal.timeout(10000), // 10s for notifications
+    });
+  }
+
+  /**
+   * Handle notification
+   */
+  private handleNotification(notification: JSONRPCMessage): void {
+    switch (notification.method) {
+      case 'notifications/tools/list_changed':
+        this.emit('tools-changed');
+        break;
+
+      case 'notifications/progress':
+        if (notification.params) {
+          this.emit('progress', notification.params as ProgressNotification);
         }
-      }
-      this.emit('state-changed', params);
-    });
-  }
+        break;
 
-  // ═══ Queue-for-retry ═══
+      // Beam-specific notifications
+      case 'beam/photons':
+        this.emit('photons', notification.params);
+        break;
 
-  private isConnectionError(error: unknown): boolean {
-    if (error instanceof Error) {
-      const msg = error.message.toLowerCase();
-      return (
-        msg.includes('network') ||
-        msg.includes('fetch') ||
-        msg.includes('connection') ||
-        msg.includes('timeout') ||
-        msg.includes('failed to fetch') ||
-        msg.includes('streamable http error')
-      );
-    }
-    return false;
-  }
+      case 'beam/hot-reload':
+        this.emit('hot-reload', notification.params);
+        break;
 
-  private queueOperation(
-    name: string,
-    args: Record<string, unknown>,
-    progressToken?: string | number
-  ): Promise<{
-    content: Array<{ type: string; text?: string }>;
-    structuredContent?: unknown;
-    isError?: boolean;
-  }> {
-    return new Promise((resolve, reject) => {
-      const op: PendingOperation = {
-        id: ++this.nextOpId,
-        name,
-        args,
-        progressToken,
-        resolve,
-        reject,
-        timestamp: Date.now(),
-      };
-      this.pendingOperations.push(op);
-      this.emit('operation-queued', {
-        count: this.pendingOperations.length,
-        name,
-        args,
-      });
-      this.scheduleQueueRetry();
-    });
-  }
+      case 'beam/elicitation':
+        this.emit('elicitation', notification.params);
+        break;
 
-  private scheduleQueueRetry(): void {
-    if (this.retryTimer !== null) return;
-    if (this.pendingOperations.length === 0) return;
-    this.retryTimer = window.setTimeout(() => {
-      this.retryTimer = null;
-      void this.processQueue();
-    }, this.QUEUE_RETRY_INTERVAL_MS);
-  }
+      case 'beam/elicitation-deferred':
+        this.emit('elicitation-deferred', notification.params);
+        break;
 
-  private async processQueue(): Promise<void> {
-    if (!this.sdk) {
-      this.scheduleQueueRetry();
-      return;
-    }
-    const now = Date.now();
+      case 'beam/approval-resolved':
+        this.emit('approval-resolved', notification.params);
+        break;
 
-    // Expire stale operations up-front.
-    this.pendingOperations = this.pendingOperations.filter((op) => {
-      if (now - op.timestamp > this.MAX_QUEUE_AGE_MS) {
-        op.reject(new Error('Operation expired'));
-        return false;
-      }
-      return true;
-    });
+      case 'beam/result':
+        this.emit('result', notification.params);
+        break;
 
-    while (this.pendingOperations.length > 0) {
-      const op = this.pendingOperations[0];
-      try {
-        const result = await this.sdk.callTool(op.name, op.args, {
-          progressToken: op.progressToken,
-        });
-        this.pendingOperations.shift();
-        op.resolve(result);
-      } catch (error) {
-        if (this.isConnectionError(error) && Date.now() - op.timestamp < this.MAX_QUEUE_AGE_MS) {
-          // Still offline; come back later.
-          this.scheduleQueueRetry();
-          return;
+      case 'beam/configured':
+        this.emit('configured', notification.params);
+        break;
+
+      case 'beam/error':
+        this.emit('error', notification.params);
+        break;
+
+      case 'beam/toast':
+        this.emit('toast', notification.params);
+        break;
+
+      case 'beam/thinking':
+        this.emit('thinking', notification.params);
+        break;
+
+      case 'beam/log':
+        this.emit('log', notification.params);
+        break;
+
+      case 'beam/render':
+        this.emit('render', notification.params);
+        break;
+
+      case 'beam/canvas':
+        this.emit('canvas', notification.params);
+        break;
+
+      case 'photon/board-update':
+        this.emit('board-update', notification.params);
+        break;
+
+      case 'photon/channel-event':
+        this.emit('channel-event', notification.params);
+        break;
+
+      case 'photon/refresh-needed':
+        this.emit('refresh-needed', notification.params);
+        break;
+
+      case 'state-changed':
+        // Apply patches to global session if it exists
+        const params = notification.params as { instance?: string; patches?: any[] };
+        if (params?.instance && params?.patches) {
+          try {
+            const manager = getGlobalSessionManager();
+            manager.applyPatches(params.instance, params.patches);
+          } catch (error) {
+            console.error('Failed to apply patches to session', error);
+          }
         }
-        this.pendingOperations.shift();
-        op.reject(error instanceof Error ? error : new Error(String(error)));
-      }
+        this.emit('state-changed', notification.params);
+        break;
+
+      case 'photon/notification':
+        this.emit('photon-notification', notification.params);
+        break;
+
+      // MCP Apps standard notifications
+      case 'ui/notifications/tool-result':
+        this.emit('ui-tool-result', notification.params);
+        break;
+
+      case 'ui/notifications/tool-input':
+        this.emit('ui-tool-input', notification.params);
+        break;
+
+      case 'ui/notifications/tool-input-partial':
+        this.emit('ui-tool-input-partial', notification.params);
+        break;
+
+      default:
+        // Emit generic notification for unknown methods
+        this.emit('notification', notification);
+        break;
     }
-    this.emit('queue-processed', { remaining: 0 });
   }
 
-  // ═══ Internal ═══
-
-  private requireSdk(): MCPClientSDK {
-    if (!this.sdk) throw new Error('MCP client not connected');
-    return this.sdk;
+  /**
+   * Check if connected
+   */
+  isConnected(): boolean {
+    return this.connected;
   }
 }
 

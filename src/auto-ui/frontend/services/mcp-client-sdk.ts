@@ -83,16 +83,6 @@ export interface CallOptions {
   maxTimeoutMs?: number;
 }
 
-export interface MCPClientSDKOptions {
-  authToken?: string;
-  /**
-   * Optional fetch override. The outer MCPClientService wraps window.fetch
-   * here to intercept 401s and harvest WWW-Authenticate → resource_metadata_url
-   * before the SDK throws, without needing the SDK's built-in OAuth provider.
-   */
-  fetch?: typeof fetch;
-}
-
 export class MCPClientSDK {
   private transport: StreamableHTTPClientTransport;
   private listeners = new Map<string, Set<Listener>>();
@@ -100,21 +90,11 @@ export class MCPClientSDK {
   private nextId = 1;
   private connected = false;
 
-  constructor(baseUrl: string, opts: MCPClientSDKOptions = {}) {
+  constructor(baseUrl: string, opts: { authToken?: string } = {}) {
     this.transport = new StreamableHTTPClientTransport(new URL(baseUrl), {
       requestInit: opts.authToken
         ? { headers: { Authorization: `Bearer ${opts.authToken}` } }
         : undefined,
-      fetch: opts.fetch,
-      // SDK's default maxRetries is 2. We match the old client's
-      // never-give-up behavior so the user doesn't need to refresh
-      // after a daemon restart or transient network blip.
-      reconnectionOptions: {
-        initialReconnectionDelay: 1_000,
-        maxReconnectionDelay: 30_000,
-        reconnectionDelayGrowFactor: 1.5,
-        maxRetries: Number.MAX_SAFE_INTEGER,
-      },
     });
 
     this.transport.onmessage = (msg) => this.handleMessage(msg as JSONRPCMessage);
@@ -225,14 +205,6 @@ export class MCPClientSDK {
         .send({ jsonrpc: '2.0', id, method, params: messageParams })
         .catch((err) => clearAndFail(err instanceof Error ? err : new Error(String(err))));
     });
-  }
-
-  /**
-   * Send a JSON-RPC notification (fire-and-forget, no id). Used for
-   * `notifications/initialized`, `beam/viewing`, etc.
-   */
-  async notify(method: string, params: Record<string, unknown> = {}): Promise<void> {
-    await this.transport.send({ jsonrpc: '2.0', method, params });
   }
 
   private finalize(id: string | number): void {
