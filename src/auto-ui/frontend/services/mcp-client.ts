@@ -1074,7 +1074,14 @@ class MCPClientService {
       method: 'POST',
       headers,
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(60000), // 60s for MCP method calls
+      // 5 min hard wall-clock timeout. Long-running tools (browser
+      // automation, LLM prompts, rendering pipelines) regularly exceed
+      // the old 60s cap and the user-facing failure is a generic
+      // "request aborted" with no context. The right architectural fix
+      // is SSE streaming (Accept: text/event-stream) with idle-reset
+      // timeout — the server already supports it; the client path isn't
+      // wired yet. Tracked as a follow-up.
+      signal: AbortSignal.timeout(300000),
     });
 
     // Capture session ID from response
