@@ -280,6 +280,9 @@ Things you don't build because Photon handles them:
 | **Cross-photon calls** | `this.call()` invokes another photon's methods |
 | **Real-time events** | `this.emit()` fires named events to the browser UI with zero wiring |
 | **Live rendering** | `this.render()` pushes formatted output to CLI and Beam in real time |
+| **Delegated LLM** | `this.sample()` asks the driving agent's model to generate text — no API key, agent pays |
+| **Inline confirm / input** | `this.confirm()` and `this.elicit()` route through the client's native UI (Beam dialog, Claude prompt) |
+| **Scoped remote access** | `photon claim` generates a short-lived code to scope a remote MCP session to one directory |
 | **Standalone binaries** | `photon build` compiles any photon to a single executable via Bun |
 | **Dependency management** | `@dependencies` auto-installs npm packages on first run |
 
@@ -324,6 +327,69 @@ chess.move({ from: 'e2', to: 'e4' });
 A human moves through Beam. Claude is configured with the MCP server. The lock ensures they truly alternate. Events keep the board live on both sides. That's a fully functional turn-based chess game, human vs AI, in about 50 lines of application logic.
 
 The same pattern applies beyond games: approval workflows where a human reviews before AI continues, collaborative tools where edits from any source appear instantly, simulations where steps must execute in strict sequence, any system where **who acts next matters**.
+
+---
+
+## MCP Primitives on `this`
+
+The MCP protocol's user-facing primitives are surfaced as plain methods
+on every photon instance — no decorators, no capability flags, no SDK
+imports. The runtime routes each call through whichever surface the
+request arrived on (Beam, Claude Desktop, Cursor, CLI).
+
+```typescript
+export default class Editor {
+  async summarize(params: { text: string }) {
+    // Ask the driving agent's LLM. No API key. Agent pays.
+    return await this.sample({
+      prompt: `Summarize in one sentence:\n\n${params.text}`,
+      maxTokens: 128,
+    });
+  }
+
+  async deploy() {
+    if (!(await this.confirm('Ship to production?'))) return;
+    const env = await this.elicit<string>({
+      ask: 'select',
+      message: 'Which environment?',
+      options: ['staging', 'prod'],
+    });
+    await this.run(env);
+  }
+}
+```
+
+| Primitive | What it does |
+|---|---|
+| `await this.sample({ prompt })` | Delegates LLM generation to the caller's model via MCP sampling |
+| `await this.confirm(question)` | Yes/no prompt — returns `boolean` |
+| `await this.elicit(params)` | Arbitrary input (text, select, form, file, etc.) |
+| `this.status(msg)` / `this.progress(v)` | Live feedback during long work |
+
+Full reference: [`docs/reference/MCP-PRIMITIVES.md`](docs/reference/MCP-PRIMITIVES.md).
+
+---
+
+## Remote Access: Claim Codes
+
+By default every installed photon is visible to every connected MCP
+client. When you want to pair a *remote* agent with a *subset* of your
+photons — your phone driving Beam, a teammate reviewing one project,
+a CI agent scoped to a single directory — generate a claim code:
+
+```bash
+$ photon claim --scope /workspace/proj --ttl 4h --label "phone"
+✓ Claim code: R3K-9QZ
+  Scope:      /workspace/proj
+  Expires in: 4h
+```
+
+The remote client presents the code as the `Mcp-Claim-Code` header on
+its MCP session. `tools/list` then only exposes photons whose source
+lives under that directory. Sessions without a code keep full access —
+the feature is strictly opt-in.
+
+Full reference: [`docs/reference/CLAIM-CODES.md`](docs/reference/CLAIM-CODES.md).
 
 ---
 

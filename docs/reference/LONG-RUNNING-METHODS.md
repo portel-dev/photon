@@ -41,6 +41,10 @@ meaningful.
 **Rule of thumb**: emit at least once every 5 seconds during any busy
 period.
 
+> `this.status()` / `this.progress()` are part of the MCP primitives
+> surface alongside `this.sample()`, `this.confirm()`, `this.elicit()`.
+> See [`MCP-PRIMITIVES.md`](./MCP-PRIMITIVES.md) for the full set.
+
 ### Heartbeat pattern for subprocess calls
 
 When you shell out to something that doesn't stream its own progress
