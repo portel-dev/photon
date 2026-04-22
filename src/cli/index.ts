@@ -34,6 +34,7 @@ import { registerTestCommand } from './commands/test.js';
 import { registerAliasCommands } from './commands/alias.js';
 import { registerAuditCommand } from './commands/audit.js';
 import { registerBuildCommand } from './commands/build.js';
+import { registerClaimCommands } from './commands/claim.js';
 import { preprocessArgs } from './commands/run.js';
 
 export function createProgram(): Command {
@@ -126,6 +127,7 @@ Run 'photon <command> --help' for detailed usage.
   registerAliasCommands(program);
   registerAuditCommand(program);
   registerBuildCommand(program);
+  registerClaimCommands(program);
 
   return program;
 }

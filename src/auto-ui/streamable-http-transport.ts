@@ -108,6 +108,13 @@ interface MCPSession {
   clientInfo?: { name: string; version: string };
   /** Tracked instance name for daemon drift recovery */
   instanceName?: string;
+  /**
+   * If this session presented a valid `Mcp-Claim-Code` on initialize,
+   * photons outside this directory are filtered out of tools/list. When
+   * unset the session has unscoped (full) access — the default.
+   * See src/daemon/claims.ts for the full claim-code story.
+   */
+  claimScopeDir?: string;
 }
 
 interface MCPTool {
@@ -1021,8 +1028,18 @@ const handlers: Record<string, RequestHandler> = {
   'tools/list': async (req, session, ctx) => {
     const tools: MCPTool[] = [];
 
+    // Claim-code scoping: when the session presented a valid claim on
+    // initialize, only photons whose source file lives under that
+    // directory are visible. Unscoped sessions keep the prior behavior
+    // (every configured photon is listed).
+    const scopeDir = session.claimScopeDir;
+    const { isPathInScope } = await import('../daemon/claims.js');
+    const visiblePhotons = scopeDir
+      ? ctx.photons.filter((p) => isPathInScope(p.path, scopeDir))
+      : ctx.photons;
+
     // Add configured photon methods as tools
-    for (const photon of ctx.photons) {
+    for (const photon of visiblePhotons) {
       if (!photon.configured || !photon.methods) continue;
 
       for (const method of photon.methods) {
@@ -1071,7 +1088,7 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     // Add runtime-injected instance tools for stateful photons
-    for (const photon of ctx.photons) {
+    for (const photon of visiblePhotons) {
       if (!photon.configured || !photon.stateful) continue;
       tools.push({
         name: `${photon.name}/_use`,
@@ -3964,7 +3981,7 @@ export async function handleStreamableHTTP(
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Accept, Mcp-Session-Id, Authorization'
+    'Content-Type, Accept, Mcp-Session-Id, Mcp-Claim-Code, Authorization'
   );
   res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
 
@@ -4011,6 +4028,31 @@ export async function handleStreamableHTTP(
     sessionId = url.searchParams.get('sessionId') || undefined;
   }
   const session = getOrCreateSession(sessionId);
+
+  // Claim-code scoping: if the client presented `Mcp-Claim-Code` (header
+  // or query param for SSE), validate it and stamp the allowed scopeDir
+  // onto the session. `tools/list` later filters photons by this value.
+  // Absent or invalid codes leave the session unscoped (full access) —
+  // claims are strictly additive, never a gate on unclaimed sessions.
+  // See `src/daemon/claims.ts` for the store and the scoping contract.
+  if (!session.claimScopeDir) {
+    const rawCode =
+      (req.headers['mcp-claim-code'] as string | undefined) ||
+      url.searchParams.get('claim') ||
+      undefined;
+    if (rawCode) {
+      try {
+        const { validateClaimSync } = await import('../daemon/claims.js');
+        const result = validateClaimSync(rawCode);
+        if (result.ok) {
+          session.claimScopeDir = result.claim.scopeDir;
+        }
+      } catch {
+        // Claim store unreadable — fall through to unscoped access so
+        // we don't hard-break when `.data/claims.json` is missing.
+      }
+    }
+  }
 
   // GET - Open SSE stream for server notifications
   if (req.method === 'GET') {

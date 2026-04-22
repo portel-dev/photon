@@ -77,6 +77,7 @@ SUITES=(
   "audit-sqlite:$RUN tests/audit-sqlite.test.ts"
   "auth-endpoints:$RUN tests/auth-endpoints.test.ts"
   "call-always-injected:$RUN tests/call-always-injected.test.ts"
+  "claim-codes:$RUN tests/claim-codes.test.ts"
   "cimd:$RUN tests/cimd.test.ts"
   "format-coverage:$RUN tests/contract/format-coverage.test.ts"
   "daemon-multibase-keys:$RUN tests/daemon-multibase-keys.test.ts"

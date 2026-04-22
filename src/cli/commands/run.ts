@@ -70,6 +70,7 @@ export const RESERVED_COMMANDS = [
   'diagrams',
   'enable',
   'disable',
+  'claim',
   // Help/version (handled by commander)
   'help',
   '--help',
@@ -119,6 +120,7 @@ const knownCommands = [
   'publish',
   'diagram',
   'diagrams',
+  'claim',
 ];
 
 const knownSubcommands: Record<string, string[]> = {
