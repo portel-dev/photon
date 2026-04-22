@@ -61,17 +61,10 @@ const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXY';
 export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 /**
- * Canonicalize a filesystem path for scope comparisons. Resolves
- * symlinks via `realpath` when the path exists, so a symlinked
- * photon can't escape its claim scope (lexical `path.resolve` would
- * leave the symlink unexpanded and compare the symlink location
- * instead of the target). On case-insensitive filesystems (APFS,
- * NTFS) realpath also normalizes casing, which avoids a scoped
- * caller being spuriously rejected because they capitalized a path
- * differently than the claim did. Falls back to lexical resolve
- * when the path doesn't exist yet (e.g., scope dir typoed, or a
- * photon path that hasn't been written) so we don't throw on the
- * happy-path check.
+ * Resolve symlinks so a symlinked photon can't escape its claim
+ * scope (a lexical compare would follow the link's parent, not its
+ * target). Falls back to lexical resolve when the path doesn't
+ * exist yet.
  */
 function canonicalizePath(p: string): string {
   const resolved = path.resolve(p);

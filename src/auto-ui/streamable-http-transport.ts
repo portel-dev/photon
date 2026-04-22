@@ -65,6 +65,7 @@ import {
 import { toWireFormat, relatedTaskMeta, TERMINAL_STATES, type Task } from '../tasks/types.js';
 import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from '../tasks/executor.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
+import { isPathInScope } from '../daemon/claims.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // JWT HELPERS
@@ -172,22 +173,13 @@ const pendingServerRequests = new Map<string | number, PendingServerRequest>();
 let nextServerRequestId = 1;
 
 /**
- * Send a JSON-RPC *request* (not a notification) to a specific Beam
- * session via its SSE stream and await the response. Used to build
- * photon-facing providers (sampling, future: roots/list, etc.) that
- * route through the human at the browser.
+ * Send a JSON-RPC request to a Beam session over its SSE stream and
+ * await the reply. Backs photon-facing providers (sampling, future
+ * roots/list) that route through the human at the browser.
  *
- * Rejects if the session has no live SSE stream, if the browser
- * returns an error response, or if no response arrives within
- * `timeoutMs`.
- *
- * The default timeout is 30 minutes because Beam's sampling-modal
- * serializes concurrent requests into a queue: a second request can
- * sit behind an open modal for the user's full read+reply time before
- * even being displayed. At 5 minutes the queued entry could expire
- * off-screen before the user ever sees it. 30 min is long enough to
- * absorb realistic queue latency while still failing a session whose
- * browser has truly gone silent.
+ * 30-min timeout accommodates the sampling-modal's serial queue:
+ * a queued request can sit behind an open modal for the user's full
+ * read+reply time, so 5 min would let entries expire off-screen.
  */
 function requestSession(
   sessionId: string,
@@ -763,22 +755,17 @@ function buildToolResult(
 
 /**
  * Is the given task visible to this session under its claim scope?
- *
- * Unscoped sessions see everything (scope is additive — absent code
- * means full access). Scoped sessions only see tasks whose photon's
- * on-disk path sits under the claimed directory. Tasks whose photon
- * has since been removed from `ctx.photons` are treated as
- * out-of-scope so a stale task can't leak info to a scoped caller.
+ * Out-of-scope tasks AND tasks whose photon has been removed are
+ * both hidden, so a stale task can't leak info to a scoped caller.
  */
-async function isTaskInScope(
+function isTaskInScope(
   task: Task,
   scopeDir: string | undefined,
   photons: AnyPhotonInfo[]
-): Promise<boolean> {
+): boolean {
   if (!scopeDir) return true;
   const info = photons.find((p) => p.name === task.photon);
   if (!info) return false;
-  const { isPathInScope } = await import('../daemon/claims.js');
   return isPathInScope(info.path, scopeDir);
 }
 
@@ -1162,7 +1149,6 @@ const handlers: Record<string, RequestHandler> = {
     // directory are visible. Unscoped sessions keep the prior behavior
     // (every configured photon is listed).
     const scopeDir = session.claimScopeDir;
-    const { isPathInScope } = await import('../daemon/claims.js');
     const visiblePhotons = scopeDir
       ? ctx.photons.filter((p) => isPathInScope(p.path, scopeDir))
       : ctx.photons;
@@ -1633,7 +1619,6 @@ const handlers: Record<string, RequestHandler> = {
     // tools/call. Every call therefore re-checks scope against the
     // session's `claimScopeDir`. Unscoped sessions bypass this check.
     if (session.claimScopeDir) {
-      const { isPathInScope } = await import('../daemon/claims.js');
       if (!targetPhoton || !isPathInScope(targetPhoton.path, session.claimScopeDir)) {
         return {
           jsonrpc: '2.0',
@@ -2702,7 +2687,6 @@ const handlers: Record<string, RequestHandler> = {
     // client could bypass scope by starting work via tasks/create.
     if (session.claimScopeDir) {
       const targetInfo = ctx.photons.find((p) => p.name === photonName);
-      const { isPathInScope } = await import('../daemon/claims.js');
       if (!targetInfo || !isPathInScope(targetInfo.path, session.claimScopeDir)) {
         return {
           jsonrpc: '2.0',
@@ -2772,7 +2756,7 @@ const handlers: Record<string, RequestHandler> = {
     // is truly absent or simply out of scope. Collapsing both cases
     // into the same response avoids leaking existence to callers
     // that shouldn't see this photon.
-    if (!task || !(await isTaskInScope(task, session.claimScopeDir, ctx.photons))) {
+    if (!task || !isTaskInScope(task, session.claimScopeDir, ctx.photons)) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -2785,17 +2769,10 @@ const handlers: Record<string, RequestHandler> = {
   'tasks/list': async (req, session, ctx) => {
     const { cursor } = (req.params || {}) as { cursor?: string };
     let allTasks = listTasks();
-    // Scope filter: for scoped sessions, only return tasks whose
-    // photon is inside the claim scope. Paginate after filtering so
-    // the cursor indexes align with what the caller actually sees.
+    // Filter scoped sessions before paginating so the cursor indexes
+    // align with what the caller actually sees.
     if (session.claimScopeDir) {
-      const scopeDir = session.claimScopeDir;
-      const photons = ctx.photons;
-      const filtered: Task[] = [];
-      for (const t of allTasks) {
-        if (await isTaskInScope(t, scopeDir, photons)) filtered.push(t);
-      }
-      allTasks = filtered;
+      allTasks = allTasks.filter((t) => isTaskInScope(t, session.claimScopeDir, ctx.photons));
     }
     // Simple pagination: cursor is the offset index
     const offset = cursor ? parseInt(cursor, 10) || 0 : 0;
@@ -2823,7 +2800,7 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
     const task = getTask(taskId);
-    if (!task || !(await isTaskInScope(task, session.claimScopeDir, ctx.photons))) {
+    if (!task || !isTaskInScope(task, session.claimScopeDir, ctx.photons)) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -2861,7 +2838,7 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     const task = getTask(taskId);
-    if (!task || !(await isTaskInScope(task, session.claimScopeDir, ctx.photons))) {
+    if (!task || !isTaskInScope(task, session.claimScopeDir, ctx.photons)) {
       return {
         jsonrpc: '2.0',
         id: req.id,
