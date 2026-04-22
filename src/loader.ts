@@ -1017,6 +1017,27 @@ export class PhotonLoader {
       // Inject file path for storage()/assets() resolution
       instance._photonFilePath = absolutePath;
 
+      // Inject schedule-unschedule hook so `this.schedule.cancel()` evicts
+      // the in-memory cron registration at the same time as unlinking
+      // the file. Prevents ghost schedule registrations — the scenario
+      // where a cancel + re-enable under the same name leaves the old
+      // cron firing in parallel with the new one until the next daemon
+      // restart. The hook is best-effort: if the daemon is unreachable
+      // the fire-time phantom-prune (daemon checks sourceFile before
+      // running) catches the ghost on its next tick.
+      const photonNameForSchedule = name;
+      instance._scheduleUnscheduleHook = async (jobId: string) => {
+        try {
+          const { unscheduleJob } = await import('./daemon/client.js');
+          return await unscheduleJob(photonNameForSchedule, jobId);
+        } catch {
+          // Daemon unreachable or IPC failure — treat as no-op. The
+          // phantom-prune backstop in runJob handles eviction on the
+          // next fire.
+          return false;
+        }
+      };
+
       // Inject this.shell — execSync wrapper with cwd defaulted to the
       // photon's own folder. Shelling out from a photon method should run
       // from where the photon lives, not the daemon's cwd, so that

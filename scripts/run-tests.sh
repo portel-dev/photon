@@ -103,6 +103,7 @@ SUITES=(
   "mcp-client-sdk:$RUN tests/mcp-client-sdk.test.ts"
   "schedule-autonomous-fire:$RUN tests/schedule-autonomous-fire.test.ts"
   "schedule-boot-load:$RUN tests/schedule-boot-load.test.ts"
+  "schedule-ghost-cancel:$RUN tests/schedule-ghost-cancel.test.ts"
 )
 
 TOTAL=0
