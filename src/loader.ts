@@ -1124,8 +1124,17 @@ export class PhotonLoader {
           injectEmitHelpers(instance);
         }
 
-        if (caps.has('memory')) {
-          // Inject lazy memory provider — capture baseDir from loader context
+        // Always-inject lazy memory provider. The getter is a pure closure
+        // that constructs MemoryProvider on first access — zero cost until
+        // used. Gating this on a regex (`detectCapabilities`) missed TS
+        // cast shapes with function-type parens like
+        // `(this as unknown as { memory: { set: (k: string) => void } })` —
+        // the classic TypeScript workaround when memory isn't on the
+        // declared class — and silently left `this.memory` undefined. That
+        // turned every `.memory.set(...)` call into a data-loss bug that
+        // only surfaced on daemon cold start.
+        // User-defined memory on the class wins.
+        if (!Object.getOwnPropertyDescriptor(instance, 'memory')) {
           const memoryBaseDir = this.baseDir;
           Object.defineProperty(instance, 'memory', {
             get() {
@@ -1244,8 +1253,10 @@ export class PhotonLoader {
           };
         }
 
-        if (caps.has('instanceMeta')) {
-          // Inject instance metadata (file-stat-based timestamps)
+        // Always-inject instance metadata. One file-stat call per load is
+        // cheap and avoids the same detection-gate trap as memory. User-
+        // defined instanceMeta on the class wins.
+        if (!instance.instanceMeta) {
           const instanceName = options?.instanceName || 'default';
           const stateFile = getInstanceStatePath(name, instanceName, this.baseDir);
           try {
@@ -1734,7 +1745,8 @@ export class PhotonLoader {
         injectEmitHelpers(instance);
       }
 
-      if (caps.has('memory')) {
+      // Always-inject memory (see primary load path for rationale).
+      if (!Object.getOwnPropertyDescriptor(instance, 'memory')) {
         const memoryBaseDir = this.baseDir;
         Object.defineProperty(instance, 'memory', {
           get() {
