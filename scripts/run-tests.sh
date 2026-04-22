@@ -100,6 +100,7 @@ SUITES=(
   "typed-access-capabilities:$RUN tests/typed-access-capabilities.test.ts"
   "version-dev-marker:$RUN tests/version-dev-marker.test.ts"
   "mcp-client-sdk:$RUN tests/mcp-client-sdk.test.ts"
+  "schedule-autonomous-fire:$RUN tests/schedule-autonomous-fire.test.ts"
   "schedule-boot-load:$RUN tests/schedule-boot-load.test.ts"
 )
 
