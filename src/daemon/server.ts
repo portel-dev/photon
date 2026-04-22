@@ -19,6 +19,7 @@ import * as crypto from 'crypto';
 import { SessionManager } from './session-manager.js';
 import { transferHotReloadState } from './hot-reload-state.js';
 import { resolveWithGlobalFallback } from './session-resolver.js';
+import { loadPersistedSchedulesFromDir } from './schedule-loader.js';
 import {
   DaemonRequest,
   DaemonResponse,
@@ -1037,84 +1038,24 @@ function deletePersistedIpcSchedule(jobId: string, photonName: string): void {
  * Process IPC schedule files from one photon's schedules directory.
  * Mutates loadedCount / skippedCount via the returned counters.
  */
-function loadIpcSchedulesFromDir(
+/**
+ * Wire the pure loader from `schedule-loader.ts` to this module's
+ * scheduleJob + scheduledJobs. The loader is kept pure (no daemon
+ * globals, no logger) so tests can import it without triggering the
+ * daemon bootstrap IIFE. See schedule-loader.ts for format details.
+ */
+function loadDaemonSchedulesFromDir(
   schedulesPath: string,
-  ttlMs: number
+  ttlMs: number,
+  photonNameHint: string | null,
+  workingDirHint: string | undefined
 ): { loaded: number; skipped: number } {
-  let loaded = 0;
-  let skipped = 0;
-  let files: string[];
-  try {
-    files = fs.readdirSync(schedulesPath).filter((f) => f.endsWith('.json'));
-  } catch {
-    return { loaded, skipped };
-  }
-
-  for (const file of files) {
-    const filePath = path.join(schedulesPath, file);
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const task = JSON.parse(content);
-
-      // Skip non-IPC jobs (ScheduleProvider handles its own)
-      if (task.source !== 'ipc') continue;
-
-      // Validate required fields
-      if (!task.id || !task.method || !task.cron || !task.photonName) {
-        logger.warn('Skipping invalid persisted schedule', { file: filePath });
-        skipped++;
-        continue;
-      }
-
-      // TTL check: skip jobs not executed in 30+ days
-      const lastExec = task.lastExecutionAt ? new Date(task.lastExecutionAt).getTime() : 0;
-      const created = task.createdAt ? new Date(task.createdAt).getTime() : 0;
-      const lastActivity = Math.max(lastExec, created);
-      if (lastActivity > 0 && Date.now() - lastActivity > ttlMs) {
-        logger.info('Removing expired schedule (TTL)', {
-          jobId: task.id,
-          lastActivity: new Date(lastActivity).toISOString(),
-        });
-        try {
-          fs.unlinkSync(filePath);
-        } catch {
-          /* ignore */
-        }
-        skipped++;
-        continue;
-      }
-
-      // Skip if already registered (another source may have loaded it)
-      if (scheduledJobs.has(task.id)) continue;
-
-      const job: ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string } = {
-        id: task.id,
-        method: task.method,
-        args: task.args || {},
-        cron: task.cron,
-        runCount: task.executionCount || 0,
-        createdAt: created || Date.now(),
-        createdBy: task.createdBy,
-        photonName: task.photonName,
-        workingDir: task.workingDir,
-      };
-
-      if (scheduleJob(job)) {
-        loaded++;
-      } else {
-        logger.warn('Failed to schedule persisted job (invalid cron?)', { jobId: task.id });
-        skipped++;
-      }
-    } catch (err) {
-      logger.warn('Failed to load persisted schedule file', {
-        file: filePath,
-        error: getErrorMessage(err),
-      });
-      skipped++;
-    }
-  }
-
-  return { loaded, skipped };
+  return loadPersistedSchedulesFromDir(schedulesPath, ttlMs, photonNameHint, workingDirHint, {
+    alreadyRegistered: (id) => scheduledJobs.has(asScheduleKey(id)),
+    register: (job) => scheduleJob(job),
+    warn: (msg, ctx) => logger.warn(msg, ctx),
+    info: (msg, ctx) => logger.info(msg, ctx),
+  });
 }
 
 /**
@@ -1225,7 +1166,9 @@ function loadAllPersistedSchedules(): void {
       const schedulesPath = path.join(root, dir.name);
       if (scannedDirs.has(schedulesPath)) continue;
       scannedDirs.add(schedulesPath);
-      const result = loadIpcSchedulesFromDir(schedulesPath, ttlMs);
+      // Legacy flat root: {root}/<photonName>/*.json — photon name IS
+      // the directory name.
+      const result = loadDaemonSchedulesFromDir(schedulesPath, ttlMs, dir.name, undefined);
       loadedCount += result.loaded;
       skippedCount += result.skipped;
     }
@@ -1254,7 +1197,10 @@ function loadAllPersistedSchedules(): void {
       if (!fs.existsSync(schedulesPath)) continue;
       if (scannedDirs.has(schedulesPath)) continue;
       scannedDirs.add(schedulesPath);
-      const result = loadIpcSchedulesFromDir(schedulesPath, ttlMs);
+      // Per-base layout: {baseDir}/.data/<photonName>/schedules/*.json.
+      // Photon name is the entry name, working dir is the base itself
+      // (used for session resolution when the cron fires).
+      const result = loadDaemonSchedulesFromDir(schedulesPath, ttlMs, entry.name, baseDir);
       loadedCount += result.loaded;
       skippedCount += result.skipped;
     }
