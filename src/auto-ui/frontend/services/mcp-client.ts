@@ -326,7 +326,15 @@ class MCPClientService {
       protocolVersion: '2025-03-26',
       capabilities: {
         roots: { listChanged: false },
-        sampling: {},
+        // Do NOT advertise `sampling` here until the browser transport
+        // has a `sampling/createMessage` handler. Beam has no LLM of
+        // its own, and declaring the capability makes the runtime
+        // attach a `samplingProvider` that dispatches `createMessage`
+        // to the client — a call the browser never answers, so any
+        // photon invoking `this.sample()` from a Beam session would
+        // hang. If/when Beam gains a configurable LLM endpoint or a
+        // user-paste bridge, re-add `sampling: {}` AND implement the
+        // handler in the same change.
       },
       clientInfo: {
         name: 'beam',
@@ -749,6 +757,17 @@ class MCPClientService {
       if (!this.connected) return;
       this.connected = false;
       this.emit('disconnect');
+    });
+    sdk.on('reconnected', () => {
+      // SDK recovered after a dropped SSE stream (daemon restart,
+      // network blip). Flip our own `connected` flag back on and
+      // surface as `reconnect` — beam-app listens on this to re-pick
+      // the active stateful instance and refresh tools. Without this
+      // forward, the UI would stay visually fine (SDK transparently
+      // reconnects) but with stale state frozen from before the drop.
+      if (this.connected) return;
+      this.connected = true;
+      this.emit('reconnect');
     });
     sdk.on('error', (err) => {
       this.emit('error', err);

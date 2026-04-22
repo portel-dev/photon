@@ -302,6 +302,18 @@ export class MCPClientSDK {
   // ── Incoming message routing ─────────────────────────────────────
 
   private handleMessage(msg: JSONRPCMessage): void {
+    // Detect recovery. If messages start flowing again after the
+    // transport fired `onclose` (which flipped `connected` to false),
+    // the SDK's internal reconnection logic has re-established the
+    // SSE stream. Surface that as a `reconnected` event so callers
+    // (beam-app restores the active stateful instance, refreshes the
+    // tool list, etc.) can recover their own state — silently flipping
+    // the flag would leave them frozen with stale data.
+    if (!this.connected) {
+      this.connected = true;
+      this.emit('reconnected');
+    }
+
     // Response (has id, no method).
     if (msg.id != null && !msg.method) {
       const pending = this.pending.get(msg.id);
@@ -320,22 +332,23 @@ export class MCPClientSDK {
     if (msg.method === 'notifications/progress' && msg.params) {
       const { progressToken } = msg.params as { progressToken?: string | number };
       if (progressToken != null) {
-        for (const pending of this.pending.values()) {
+        for (const [requestId, pending] of this.pending) {
           if (pending.progressToken === progressToken) {
             // Reset idle timer — progress proves the server is alive.
             if (pending.idleTimer) clearTimeout(pending.idleTimer);
             pending.idleTimer = setTimeout(() => {
-              this.sendCancel(pending.progressToken as string | number, 'idle-timeout');
+              // MCP `notifications/cancelled` matches the original
+              // JSON-RPC request id, NOT the progressToken. Passing
+              // progressToken here lets the browser reject the local
+              // promise but leaves the server-side tool running
+              // orphaned — the idle-timeout fired, the client gave up,
+              // and the photon keeps consuming resources. Cancel by
+              // requestId so the server actually tears down the call.
+              this.sendCancel(requestId, 'idle-timeout');
               pending.reject(
                 new Error(`Request timed out after ${pending.idleTimeoutMs}ms of no progress`)
               );
-              // finalize wants a request id; look it up.
-              for (const [id, p] of this.pending) {
-                if (p === pending) {
-                  this.finalize(id);
-                  break;
-                }
-              }
+              this.finalize(requestId);
             }, pending.idleTimeoutMs);
             pending.onProgress?.(msg.params);
             break;

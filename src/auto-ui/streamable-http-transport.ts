@@ -1497,6 +1497,34 @@ const handlers: Record<string, RequestHandler> = {
 
     // Per-photon auth check: if this photon requires auth but caller is anonymous, reject
     const targetPhoton = ctx.photons.find((p) => p.name === serverName);
+
+    // Claim-code scope enforcement: filtering tools/list alone is not a
+    // gate — a caller that knows a tool name (cached from before the
+    // claim was scoped, or inferred) could still invoke it via
+    // tools/call. Every call therefore re-checks scope against the
+    // session's `claimScopeDir`. Unscoped sessions bypass this check.
+    if (session.claimScopeDir) {
+      const { isPathInScope } = await import('../daemon/claims.js');
+      if (!targetPhoton || !isPathInScope(targetPhoton.path, session.claimScopeDir)) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text:
+                  `Tool ${name} is not available in the current claim scope. ` +
+                  `The claim code presented on this session only grants access to photons ` +
+                  `under ${session.claimScopeDir}.`,
+              },
+            ],
+            isError: true,
+          },
+        };
+      }
+    }
+
     if (targetPhoton?.configured && targetPhoton.auth === 'required') {
       if (!ctx.caller || ctx.caller.anonymous) {
         return {
@@ -4029,13 +4057,18 @@ export async function handleStreamableHTTP(
   }
   const session = getOrCreateSession(sessionId);
 
-  // Claim-code scoping: if the client presented `Mcp-Claim-Code` (header
-  // or query param for SSE), validate it and stamp the allowed scopeDir
-  // onto the session. `tools/list` later filters photons by this value.
+  // Claim-code scoping: if the client presents `Mcp-Claim-Code` (header
+  // or query param for SSE), validate it on EVERY request and stamp
+  // the allowed scopeDir onto the session. Re-validating per request
+  // (rather than once at session init) means revoke + TTL expiry take
+  // effect immediately on the next call — otherwise a scoped session
+  // keeps its access after `photon claim revoke` or TTL, which would
+  // defeat the point of short-lived codes.
+  //
   // Absent or invalid codes leave the session unscoped (full access) —
   // claims are strictly additive, never a gate on unclaimed sessions.
   // See `src/daemon/claims.ts` for the store and the scoping contract.
-  if (!session.claimScopeDir) {
+  {
     const rawCode =
       (req.headers['mcp-claim-code'] as string | undefined) ||
       url.searchParams.get('claim') ||
@@ -4044,13 +4077,16 @@ export async function handleStreamableHTTP(
       try {
         const { validateClaimSync } = await import('../daemon/claims.js');
         const result = validateClaimSync(rawCode);
-        if (result.ok) {
-          session.claimScopeDir = result.claim.scopeDir;
-        }
+        session.claimScopeDir = result.ok ? result.claim.scopeDir : undefined;
       } catch {
         // Claim store unreadable — fall through to unscoped access so
         // we don't hard-break when `.data/claims.json` is missing.
+        session.claimScopeDir = undefined;
       }
+    } else if (session.claimScopeDir) {
+      // Session was previously scoped but the client stopped sending
+      // the code. Treat the missing header as revocation.
+      session.claimScopeDir = undefined;
     }
   }
 
