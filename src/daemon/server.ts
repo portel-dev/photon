@@ -589,7 +589,20 @@ staleMapCleanupInterval.unref();
  */
 const scheduledJobs = new Map<
   ScheduleKey,
-  ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string }
+  ScheduledJob & {
+    photonName: string;
+    workingDir?: string;
+    photonPath?: string;
+    /**
+     * For ScheduleProvider-sourced jobs, the absolute path of the
+     * backing `{baseDir}/.data/{photon}/schedules/{uuid}.json` file.
+     * The fire handler uses this to prune phantom registrations whose
+     * backing file has been deleted out from under the cron engine
+     * (e.g. `this.schedule.cancel()` unlinks the file but the in-memory
+     * registration survived daemon restart).
+     */
+    sourceFile?: string;
+  }
 >();
 const jobTimers = new Map<ScheduleKey, NodeJS.Timeout>();
 
@@ -745,7 +758,12 @@ function parseCron(cron: string): { isValid: boolean; nextRun: number } {
 }
 
 function scheduleJob(
-  job: ScheduledJob & { photonName: string; workingDir?: string; photonPath?: string }
+  job: ScheduledJob & {
+    photonName: string;
+    workingDir?: string;
+    photonPath?: string;
+    sourceFile?: string;
+  }
 ): boolean {
   const { isValid, nextRun } = parseCron(job.cron);
   if (!isValid) {
@@ -785,16 +803,41 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
   if (!job) return;
 
   const key = compositeKey(job.photonName, job.workingDir);
+
+  // Phantom prune: when a ScheduleProvider-sourced job's backing file
+  // has been deleted (e.g. `this.schedule.cancel()` ran the unlink
+  // but the in-memory registration survived daemon restart), stop
+  // firing and evict the stale registration. Without this, a cancelled
+  // schedule keeps triggering every interval forever — the main reason
+  // we saw `Cannot run job` logs for jobIds that had no backing file.
+  if (job.sourceFile && !fs.existsSync(job.sourceFile)) {
+    logger.info('Dropping orphan scheduled job — backing file gone', {
+      jobId,
+      photon: job.photonName,
+      sourceFile: job.sourceFile,
+    });
+    unscheduleJob(jobId);
+    return;
+  }
+
   let sessionManager = sessionManagers.get(key);
 
-  // Lazy-load: schedules registered proactively at boot carry the photon's
-  // source path on the job, so we can spin up the session when the timer
-  // fires rather than require the photon to be invoked manually first.
-  if (!sessionManager && job.photonPath) {
+  // Lazy-load: if the photon isn't loaded yet (idle-unloaded, or
+  // boot-loaded schedules that predate any CLI invocation), spin up
+  // the session on demand. `getOrCreateSessionManager` falls back to
+  // a disk resolve when `job.photonPath` is absent, so the scheduler
+  // no longer needs the path cached on the job to work — it is purely
+  // an optimisation to skip the disk walk on each fire.
+  if (!sessionManager) {
     try {
       sessionManager =
         (await getOrCreateSessionManager(job.photonName, job.photonPath, job.workingDir)) ??
         undefined;
+      // Cache the path we used so subsequent fires skip the resolve.
+      if (sessionManager && !job.photonPath) {
+        const resolved = photonPaths.get(key);
+        if (resolved) job.photonPath = resolved;
+      }
     } catch (err) {
       logger.warn('Lazy-load for scheduled job failed', {
         jobId,

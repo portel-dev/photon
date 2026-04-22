@@ -153,6 +153,28 @@ async function run(): Promise<void> {
         'schedule-provider',
         'createdBy should identify the origin for diagnostics'
       );
+      assert.equal(
+        job.sourceFile,
+        path.join(dir, `${taskId}.json`),
+        'sourceFile must point at the backing file so fire-time phantom pruning can verify it still exists'
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test('sourceFile is populated for IPC format too', () => {
+    const dir = makeTempSchedulesDir();
+    try {
+      const id = writeIpcScheduleFile(dir, 'legacy-photon');
+      const { registered, cb } = collector();
+      loadPersistedSchedulesFromDir(dir, TTL_MS, 'legacy-photon', undefined, cb);
+      assert.equal(registered.length, 1);
+      assert.equal(
+        registered[0].sourceFile,
+        path.join(dir, `${id.replace(/[:/]/g, '-')}.json`),
+        'IPC jobs also carry their source file path so phantom pruning applies uniformly'
+      );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -259,6 +281,65 @@ async function run(): Promise<void> {
       assert.equal(result.loaded, 1, 'valid file still loads');
       assert.equal(result.skipped, 1, 'corrupt file counts as skip');
       assert.equal(registered.length, 1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Fire-time contract — these cover the bug behind "cron never fires
+  // unless the photon is kept warm". The fire handler must be able to
+  // invoke the method without requiring the photon to have been touched
+  // since daemon boot.
+  // ────────────────────────────────────────────────────────────────────────
+
+  await test('loaded job carries no photonPath unless populated by caller', () => {
+    // The boot loader does not resolve photonPath itself — resolution
+    // happens lazily at fire time via getOrCreateSessionManager's disk
+    // fallback. This guards against a regression where photonPath is
+    // accidentally required to be known at boot, which would reintroduce
+    // the "cron never fires without warm photon" bug.
+    const dir = makeTempSchedulesDir();
+    try {
+      writeScheduleProviderFile(dir);
+      const { registered, cb } = collector();
+      loadPersistedSchedulesFromDir(dir, TTL_MS, 'kith-sync', undefined, cb);
+      assert.equal(registered.length, 1);
+      assert.equal(
+        registered[0].photonPath,
+        undefined,
+        'photonPath must be absent when caller cannot supply one — lazy-load handles it later'
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test('phantom-prune helper: sourceFile presence is the signal', () => {
+    // Lightweight contract check standing in for the fire handler's
+    // phantom-prune branch (which lives in the daemon server module and
+    // can't be imported here without triggering bootstrap). The
+    // invariant: a job loaded from disk carries an absolute `sourceFile`
+    // pointing at a real file; `fs.existsSync(job.sourceFile)` therefore
+    // returns true right after load. If the file is later unlinked —
+    // e.g. `this.schedule.cancel()` — `existsSync` flips to false and
+    // the fire handler uses that to evict the registration.
+    const dir = makeTempSchedulesDir();
+    try {
+      const taskId = writeScheduleProviderFile(dir);
+      const { registered, cb } = collector();
+      loadPersistedSchedulesFromDir(dir, TTL_MS, 'kith-sync', undefined, cb);
+      const job = registered[0];
+      assert.ok(
+        job.sourceFile && fs.existsSync(job.sourceFile),
+        'sourceFile must exist right after load'
+      );
+      fs.unlinkSync(job.sourceFile!);
+      assert.equal(
+        fs.existsSync(job.sourceFile!),
+        false,
+        'sourceFile existsSync must flip to false once the backing file is unlinked — this is the signal the fire handler uses to drop phantom registrations'
+      );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

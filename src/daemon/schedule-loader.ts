@@ -35,6 +35,13 @@ export interface PersistedScheduleJob {
   photonName: string;
   workingDir?: string;
   photonPath?: string;
+  /**
+   * Absolute path of the backing JSON file this job was loaded from.
+   * The fire handler uses it to drop phantom registrations whose
+   * backing file has been unlinked (e.g. via
+   * `this.schedule.cancel()`) out from under the in-memory cron map.
+   */
+  sourceFile?: string;
 }
 
 export interface LoadScheduleCallbacks {
@@ -136,6 +143,7 @@ export function loadPersistedSchedulesFromDir(
         createdBy: task.createdBy || (isIpc ? 'ipc' : 'schedule-provider'),
         photonName,
         workingDir: jobWorkingDir,
+        sourceFile: filePath,
       };
 
       if (cb.register(job)) {
