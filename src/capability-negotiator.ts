@@ -89,6 +89,20 @@ export class CapabilityNegotiator {
   }
 
   /**
+   * Check if client supports sampling (server-driven LLM requests).
+   *
+   * Sampling is a client capability declared during initialization.
+   * When present, the server can call `createMessage()` on the client
+   * to ask its LLM to generate text — used by photons that call
+   * `this.sample()` to delegate inference to the caller's model.
+   */
+  supportsSampling(server: Server): boolean {
+    const capabilities = server.getClientCapabilities();
+    if (!capabilities) return false;
+    return !!capabilities.sampling;
+  }
+
+  /**
    * Intercept a transport to capture raw client capabilities before Zod strips them.
    *
    * The MCP SDK's Zod schema for ClientCapabilities doesn't include `extensions`

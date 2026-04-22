@@ -54,6 +54,7 @@ import {
   type PhotonYield,
   type InputProvider,
   type OutputHandler,
+  type SamplingProvider,
   // Implicit stateful execution (auto-detect checkpoint yields)
   maybeStatefulExecute,
   // Elicit for fallback
@@ -267,6 +268,90 @@ function injectEmitHelpers(instance: any): void {
 /** Extra regex checks that force 'emit' capability when helper methods are used. */
 function detectEmitHelperUsage(source: string): boolean {
   return /this\.(toast|log|status|progress|thinking)\s*\(/.test(source);
+}
+
+/**
+ * Always-inject `this.sample`, `this.confirm`, and `this.elicit` on plain
+ * classes. Each pulls its provider out of the ALS execution context
+ * (set by the loader when it invokes a tool). User-defined methods on
+ * the class win — these wrappers only fill in when absent.
+ *
+ * Mirrors the Photon base class implementations in photon-core/base.ts,
+ * so a plain class and a class that extends Photon behave identically.
+ */
+function injectSamplingAndElicitation(instance: any): void {
+  if (!instance.confirm) {
+    instance.confirm = async (question: string): Promise<boolean> => {
+      const store = executionContext.getStore() as
+        | { inputProvider?: (ask: any) => Promise<any> }
+        | undefined;
+      if (!store?.inputProvider) {
+        throw new Error(
+          'this.confirm() requires a connected MCP client that supports ' +
+            'elicitation. None is attached to the current invocation.'
+        );
+      }
+      const result = await store.inputProvider({
+        ask: 'confirm',
+        question,
+        message: question,
+      });
+      return Boolean(result);
+    };
+  }
+  if (!instance.elicit) {
+    instance.elicit = async (params: any): Promise<any> => {
+      const store = executionContext.getStore() as
+        | { inputProvider?: (ask: any) => Promise<any> }
+        | undefined;
+      if (!store?.inputProvider) {
+        throw new Error(
+          'this.elicit() requires a connected MCP client that supports ' +
+            'elicitation. None is attached to the current invocation.'
+        );
+      }
+      return await store.inputProvider(params);
+    };
+  }
+  if (!instance.sample) {
+    instance.sample = async (params: {
+      prompt?: string;
+      messages?: Array<{ role: 'user' | 'assistant'; content: any }>;
+      systemPrompt?: string;
+      maxTokens?: number;
+      temperature?: number;
+      modelPreferences?: unknown;
+      stopSequences?: string[];
+      includeContext?: 'none' | 'thisServer' | 'allServers';
+    }): Promise<string> => {
+      const store = executionContext.getStore() as
+        | { samplingProvider?: (p: any) => Promise<any> }
+        | undefined;
+      if (!store?.samplingProvider) {
+        throw new Error(
+          'this.sample() requires the connected MCP client to declare the ' +
+            '`sampling` capability. None is available in this invocation.'
+        );
+      }
+      if (!params.prompt && !params.messages?.length) {
+        throw new Error('this.sample() requires either `prompt` or `messages`.');
+      }
+      const messages = params.messages ?? [
+        { role: 'user' as const, content: { type: 'text', text: params.prompt! } },
+      ];
+      const result = await store.samplingProvider({
+        messages,
+        systemPrompt: params.systemPrompt,
+        maxTokens: params.maxTokens ?? 1024,
+        temperature: params.temperature,
+        modelPreferences: params.modelPreferences,
+        stopSequences: params.stopSequences,
+        includeContext: params.includeContext,
+      });
+      const first = Array.isArray(result.content) ? result.content[0] : result.content;
+      return first?.type === 'text' ? first.text : '';
+    };
+  }
 }
 
 /**
@@ -1201,6 +1286,14 @@ export class PhotonLoader {
           };
         }
 
+        // Always-inject sample/confirm/elicit helpers. These read the
+        // relevant provider from the ALS execution context the loader
+        // populates when it invokes a tool. Injections are pure closures —
+        // zero cost until the method uses them. Matches the always-inject
+        // philosophy: detection-gate misses mean silent breakage, so don't
+        // gate cheap capabilities. User-defined methods win.
+        injectSamplingAndElicitation(instance);
+
         // Always-inject caller getter. The prototype check preserves any
         // user-defined getter on the class (e.g. Photon base class has its
         // own) so we don't clobber.
@@ -1786,6 +1879,9 @@ export class PhotonLoader {
           );
         };
       }
+
+      // Always-inject sample/confirm/elicit (see primary load path).
+      injectSamplingAndElicitation(instance);
     }
 
     // Channel event capability: inject on()/off()/_dispatch()/_matchesFilter()
@@ -3629,6 +3725,12 @@ Run: photon mcp ${mcpName} --config
       resumeRunId?: string;
       outputHandler?: OutputHandler;
       inputProvider?: InputProvider;
+      /**
+       * MCP sampling provider — the runtime attaches this when the
+       * client supports `sampling`. Photons read it from the execution
+       * context via `this.sample()`.
+       */
+      samplingProvider?: SamplingProvider;
       caller?: CallerInfo;
       traceId?: string;
       parentTraceparent?: string;
@@ -3675,6 +3777,7 @@ Run: photon mcp ${mcpName} --config
       resumeRunId?: string;
       outputHandler?: OutputHandler;
       inputProvider?: InputProvider;
+      samplingProvider?: SamplingProvider;
       caller?: CallerInfo;
       traceId?: string;
       parentTraceparent?: string;
@@ -4031,10 +4134,19 @@ Run: photon mcp ${mcpName} --config
         ? () => method.call(null, ...args)
         : () =>
             executionContext.run(
+              // inputProvider and samplingProvider are attached to the ALS
+              // store so photon-core's `this.confirm()`, `this.elicit()`,
+              // and `this.sample()` can find them without every method
+              // having to accept runtime plumbing as an argument. The
+              // @portel/cli ExecutionContext type doesn't declare these
+              // optional fields, so the object is cast through `unknown`;
+              // photon-core reads them back with matching casts.
               {
                 outputHandler: outputHandler as ((data: unknown) => void) | undefined,
                 caller: options?.caller,
-              },
+                inputProvider,
+                samplingProvider: options?.samplingProvider,
+              } as unknown as Parameters<typeof executionContext.run>[0],
               () => {
                 return method.call(mcp.instance, ...args) as unknown;
               }

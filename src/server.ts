@@ -680,6 +680,46 @@ export class PhotonServer {
   }
 
   /**
+   * Create an MCP-aware sampling provider for `this.sample()`.
+   *
+   * When the client advertises the `sampling` capability, this returns
+   * a provider that forwards to `server.createMessage(...)`. When the
+   * client doesn't, the provider throws — matching what the user wired
+   * into Photon base's `this.sample()` (explicit failure rather than
+   * silent fallback to a canned string).
+   */
+  private createMCPSamplingProvider(server?: Server): (params: any) => Promise<any> {
+    const targetServer = server || this.server;
+    const supportsSampling = this.capabilityNegotiator.supportsSampling(targetServer);
+
+    return async (params: any): Promise<any> => {
+      if (!supportsSampling) {
+        throw new Error(
+          'Connected MCP client did not declare the `sampling` capability; ' +
+            'this.sample() is unavailable for this invocation.'
+        );
+      }
+      try {
+        const result = await targetServer.createMessage({
+          messages: params.messages,
+          systemPrompt: params.systemPrompt,
+          maxTokens: params.maxTokens,
+          temperature: params.temperature,
+          modelPreferences: params.modelPreferences,
+          stopSequences: params.stopSequences,
+          includeContext: params.includeContext,
+        });
+        return result;
+      } catch (error) {
+        this.log('error', 'Sampling request failed', {
+          error: getErrorMessage(error),
+        });
+        throw error;
+      }
+    };
+  }
+
+  /**
    * Build MCP elicit request params from a Photon ask yield
    */
   private buildElicitParams(ask: any): any {
@@ -1125,6 +1165,9 @@ export class PhotonServer {
 
     // Create MCP-aware input provider for elicitation support
     const inputProvider = this.createMCPInputProvider(ctx.server);
+    // Create MCP-aware sampling provider for this.sample() — delegates
+    // to the client's LLM via sampling/createMessage.
+    const samplingProvider = this.createMCPSamplingProvider(ctx.server);
 
     // Handler for channel events - forward to daemon for cross-process pub/sub
     const outputHandler = (emit: any) => {
@@ -1194,6 +1237,7 @@ export class PhotonServer {
     const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
       inputProvider,
       outputHandler,
+      samplingProvider,
     });
     const durationMs = Date.now() - startTime;
     const transport = this.options.transport || 'stdio';
@@ -1363,6 +1407,7 @@ export class PhotonServer {
           const traceId = crypto.randomBytes(16).toString('hex');
           const executionId = traceId;
           const inputProvider = this.createMCPInputProvider();
+          const samplingProvider = this.createMCPSamplingProvider();
           const outputHandler = (emit: any) => {
             this.channelManager.publishIfChannel(emit);
             // Forward emit yields as MCP notifications for async tools
@@ -1419,7 +1464,12 @@ export class PhotonServer {
           };
 
           this.loader
-            .executeTool(this.mcp, toolName, args || {}, { inputProvider, outputHandler, traceId })
+            .executeTool(this.mcp, toolName, args || {}, {
+              inputProvider,
+              outputHandler,
+              samplingProvider,
+              traceId,
+            })
             .catch((error) => {
               this.log('error', `Async tool ${toolName} failed`, {
                 executionId,
@@ -1849,6 +1899,7 @@ export class PhotonServer {
 
       // Retry the original tool call
       const inputProvider = this.createMCPInputProvider();
+      const samplingProvider = this.createMCPSamplingProvider();
       const outputHandler = (emit: any) => {
         this.channelManager.publishIfChannel(emit);
       };
@@ -1856,6 +1907,7 @@ export class PhotonServer {
       const retryResult = await this.loader.executeTool(this.mcp, toolName, args, {
         inputProvider,
         outputHandler,
+        samplingProvider,
       });
 
       const isStateful =

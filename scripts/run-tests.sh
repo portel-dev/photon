@@ -86,6 +86,7 @@ SUITES=(
   "format-snapshot:$RUN tests/format-snapshot.test.ts"
   "hot-reload-state-transfer:$RUN tests/hot-reload-state-transfer.test.ts"
   "memory-always-injected:$RUN tests/memory-always-injected.test.ts"
+  "sample-elicit-confirm:$RUN tests/sample-elicit-confirm.test.ts"
   "memory-baseDir-regression:$RUN tests/memory-baseDir-regression.test.ts"
   "oauth:$RUN tests/oauth.test.ts"
   "oauth-sqlite-stores:$RUN tests/oauth-sqlite-stores.test.ts"
