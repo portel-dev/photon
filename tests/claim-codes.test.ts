@@ -13,7 +13,14 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  writeFileSync,
+  readFileSync,
+  realpathSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -51,7 +58,13 @@ async function main(): Promise<void> {
     try {
       const rec = await createClaim({ scopeDir: baseDir, ttlMs: 60_000, label: 'first' }, baseDir);
       assert.match(rec.code, /^[A-Z0-9]{6}$/);
-      assert.equal(rec.scopeDir, baseDir);
+      // createClaim canonicalizes scopeDir via realpath (symlink
+      // escape defense — a lexical compare would let a symlinked
+      // photon inside scope escape the scope check). On macOS
+      // `/var/folders/...` is itself a symlink to `/private/var/...`,
+      // so the stored path resolves to the canonical form. Compare
+      // against the realpath'd baseDir rather than the raw one.
+      assert.equal(rec.scopeDir, realpathSync(baseDir));
       assert.equal(rec.label, 'first');
       const list = await listClaims(baseDir);
       assert.equal(list.length, 1);
@@ -201,6 +214,41 @@ async function main(): Promise<void> {
 
   await test('isPathInScope returns false when scopeDir set but source is undefined', () => {
     assert.equal(isPathInScope(undefined, '/workspace/proj'), false);
+  });
+
+  await test('isPathInScope canonicalizes via realpath — a symlinked photon inside scope still matches its target', async () => {
+    // Set up: scope = /tmp/.../scope, a real photon lives at
+    // /tmp/.../outside/foo.ts, and a symlink inside scope points
+    // at it. Lexical `path.resolve` would say the symlink is
+    // in-scope (wrong — it targets outside). With realpath, we
+    // follow the link and correctly report out-of-scope.
+    const root = freshBaseDir();
+    try {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const scope = path.join(root, 'scope');
+      const outside = path.join(root, 'outside');
+      fs.mkdirSync(scope, { recursive: true });
+      fs.mkdirSync(outside, { recursive: true });
+      const realPhoton = path.join(outside, 'foo.ts');
+      fs.writeFileSync(realPhoton, '// foo');
+      const linkedPhoton = path.join(scope, 'foo.ts');
+      fs.symlinkSync(realPhoton, linkedPhoton);
+
+      // Symlinked path sits *lexically* under scope, but realpath
+      // resolves to the outside target. The check must reject it.
+      assert.equal(
+        isPathInScope(linkedPhoton, scope),
+        false,
+        'symlinked photon pointing outside scope must not be treated as in-scope'
+      );
+      // A genuine in-scope file still passes.
+      const realInScope = path.join(scope, 'bar.ts');
+      fs.writeFileSync(realInScope, '// bar');
+      assert.equal(isPathInScope(realInScope, scope), true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   console.log('\nAll claim-code tests passed.');

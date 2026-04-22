@@ -60,6 +60,28 @@ const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXY';
 
 export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
+/**
+ * Canonicalize a filesystem path for scope comparisons. Resolves
+ * symlinks via `realpath` when the path exists, so a symlinked
+ * photon can't escape its claim scope (lexical `path.resolve` would
+ * leave the symlink unexpanded and compare the symlink location
+ * instead of the target). On case-insensitive filesystems (APFS,
+ * NTFS) realpath also normalizes casing, which avoids a scoped
+ * caller being spuriously rejected because they capitalized a path
+ * differently than the claim did. Falls back to lexical resolve
+ * when the path doesn't exist yet (e.g., scope dir typoed, or a
+ * photon path that hasn't been written) so we don't throw on the
+ * happy-path check.
+ */
+function canonicalizePath(p: string): string {
+  const resolved = path.resolve(p);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 export interface ClaimRecord {
   /** 6-char code, uppercase, no dashes when stored */
   code: string;
@@ -196,7 +218,7 @@ export async function createClaim(
   }
   const record: ClaimRecord = {
     code,
-    scopeDir: path.resolve(params.scopeDir),
+    scopeDir: canonicalizePath(params.scopeDir),
     createdAt: new Date().toISOString(),
     expiresAt: Date.now() + ttlMs,
     label: params.label,
@@ -279,7 +301,7 @@ export function isPathInScope(
 ): boolean {
   if (!scopeDir) return true;
   if (!photonSourcePath) return false;
-  const resolved = path.resolve(photonSourcePath);
-  const scope = path.resolve(scopeDir);
+  const resolved = canonicalizePath(photonSourcePath);
+  const scope = canonicalizePath(scopeDir);
   return resolved === scope || resolved.startsWith(scope + path.sep);
 }

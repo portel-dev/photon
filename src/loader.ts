@@ -1026,14 +1026,21 @@ export class PhotonLoader {
       // the fire-time phantom-prune (daemon checks sourceFile before
       // running) catches the ghost on its next tick.
       const photonNameForSchedule = name;
+      const scheduleLogger = this.logger;
       instance._scheduleUnscheduleHook = async (jobId: string) => {
         try {
           const { unscheduleJob } = await import('./daemon/client.js');
           return await unscheduleJob(photonNameForSchedule, jobId);
-        } catch {
-          // Daemon unreachable or IPC failure — treat as no-op. The
-          // phantom-prune backstop in runJob handles eviction on the
-          // next fire.
+        } catch (err) {
+          // Daemon unreachable or IPC failure — log loudly so operators
+          // notice. Phantom-prune (daemon checks sourceFile before
+          // running) still evicts the ghost on its next fire, but for
+          // low-frequency schedules that may be hours away. Returning
+          // false lets `schedule.cancel` surface the outcome too.
+          scheduleLogger.warn(
+            `[schedule] failed to evict in-memory cron registration for ${photonNameForSchedule}:${jobId}`,
+            { error: err instanceof Error ? err.message : String(err) }
+          );
           return false;
         }
       };
@@ -1239,8 +1246,13 @@ export class PhotonLoader {
         // declared class — and silently left `this.memory` undefined. That
         // turned every `.memory.set(...)` call into a data-loss bug that
         // only surfaced on daemon cold start.
-        // User-defined memory on the class wins.
-        if (!Object.getOwnPropertyDescriptor(instance, 'memory')) {
+        // User-defined memory on the class wins. `in` walks the
+        // prototype chain (unlike `getOwnPropertyDescriptor`) so a
+        // plain class with `get memory()` on its prototype — or a
+        // class extending Photon (whose base installs its own memory
+        // getter on the prototype) — is left untouched. Only truly
+        // plain classes with no `memory` anywhere get our injection.
+        if (!('memory' in instance)) {
           const memoryBaseDir = this.baseDir;
           Object.defineProperty(instance, 'memory', {
             get() {
@@ -1860,7 +1872,9 @@ export class PhotonLoader {
       }
 
       // Always-inject memory (see primary load path for rationale).
-      if (!Object.getOwnPropertyDescriptor(instance, 'memory')) {
+      // `in` walks the prototype chain so Photon-base getters and
+      // user-defined getters on plain classes are both respected.
+      if (!('memory' in instance)) {
         const memoryBaseDir = this.baseDir;
         Object.defineProperty(instance, 'memory', {
           get() {

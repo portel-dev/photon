@@ -179,14 +179,21 @@ let nextServerRequestId = 1;
  *
  * Rejects if the session has no live SSE stream, if the browser
  * returns an error response, or if no response arrives within
- * `timeoutMs` (default 5 min — long enough for a human to read a
- * prompt and write a reply, short enough to fail a truly hung UI).
+ * `timeoutMs`.
+ *
+ * The default timeout is 30 minutes because Beam's sampling-modal
+ * serializes concurrent requests into a queue: a second request can
+ * sit behind an open modal for the user's full read+reply time before
+ * even being displayed. At 5 minutes the queued entry could expire
+ * off-screen before the user ever sees it. 30 min is long enough to
+ * absorb realistic queue latency while still failing a session whose
+ * browser has truly gone silent.
  */
 function requestSession(
   sessionId: string,
   method: string,
   params: Record<string, unknown>,
-  timeoutMs = 5 * 60_000
+  timeoutMs = 30 * 60_000
 ): Promise<unknown> {
   return new Promise<unknown>((resolve, reject) => {
     const session = sessions.get(sessionId);
@@ -752,6 +759,27 @@ function buildToolResult(
     toolResult.structuredContent = result;
   }
   return toolResult;
+}
+
+/**
+ * Is the given task visible to this session under its claim scope?
+ *
+ * Unscoped sessions see everything (scope is additive — absent code
+ * means full access). Scoped sessions only see tasks whose photon's
+ * on-disk path sits under the claimed directory. Tasks whose photon
+ * has since been removed from `ctx.photons` are treated as
+ * out-of-scope so a stale task can't leak info to a scoped caller.
+ */
+async function isTaskInScope(
+  task: Task,
+  scopeDir: string | undefined,
+  photons: AnyPhotonInfo[]
+): Promise<boolean> {
+  if (!scopeDir) return true;
+  const info = photons.find((p) => p.name === task.photon);
+  if (!info) return false;
+  const { isPathInScope } = await import('../daemon/claims.js');
+  return isPathInScope(info.path, scopeDir);
 }
 
 const handlers: Record<string, RequestHandler> = {
@@ -2669,6 +2697,27 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
+    // Claim-code scope enforcement on the async task API. tools/call
+    // has the same gate at the sync path; without this, a scoped
+    // client could bypass scope by starting work via tasks/create.
+    if (session.claimScopeDir) {
+      const targetInfo = ctx.photons.find((p) => p.name === photonName);
+      const { isPathInScope } = await import('../daemon/claims.js');
+      if (!targetInfo || !isPathInScope(targetInfo.path, session.claimScopeDir)) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: {
+            code: -32602,
+            message:
+              `Photon ${photonName} is not available in the current claim scope. ` +
+              `The claim code presented on this session only grants access to photons ` +
+              `under ${session.claimScopeDir}.`,
+          },
+        };
+      }
+    }
+
     const mcp = ctx.photonMCPs.get(photonName);
     if (!mcp?.instance) {
       return {
@@ -2709,7 +2758,7 @@ const handlers: Record<string, RequestHandler> = {
     };
   },
 
-  'tasks/get': async (req, _session, _ctx) => {
+  'tasks/get': async (req, session, ctx) => {
     const { taskId } = req.params as { taskId: string };
     if (!taskId) {
       return {
@@ -2719,7 +2768,11 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
     const task = getTask(taskId);
-    if (!task) {
+    // Scope-gated: a scoped session sees "not found" whether the task
+    // is truly absent or simply out of scope. Collapsing both cases
+    // into the same response avoids leaking existence to callers
+    // that shouldn't see this photon.
+    if (!task || !(await isTaskInScope(task, session.claimScopeDir, ctx.photons))) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -2729,9 +2782,21 @@ const handlers: Record<string, RequestHandler> = {
     return { jsonrpc: '2.0', id: req.id, result: toWireFormat(task) };
   },
 
-  'tasks/list': async (req, _session, _ctx) => {
+  'tasks/list': async (req, session, ctx) => {
     const { cursor } = (req.params || {}) as { cursor?: string };
-    const allTasks = listTasks();
+    let allTasks = listTasks();
+    // Scope filter: for scoped sessions, only return tasks whose
+    // photon is inside the claim scope. Paginate after filtering so
+    // the cursor indexes align with what the caller actually sees.
+    if (session.claimScopeDir) {
+      const scopeDir = session.claimScopeDir;
+      const photons = ctx.photons;
+      const filtered: Task[] = [];
+      for (const t of allTasks) {
+        if (await isTaskInScope(t, scopeDir, photons)) filtered.push(t);
+      }
+      allTasks = filtered;
+    }
     // Simple pagination: cursor is the offset index
     const offset = cursor ? parseInt(cursor, 10) || 0 : 0;
     const pageSize = 50;
@@ -2748,7 +2813,7 @@ const handlers: Record<string, RequestHandler> = {
     };
   },
 
-  'tasks/cancel': async (req, _session, _ctx) => {
+  'tasks/cancel': async (req, session, ctx) => {
     const { taskId } = req.params as { taskId: string };
     if (!taskId) {
       return {
@@ -2758,7 +2823,7 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
     const task = getTask(taskId);
-    if (!task) {
+    if (!task || !(await isTaskInScope(task, session.claimScopeDir, ctx.photons))) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -2796,7 +2861,7 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     const task = getTask(taskId);
-    if (!task) {
+    if (!task || !(await isTaskInScope(task, session.claimScopeDir, ctx.photons))) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -4255,6 +4320,21 @@ export async function handleStreamableHTTP(
     const cleanup = () => {
       clearInterval(keepAlive);
       session.sseResponse = undefined;
+      // Reject any server→client requests still waiting on this
+      // session. Without this, a disconnect during `sampling/createMessage`
+      // leaves the pending entry alive until the 5-minute timeout,
+      // and because Beam's sampling-modal serializes via a single
+      // inFlight promise, the queue wedges for every later request
+      // in that tab. Each pending entry carries the originating
+      // sessionId so we can target precisely this session's work.
+      for (const [id, pending] of pendingServerRequests) {
+        if (pending.sessionId !== session.id) continue;
+        if (pending.timer) clearTimeout(pending.timer);
+        pendingServerRequests.delete(id);
+        pending.reject(
+          new Error(`requestSession: session ${session.id} disconnected before response`)
+        );
+      }
       // Clean up subscriptions when client disconnects
       if (options.subscriptionManager) {
         options.subscriptionManager.onClientDisconnect(session.id);
@@ -4320,6 +4400,14 @@ export async function handleStreamableHTTP(
       // either result or error. Route to the pending-request map so
       // the samplingProvider / future server-initiated primitives see
       // the browser's reply. These never produce an outgoing response.
+      //
+      // SECURITY: the reply's session MUST match the session that
+      // originated the server→client request. Ids are globally
+      // monotonic (`srv-1`, `srv-2`, ...), so without a session cross
+      // check, session A could POST a reply carrying session B's id
+      // and inject a fabricated sampling result into B's photon.
+      // Drop mismatched replies silently — the original timeout on
+      // the pending entry stays the only way to fail legitimately.
       if (!request.method && request.id !== undefined) {
         const msg = request as unknown as {
           id: string | number;
@@ -4327,7 +4415,7 @@ export async function handleStreamableHTTP(
           error?: { message?: string; code?: number };
         };
         const pending = pendingServerRequests.get(msg.id);
-        if (pending) {
+        if (pending && pending.sessionId === session.id) {
           if (pending.timer) clearTimeout(pending.timer);
           pendingServerRequests.delete(msg.id);
           if (msg.error) {

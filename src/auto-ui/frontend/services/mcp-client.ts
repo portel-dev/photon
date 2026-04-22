@@ -164,6 +164,13 @@ class MCPClientService {
   private readonly MAX_QUEUE_AGE_MS = 30000;
   private readonly QUEUE_RETRY_INTERVAL_MS = 2000;
 
+  // Registered server→client request handlers. Held here, not on the
+  // SDK, so callers can register before the first connect() (the SDK
+  // instance doesn't exist until then) and so handlers survive
+  // reconnects (connect() throws away the old SDK and builds a fresh
+  // one). The map is the source of truth; each new SDK gets a copy.
+  private requestHandlers = new Map<string, (params: Record<string, unknown>) => unknown>();
+
   constructor() {
     this.baseUrl = `${window.location.protocol}//${window.location.host}/mcp`;
     this._authToken = localStorage.getItem('photon_auth_token');
@@ -281,6 +288,13 @@ class MCPClientService {
 
     this.wireSdkEvents(this.sdk);
 
+    // Replay any handlers registered before this connect (or surviving
+    // from a prior connection). Must happen before sdk.connect() so
+    // the very first server→client request has somewhere to land.
+    for (const [method, handler] of this.requestHandlers) {
+      this.sdk.setRequestHandler(method, handler);
+    }
+
     try {
       await this.sdk.connect();
       await this.initialize();
@@ -372,11 +386,15 @@ class MCPClientService {
    * browser for a response.
    */
   setRequestHandler(method: string, handler: (params: Record<string, unknown>) => unknown): void {
-    this.requireSdk().setRequestHandler(method, handler);
+    this.requestHandlers.set(method, handler);
+    // If we're already connected, wire it onto the live SDK too.
+    // Otherwise connect() will replay it when it builds the SDK.
+    this.sdk?.setRequestHandler(method, handler);
   }
 
   removeRequestHandler(method: string): void {
-    this.requireSdk().removeRequestHandler(method);
+    this.requestHandlers.delete(method);
+    this.sdk?.removeRequestHandler(method);
   }
 
   async callTool(
