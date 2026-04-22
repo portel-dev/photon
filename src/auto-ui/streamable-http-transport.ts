@@ -153,6 +153,107 @@ interface PendingElicitation {
 }
 const pendingElicitations = new Map<string, PendingElicitation>();
 
+// Server→client JSON-RPC request tracking. When the daemon initiates
+// a request against a connected Beam session (currently just
+// `sampling/createMessage` — but extensible to any future
+// server-initiated primitive), we generate an id, push the request
+// onto that session's SSE stream, and park a resolver here. The
+// browser's reply comes back as a regular POST whose body has
+// `{ result | error, id }` and no method; the POST loop routes it
+// to this map.
+interface PendingServerRequest {
+  resolve: (value: unknown) => void;
+  reject: (err: Error) => void;
+  /** Keyed on session id so session teardown can fail in-flight requests. */
+  sessionId: string;
+  timer?: ReturnType<typeof setTimeout>;
+}
+const pendingServerRequests = new Map<string | number, PendingServerRequest>();
+let nextServerRequestId = 1;
+
+/**
+ * Send a JSON-RPC *request* (not a notification) to a specific Beam
+ * session via its SSE stream and await the response. Used to build
+ * photon-facing providers (sampling, future: roots/list, etc.) that
+ * route through the human at the browser.
+ *
+ * Rejects if the session has no live SSE stream, if the browser
+ * returns an error response, or if no response arrives within
+ * `timeoutMs` (default 5 min — long enough for a human to read a
+ * prompt and write a reply, short enough to fail a truly hung UI).
+ */
+function requestSession(
+  sessionId: string,
+  method: string,
+  params: Record<string, unknown>,
+  timeoutMs = 5 * 60_000
+): Promise<unknown> {
+  return new Promise<unknown>((resolve, reject) => {
+    const session = sessions.get(sessionId);
+    if (!session || !session.sseResponse || session.sseResponse.writableEnded) {
+      reject(
+        new Error(
+          `requestSession: session ${sessionId} has no live SSE stream — the ` +
+            `browser must be connected for server→client requests to work.`
+        )
+      );
+      return;
+    }
+
+    const id = `srv-${nextServerRequestId++}`;
+    const timer = setTimeout(() => {
+      pendingServerRequests.delete(id);
+      reject(new Error(`requestSession: ${method} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    pendingServerRequests.set(id, { resolve, reject, sessionId, timer });
+
+    const payload = `data: ${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n\n`;
+    try {
+      session.sseResponse.write(payload);
+    } catch (err) {
+      clearTimeout(timer);
+      pendingServerRequests.delete(id);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
+/**
+ * Build a sampling provider for a specific Beam session — the
+ * person at the browser plays the role of the LLM. The provider
+ * returns a `CreateMessageResult` shape with `model: 'human@beam'`
+ * so the photon can tell (via the returned model field) that the
+ * response came from a person rather than a real model.
+ */
+function makeHumanSamplingProvider(sessionId: string): (params: any) => Promise<any> {
+  return async (params: any) => {
+    const result = (await requestSession(sessionId, 'sampling/createMessage', params)) as {
+      role?: string;
+      content?: unknown;
+      model?: string;
+      stopReason?: string;
+    };
+    // Defensive normalisation: some clients return just a string;
+    // wrap it in the canonical CreateMessageResult shape so photon-core
+    // can index into content[0].text without extra checks.
+    if (typeof result === 'string') {
+      return {
+        role: 'assistant',
+        content: { type: 'text', text: result },
+        model: 'human@beam',
+        stopReason: 'endTurn',
+      };
+    }
+    return {
+      role: result?.role ?? 'assistant',
+      content: result?.content ?? { type: 'text', text: '' },
+      model: result?.model ?? 'human@beam',
+      stopReason: result?.stopReason ?? 'endTurn',
+    };
+  };
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // PERSISTENT APPROVALS — durable HITL that survives navigation/restart
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1893,12 +1994,17 @@ const handlers: Record<string, RequestHandler> = {
       const controller = new AbortController();
       registerController(task.id, controller);
 
-      // Build execution function that the executor will run
+      // Build execution function that the executor will run.
+      // Same human-sampling provider shape as the sync path — scoped
+      // to the session that kicked off the task so the modal appears
+      // in the right browser tab.
       const executeFn = async (inputProvider: any, outputHandler: any) => {
         if (ctx.loader) {
+          const samplingProvider = makeHumanSamplingProvider(session.id);
           return ctx.loader.executeTool(mcp, methodName, args || {}, {
             outputHandler,
             inputProvider,
+            samplingProvider,
             caller: ctx.caller,
           });
         }
@@ -2167,13 +2273,23 @@ const handlers: Record<string, RequestHandler> = {
       };
 
       // Use loader.executeTool if available (sets up execution context for this.emit())
-      // Fall back to direct method call for backward compatibility
+      // Fall back to direct method call for backward compatibility.
+      //
+      // Build a samplingProvider that forwards `sampling/createMessage`
+      // to the Beam session driving this call. The browser's request
+      // handler (src/auto-ui/frontend/components/sampling-modal.ts)
+      // pops a modal, the human types a response, and that text flows
+      // back as the photon's `this.sample()` return value. Declaring
+      // `sampling: {}` on the client without this provider would let
+      // the photon hang — the earlier codex P1 finding.
       let result: any;
       const startTime = Date.now();
       if (ctx.loader) {
+        const samplingProvider = makeHumanSamplingProvider(session.id);
         result = await ctx.loader.executeTool(mcp, methodName, args || {}, {
           outputHandler,
           inputProvider,
+          samplingProvider,
           caller: ctx.caller,
         });
       } else {
@@ -4200,6 +4316,29 @@ export async function handleStreamableHTTP(
     const responses: JSONRPCResponse[] = [];
 
     for (const request of requests) {
+      // Response to a server→client request: no method, has id, has
+      // either result or error. Route to the pending-request map so
+      // the samplingProvider / future server-initiated primitives see
+      // the browser's reply. These never produce an outgoing response.
+      if (!request.method && request.id !== undefined) {
+        const msg = request as unknown as {
+          id: string | number;
+          result?: unknown;
+          error?: { message?: string; code?: number };
+        };
+        const pending = pendingServerRequests.get(msg.id);
+        if (pending) {
+          if (pending.timer) clearTimeout(pending.timer);
+          pendingServerRequests.delete(msg.id);
+          if (msg.error) {
+            pending.reject(new Error(msg.error.message || 'server→client request failed'));
+          } else {
+            pending.resolve(msg.result);
+          }
+        }
+        continue;
+      }
+
       const handler = handlers[request.method];
 
       if (!handler) {

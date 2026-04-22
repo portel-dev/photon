@@ -326,15 +326,15 @@ class MCPClientService {
       protocolVersion: '2025-03-26',
       capabilities: {
         roots: { listChanged: false },
-        // Do NOT advertise `sampling` here until the browser transport
-        // has a `sampling/createMessage` handler. Beam has no LLM of
-        // its own, and declaring the capability makes the runtime
-        // attach a `samplingProvider` that dispatches `createMessage`
-        // to the client — a call the browser never answers, so any
-        // photon invoking `this.sample()` from a Beam session would
-        // hang. If/when Beam gains a configurable LLM endpoint or a
-        // user-paste bridge, re-add `sampling: {}` AND implement the
-        // handler in the same change.
+        // Beam answers `sampling/createMessage` by asking the human
+        // at the browser — the person watching what AI is doing IS
+        // the LLM. beam-app registers a handler via
+        // `mcpClient.setRequestHandler('sampling/createMessage', ...)`
+        // that opens a modal showing the prompt and returns the
+        // user's typed response as the sampling result. Photons that
+        // call `this.sample(...)` from a Beam-driven invocation
+        // therefore route to the human, not a model API.
+        sampling: {},
       },
       clientInfo: {
         name: 'beam',
@@ -359,6 +359,24 @@ class MCPClientService {
     const sdk = this.requireSdk();
     const result = await sdk.request('tools/list', {});
     return result.tools || [];
+  }
+
+  /**
+   * Register a handler for a server→client request (e.g.
+   * `sampling/createMessage`). Returns the handler's result as the
+   * JSON-RPC response. Throwing surfaces as an error response.
+   *
+   * This is how Beam plays "human-in-the-loop LLM": when a photon
+   * calls `this.sample(...)`, the server forwards the request here
+   * and the handler (typically a modal) asks the person at the
+   * browser for a response.
+   */
+  setRequestHandler(method: string, handler: (params: Record<string, unknown>) => unknown): void {
+    this.requireSdk().setRequestHandler(method, handler);
+  }
+
+  removeRequestHandler(method: string): void {
+    this.requireSdk().removeRequestHandler(method);
   }
 
   async callTool(

@@ -93,10 +93,22 @@ export interface MCPClientSDKOptions {
   fetch?: typeof fetch;
 }
 
+/**
+ * Handler for a server→client request. Return value is sent back as
+ * the JSON-RPC result; throw to send an error response.
+ *
+ * Used for primitives like `sampling/createMessage` and
+ * `elicitation/create` that the server initiates. Without a handler,
+ * the SDK responds with a JSON-RPC error so the server's promise
+ * rejects cleanly instead of hanging.
+ */
+type RequestHandler = (params: Record<string, unknown>) => unknown;
+
 export class MCPClientSDK {
   private transport: StreamableHTTPClientTransport;
   private listeners = new Map<string, Set<Listener>>();
   private pending = new Map<string | number, PendingRequest>();
+  private requestHandlers = new Map<string, RequestHandler>();
   private nextId = 1;
   private connected = false;
 
@@ -235,6 +247,27 @@ export class MCPClientSDK {
     await this.transport.send({ jsonrpc: '2.0', method, params });
   }
 
+  /**
+   * Register a handler for a server→client request method. The
+   * handler's return value becomes the JSON-RPC result; throwing
+   * surfaces as a JSON-RPC error response. One handler per method —
+   * calling again replaces the previous handler.
+   *
+   * This is how Beam answers `sampling/createMessage`: the human at
+   * the browser is the LLM. When a photon runs `this.sample(...)`,
+   * the server's `server.createMessage(...)` forwards to Beam, Beam's
+   * registered handler shows a modal, the user types a response, and
+   * that text flows back to the photon — all inside the same request.
+   */
+  setRequestHandler(method: string, handler: RequestHandler): void {
+    this.requestHandlers.set(method, handler);
+  }
+
+  /** Remove a previously-registered request handler. */
+  removeRequestHandler(method: string): void {
+    this.requestHandlers.delete(method);
+  }
+
   private finalize(id: string | number): void {
     const pending = this.pending.get(id);
     if (!pending) return;
@@ -324,6 +357,49 @@ export class MCPClientSDK {
       } else {
         pending.resolve(msg.result);
       }
+      return;
+    }
+
+    // Server→client REQUEST (has both id and method). These are the
+    // primitives the server calls on us: `sampling/createMessage`,
+    // `elicitation/create`, `roots/list`, etc. Look up a registered
+    // handler; if none, respond with a JSON-RPC error so the server's
+    // promise rejects instead of hanging forever. Errors thrown from
+    // the handler surface as error responses so the server's
+    // corresponding photon call (`this.sample()`, etc.) can catch them
+    // and fall through to defaults.
+    if (msg.id != null && msg.method) {
+      const handler = this.requestHandlers.get(msg.method);
+      const requestId = msg.id;
+      if (!handler) {
+        void this.transport
+          .send({
+            jsonrpc: '2.0',
+            id: requestId,
+            error: {
+              code: -32601,
+              message: `Method not found: ${msg.method}`,
+            },
+          })
+          .catch(() => {});
+        return;
+      }
+      void Promise.resolve()
+        .then(() => handler(msg.params ?? {}))
+        .then(
+          (result) =>
+            this.transport.send({ jsonrpc: '2.0', id: requestId, result }).catch(() => {}),
+          (err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            return this.transport
+              .send({
+                jsonrpc: '2.0',
+                id: requestId,
+                error: { code: -32603, message },
+              })
+              .catch(() => {});
+          }
+        );
       return;
     }
 

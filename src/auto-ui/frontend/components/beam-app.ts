@@ -2594,6 +2594,23 @@ export class BeamApp extends LitElement {
 
   private async _connectMCP() {
     try {
+      // Wire the sampling handler BEFORE connecting so the very first
+      // server→client `sampling/createMessage` during initialization
+      // (rare, but possible when a photon's onInitialize samples) has
+      // somewhere to land. The handler surfaces a modal asking the
+      // person at Beam to answer — Beam plays the role of a
+      // sampling-capable client by routing to the human.
+      mcpClient.setRequestHandler('sampling/createMessage', async (params) => {
+        const { openSamplingModal } = await import('./sampling-modal.js');
+        const text = await openSamplingModal(params as any);
+        return {
+          role: 'assistant' as const,
+          content: { type: 'text' as const, text },
+          model: 'human@beam',
+          stopReason: 'endTurn',
+        };
+      });
+
       mcpClient.on('connect', () => {
         void (async () => {
           const isReconnect = this._initialConnectDone;
