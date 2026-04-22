@@ -289,12 +289,20 @@ async function sendCommandDirect(
     let buffer = '';
     let responseReceived = false;
 
-    let currentTimeout = setTimeout(() => {
-      if (!responseReceived) {
-        client.destroy();
-        reject(new Error('Request timeout'));
-      }
-    }, 120000); // 2 minute timeout (longer for interactive prompts)
+    // No wall-clock or idle timeout on the CLI side. The photon-developer
+    // contract (see docs/reference/LONG-RUNNING-METHODS.md) puts heartbeat
+    // responsibility on the method author: long operations MUST emit
+    // `this.status()` periodically so the consumer (human or agent) can
+    // judge liveness and abort when they decide. The runtime never
+    // second-guesses that decision. Socket-level failures (daemon exit,
+    // connection drop) still reject the promise via the 'error' / 'end'
+    // handlers below.
+    //
+    // SIGINT is wired at the CLI runner level so Ctrl+C closes this
+    // connection and exits the process cleanly.
+
+    // Ensure a forceful exit if we get disconnected from the daemon —
+    // the socket's 'end' handler handles this, no timer required.
 
     client.on('connect', () => {
       const request: DaemonRequest = {
@@ -331,10 +339,8 @@ async function sendCommandDirect(
             if (response.id === requestId) {
               // Handle prompt request from daemon
               if (response.type === 'prompt' && response.prompt) {
-                // Reset timeout while waiting for user input
-                clearTimeout(currentTimeout);
-
-                // Get user input via readline
+                // Get user input via readline (no timeout — the user
+                // takes as long as they take).
                 const userInput = await promptUser(
                   response.prompt.message,
                   response.prompt.default
@@ -348,31 +354,14 @@ async function sendCommandDirect(
                 };
 
                 client.write(JSON.stringify(promptResponse) + '\n');
-
-                // Restart timeout for next response — store handle so it can be cleared
-                currentTimeout = setTimeout(() => {
-                  if (!responseReceived) {
-                    client.destroy();
-                    reject(new Error('Request timeout'));
-                  }
-                }, 120000);
               }
               // Handle generator emit yields (status, qr, toast, progress, etc.)
               else if (response.type === 'emit' && response.emitData) {
-                // Reset timeout — emits mean the tool is actively running
-                clearTimeout(currentTimeout);
-                currentTimeout = setTimeout(() => {
-                  if (!responseReceived) {
-                    client.destroy();
-                    reject(new Error('Request timeout'));
-                  }
-                }, 120000);
                 void renderEmitInCLI(response.emitData);
               }
               // Handle final result
               else if (response.type === 'result') {
                 responseReceived = true;
-                clearTimeout(currentTimeout);
                 cliProgress.done();
                 client.destroy();
                 resolve(response.data);
@@ -380,7 +369,6 @@ async function sendCommandDirect(
               // Handle error
               else if (response.type === 'error') {
                 responseReceived = true;
-                clearTimeout(currentTimeout);
                 cliProgress.done();
                 client.destroy();
                 reject(new Error(response.error || 'Unknown error'));
@@ -390,7 +378,6 @@ async function sendCommandDirect(
             // Handle shutdown signal (can arrive at any time, not tied to requestId)
             if (response.type === 'shutdown') {
               responseReceived = true;
-              clearTimeout(currentTimeout);
               cliProgress.done();
               client.destroy();
               reject(new DaemonShutdownError(response.reason));
@@ -403,13 +390,11 @@ async function sendCommandDirect(
     });
 
     client.on('error', (error) => {
-      clearTimeout(currentTimeout);
       client.destroy();
       reject(new Error(`Connection error: ${getErrorMessage(error)}`));
     });
 
     client.on('end', () => {
-      clearTimeout(currentTimeout);
       client.destroy();
       if (!responseReceived) {
         reject(new Error('Connection closed before receiving response'));

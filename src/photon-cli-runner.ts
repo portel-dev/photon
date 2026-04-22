@@ -1777,6 +1777,23 @@ export async function runMethod(
   // Set up readline elicit handler for CLI (confirm, select, etc.)
   setElicitHandler(elicitReadline);
 
+  // Ctrl+C handler: the runtime never imposes a timeout — the consumer
+  // decides when to give up. A single SIGINT ends the CLI cleanly (the
+  // socket closes as the process exits and the daemon drops its read
+  // side). A second SIGINT force-exits in case stdin/readline is wedged.
+  let sigintCount = 0;
+  const onSigint = (): void => {
+    sigintCount += 1;
+    if (sigintCount === 1) {
+      console.error('\n^C aborted by user');
+      // Clean exit: pending sockets/readline close on process teardown.
+      process.exit(130);
+    } else {
+      process.exit(137);
+    }
+  };
+  process.on('SIGINT', onSigint);
+
   try {
     // Resolve photon path
     const resolvedPath = await resolvePhotonPathWithBundled(photonName);
