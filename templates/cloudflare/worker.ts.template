@@ -11,13 +11,6 @@ interface Env {
   [key: string]: string | undefined;
 }
 
-type SSESession = {
-  writer: WritableStreamDefaultWriter<Uint8Array>;
-  encoder: TextEncoder;
-};
-
-const sessions = new Map<string, SSESession>();
-
 // Tool definitions extracted at build time
 // @ts-ignore - Will be replaced during build
 const TOOL_DEFINITIONS: any[] = __TOOL_DEFINITIONS__;
@@ -100,65 +93,33 @@ async function handleMCPRequest(request: any, env: Env): Promise<any> {
 }
 
 // SSE stream handler
-async function handleSSE(request: Request, env: Env): Promise<Response> {
-  const sessionId = crypto.randomUUID();
-  const encoder = new TextEncoder();
-
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-
-  sessions.set(sessionId, { writer, encoder });
-
-  // Send session ID
-  await writer.write(encoder.encode(`event: session\ndata: ${JSON.stringify({ sessionId })}\n\n`));
-
-  // Keep-alive
-  const interval = setInterval(async () => {
-    try {
-      await writer.write(encoder.encode(`: keepalive\n\n`));
-    } catch {
-      clearInterval(interval);
-    }
-  }, 30000);
-
-  // Cleanup on close
-  request.signal.addEventListener('abort', () => {
-    clearInterval(interval);
-    sessions.delete(sessionId);
-    writer.close().catch(() => {});
-  });
-
-  return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
-}
-
-// Message handler for SSE
-async function handleMessage(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const sessionId = url.searchParams.get('sessionId');
-
-  if (!sessionId || !sessions.has(sessionId)) {
-    return new Response('Invalid session', { status: 400 });
+/**
+ * Stateless MCP Streamable HTTP handler.
+ *
+ * Each POST /mcp is a complete JSON-RPC exchange: body in, result out, no
+ * session state carried across requests. This matches the MCP Streamable
+ * HTTP spec's single-endpoint pattern and stays within the Cloudflare
+ * Workers free tier (no Durable Objects needed for session storage).
+ */
+async function handleStreamableMCP(request: Request, env: Env): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (error: any) {
+    return Response.json(
+      { jsonrpc: '2.0', id: null, error: { code: -32700, message: `Parse error: ${error?.message ?? String(error)}` } },
+      { status: 400, headers: CORS_HEADERS }
+    );
   }
-
-  const session = sessions.get(sessionId)!;
-  const body = await request.json();
-  const response = await handleMCPRequest(body, env);
-
-  // Send response via SSE
-  const data = `event: message\ndata: ${JSON.stringify(response)}\n\n`;
-  await session.writer.write(session.encoder.encode(data));
-
-  return new Response('OK', {
-    headers: { 'Access-Control-Allow-Origin': '*' },
-  });
+  const result = await handleMCPRequest(body, env);
+  return Response.json(result, { headers: CORS_HEADERS });
 }
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id',
+};
 
 // Playground HTML
 function getPlaygroundHTML(): string {
@@ -324,25 +285,35 @@ export default {
     if (url.pathname === '/' && request.method === 'GET') {
       return Response.json({
         name: PHOTON_NAME,
-        transport: 'sse',
+        transport: 'streamable-http',
         runtime: 'cloudflare-workers',
         endpoints: {
-          sse: '/mcp',
-          messages: '/mcp/messages',
+          mcp: '/mcp',
           ...(DEV_MODE ? { playground: '/playground' } : {}),
         },
         tools: TOOL_DEFINITIONS.length,
       });
     }
 
-    // SSE endpoint
-    if (url.pathname === '/mcp' && request.method === 'GET') {
-      return handleSSE(request, env);
+    // MCP Streamable HTTP: one endpoint, stateless per request.
+    if (url.pathname === '/mcp' && request.method === 'POST') {
+      return handleStreamableMCP(request, env);
     }
-
-    // Message endpoint
-    if (url.pathname === '/mcp/messages' && request.method === 'POST') {
-      return handleMessage(request, env);
+    if (url.pathname === '/mcp' && request.method === 'GET') {
+      // Spec-compliant no-op: clients that open an SSE stream for server
+      // notifications get a valid empty stream. We do not push anything
+      // server-initiated from a stateless Worker.
+      return new Response(': streamable-http\n\n', {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          ...CORS_HEADERS,
+        },
+      });
+    }
+    if (url.pathname === '/mcp' && request.method === 'DELETE') {
+      // Session termination: stateless, nothing to clean up.
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
     // Dev-only endpoints
