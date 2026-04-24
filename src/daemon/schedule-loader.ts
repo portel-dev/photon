@@ -42,6 +42,13 @@ export interface PersistedScheduleJob {
    * `this.schedule.cancel()`) out from under the in-memory cron map.
    */
   sourceFile?: string;
+  /**
+   * Epoch-ms of the last successful execution, read from the persisted
+   * `lastExecutionAt` field. Used by the daemon boot path to detect fire
+   * windows that elapsed while the daemon was down and schedule one
+   * catch-up run for the most recent missed occurrence.
+   */
+  lastRun?: number;
 }
 
 export interface LoadScheduleCallbacks {
@@ -144,6 +151,7 @@ export function loadPersistedSchedulesFromDir(
         photonName,
         workingDir: jobWorkingDir,
         sourceFile: filePath,
+        lastRun: lastExec > 0 ? lastExec : undefined,
       };
 
       if (cb.register(job)) {

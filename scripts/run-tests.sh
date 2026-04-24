@@ -106,6 +106,7 @@ SUITES=(
   "schedule-autonomous-fire:$RUN tests/schedule-autonomous-fire.test.ts"
   "schedule-boot-load:$RUN tests/schedule-boot-load.test.ts"
   "schedule-ghost-cancel:$RUN tests/schedule-ghost-cancel.test.ts"
+  "schedule-missed-fire:$RUN tests/schedule-missed-fire.test.ts"
 )
 
 TOTAL=0
