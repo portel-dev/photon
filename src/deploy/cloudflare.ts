@@ -7,6 +7,7 @@ import * as path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { homedir } from 'node:os';
 import { detectPM, detectRunner } from '../shared-utils.js';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from '../version.js';
@@ -33,6 +34,56 @@ function getPackageRoot(): string {
   }
   // Fallback: assume we're in dist/deploy/
   return path.join(__dirname, '..', '..');
+}
+
+/**
+ * Resolve a Cloudflare API token for wrangler, preferring an explicit
+ * CLOUDFLARE_API_TOKEN env var then falling back to the OAuth access token
+ * stored by the `cf` CLI at ~/.cf/config.toml. Returns undefined if no
+ * token is discoverable; callers fall through to the interactive
+ * `wrangler login` flow.
+ *
+ * The `cf` CLI's OAuth access token is accepted by the Cloudflare API as a
+ * Bearer credential, so wrangler recognizes it as a valid API token. This
+ * lets users who have authenticated once via `cf auth login` skip the
+ * separate `wrangler login` browser prompt.
+ */
+function resolveCloudflareApiToken(): { token: string; source: 'env' | 'cf-cli' } | null {
+  if (process.env.CLOUDFLARE_API_TOKEN) {
+    return { token: process.env.CLOUDFLARE_API_TOKEN, source: 'env' };
+  }
+  const cfConfigPath = path.join(homedir(), '.cf', 'config.toml');
+  if (!existsSync(cfConfigPath)) return null;
+
+  // `cf auth whoami` has the side effect of refreshing an expired OAuth
+  // access token on disk using the stored refresh token. Run it silently
+  // first so wrangler receives a live token rather than an expired one.
+  // No error if `cf` is not installed; we fall through to reading whatever
+  // is on disk in that case.
+  try {
+    execSync('cf auth whoami', { stdio: 'pipe' });
+  } catch {
+    // cf missing or refresh failed; try the on-disk token anyway.
+  }
+
+  try {
+    const toml = readFileSync(cfConfigPath, 'utf-8');
+    const match = toml.match(/^access_token\s*=\s*"([^"]+)"\s*$/m);
+    return match ? { token: match[1], source: 'cf-cli' } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a subprocess env that includes the bridged Cloudflare API token
+ * when one is available. Callers use this when spawning wrangler so the
+ * token flows through without touching the parent process env.
+ */
+function wranglerEnv(): NodeJS.ProcessEnv {
+  const resolved = resolveCloudflareApiToken();
+  if (!resolved) return process.env;
+  return { ...process.env, CLOUDFLARE_API_TOKEN: resolved.token };
 }
 
 export interface CloudflareDeployOptions {
@@ -139,7 +190,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     },
     devDependencies: {
       '@cloudflare/workers-types': '^4.0.0',
-      wrangler: '^3.0.0',
+      wrangler: '^4.0.0',
       typescript: '^5.0.0',
     },
   };
@@ -186,10 +237,21 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     );
   }
 
-  // Check for wrangler authentication
+  // Check for wrangler authentication. If an OAuth token is available from
+  // the `cf` CLI, log that we're bridging it so the user sees why the
+  // interactive `wrangler login` prompt was skipped.
   logger.info('Checking Cloudflare authentication...');
+  const resolvedToken = resolveCloudflareApiToken();
+  if (resolvedToken?.source === 'cf-cli') {
+    logger.info('Using OAuth token from ~/.cf/config.toml for wrangler authentication');
+  }
+  const envForWrangler = wranglerEnv();
   try {
-    execSync(`${detectRunner()} wrangler whoami`, { cwd: outputDir, stdio: 'pipe' });
+    execSync(`${detectRunner()} wrangler whoami`, {
+      cwd: outputDir,
+      stdio: 'pipe',
+      env: envForWrangler,
+    });
   } catch {
     logger.warn('Not logged in to Cloudflare');
     logger.info('Running: wrangler login');
@@ -198,6 +260,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     const login = spawn(detectRunner(), ['wrangler', 'login'], {
       cwd: outputDir,
       stdio: 'inherit',
+      env: envForWrangler,
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -214,6 +277,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const deploy = spawn(detectRunner(), ['wrangler', 'deploy'], {
     cwd: outputDir,
     stdio: 'inherit',
+    env: envForWrangler,
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -253,6 +317,7 @@ export async function devCloudflare(options: CloudflareDeployOptions): Promise<v
   const dev = spawn(detectRunner(), ['wrangler', 'dev'], {
     cwd: outputDir,
     stdio: 'inherit',
+    env: wranglerEnv(),
   });
 
   await new Promise<void>((resolve) => {
