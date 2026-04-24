@@ -110,8 +110,40 @@ export class SamplingModal extends LitElement {
     buttons,
     forms,
     css`
+      /* Sampling modal lives as a light-DOM child of document.body so
+       * it can overlay anything. That also means it sits OUTSIDE
+       * <beam-app>'s shadow tree and doesn't inherit beam-app's
+       * theme tokens. Define the same palette locally, and mirror
+       * beam-app's data-theme attribute so dark/light tracks the
+       * rest of Beam.
+       */
       :host {
         display: contents;
+        --bg-app: #0b1018;
+        --bg-panel: #131b28;
+        --bg-glass-strong: hsla(215, 25%, 12%, 0.85);
+        --t-primary: #f0ede6;
+        --t-muted: #6b8a8a;
+        --border-glass: hsla(210, 20%, 50%, 0.12);
+        --accent-primary: #ffb000;
+        --accent-secondary: #78e6ff;
+        --glow-primary: rgba(255, 176, 0, 0.3);
+        --color-info-bg: rgba(120, 230, 255, 0.1);
+        --color-info: var(--accent-secondary);
+        color: var(--t-primary);
+      }
+
+      :host([data-theme='light']) {
+        --bg-app: #eef1f5;
+        --bg-panel: #ffffff;
+        --bg-glass-strong: rgba(255, 255, 255, 0.9);
+        --t-primary: #0d1420;
+        --t-muted: #5f6b7a;
+        --border-glass: rgba(100, 120, 150, 0.15);
+        --accent-primary: #d98a00;
+        --accent-secondary: #0ea5c6;
+        --glow-primary: rgba(217, 138, 0, 0.15);
+        --color-info-bg: rgba(14, 165, 198, 0.08);
       }
 
       .backdrop {
@@ -125,86 +157,93 @@ export class SamplingModal extends LitElement {
       }
 
       .modal {
-        background: var(--color-surface, #fff);
-        border-radius: 8px;
-        padding: 20px;
+        background: var(--bg-panel);
+        color: var(--t-primary);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-lg);
         max-width: 680px;
         width: 90vw;
         max-height: 80vh;
         overflow-y: auto;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+        box-shadow: var(--shadow-lg, 0 10px 40px rgba(0, 0, 0, 0.35));
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: var(--space-sm);
       }
 
       h2 {
         margin: 0;
-        font-size: 18px;
+        font-size: var(--text-lg);
+        color: var(--t-primary);
       }
 
       .subtitle {
-        color: var(--color-text-muted, #666);
-        font-size: 13px;
+        color: var(--t-muted);
+        font-size: var(--text-sm);
       }
 
       .message-list {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: var(--space-sm);
         max-height: 200px;
         overflow-y: auto;
-        border: 1px solid var(--color-border, #eee);
-        border-radius: 6px;
-        padding: 8px;
-        background: var(--color-surface-alt, #fafafa);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        padding: var(--space-sm);
+        background: var(--bg-glass-strong);
       }
 
       .msg {
-        font-size: 13px;
+        font-size: var(--text-sm);
         line-height: 1.4;
+        color: var(--t-primary);
       }
 
       .role {
         font-weight: 600;
         text-transform: uppercase;
-        font-size: 11px;
-        color: var(--color-text-muted, #888);
-        margin-right: 6px;
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        margin-right: var(--space-xs);
       }
 
       .system {
-        padding: 6px 8px;
-        background: var(--color-info-bg, #eef4ff);
-        border-left: 3px solid var(--color-info, #4a90e2);
-        font-size: 13px;
-        border-radius: 4px;
+        padding: var(--space-xs) var(--space-sm);
+        background: var(--color-info-bg);
+        border-left: 3px solid var(--color-info);
+        font-size: var(--text-sm);
+        border-radius: var(--radius-xs);
+        color: var(--t-primary);
       }
 
       textarea {
         width: 100%;
         min-height: 140px;
-        padding: 8px;
+        padding: var(--space-sm);
         font: inherit;
-        border: 1px solid var(--color-border, #ccc);
-        border-radius: 4px;
+        background: var(--bg-app);
+        color: var(--t-primary);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-xs);
         resize: vertical;
         box-sizing: border-box;
       }
 
       .meta {
-        font-size: 12px;
-        color: var(--color-text-muted, #888);
+        font-size: var(--text-xs);
+        color: var(--t-muted);
         display: flex;
-        gap: 12px;
+        gap: var(--space-md);
         flex-wrap: wrap;
       }
 
       .actions {
         display: flex;
-        gap: 8px;
+        gap: var(--space-sm);
         justify-content: flex-end;
-        margin-top: 4px;
+        margin-top: var(--space-xs);
       }
     `,
   ];
@@ -392,6 +431,13 @@ export async function openSamplingModal(params: SamplingRequestParams): Promise<
       modalEl = document.createElement('sampling-modal');
       document.body.appendChild(modalEl);
     }
+
+    // Mirror beam-app's theme so the modal doesn't render in its
+    // dark defaults while the rest of Beam is in light mode (or
+    // vice versa).
+    const beamApp = document.querySelector('beam-app');
+    const theme = beamApp?.getAttribute('data-theme') ?? 'dark';
+    modalEl.setAttribute('data-theme', theme);
 
     return await new Promise<string>((resolve, reject) => {
       modalEl!.beginRequest(params, resolve, reject);
