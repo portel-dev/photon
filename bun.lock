@@ -8,7 +8,7 @@
         "@modelcontextprotocol/ext-apps": "^1.0.1",
         "@modelcontextprotocol/sdk": "^1.25.2",
         "@portel/cli": "^1.1.0",
-        "@portel/photon-core": "^2.23.0",
+        "@portel/photon-core": "^2.25.0",
         "boxen": "^8.0.1",
         "chalk": "^5.4.1",
         "chart.js": "^4.5.1",
@@ -54,6 +54,10 @@
       },
     },
   },
+  "trustedDependencies": [
+    "better-sqlite3",
+    "esbuild",
+  ],
   "overrides": {
     "minimatch": "^10.2.1",
   },
@@ -334,7 +338,7 @@
 
     "@portel/mcp": ["@portel/mcp@1.0.1", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.18.0", "@portel/cli": "^1.0.0" } }, "sha512-4SaGxqPDdjx7mRSEDVKckRj/rbQgO8fbU2cFbe/sxnsgexUEIsRBBWgMfYloPfW5wHFd+0dCpwoFjcT2OqrQDw=="],
 
-    "@portel/photon-core": ["@portel/photon-core@2.23.0", "", { "dependencies": { "@portel/cli": "^1.1.0", "@portel/mcp": "^1.0.1", "chalk": "^5.3.0", "cli-highlight": "^2.1.11", "typescript": "^5.7.2" } }, "sha512-Ziz7waSaxKoOXEnn7A+27HgE9D2jJtQgKozAMS4GHVUIz/7HAlmJTRM1NntNeyVYaU3YAqDNqckTfrN0IJ6Zaw=="],
+    "@portel/photon-core": ["@portel/photon-core@2.25.0", "", { "dependencies": { "@portel/cli": "^1.1.0", "@portel/mcp": "^1.0.1", "chalk": "^5.3.0", "cli-highlight": "^2.1.11", "typescript": "^5.7.2" } }, "sha512-4rnSoojtKT/xfIQoVqYwOh6oQswaG02J3L/l7g4SFJADs26fHnZEHQTpoqw3aHiu2hrS90NaJxVtuY9CiMN6NQ=="],
 
     "@release-it/conventional-changelog": ["@release-it/conventional-changelog@10.0.5", "", { "dependencies": { "@conventional-changelog/git-client": "^2.5.1", "concat-stream": "^2.0.0", "conventional-changelog": "^7.1.1", "conventional-changelog-angular": "^8.1.0", "conventional-changelog-conventionalcommits": "^9.1.0", "conventional-recommended-bump": "^11.2.0", "semver": "^7.7.3" }, "peerDependencies": { "release-it": "^18.0.0 || ^19.0.0" } }, "sha512-Dxul3YlUsDLbIg+aR6T0QR/VyKwuJNR3GZM8mKVEwFO8GpH2H5vgnN7kacEvq/Qk5puDadOVbhbUq/KBjraemQ=="],
 
