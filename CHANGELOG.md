@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.24.0](https://github.com/portel-dev/photon/compare/v1.23.1...v1.24.0) (2026-04-24)
+
+### Features
+
+* **beam:** human-in-the-loop sampling — Beam answers sampling/createMessage ([7f7a3dd](https://github.com/portel-dev/photon/commit/7f7a3ddc520f59e8ce3961d5e6763928bd0b8b7a))
+* **beam:** SDK-transport-only MCP client prototype (not yet wired) ([e34ef2f](https://github.com/portel-dev/photon/commit/e34ef2fd2058ce89c43beeebfe9703b918f1133c))
+* **claim:** scoped remote access for MCP sessions via short-lived codes ([6300a87](https://github.com/portel-dev/photon/commit/6300a874755678da11e63b7b34fd711e3bb2b0e3))
+* **cli:** remove timeouts, heartbeat contract, Ctrl+C handling ([95f470d](https://github.com/portel-dev/photon/commit/95f470d40a97ee95dbdb3489ba1a3d332c4b865e))
+* **deploy/cf:** auto-bridge cf CLI token and bump wrangler pin to v4 ([84e5171](https://github.com/portel-dev/photon/commit/84e5171ca80a71efd555e1985bae1d0d44b4ce20))
+* **runtime:** SQLite-backed memory backend ([4fb70e5](https://github.com/portel-dev/photon/commit/4fb70e5a5986ca08b4e72559b577d4ef65e5e93f))
+* **runtime:** wire this.sample / this.confirm / this.elicit end-to-end ([44016ab](https://github.com/portel-dev/photon/commit/44016ab305bdd98cd9ccff00a20646dbe3bf6d33))
+* **scheduler:** catch up missed fires after daemon downtime ([9a32bff](https://github.com/portel-dev/photon/commit/9a32bff8116ef01f1483c23ddb22c4aa69613e90))
+
+### Bug Fixes
+
+* address codex adversarial review findings (4 P1 + 4 P2) ([ea2a87c](https://github.com/portel-dev/photon/commit/ea2a87cb76fbc320b350e27b9d34ec5f9ed3a861))
+* address codex review P1s + P2s on claim + sampling + SDK client ([470e610](https://github.com/portel-dev/photon/commit/470e610d151fe9f46364709c0a555865b3d56d86))
+* **beam:** bump MCP method-call timeout from 60s to 5 min ([b3cc61a](https://github.com/portel-dev/photon/commit/b3cc61ad8f4e00ba34430171b7a88e41a20e304a))
+* **beam:** mirror theme tokens on sampling modal so dark/light tracks beam-app ([667128c](https://github.com/portel-dev/photon/commit/667128c09189a738cc9a5dd5898aacd7b2ced390))
+* **daemon:** boot-time scanner loads schedule.create() files ([23b1c1a](https://github.com/portel-dev/photon/commit/23b1c1a3906c85ecbc236fdc9195ebfe58717834))
+* **deploy/cf:** replace hung SSE session transport with stateless MCP Streamable HTTP ([809373a](https://github.com/portel-dev/photon/commit/809373aa0278bf24d12976a13b24afe95593d676))
+* **loader:** always-inject this.memory and this.instanceMeta on plain classes ([f1f74d4](https://github.com/portel-dev/photon/commit/f1f74d495e1c5bd5302e447388fa008b6b19cf19))
+* **loader:** inject schedule-unschedule hook so cancel evicts ghosts ([eece871](https://github.com/portel-dev/photon/commit/eece8718f908c81fa62f9a9e3edcf90c806684d4))
+* **runtime:** serialize concurrent method calls per photon instance ([2ebfcc0](https://github.com/portel-dev/photon/commit/2ebfcc075ac1b5c9f8e3755b229ec7b930dcdfa7))
+* **scheduler:** fire cron jobs without requiring a warm photon ([d74bfc0](https://github.com/portel-dev/photon/commit/d74bfc0fdff6dafc823b99d80c09856566194a96))
+* **serv:** tools/call echoes client-supplied _meta.progressToken ([dc45b9d](https://github.com/portel-dev/photon/commit/dc45b9ddacaa4ad82e7713c4f5335c0190039bb6))
+
 ## [1.23.1](https://github.com/portel-dev/photon/compare/v1.23.0...v1.23.1) (2026-04-21)
 
 ### Bug Fixes
