@@ -425,6 +425,15 @@ export class PhotonLoader {
   private marketplaceManagerPromise?: Promise<MarketplaceManager>;
   private logger: Logger;
 
+  /**
+   * Per-instance call queue. Two tool invocations targeting the same photon
+   * instance are serialized: the second starts only after the first returns.
+   * Prevents lost-update and read-after-write races between methods that share
+   * state via `this.memory` or instance fields. Keyed on the instance object
+   * via WeakMap so hot-reload drops the queue automatically.
+   */
+  private _instanceCallTails = new WeakMap<object, Promise<void>>();
+
   // ════════════════════════════════════════════════════════════════════════════
   // MIDDLEWARE STATE
   // ════════════════════════════════════════════════════════════════════════════
@@ -3781,21 +3790,50 @@ Run: photon mcp ${mcpName} --config
         resolvedParentTraceparent = metaPeek.traceparent;
       }
     }
-    return runWithRequestContext(
-      {
-        photon: mcp.name,
-        tool: toolName,
-        traceId: options?.traceId,
-        parentTraceparent: resolvedParentTraceparent,
-        caller: options?.caller,
-        startedAt: Date.now(),
-      },
-      () =>
-        this._executeToolInner(mcp, toolName, parameters, {
-          ...options,
+    const run = () =>
+      runWithRequestContext(
+        {
+          photon: mcp.name,
+          tool: toolName,
+          traceId: options?.traceId,
           parentTraceparent: resolvedParentTraceparent,
-        })
-    );
+          caller: options?.caller,
+          startedAt: Date.now(),
+        },
+        () =>
+          this._executeToolInner(mcp, toolName, parameters, {
+            ...options,
+            parentTraceparent: resolvedParentTraceparent,
+          })
+      );
+
+    const gateKey = mcp.instance as object | undefined;
+    if (!gateKey) return run();
+    return this._withInstanceGate(gateKey, run);
+  }
+
+  /**
+   * Serialize calls targeting the same photon instance. Concurrent callers
+   * queue behind the current in-flight call; each invocation gets an exclusive
+   * slot for the duration of its method body (including all awaits), so two
+   * methods that touch shared state via `this.memory` cannot interleave.
+   */
+  private async _withInstanceGate<T>(instance: object, fn: () => Promise<T>): Promise<T> {
+    const prev = this._instanceCallTails.get(instance) ?? Promise.resolve();
+    let release!: () => void;
+    const tail = new Promise<void>((r) => {
+      release = r;
+    });
+    this._instanceCallTails.set(instance, tail);
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release();
+      if (this._instanceCallTails.get(instance) === tail) {
+        this._instanceCallTails.delete(instance);
+      }
+    }
   }
 
   private async _executeToolInner(
