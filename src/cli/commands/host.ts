@@ -71,6 +71,7 @@ export function registerHostCommand(program: Command): void {
     .option('--dev', 'Enable Beam UI in deployment')
     .option('--dry-run', 'Generate project without deploying')
     .option('--output <dir>', 'Output directory for generated project')
+    .option('--logs', 'Enable Workers Logs (Cloudflare dashboard observability)')
     .description('Deploy a Photon to cloud platforms')
     .action(async (target: string, name: string, options: any, command: Command) => {
       try {
@@ -98,6 +99,7 @@ export function registerHostCommand(program: Command): void {
             devMode: options.dev,
             dryRun: options.dryRun,
             outputDir: options.output,
+            withLogs: options.logs,
           });
         } else {
           logger.error(`Unknown deployment target: ${target}`);

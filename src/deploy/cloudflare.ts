@@ -157,10 +157,17 @@ export interface CloudflareDeployOptions {
   outputDir?: string;
   devMode?: boolean;
   dryRun?: boolean;
+  /**
+   * Enable Cloudflare Workers Logs in the generated `wrangler.toml`.
+   * When true, every Worker invocation is captured in the CF dashboard
+   * with ~3-day retention. Off by default — Workers Logs is opt-in so
+   * deployments stay minimal until the user explicitly wants observability.
+   */
+  withLogs?: boolean;
 }
 
 export async function deployToCloudflare(options: CloudflareDeployOptions): Promise<void> {
-  const { photonPath, devMode = false, dryRun = false } = options;
+  const { photonPath, devMode = false, dryRun = false, withLogs = false } = options;
 
   // Resolve photon file
   const absolutePath = path.resolve(photonPath);
@@ -261,8 +268,15 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     'cloudflare',
     'wrangler.toml.template'
   );
+  // `__OBSERVABILITY__` is replaced with a `[observability]` block when the
+  // user passes `--logs`, otherwise stripped so the rendered wrangler.toml
+  // stays minimal. Workers Logs has a small free tier; opt-in keeps quota
+  // usage explicit.
+  const observabilityReplacement = withLogs ? '\n[observability]\nenabled = true\n' : '';
   let wranglerConfig = await fs.readFile(wranglerTemplatePath, 'utf-8');
-  wranglerConfig = wranglerConfig.replace(/__PHOTON_NAME__/g, photonName);
+  wranglerConfig = wranglerConfig
+    .replace(/__PHOTON_NAME__/g, photonName)
+    .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement);
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);
 
   // Create package.json. Photon-declared dependencies land in `dependencies`

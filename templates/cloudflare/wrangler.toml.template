@@ -6,7 +6,7 @@ main = "src/worker.ts"
 # browser build that references `window`.
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
-
+__OBSERVABILITY__
 # Uncomment to add environment variables
 # [vars]
 # API_KEY = "your-api-key"
