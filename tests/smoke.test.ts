@@ -830,8 +830,11 @@ export default class ConfigTest extends PhotonMCP {
   await test('Maker: photon maker new creates a valid photon file', async () => {
     const dir = freshDir();
     try {
-      // maker new outputs to stderr, so capture with 2>&1
+      // `maker new` writes the photon to process.cwd(), not PHOTON_DIR, so
+      // the subprocess must run with cwd=dir for the assertions below to
+      // find the file at the expected path.
       const combined = execSync(`node ${CLI_PATH} maker new smoke-probe 2>&1`, {
+        cwd: dir,
         env: { ...process.env, PHOTON_DIR: dir },
         timeout: 15_000,
         encoding: 'utf-8',
