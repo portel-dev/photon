@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.25.0](https://github.com/portel-dev/photon/compare/v1.24.0...v1.25.0) (2026-04-25)
+
+### Features
+
+* **deploy/cf:** bundle photon [@dependencies](https://github.com/dependencies) into Worker scaffold ([fdedd67](https://github.com/portel-dev/photon/commit/fdedd67f1d58f3549068173b641f98b4abd16720))
+
+### Bug Fixes
+
+* **deploy/cf:** pass through string returns as raw text in tools/call ([e426bee](https://github.com/portel-dev/photon/commit/e426bee5f3e1a1b8e6e8a96381240008f8c7c126))
+* propagate caller cwd across worker and cross-photon-call boundaries ([c7f34da](https://github.com/portel-dev/photon/commit/c7f34dad82c1bd177e142f157ae9d6f39337cf95))
+
 ## [1.24.0](https://github.com/portel-dev/photon/compare/v1.23.1...v1.24.0) (2026-04-24)
 
 ### Features
