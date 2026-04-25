@@ -141,7 +141,7 @@
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.39.12",
     "@playwright/test": "^1.58.0",
-    "@release-it/conventional-changelog": "^10.0.1",
+    "@release-it/conventional-changelog": "^11.0.0",
     "@types/inquirer": "^9.0.9",
     "@types/node": "^22.10.2",
     "@types/qrcode": "^1.5.6",

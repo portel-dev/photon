@@ -29,7 +29,7 @@
         "@codemirror/theme-one-dark": "^6.1.3",
         "@codemirror/view": "^6.39.12",
         "@playwright/test": "^1.58.0",
-        "@release-it/conventional-changelog": "^10.0.1",
+        "@release-it/conventional-changelog": "^11.0.0",
         "@types/inquirer": "^9.0.9",
         "@types/node": "^22.10.2",
         "@types/qrcode": "^1.5.6",
@@ -88,7 +88,7 @@
 
     "@colors/colors": ["@colors/colors@1.5.0", "", {}, "sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ=="],
 
-    "@conventional-changelog/git-client": ["@conventional-changelog/git-client@2.5.1", "", { "dependencies": { "@simple-libs/child-process-utils": "^1.0.0", "@simple-libs/stream-utils": "^1.1.0", "semver": "^7.5.2" }, "peerDependencies": { "conventional-commits-filter": "^5.0.0", "conventional-commits-parser": "^6.1.0" } }, "sha512-lAw7iA5oTPWOLjiweb7DlGEMDEvzqzLLa6aWOly2FSZ64IwLE8T458rC+o+WvI31Doz6joM7X2DoNog7mX8r4A=="],
+    "@conventional-changelog/git-client": ["@conventional-changelog/git-client@2.7.0", "", { "dependencies": { "@simple-libs/child-process-utils": "^1.0.0", "@simple-libs/stream-utils": "^1.2.0", "semver": "^7.5.2" }, "peerDependencies": { "conventional-commits-filter": "^5.0.0", "conventional-commits-parser": "^6.4.0" }, "optionalPeers": ["conventional-commits-filter", "conventional-commits-parser"] }, "sha512-j7A8/LBEQ+3rugMzPXoKYzyUPpw/0CBQCyvtTR7Lmu4olG4yRC/Tfkq79Mr3yuPs0SUitlO2HwGP3gitMJnRFw=="],
 
     "@emnapi/core": ["@emnapi/core@1.8.1", "", { "dependencies": { "@emnapi/wasi-threads": "1.1.0", "tslib": "^2.4.0" } }, "sha512-AvT9QFpxK0Zd8J0jopedNm+w/2fIzvtPKPjqyw9jwvBaReTTqPBk9Hixaz7KbjimP+QNz605/XnjFcDAL2pqBg=="],
 
@@ -338,7 +338,7 @@
 
     "@portel/photon-core": ["@portel/photon-core@2.25.0", "", { "dependencies": { "@portel/cli": "^1.1.0", "@portel/mcp": "^1.0.1", "chalk": "^5.3.0", "cli-highlight": "^2.1.11", "typescript": "^5.7.2" } }, "sha512-4rnSoojtKT/xfIQoVqYwOh6oQswaG02J3L/l7g4SFJADs26fHnZEHQTpoqw3aHiu2hrS90NaJxVtuY9CiMN6NQ=="],
 
-    "@release-it/conventional-changelog": ["@release-it/conventional-changelog@10.0.5", "", { "dependencies": { "@conventional-changelog/git-client": "^2.5.1", "concat-stream": "^2.0.0", "conventional-changelog": "^7.1.1", "conventional-changelog-angular": "^8.1.0", "conventional-changelog-conventionalcommits": "^9.1.0", "conventional-recommended-bump": "^11.2.0", "semver": "^7.7.3" }, "peerDependencies": { "release-it": "^18.0.0 || ^19.0.0" } }, "sha512-Dxul3YlUsDLbIg+aR6T0QR/VyKwuJNR3GZM8mKVEwFO8GpH2H5vgnN7kacEvq/Qk5puDadOVbhbUq/KBjraemQ=="],
+    "@release-it/conventional-changelog": ["@release-it/conventional-changelog@11.0.0", "", { "dependencies": { "@conventional-changelog/git-client": "^2.7.0", "concat-stream": "^2.0.0", "conventional-changelog": "^7.2.0", "conventional-changelog-angular": "^8.3.1", "conventional-changelog-conventionalcommits": "^9.3.1", "conventional-recommended-bump": "^11.2.0", "semver": "^7.7.4" }, "peerDependencies": { "release-it": "^18.0.0 || ^19.0.0 || ^20.0.0" } }, "sha512-3/WyzObY+y+EejBt+J2vcojFPLUiGu14liRiaPWc0bNVluhRIsADeJ785Iq5ynnhdd1zcjMNh5lBmM/J6/KXig=="],
 
     "@rollup/rollup-darwin-arm64": ["@rollup/rollup-darwin-arm64@4.59.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-W2Psnbh1J8ZJw0xKAd8zdNgF9HRLkdWwwdWqubSVk0pUuQkoHnv7rx4GiF9rT4t5DIZGAsConRE3AxCdJ4m8rg=="],
 
@@ -354,7 +354,9 @@
 
     "@simple-libs/child-process-utils": ["@simple-libs/child-process-utils@1.0.1", "", { "dependencies": { "@simple-libs/stream-utils": "^1.1.0", "@types/node": "^22.0.0" } }, "sha512-3nWd8irxvDI6v856wpPCHZ+08iQR0oHTZfzAZmnbsLzf+Sf1odraP6uKOHDZToXq3RPRV/LbqGVlSCogm9cJjg=="],
 
-    "@simple-libs/stream-utils": ["@simple-libs/stream-utils@1.1.0", "", { "dependencies": { "@types/node": "^22.0.0" } }, "sha512-6rsHTjodIn/t90lv5snQjRPVtOosM7Vp0AKdrObymq45ojlgVwnpAqdc+0OBBrpEiy31zZ6/TKeIVqV1HwvnuQ=="],
+    "@simple-libs/hosted-git-info": ["@simple-libs/hosted-git-info@1.0.2", "", {}, "sha512-aAmGQdMH+ZinytKuA2832u0ATeOFNYNk4meBEXtB5xaPotUgggYNhq5tYU/v17wEbmTW5P9iHNqNrFyrhnqBAg=="],
+
+    "@simple-libs/stream-utils": ["@simple-libs/stream-utils@1.2.0", "", {}, "sha512-KxXvfapcixpz6rVEB6HPjOUZT22yN6v0vI0urQSk1L8MlEWPDFCZkhw2xmkyoTGYeFw7tWTZd7e3lVzRZRN/EA=="],
 
     "@tybys/wasm-util": ["@tybys/wasm-util@0.10.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg=="],
 
@@ -526,19 +528,19 @@
 
     "content-type": ["content-type@1.0.5", "", {}, "sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA=="],
 
-    "conventional-changelog": ["conventional-changelog@7.1.1", "", { "dependencies": { "@conventional-changelog/git-client": "^2.5.1", "@types/normalize-package-data": "^2.4.4", "conventional-changelog-preset-loader": "^5.0.0", "conventional-changelog-writer": "^8.2.0", "conventional-commits-parser": "^6.2.0", "fd-package-json": "^2.0.0", "meow": "^13.0.0", "normalize-package-data": "^7.0.0" }, "bin": "dist/cli/index.js" }, "sha512-rlqa8Lgh8YzT3Akruk05DR79j5gN9NCglHtJZwpi6vxVeaoagz+84UAtKQj/sT+RsfGaZkt3cdFCjcN6yjr5sw=="],
+    "conventional-changelog": ["conventional-changelog@7.2.0", "", { "dependencies": { "@conventional-changelog/git-client": "^2.6.0", "@simple-libs/hosted-git-info": "^1.0.2", "@types/normalize-package-data": "^2.4.4", "conventional-changelog-preset-loader": "^5.0.0", "conventional-changelog-writer": "^8.3.0", "conventional-commits-parser": "^6.3.0", "fd-package-json": "^2.0.0", "meow": "^13.0.0", "normalize-package-data": "^7.0.0" }, "bin": { "conventional-changelog": "dist/cli/index.js" } }, "sha512-BEdgG+vPl53EVlTTk9sZ96aagFp0AQ5pw/ggiQMy2SClLbTo1r0l+8dSg79gkLOO5DS1Lswuhp5fWn6RwE+ivg=="],
 
-    "conventional-changelog-angular": ["conventional-changelog-angular@8.1.0", "", { "dependencies": { "compare-func": "^2.0.0" } }, "sha512-GGf2Nipn1RUCAktxuVauVr1e3r8QrLP/B0lEUsFktmGqc3ddbQkhoJZHJctVU829U1c6mTSWftrVOCHaL85Q3w=="],
+    "conventional-changelog-angular": ["conventional-changelog-angular@8.3.1", "", { "dependencies": { "compare-func": "^2.0.0" } }, "sha512-6gfI3otXK5Ph5DfCOI1dblr+kN3FAm5a97hYoQkqNZxOaYa5WKfXH+AnpsmS+iUH2mgVC2Cg2Qw9m5OKcmNrIg=="],
 
-    "conventional-changelog-conventionalcommits": ["conventional-changelog-conventionalcommits@9.1.0", "", { "dependencies": { "compare-func": "^2.0.0" } }, "sha512-MnbEysR8wWa8dAEvbj5xcBgJKQlX/m0lhS8DsyAAWDHdfs2faDJxTgzRYlRYpXSe7UiKrIIlB4TrBKU9q9DgkA=="],
+    "conventional-changelog-conventionalcommits": ["conventional-changelog-conventionalcommits@9.3.1", "", { "dependencies": { "compare-func": "^2.0.0" } }, "sha512-dTYtpIacRpcZgrvBYvBfArMmK2xvIpv2TaxM0/ZI5CBtNUzvF2x0t15HsbRABWprS6UPmvj+PzHVjSx4qAVKyw=="],
 
     "conventional-changelog-preset-loader": ["conventional-changelog-preset-loader@5.0.0", "", {}, "sha512-SetDSntXLk8Jh1NOAl1Gu5uLiCNSYenB5tm0YVeZKePRIgDW9lQImromTwLa3c/Gae298tsgOM+/CYT9XAl0NA=="],
 
-    "conventional-changelog-writer": ["conventional-changelog-writer@8.2.0", "", { "dependencies": { "conventional-commits-filter": "^5.0.0", "handlebars": "^4.7.7", "meow": "^13.0.0", "semver": "^7.5.2" }, "bin": "dist/cli/index.js" }, "sha512-Y2aW4596l9AEvFJRwFGJGiQjt2sBYTjPD18DdvxX9Vpz0Z7HQ+g1Z+6iYDAm1vR3QOJrDBkRHixHK/+FhkR6Pw=="],
+    "conventional-changelog-writer": ["conventional-changelog-writer@8.4.0", "", { "dependencies": { "@simple-libs/stream-utils": "^1.2.0", "conventional-commits-filter": "^5.0.0", "handlebars": "^4.7.7", "meow": "^13.0.0", "semver": "^7.5.2" }, "bin": { "conventional-changelog-writer": "dist/cli/index.js" } }, "sha512-HHBFkk1EECxxmCi4CTu091iuDpQv5/OavuCUAuZmrkWpmYfyD816nom1CvtfXJ/uYfAAjavgHvXHX291tSLK8g=="],
 
     "conventional-commits-filter": ["conventional-commits-filter@5.0.0", "", {}, "sha512-tQMagCOC59EVgNZcC5zl7XqO30Wki9i9J3acbUvkaosCT6JX3EeFwJD7Qqp4MCikRnzS18WXV3BLIQ66ytu6+Q=="],
 
-    "conventional-commits-parser": ["conventional-commits-parser@6.2.1", "", { "dependencies": { "meow": "^13.0.0" }, "bin": "dist/cli/index.js" }, "sha512-20pyHgnO40rvfI0NGF/xiEoFMkXDtkF8FwHvk5BokoFoCuTQRI8vrNCNFWUOfuolKJMm1tPCHc8GgYEtr1XRNA=="],
+    "conventional-commits-parser": ["conventional-commits-parser@6.4.0", "", { "dependencies": { "@simple-libs/stream-utils": "^1.2.0", "meow": "^13.0.0" }, "bin": { "conventional-commits-parser": "dist/cli/index.js" } }, "sha512-tvRg7FIBNlyPzjdG8wWRlPHQJJHI7DylhtRGeU9Lq+JuoPh5BKpPRX83ZdLrvXuOSu5Eo/e7SzOQhU4Hd2Miuw=="],
 
     "conventional-recommended-bump": ["conventional-recommended-bump@11.2.0", "", { "dependencies": { "@conventional-changelog/git-client": "^2.5.1", "conventional-changelog-preset-loader": "^5.0.0", "conventional-commits-filter": "^5.0.0", "conventional-commits-parser": "^6.1.0", "meow": "^13.0.0" }, "bin": "dist/cli/index.js" }, "sha512-lqIdmw330QdMBgfL0e6+6q5OMKyIpy4OZNmepit6FS3GldhkG+70drZjuZ0A5NFpze5j85dlYs3GabQXl6sMHw=="],
 
@@ -1254,6 +1256,8 @@
 
     "@modelcontextprotocol/sdk/ajv": ["ajv@8.18.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A=="],
 
+    "@simple-libs/child-process-utils/@simple-libs/stream-utils": ["@simple-libs/stream-utils@1.1.0", "", { "dependencies": { "@types/node": "^22.0.0" } }, "sha512-6rsHTjodIn/t90lv5snQjRPVtOosM7Vp0AKdrObymq45ojlgVwnpAqdc+0OBBrpEiy31zZ6/TKeIVqV1HwvnuQ=="],
+
     "ajv-formats/ajv": ["ajv@8.18.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A=="],
 
     "ansi-align/string-width": ["string-width@4.2.3", "", { "dependencies": { "emoji-regex": "^8.0.0", "is-fullwidth-code-point": "^3.0.0", "strip-ansi": "^6.0.1" } }, "sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g=="],
@@ -1277,6 +1281,10 @@
     "cliui/strip-ansi": ["strip-ansi@6.0.1", "", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
     "cliui/wrap-ansi": ["wrap-ansi@7.0.0", "", { "dependencies": { "ansi-styles": "^4.0.0", "string-width": "^4.1.0", "strip-ansi": "^6.0.0" } }, "sha512-YVGIj2kamLSTxw6NsZjoBxfSwsn0ycdesmc4p+Q21c5zPuZ1pl+NfxVdxPtdHvmNVOQ6XSYG4AUtyt/Fi7D16Q=="],
+
+    "conventional-recommended-bump/@conventional-changelog/git-client": ["@conventional-changelog/git-client@2.5.1", "", { "dependencies": { "@simple-libs/child-process-utils": "^1.0.0", "@simple-libs/stream-utils": "^1.1.0", "semver": "^7.5.2" }, "peerDependencies": { "conventional-commits-filter": "^5.0.0", "conventional-commits-parser": "^6.1.0" } }, "sha512-lAw7iA5oTPWOLjiweb7DlGEMDEvzqzLLa6aWOly2FSZ64IwLE8T458rC+o+WvI31Doz6joM7X2DoNog7mX8r4A=="],
+
+    "conventional-recommended-bump/conventional-commits-parser": ["conventional-commits-parser@6.2.1", "", { "dependencies": { "meow": "^13.0.0" }, "bin": "dist/cli/index.js" }, "sha512-20pyHgnO40rvfI0NGF/xiEoFMkXDtkF8FwHvk5BokoFoCuTQRI8vrNCNFWUOfuolKJMm1tPCHc8GgYEtr1XRNA=="],
 
     "eslint/ignore": ["ignore@5.3.2", "", {}, "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g=="],
 
@@ -1343,6 +1351,8 @@
     "cliui/string-width/emoji-regex": ["emoji-regex@8.0.0", "", {}, "sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A=="],
 
     "cliui/strip-ansi/ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
+
+    "conventional-recommended-bump/@conventional-changelog/git-client/@simple-libs/stream-utils": ["@simple-libs/stream-utils@1.1.0", "", { "dependencies": { "@types/node": "^22.0.0" } }, "sha512-6rsHTjodIn/t90lv5snQjRPVtOosM7Vp0AKdrObymq45ojlgVwnpAqdc+0OBBrpEiy31zZ6/TKeIVqV1HwvnuQ=="],
 
     "form-data/mime-types/mime-db": ["mime-db@1.52.0", "", {}, "sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg=="],
 
