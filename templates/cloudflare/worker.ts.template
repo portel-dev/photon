@@ -60,11 +60,19 @@ async function handleMCPRequest(request: any, env: Env): Promise<any> {
           throw new Error(`Unknown tool: ${name}`);
         }
         const result = await method.call(photon, args || {});
+        // String returns (e.g. markdown from `read`) flow through as-is so
+        // clients receive renderable text. Other shapes are JSON-stringified
+        // for legibility. Structured shapes are also surfaced via
+        // `structuredContent` per MCP — clients that prefer JSON pick it up.
+        const isString = typeof result === 'string';
+        const text = isString ? result : JSON.stringify(result, null, 2);
+        const isObject = result !== null && typeof result === 'object';
         return {
           jsonrpc: '2.0',
           id,
           result: {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            content: [{ type: 'text', text }],
+            ...(isObject && { structuredContent: result }),
           },
         };
       } catch (error: any) {
