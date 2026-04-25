@@ -15,6 +15,72 @@ import { logger } from '../shared/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * NPM packages known to be incompatible with the Cloudflare Workers runtime.
+ * Most break because they depend on Node-only built-ins (fs, vm, native
+ * bindings) or full DOM polyfills. The deploy aborts with a clear message
+ * listing offenders so users redirect to a Workers-friendly alternative
+ * before they hit a cryptic bundle error from wrangler.
+ *
+ * Keep this list conservative — only add packages with no realistic Workers
+ * path. Pure-JS libraries (cheerio, linkedom, @extractus/article-extractor,
+ * etc.) work fine and must NOT be blocked.
+ */
+const WORKERS_INCOMPATIBLE_DEPS: Record<string, string> = {
+  jsdom: 'needs full Node built-ins (fs, vm, Buffer); use linkedom or @extractus/article-extractor',
+  'better-sqlite3': 'native binding; use Cloudflare D1 or DO storage',
+  sharp: 'native binding; use Cloudflare Images',
+  canvas: 'native binding; not available on Workers',
+  puppeteer: 'full Chromium; use Cloudflare Browser Rendering',
+  playwright: 'full browsers; use Cloudflare Browser Rendering',
+  'node-fetch': 'unnecessary on Workers — fetch is global',
+};
+
+interface ParsedDependency {
+  name: string;
+  version: string;
+}
+
+/**
+ * Extract `@dependencies foo@^1, bar@^2` entries from photon JSDoc blocks.
+ * Mirrors the runtime loader's parser so deploy and runtime see the same
+ * dependency set. Versionless entries default to "*" (latest).
+ */
+function parsePhotonDependencies(source: string): ParsedDependency[] {
+  const deps: ParsedDependency[] = [];
+  const seen = new Set<string>();
+  const jsdocBlocks = source.match(/\/\*\*[\s\S]*?\*\//g) || [];
+  const jsdocText = jsdocBlocks.join('\n');
+  const regex = /@dependencies\s+([^\r\n]+)/g;
+  let match;
+  while ((match = regex.exec(jsdocText)) !== null) {
+    const entries = match[1]
+      .replace(/\*\/$/, '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    for (const entry of entries) {
+      const atIndex = entry.lastIndexOf('@');
+      const isScoped = entry.startsWith('@');
+      let name: string;
+      let version: string;
+      if (atIndex <= 0 || (isScoped && atIndex === 0)) {
+        name = entry.trim();
+        version = '*';
+      } else {
+        name = entry.slice(0, atIndex).trim();
+        version = entry.slice(atIndex + 1).trim();
+      }
+      if (version.endsWith('?')) version = version.slice(0, -1);
+      if (!/^(@[a-z0-9-]+\/)?[a-z0-9._-]+$/.test(name)) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      deps.push({ name, version: version || '*' });
+    }
+  }
+  return deps;
+}
+
 // Find package root (where templates folder is)
 function getPackageRoot(): string {
   // When running from dist/, go up to package root
@@ -127,6 +193,26 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
 
   logger.info(`Found ${toolDefs.length} tools`);
 
+  // Extract `@dependencies` from the photon source. These get bundled into
+  // the Worker by wrangler, so they must land in package.json's dependencies
+  // (not devDependencies). Fail fast on packages that are known to break on
+  // the Workers runtime so users get a clear pointer instead of a cryptic
+  // wrangler bundle error.
+  const photonDeps = parsePhotonDependencies(sourceCode);
+  const blocked = photonDeps.filter((dep) => dep.name in WORKERS_INCOMPATIBLE_DEPS);
+  if (blocked.length > 0) {
+    const lines = blocked.map((dep) => `  - ${dep.name}: ${WORKERS_INCOMPATIBLE_DEPS[dep.name]}`);
+    throw new Error(
+      `${photonName} declares dependencies that do not run on Cloudflare Workers:\n${lines.join('\n')}\n\n` +
+        `Replace them with Workers-compatible alternatives, or deploy this photon to a runtime that supports Node built-ins.`
+    );
+  }
+  if (photonDeps.length > 0) {
+    logger.info(
+      `Bundling ${photonDeps.length} dependencies: ${photonDeps.map((d) => d.name).join(', ')}`
+    );
+  }
+
   // Read worker template
   const packageRoot = getPackageRoot();
   const templatePath = path.join(packageRoot, 'templates', 'cloudflare', 'worker.ts.template');
@@ -179,7 +265,13 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   wranglerConfig = wranglerConfig.replace(/__PHOTON_NAME__/g, photonName);
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);
 
-  // Create package.json
+  // Create package.json. Photon-declared dependencies land in `dependencies`
+  // so wrangler bundles them into the Worker; build tooling stays in
+  // `devDependencies`.
+  const runtimeDeps: Record<string, string> = {};
+  for (const dep of photonDeps) {
+    runtimeDeps[dep.name] = dep.version;
+  }
   const packageJson = {
     name: photonName,
     version: PHOTON_VERSION,
@@ -188,6 +280,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       dev: 'wrangler dev',
       deploy: 'wrangler deploy',
     },
+    ...(Object.keys(runtimeDeps).length > 0 && { dependencies: runtimeDeps }),
     devDependencies: {
       '@cloudflare/workers-types': '^4.0.0',
       wrangler: '^4.0.0',

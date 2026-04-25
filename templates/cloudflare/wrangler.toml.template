@@ -1,6 +1,11 @@
 name = "__PHOTON_NAME__"
 main = "src/worker.ts"
-compatibility_date = "2024-01-01"
+# 2024-09-23+ enables the Node.js-style module resolution path so packages
+# that ship distinct browser/node entries (e.g. linkedom inside
+# @extractus/article-extractor) resolve to the Node build instead of a
+# browser build that references `window`.
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
 
 # Uncomment to add environment variables
 # [vars]
