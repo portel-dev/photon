@@ -90,6 +90,7 @@ SUITES=(
   "memory-always-injected:$RUN tests/memory-always-injected.test.ts"
   "memory-sqlite:$RUN tests/memory-sqlite.test.ts"
   "concurrent-calls:$RUN tests/concurrent-calls.test.ts"
+  "caller-cwd:$RUN tests/caller-cwd.test.ts"
   "sample-elicit-confirm:$RUN tests/sample-elicit-confirm.test.ts"
   "memory-baseDir-regression:$RUN tests/memory-baseDir-regression.test.ts"
   "oauth:$RUN tests/oauth.test.ts"

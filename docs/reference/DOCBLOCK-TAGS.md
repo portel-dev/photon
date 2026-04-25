@@ -115,6 +115,26 @@ export default class Game {
 }
 ```
 
+### Resolving Paths Against the User's Invocation Directory
+
+Use **`this.callerCwd`** (not `process.cwd()`) when defaulting parameters that point at project files.
+
+Stateful photons run inside a daemon worker thread. `process.cwd()` inside the worker is the *daemon's* cwd, which is rarely where the user ran `photon cli ...` from. The same divergence applies to cross-photon `this.call('other.method', ...)` invocations: the callee runs in a different worker entirely. `this.callerCwd` returns the originating CLI directory and propagates through every cross-call boundary.
+
+```typescript
+export default class KithFilter {
+  async score(params: { mePath?: string }) {
+    // Defaults to <user's invocation dir>/me.md, regardless of where the
+    // daemon was launched or whether this method was invoked directly or
+    // through `this.call('kith-filter.score', ...)`.
+    const mePath = params.mePath ?? path.join(this.callerCwd, 'me.md');
+    // ...
+  }
+}
+```
+
+`this.callerCwd` falls back to `process.cwd()` when no caller context is attached (e.g., direct in-process loads with no CLI invocation), so it is always safe to read.
+
 ## Method-Level Tags
 
 These tags are placed in the JSDoc comment immediately before a tool method.

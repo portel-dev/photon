@@ -1965,6 +1965,21 @@ export async function runMethod(
     const extractor = new PhotonDocExtractor(resolvedPath);
     const metadata = await extractor.extractFullMetadata();
 
+    // Stamp the originating CLI cwd into `_meta.callerCwd` so the photon can
+    // read it back via `this.callerCwd` regardless of whether execution lands
+    // in the CLI process (stateless) or a daemon worker (stateful). Inside a
+    // worker `process.cwd()` is the daemon's cwd, which is rarely what the
+    // photon author expects when defaulting paths to project files.
+    const callerCwd = process.cwd();
+    const existingMeta = (parsedArgs as Record<string, unknown>)._meta;
+    const argsWithMeta = {
+      ...parsedArgs,
+      _meta:
+        existingMeta && typeof existingMeta === 'object'
+          ? { callerCwd, ...(existingMeta as Record<string, unknown>) }
+          : { callerCwd },
+    };
+
     let result: any;
 
     if (metadata.stateful) {
@@ -1996,7 +2011,7 @@ export async function runMethod(
       await sendCommand(photonName, '_use', { name: sessionInstance }, sendOpts);
 
       // Send the actual command
-      result = await sendCommand(photonName, methodName, parsedArgs, sendOpts);
+      result = await sendCommand(photonName, methodName, argsWithMeta, sendOpts);
     } else {
       // STATELESS PATH: Direct execution
       const loader = new PhotonLoader(false, undefined, workingDir); // verbose=false for CLI mode
@@ -2008,7 +2023,7 @@ export async function runMethod(
       }
 
       // Call the method (with optional resume)
-      result = await loader.executeTool(photonInstance, methodName, parsedArgs, { resumeRunId });
+      result = await loader.executeTool(photonInstance, methodName, argsWithMeta, { resumeRunId });
     }
 
     // Check if this was a stateful workflow execution

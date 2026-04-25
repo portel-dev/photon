@@ -19,6 +19,15 @@ export interface RequestContext {
   parentTraceparent?: string;
   /** Authenticated caller when available. */
   caller?: CallerInfo;
+  /**
+   * Originating CLI invocation directory, propagated end-to-end across
+   * worker thread and cross-photon-call boundaries. Lets photons resolve
+   * defaults relative to where the user ran the command, not the daemon's
+   * cwd. `process.cwd()` inside a worker is the daemon process's cwd, which
+   * is rarely what the photon author wants. Photons read this back via
+   * `this.callerCwd`.
+   */
+  cwd?: string;
   /** Wall-clock start of the tool call. */
   startedAt: number;
 }

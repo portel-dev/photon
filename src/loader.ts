@@ -33,7 +33,7 @@ import {
   recordRateLimitRejection,
   recordBulkheadRejection,
 } from './telemetry/metrics.js';
-import { runWithRequestContext } from './telemetry/context.js';
+import { runWithRequestContext, getRequestContext } from './telemetry/context.js';
 import { spawn, execSync } from 'child_process';
 import {
   SchemaExtractor,
@@ -1150,29 +1150,33 @@ export class PhotonLoader {
           params: Record<string, any>,
           targetInstance?: string
         ) => {
-          // Propagate trace context to nested photon-to-photon calls so the
-          // downstream span chains as a child of the current span. Uses
-          // in-band `_meta.traceparent` which executeTool peeks at before
-          // schema validation — works through worker threads transparently.
+          // Propagate trace context and caller cwd to nested photon-to-photon
+          // calls so the downstream span chains as a child of the current span
+          // and the callee can resolve relative paths against the originating
+          // CLI directory. Uses in-band `_meta` which executeTool peeks at
+          // before schema validation: works through worker threads transparently.
           const ctxMod = await import('./telemetry/context.js');
           const ctx = ctxMod.getRequestContext();
           let forwardedParams = params;
+          const metaAdditions: Record<string, unknown> = {};
           if (ctx) {
             const traceparent =
               ctx.parentTraceparent ||
               (ctx.traceId
                 ? `00-${ctx.traceId}-${crypto.randomBytes(8).toString('hex')}-01`
                 : undefined);
-            if (traceparent) {
-              const existingMeta = (params as any)?._meta;
-              forwardedParams = {
-                ...(params || {}),
-                _meta:
-                  existingMeta && typeof existingMeta === 'object'
-                    ? { traceparent, ...existingMeta }
-                    : { traceparent },
-              };
-            }
+            if (traceparent) metaAdditions.traceparent = traceparent;
+            if (ctx.cwd) metaAdditions.callerCwd = ctx.cwd;
+          }
+          if (Object.keys(metaAdditions).length > 0) {
+            const existingMeta = (params as any)?._meta;
+            forwardedParams = {
+              ...(params || {}),
+              _meta:
+                existingMeta && typeof existingMeta === 'object'
+                  ? { ...metaAdditions, ...existingMeta }
+                  : metaAdditions,
+            };
           }
           // Dynamic import to avoid circular dependency
           const { sendCommand } = await import('./daemon/client.js');
@@ -1270,6 +1274,21 @@ export class PhotonLoader {
                 );
               }
               return this._memory;
+            },
+            configurable: true,
+          });
+        }
+
+        // Always-inject `this.callerCwd`. Reads the originating CLI cwd from
+        // the request context, falling back to `process.cwd()` when no context
+        // is active (direct in-process load with no caller info). Inside a
+        // daemon worker `process.cwd()` is the daemon's cwd, so photons that
+        // resolve defaults relative to the user's invocation directory must
+        // prefer `this.callerCwd`.
+        if (!('callerCwd' in instance)) {
+          Object.defineProperty(instance, 'callerCwd', {
+            get() {
+              return getRequestContext()?.cwd ?? process.cwd();
             },
             configurable: true,
           });
@@ -1822,8 +1841,34 @@ export class PhotonLoader {
         params: Record<string, any>,
         targetInstance?: string
       ) => {
+        // Mirror the primary path: propagate trace context and caller cwd via
+        // in-band `_meta` so the callee resolves relative paths against the
+        // originating CLI directory and traces chain across worker boundaries.
+        const ctxMod = await import('./telemetry/context.js');
+        const ctx = ctxMod.getRequestContext();
+        let forwardedParams = params;
+        const metaAdditions: Record<string, unknown> = {};
+        if (ctx) {
+          const traceparent =
+            ctx.parentTraceparent ||
+            (ctx.traceId
+              ? `00-${ctx.traceId}-${crypto.randomBytes(8).toString('hex')}-01`
+              : undefined);
+          if (traceparent) metaAdditions.traceparent = traceparent;
+          if (ctx.cwd) metaAdditions.callerCwd = ctx.cwd;
+        }
+        if (Object.keys(metaAdditions).length > 0) {
+          const existingMeta = (params as any)?._meta;
+          forwardedParams = {
+            ...(params || {}),
+            _meta:
+              existingMeta && typeof existingMeta === 'object'
+                ? { ...metaAdditions, ...existingMeta }
+                : metaAdditions,
+          };
+        }
         const { sendCommand } = await import('./daemon/client.js');
-        return sendCommand(photonName, method, params, {
+        return sendCommand(photonName, method, forwardedParams, {
           workingDir: callBaseDir,
           targetInstance,
         });
@@ -1890,6 +1935,16 @@ export class PhotonLoader {
               );
             }
             return this._memory;
+          },
+          configurable: true,
+        });
+      }
+
+      // Always-inject callerCwd (see primary load path for rationale).
+      if (!('callerCwd' in instance)) {
+        Object.defineProperty(instance, 'callerCwd', {
+          get() {
+            return getRequestContext()?.cwd ?? process.cwd();
           },
           configurable: true,
         });
@@ -3774,20 +3829,23 @@ Run: photon mcp ${mcpName} --config
       parentTraceparent?: string;
     }
   ): Promise<any> {
-    // Resolve parentTraceparent from options or in-band `_meta.traceparent` so
-    // the ALS context reflects the true parent for any nested `this.call()`.
+    // Resolve parentTraceparent and callerCwd from options or in-band `_meta`
+    // so the ALS context reflects the true parent for any nested `this.call()`
+    // and the originating CLI invocation directory propagates through worker
+    // boundaries.
     let resolvedParentTraceparent = options?.parentTraceparent;
-    if (
-      !resolvedParentTraceparent &&
-      parameters &&
-      typeof parameters === 'object' &&
-      '_meta' in parameters
-    ) {
+    let resolvedCallerCwd: string | undefined;
+    if (parameters && typeof parameters === 'object' && '_meta' in parameters) {
       const metaPeek = (parameters as Record<string, unknown>)._meta as
         | Record<string, unknown>
         | undefined;
-      if (metaPeek && typeof metaPeek.traceparent === 'string') {
-        resolvedParentTraceparent = metaPeek.traceparent;
+      if (metaPeek) {
+        if (!resolvedParentTraceparent && typeof metaPeek.traceparent === 'string') {
+          resolvedParentTraceparent = metaPeek.traceparent;
+        }
+        if (typeof metaPeek.callerCwd === 'string') {
+          resolvedCallerCwd = metaPeek.callerCwd;
+        }
       }
     }
     const run = () =>
@@ -3798,6 +3856,7 @@ Run: photon mcp ${mcpName} --config
           traceId: options?.traceId,
           parentTraceparent: resolvedParentTraceparent,
           caller: options?.caller,
+          cwd: resolvedCallerCwd,
           startedAt: Date.now(),
         },
         () =>
