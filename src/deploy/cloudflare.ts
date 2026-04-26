@@ -81,6 +81,93 @@ function parsePhotonDependencies(source: string): ParsedDependency[] {
   return deps;
 }
 
+/**
+ * Node built-in modules that wrangler can supply via `nodejs_compat` and
+ * therefore don't need a `@dependencies` entry. Includes both bare names
+ * (`fs`) and prefixed names (`node:fs`); the prefix form is stripped before
+ * the lookup.
+ */
+const NODE_BUILTINS = new Set([
+  'assert',
+  'async_hooks',
+  'buffer',
+  'child_process',
+  'cluster',
+  'console',
+  'constants',
+  'crypto',
+  'dgram',
+  'diagnostics_channel',
+  'dns',
+  'domain',
+  'events',
+  'fs',
+  'http',
+  'http2',
+  'https',
+  'inspector',
+  'module',
+  'net',
+  'os',
+  'path',
+  'perf_hooks',
+  'process',
+  'punycode',
+  'querystring',
+  'readline',
+  'repl',
+  'stream',
+  'string_decoder',
+  'sys',
+  'timers',
+  'tls',
+  'trace_events',
+  'tty',
+  'url',
+  'util',
+  'v8',
+  'vm',
+  'wasi',
+  'worker_threads',
+  'zlib',
+]);
+
+/**
+ * Extract bare-import package names from photon source.
+ *
+ * - `import x from 'pkg'` → `pkg`
+ * - `import x from 'pkg/sub/path'` → `pkg`
+ * - `import x from '@scope/pkg/sub'` → `@scope/pkg`
+ * - Relative imports (`./`, `../`, `/`) and `node:` builtins are skipped.
+ *
+ * Used by the deploy pre-flight to flag imports the user forgot to declare
+ * in `@dependencies` — wrangler's bundle would fail later with a less
+ * actionable error.
+ */
+function extractImportedPackages(source: string): string[] {
+  const seen = new Set<string>();
+  const importRe = /^\s*(?:import|export)(?:\s[\s\S]*?)?\s+from\s+['"]([^'"]+)['"]/gm;
+  const requireRe = /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  const dynamicRe = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  for (const re of [importRe, requireRe, dynamicRe]) {
+    let m;
+    while ((m = re.exec(source)) !== null) {
+      const spec = m[1];
+      if (spec.startsWith('.') || spec.startsWith('/')) continue;
+      const stripped = spec.startsWith('node:') ? spec.slice(5) : spec;
+      const firstSlash = stripped.indexOf('/');
+      const pkg = stripped.startsWith('@')
+        ? stripped.split('/').slice(0, 2).join('/')
+        : firstSlash === -1
+          ? stripped
+          : stripped.slice(0, firstSlash);
+      if (NODE_BUILTINS.has(pkg)) continue;
+      seen.add(pkg);
+    }
+  }
+  return Array.from(seen);
+}
+
 // Find package root (where templates folder is)
 function getPackageRoot(): string {
   // When running from dist/, go up to package root
@@ -196,6 +283,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
+    ...(tool.simpleParams ? { simpleParams: true } : {}),
   }));
 
   logger.info(`Found ${toolDefs.length} tools`);
@@ -217,6 +305,26 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   if (photonDeps.length > 0) {
     logger.info(
       `Bundling ${photonDeps.length} dependencies: ${photonDeps.map((d) => d.name).join(', ')}`
+    );
+  }
+
+  // Pre-flight: warn about imports that aren't declared in @dependencies.
+  // Without a declared version, the generated package.json won't include the
+  // package, wrangler's bundle step will fail with a less actionable error,
+  // and the deploy will look broken even though the photon source compiles
+  // locally (where node_modules already has the package).
+  const declaredNames = new Set(photonDeps.map((d) => d.name));
+  const importedPkgs = extractImportedPackages(sourceCode);
+  const undeclared = importedPkgs.filter((pkg) => !declaredNames.has(pkg));
+  if (undeclared.length > 0) {
+    logger.warn(
+      `${photonName} imports ${undeclared.length} package(s) not declared in @dependencies: ${undeclared.join(', ')}`
+    );
+    logger.warn(
+      `  These will not be installed in the deployed Worker and bundling will likely fail.`
+    );
+    logger.warn(
+      `  Add them to the photon's JSDoc: @dependencies ${undeclared.map((p) => `${p}@^x.y.z`).join(', ')}`
     );
   }
 

@@ -17,6 +17,27 @@ const TOOL_DEFINITIONS: any[] = __TOOL_DEFINITIONS__;
 const PHOTON_NAME = '__PHOTON_NAME__';
 const DEV_MODE = __DEV_MODE__;
 
+/**
+ * Convert the JSON-RPC `arguments` object into the positional-call arg list
+ * the photon method expects.
+ *
+ * - Methods declared with `(item: string, qty: number)` have `simpleParams:
+ *   true` on their tool def. Walk `inputSchema.properties` in declaration
+ *   order and pull each value out of `args`.
+ * - Methods declared with `(params: { item: string })` have no `simpleParams`
+ *   flag. Pass the whole args object through as a single positional arg.
+ *
+ * Mirrors the local loader logic so a photon behaves identically whether it
+ * runs on the daemon or as a Cloudflare Worker.
+ */
+function spreadArgs(toolDef: any, args: Record<string, unknown>): unknown[] {
+  if (toolDef?.simpleParams && args && typeof args === 'object') {
+    const paramNames = Object.keys(toolDef.inputSchema?.properties || {});
+    return paramNames.map((name) => args[name]);
+  }
+  return [args];
+}
+
 // Instantiate photon
 let photonInstance: InstanceType<typeof PhotonClass> | null = null;
 
@@ -59,7 +80,13 @@ async function handleMCPRequest(request: any, env: Env): Promise<any> {
         if (typeof method !== 'function') {
           throw new Error(`Unknown tool: ${name}`);
         }
-        const result = await method.call(photon, args || {});
+        // Mirror the local loader: methods declared with simple typed params
+        // (e.g. `add(item: string)`) need the args object destructured into
+        // positional arguments. Methods declared with a single object param
+        // (e.g. `read(params: { url: string })`) receive the object as-is.
+        const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === name);
+        const callArgs = spreadArgs(toolDef, args || {});
+        const result = await method.call(photon, ...callArgs);
         // String returns (e.g. markdown from `read`) flow through as-is so
         // clients receive renderable text. Other shapes are JSON-stringified
         // for legibility. Structured shapes are also surfaced via
@@ -347,7 +374,9 @@ export default {
           if (typeof method !== 'function') {
             throw new Error(`Unknown tool: ${tool}`);
           }
-          const result = await method.call(photon, args || {});
+          const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === tool);
+          const callArgs = spreadArgs(toolDef, args || {});
+          const result = await method.call(photon, ...callArgs);
           return Response.json({ success: true, data: result });
         } catch (error: any) {
           return Response.json({ success: false, error: error.message }, { status: 500 });
