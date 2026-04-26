@@ -9,6 +9,55 @@ echo "  Pre-Release Verification"
 echo "═══════════════════════════════════════════════════"
 echo ""
 
+# ─── 0. Clean-state pre-flight ──────────────────────
+# Catches dirty-repo bugs that have shipped before:
+#  - Stray `*.photon.ts` in repo root: getDefaultContext() treats the repo
+#    as a PHOTON_DIR and rebinds .data/, breaking loader tests with
+#    confusing errors like "npm package did not install correctly".  HARD FAIL.
+#  - Broken symlinks under tracked paths (esp. skills/*): tests clobber
+#    them and the tarball can end up shipping dangling links.  HARD FAIL.
+#  - Runtime artifacts the daemon writes to the repo root (daemon.lock,
+#    .migrated, daemon.log, .data/): don't ship (files: bin/dist/templates)
+#    but can pollute the fresh-install simulation in Step 7.  WARN only.
+echo "▶ Step 0: Clean-state pre-flight"
+HARD_FAIL=""
+WARN=""
+
+# 0a — stray photon files in repo root (HARD FAIL)
+STRAY_PHOTONS=$(find . -maxdepth 1 -name '*.photon.ts' 2>/dev/null)
+if [ -n "$STRAY_PHOTONS" ]; then
+  HARD_FAIL="$HARD_FAIL\n  Stray .photon.ts in repo root (move to src/photons/ or delete):\n$(echo "$STRAY_PHOTONS" | sed 's/^/    /')"
+fi
+
+# 0b — broken symlinks under tracked paths (HARD FAIL)
+BROKEN_LINKS=$(find src tests skills templates -type l ! -exec test -e {} \; -print 2>/dev/null)
+if [ -n "$BROKEN_LINKS" ]; then
+  HARD_FAIL="$HARD_FAIL\n  Broken symlinks (recreate or remove):\n$(echo "$BROKEN_LINKS" | sed 's/^/    /')"
+fi
+
+# 0c — runtime artifacts in repo root (WARN — they don't ship but can pollute tests)
+for f in daemon.lock daemon.log .migrated .data; do
+  if [ -e "$f" ]; then
+    WARN="$WARN\n  Runtime artifact in repo root: $f (rm before release for clean test runs)"
+  fi
+done
+
+if [ -n "$HARD_FAIL" ]; then
+  echo "  ✗ FAIL: Repository has dirty state:"
+  echo -e "$HARD_FAIL"
+  if [ -n "$WARN" ]; then
+    echo "  Also noticed (non-fatal):"
+    echo -e "$WARN"
+  fi
+  exit 1
+fi
+if [ -n "$WARN" ]; then
+  echo "  ⚠ Warnings:"
+  echo -e "$WARN"
+fi
+echo "  ✓ No stray photons or broken symlinks"
+echo ""
+
 # ─── 1. Replace npm-linked packages with registry versions ──
 echo "▶ Step 1: Resolve npm links"
 LINKED=""
