@@ -1,14 +1,20 @@
 /**
  * Photon MCP Worker for Cloudflare
  * Auto-generated - do not edit directly
+ *
+ * Architecture: each photon instance lives in a Durable Object so
+ * `this.memory` (backed by ctx.storage) and `this.emit` (broadcast to
+ * hibernatable WebSockets) work identically to the local daemon.
+ * One DO per `instanceName` — see docs/internals/CF-DURABLE-OBJECTS.md.
  */
 
+import { DurableObject } from 'cloudflare:workers';
 // @ts-ignore - Will be replaced during build
 import PhotonClass from './photon';
 
 interface Env {
-  // Add your environment variables here
-  [key: string]: string | undefined;
+  PHOTON: DurableObjectNamespace;
+  [key: string]: any;
 }
 
 // Tool definitions extracted at build time
@@ -16,6 +22,130 @@ interface Env {
 const TOOL_DEFINITIONS: any[] = __TOOL_DEFINITIONS__;
 const PHOTON_NAME = '__PHOTON_NAME__';
 const DEV_MODE = __DEV_MODE__;
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id, X-Photon-Instance',
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// Photon ↔ Durable Object capability shim
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build a `MemoryBackend`-shaped accessor over `ctx.storage`. Mirrors the
+ * `this.memory` API the local runtime exposes (get/set/delete/has/keys/list/
+ * clear/update). Per-namespace keys are encoded as `${namespace}:${key}` so
+ * one DO storage table holds multiple namespaces while preserving the
+ * boundary the runtime relies on.
+ *
+ * The DO input gate already serializes calls per-DO, so `update` is just
+ * read-modify-write — no additional locking needed.
+ */
+function createMemoryProxy(ctx: DurableObjectState) {
+  const ns = (key: string, namespace = 'default') => `${namespace}:${key}`;
+  return {
+    async get(key: string, opts?: { namespace?: string }) {
+      const v = await ctx.storage.get(ns(key, opts?.namespace));
+      return v === undefined ? null : v;
+    },
+    async set(key: string, value: unknown, opts?: { namespace?: string }) {
+      await ctx.storage.put(ns(key, opts?.namespace), value);
+    },
+    async delete(key: string, opts?: { namespace?: string }) {
+      return ctx.storage.delete(ns(key, opts?.namespace));
+    },
+    async has(key: string, opts?: { namespace?: string }) {
+      const v = await ctx.storage.get(ns(key, opts?.namespace));
+      return v !== undefined;
+    },
+    async keys(opts?: { namespace?: string }) {
+      const prefix = `${opts?.namespace ?? 'default'}:`;
+      const map = await ctx.storage.list({ prefix });
+      return Array.from(map.keys()).map((k) => k.slice(prefix.length));
+    },
+    async list(opts?: { namespace?: string; prefix?: string }) {
+      const namespacePrefix = `${opts?.namespace ?? 'default'}:`;
+      const prefix = namespacePrefix + (opts?.prefix ?? '');
+      const map = await ctx.storage.list({ prefix });
+      return Array.from(map.entries()).map(([k, v]) => ({
+        key: k.slice(namespacePrefix.length),
+        value: v,
+      }));
+    },
+    async clear(opts?: { namespace?: string }) {
+      const prefix = `${opts?.namespace ?? 'default'}:`;
+      const map = await ctx.storage.list({ prefix });
+      if (map.size > 0) {
+        await ctx.storage.delete(Array.from(map.keys()));
+      }
+    },
+    async update(
+      key: string,
+      updater: (current: any) => any,
+      opts?: { namespace?: string }
+    ): Promise<any> {
+      const fullKey = ns(key, opts?.namespace);
+      const current = (await ctx.storage.get(fullKey)) ?? null;
+      const next = await updater(current);
+      await ctx.storage.put(fullKey, next);
+      return next;
+    },
+  };
+}
+
+/**
+ * Wire the runtime capabilities onto a freshly-constructed photon instance.
+ *
+ * Defines `this.memory` (backed by ctx.storage), `this.emit` (broadcasts to
+ * subscribed WebSockets attached to this DO), and `this.callerCwd` (no-op
+ * `undefined` — there's no cwd on a Worker, so the photon's own fallback to
+ * `process.cwd()` runs and yields whatever the runtime considers default).
+ *
+ * Properties are non-enumerable so they don't leak into JSON output and
+ * non-writable so photon code can't accidentally clobber them.
+ */
+function withCfCapabilities(instance: any, ctx: DurableObjectState): any {
+  Object.defineProperty(instance, 'memory', {
+    value: createMemoryProxy(ctx),
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(instance, 'emit', {
+    value: (event: { channel?: string; [k: string]: unknown }) => {
+      const channel = (event && typeof event === 'object' && event.channel) || 'default';
+      const payload = JSON.stringify(event);
+      // ctx.getWebSockets(tag) returns sockets accepted with that tag.
+      for (const ws of ctx.getWebSockets(channel)) {
+        try {
+          ws.send(payload);
+        } catch {
+          // Socket closing; webSocketClose will reap.
+        }
+      }
+    },
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(instance, 'callerCwd', {
+    get() {
+      return undefined;
+    },
+    enumerable: false,
+    configurable: false,
+  });
+
+  return instance;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tool dispatch
+// ════════════════════════════════════════════════════════════════════════════
 
 /**
  * Convert the JSON-RPC `arguments` object into the positional-call arg list
@@ -38,21 +168,8 @@ function spreadArgs(toolDef: any, args: Record<string, unknown>): unknown[] {
   return [args];
 }
 
-// Instantiate photon
-let photonInstance: InstanceType<typeof PhotonClass> | null = null;
-
-function getPhoton(env: Env): InstanceType<typeof PhotonClass> {
-  if (!photonInstance) {
-    // Pass env vars as constructor params if needed
-    photonInstance = new PhotonClass();
-  }
-  return photonInstance;
-}
-
-// MCP JSON-RPC handler
-async function handleMCPRequest(request: any, env: Env): Promise<any> {
+async function handleMCPRequest(request: any, photon: any): Promise<any> {
   const { method, params, id } = request;
-  const photon = getPhoton(env);
 
   switch (method) {
     case 'initialize':
@@ -76,17 +193,13 @@ async function handleMCPRequest(request: any, env: Env): Promise<any> {
     case 'tools/call': {
       const { name, arguments: args } = params;
       try {
-        const method = (photon as any)[name];
-        if (typeof method !== 'function') {
+        const fn = (photon as any)[name];
+        if (typeof fn !== 'function') {
           throw new Error(`Unknown tool: ${name}`);
         }
-        // Mirror the local loader: methods declared with simple typed params
-        // (e.g. `add(item: string)`) need the args object destructured into
-        // positional arguments. Methods declared with a single object param
-        // (e.g. `read(params: { url: string })`) receive the object as-is.
         const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === name);
         const callArgs = spreadArgs(toolDef, args || {});
-        const result = await method.call(photon, ...callArgs);
+        const result = await fn.call(photon, ...callArgs);
         // String returns (e.g. markdown from `read`) flow through as-is so
         // clients receive renderable text. Other shapes are JSON-stringified
         // for legibility. Structured shapes are also surfaced via
@@ -127,36 +240,189 @@ async function handleMCPRequest(request: any, env: Env): Promise<any> {
   }
 }
 
-// SSE stream handler
-/**
- * Stateless MCP Streamable HTTP handler.
- *
- * Each POST /mcp is a complete JSON-RPC exchange: body in, result out, no
- * session state carried across requests. This matches the MCP Streamable
- * HTTP spec's single-endpoint pattern and stays within the Cloudflare
- * Workers free tier (no Durable Objects needed for session storage).
- */
-async function handleStreamableMCP(request: Request, env: Env): Promise<Response> {
+async function handleStreamableMCP(request: Request, photon: any): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
   } catch (error: any) {
     return Response.json(
-      { jsonrpc: '2.0', id: null, error: { code: -32700, message: `Parse error: ${error?.message ?? String(error)}` } },
+      {
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: `Parse error: ${error?.message ?? String(error)}` },
+      },
       { status: 400, headers: CORS_HEADERS }
     );
   }
-  const result = await handleMCPRequest(body, env);
+  const result = await handleMCPRequest(body, photon);
   return Response.json(result, { headers: CORS_HEADERS });
 }
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id',
+// ════════════════════════════════════════════════════════════════════════════
+// Durable Object — hosts one photon instance
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Durable Object that owns a photon instance for the lifetime of the
+ * (photon class, instanceName) pair.
+ *
+ * Storage and emit subscribers live here; the outer Worker is a thin router
+ * that picks the DO ID from the request and forwards the rest unchanged.
+ */
+export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
+  #photon: any;
+  #instanceName: string;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.#instanceName = ctx.id.name ?? 'default';
+    this.#photon = withCfCapabilities(new PhotonClass(), ctx);
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // Hibernatable WebSocket upgrade for emit subscribers.
+    // Sockets are tagged with the channel they subscribe to so this.emit
+    // can fan out via ctx.getWebSockets(channel).
+    if (url.pathname === '/events' && request.headers.get('Upgrade') === 'websocket') {
+      const channel = url.searchParams.get('channel') ?? 'default';
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      this.ctx.acceptWebSocket(server, [channel]);
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    // MCP Streamable HTTP: single endpoint, JSON-RPC body in, result out.
+    if (url.pathname === '/mcp' && request.method === 'POST') {
+      return handleStreamableMCP(request, this.#photon);
+    }
+    if (url.pathname === '/mcp' && request.method === 'GET') {
+      // Spec-compliant no-op SSE stream for clients that probe for one.
+      return new Response(': streamable-http\n\n', {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          ...CORS_HEADERS,
+        },
+      });
+    }
+    if (url.pathname === '/mcp' && request.method === 'DELETE') {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+    // Info endpoint
+    if (url.pathname === '/' && request.method === 'GET') {
+      return Response.json(
+        {
+          name: PHOTON_NAME,
+          instance: this.#instanceName,
+          transport: 'streamable-http',
+          runtime: 'cloudflare-workers',
+          endpoints: {
+            mcp: '/mcp',
+            events: '/events?channel=<name>',
+            ...(DEV_MODE ? { playground: '/playground' } : {}),
+          },
+          tools: TOOL_DEFINITIONS.length,
+        },
+        { headers: CORS_HEADERS }
+      );
+    }
+
+    // Dev-only endpoints
+    if (DEV_MODE) {
+      if (url.pathname === '/playground') {
+        return new Response(getPlaygroundHTML(), {
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }
+
+      if (url.pathname === '/api/tools') {
+        return Response.json({ tools: TOOL_DEFINITIONS }, { headers: CORS_HEADERS });
+      }
+
+      if (url.pathname === '/api/call' && request.method === 'POST') {
+        const { tool, args } = (await request.json()) as { tool: string; args: any };
+        try {
+          const fn = (this.#photon as any)[tool];
+          if (typeof fn !== 'function') {
+            throw new Error(`Unknown tool: ${tool}`);
+          }
+          const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === tool);
+          const callArgs = spreadArgs(toolDef, args || {});
+          const result = await fn.call(this.#photon, ...callArgs);
+          return Response.json(
+            { success: true, data: result },
+            { headers: CORS_HEADERS }
+          );
+        } catch (error: any) {
+          return Response.json(
+            { success: false, error: error.message },
+            { status: 500, headers: CORS_HEADERS }
+          );
+        }
+      }
+    }
+
+    return new Response('Not Found', { status: 404, headers: CORS_HEADERS });
+  }
+
+  // Hibernation hooks. ctx.getWebSockets() auto-prunes closed sockets so
+  // the close hook is a no-op for v1; future per-photon webSocketClose
+  // hooks would dispatch from here.
+  async webSocketMessage(_ws: WebSocket, _msg: string | ArrayBuffer): Promise<void> {
+    // Subscribers don't send messages in v1; ignore.
+  }
+
+  async webSocketClose(_ws: WebSocket, _code: number, _reason: string): Promise<void> {
+    // No-op.
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Outer Worker — routes every request to the right DO instance
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Pick the photon instance name from (in priority order):
+ *   1. ?instance=<name> query param
+ *   2. X-Photon-Instance header
+ *   3. 'default' singleton
+ *
+ * For demos that share state across all visitors (e.g. a single matchmaking
+ * queue), no header is needed and everyone lands on 'default'. For
+ * multi-tenant deployments, the caller picks an instance per tenant.
+ */
+function extractInstance(request: Request): string {
+  const url = new URL(request.url);
+  return (
+    url.searchParams.get('instance') ?? request.headers.get('X-Photon-Instance') ?? 'default'
+  );
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id, X-Photon-Instance, Upgrade',
+        },
+      });
+    }
+    const instance = extractInstance(request);
+    const id = env.PHOTON.idFromName(instance);
+    return env.PHOTON.get(id).fetch(request);
+  },
 };
 
-// Playground HTML
+// ════════════════════════════════════════════════════════════════════════════
+// Dev playground UI
+// ════════════════════════════════════════════════════════════════════════════
+
 function getPlaygroundHTML(): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -299,91 +565,3 @@ function getPlaygroundHTML(): string {
 </body>
 </html>`;
 }
-
-// Main fetch handler
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    // CORS preflight
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        },
-      });
-    }
-
-    // Info endpoint
-    if (url.pathname === '/' && request.method === 'GET') {
-      return Response.json({
-        name: PHOTON_NAME,
-        transport: 'streamable-http',
-        runtime: 'cloudflare-workers',
-        endpoints: {
-          mcp: '/mcp',
-          ...(DEV_MODE ? { playground: '/playground' } : {}),
-        },
-        tools: TOOL_DEFINITIONS.length,
-      });
-    }
-
-    // MCP Streamable HTTP: one endpoint, stateless per request.
-    if (url.pathname === '/mcp' && request.method === 'POST') {
-      return handleStreamableMCP(request, env);
-    }
-    if (url.pathname === '/mcp' && request.method === 'GET') {
-      // Spec-compliant no-op: clients that open an SSE stream for server
-      // notifications get a valid empty stream. We do not push anything
-      // server-initiated from a stateless Worker.
-      return new Response(': streamable-http\n\n', {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          ...CORS_HEADERS,
-        },
-      });
-    }
-    if (url.pathname === '/mcp' && request.method === 'DELETE') {
-      // Session termination: stateless, nothing to clean up.
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
-
-    // Dev-only endpoints
-    if (DEV_MODE) {
-      // Playground
-      if (url.pathname === '/playground') {
-        return new Response(getPlaygroundHTML(), {
-          headers: { 'Content-Type': 'text/html' },
-        });
-      }
-
-      // API: List tools
-      if (url.pathname === '/api/tools') {
-        return Response.json({ tools: TOOL_DEFINITIONS });
-      }
-
-      // API: Call tool
-      if (url.pathname === '/api/call' && request.method === 'POST') {
-        const { tool, args } = await request.json();
-        const photon = getPhoton(env);
-        try {
-          const method = (photon as any)[tool];
-          if (typeof method !== 'function') {
-            throw new Error(`Unknown tool: ${tool}`);
-          }
-          const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === tool);
-          const callArgs = spreadArgs(toolDef, args || {});
-          const result = await method.call(photon, ...callArgs);
-          return Response.json({ success: true, data: result });
-        } catch (error: any) {
-          return Response.json({ success: false, error: error.message }, { status: 500 });
-        }
-      }
-    }
-
-    return new Response('Not Found', { status: 404 });
-  },
-};

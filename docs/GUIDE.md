@@ -1798,10 +1798,23 @@ photon host deploy cloudflare my-tool
 
 This will:
 1. Generate an optimized bundle.
-2. Create a `wrangler.toml` configuration.
+2. Create a `wrangler.toml` configuration with a Durable Object binding for the photon.
 3. Deploy the service to your Cloudflare account.
 
-Use `--dev` to enable the interactive playground in the deployed worker.
+Use `--dev` to enable the interactive playground in the deployed worker, and
+`--logs` to opt into Cloudflare Workers Logs for dashboard observability.
+
+**Stateful photons.** `this.memory` and `this.emit` work the same on Cloudflare
+as on the local daemon. Each `instanceName` runs in its own Durable Object —
+storage is backed by `ctx.storage`, and `this.emit({channel, ...})` broadcasts
+to subscribers connected at `wss://<worker>/events?channel=<name>`. Pick the
+instance per request with `?instance=<name>` or the `X-Photon-Instance` header;
+omit both to land on the shared `'default'` singleton.
+
+Not yet supported on the Cloudflare target (v1): `this.schedule`, `this.sample`
+/ `this.confirm` / `this.elicit`, and cross-photon `this.call`. See
+[`docs/internals/CF-DURABLE-OBJECTS.md`](internals/CF-DURABLE-OBJECTS.md) for
+the full mapping.
 
 ---
 

@@ -265,6 +265,14 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // Extract photon name from filename
   const filename = path.basename(absolutePath);
   const photonName = filename.replace(/\.photon\.ts$/, '').replace(/[^a-z0-9-]/gi, '-');
+  // Durable Object class name derived from the photon name. Wrangler binds DOs
+  // to a JS class identifier, so e.g. `web-lite` → `WebLitePhotonDO`.
+  const photonDoClassName =
+    photonName
+      .split(/[-_]/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('') + 'PhotonDO';
 
   logger.info(`Preparing ${photonName} for Cloudflare Workers...`);
 
@@ -342,6 +350,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   workerCode = workerCode
     .replace(/__TOOL_DEFINITIONS__/g, JSON.stringify(toolDefs, null, 2))
     .replace(/__PHOTON_NAME__/g, photonName)
+    .replace(/__PHOTON_DO_CLASS__/g, photonDoClassName)
     .replace(/__DEV_MODE__/g, String(devMode));
 
   // Copy photon file and rename import
@@ -389,6 +398,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   let wranglerConfig = await fs.readFile(wranglerTemplatePath, 'utf-8');
   wranglerConfig = wranglerConfig
     .replace(/__PHOTON_NAME__/g, photonName)
+    .replace(/__PHOTON_DO_CLASS__/g, photonDoClassName)
     .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement);
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);
 
