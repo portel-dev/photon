@@ -7,7 +7,7 @@ import * as path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { detectPM, detectRunner } from '../shared-utils.js';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from '../version.js';
@@ -268,8 +268,13 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
 
   logger.info(`Preparing ${photonName} for Cloudflare Workers...`);
 
-  // Create output directory
-  const outputDir = options.outputDir || path.join(process.cwd(), `.cf-${photonName}`);
+  // Create output directory. When the user passes --output we treat the path
+  // as theirs to keep; otherwise the project goes into a per-process scratch
+  // dir under the OS tmp dir and gets cleaned up after a successful deploy.
+  // (On failure or dry-run we keep it so the user can debug or inspect.)
+  const userProvidedOutputDir = Boolean(options.outputDir);
+  const outputDir =
+    options.outputDir || path.join(tmpdir(), `photon-cf-${photonName}-${process.pid}`);
   await fs.mkdir(outputDir, { recursive: true });
   await fs.mkdir(path.join(outputDir, 'src'), { recursive: true });
 
@@ -506,8 +511,37 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
             `\nPlayground: https://${photonName}.<your-subdomain>.workers.dev/playground`
           );
         }
+        // Clean up the scratch project dir on success, but only if the user
+        // didn't ask for a specific --output path. Failures keep the dir so
+        // the next-steps block below can point at it. Fire-and-forget — we
+        // don't block resolution on rm.
+        if (!userProvidedOutputDir) {
+          fs.rm(outputDir, { recursive: true, force: true }).catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.debug(`Could not clean up scratch dir ${outputDir}: ${msg}`);
+          });
+        }
         resolve();
       } else {
+        // Wrangler's stderr already printed above (stdio: 'inherit'). Add a
+        // next-steps block so the user knows where to look without searching.
+        const runner = detectRunner();
+        logger.error(`\nDeployment failed (exit code ${code}).`);
+        logger.error(`\nTo debug:`);
+        logger.error(`  cd ${outputDir}`);
+        logger.error(`  ${runner} wrangler deploy --verbose    # more detail on what failed`);
+        logger.error(`  ${runner} wrangler whoami              # confirm auth + account_id`);
+        logger.error(
+          `  ${runner} wrangler tail ${photonName}  # runtime errors (if a prior deploy exists)`
+        );
+        logger.error(`\nCommon causes:`);
+        logger.error(`  - Auth: run \`${runner} wrangler login\` (or set CLOUDFLARE_API_TOKEN)`);
+        logger.error(
+          `  - Bundling: an imported package isn't in @dependencies (see warnings above)`
+        );
+        logger.error(
+          `  - Worker name conflict: \`${photonName}\` already taken by another account`
+        );
         reject(new Error('Deployment failed'));
       }
     });
