@@ -354,6 +354,18 @@ function withCfCapabilities(
     configurable: false,
   });
 
+  // Worker env exposed to the photon for direct binding access — Workers AI
+  // (`env.AI.run('@cf/...', ...)`), KV, R2, queues, secrets. Photons that
+  // want to stay CF-portable should branch on `(this as any).env?.AI` and
+  // fall back to a non-CF path on the local daemon (where `env` is
+  // undefined). Non-enumerable so it doesn't leak into JSON output.
+  Object.defineProperty(instance, 'env', {
+    value: env,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
   // Human/LLM-in-the-loop primitives. Each one wraps an MCP server-initiated
   // request (sampling/createMessage, elicitation/create), pushed over the
   // active tool call's SSE response stream and awaited on a Promise keyed by

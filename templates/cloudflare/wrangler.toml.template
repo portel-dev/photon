@@ -7,6 +7,13 @@ main = "src/worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 __OBSERVABILITY__
+# Workers AI binding — gives every photon access to CF's edge inference
+# (embeddings, classification, small LLMs) via `(this as any).env.AI.run(...)`.
+# Free tier covers thousands of calls/day; charges only kick in at scale.
+# Photons that don't use it pay nothing for having the binding declared.
+[ai]
+binding = "AI"
+
 # Durable Objects backing every photon class bundled into this Worker. The
 # host photon is always bound to `PHOTON`; each `@photons` sibling gets
 # its own `PHOTON_<NAME>` binding so `this.call('sibling.method', args)`
