@@ -9,6 +9,7 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
+import { CronExpressionParser } from 'cron-parser';
 // @ts-ignore - Will be replaced during build
 import PhotonClass from './photon';
 
@@ -132,6 +133,13 @@ function withCfCapabilities(instance: any, ctx: DurableObjectState): any {
     configurable: false,
   });
 
+  Object.defineProperty(instance, 'schedule', {
+    value: createScheduleProvider(ctx, PHOTON_NAME),
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
   Object.defineProperty(instance, 'callerCwd', {
     get() {
       return undefined;
@@ -141,6 +149,162 @@ function withCfCapabilities(instance: any, ctx: DurableObjectState): any {
   });
 
   return instance;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Schedule provider — DO alarm multiplexer
+// ════════════════════════════════════════════════════════════════════════════
+
+// `this.schedule.create({...})` persists an entry in DO storage; the DO has
+// a single alarm slot which we multiplex across N entries by always setting
+// it to the next-firing one. On `alarm()` we dispatch every due entry,
+// recompute, and reset. Mirrors the local ScheduleProvider API surface.
+
+const SCHEDULE_PREFIX = '__sched__:';
+
+const CRON_SHORTHANDS: Record<string, string> = {
+  '@yearly': '0 0 1 1 *',
+  '@annually': '0 0 1 1 *',
+  '@monthly': '0 0 1 * *',
+  '@weekly': '0 0 * * 0',
+  '@daily': '0 0 * * *',
+  '@midnight': '0 0 * * *',
+  '@hourly': '0 * * * *',
+};
+
+function resolveCron(schedule: string): string {
+  const trimmed = schedule.trim();
+  const shorthand = CRON_SHORTHANDS[trimmed.toLowerCase()];
+  if (shorthand) return shorthand;
+  if (trimmed.split(/\s+/).length !== 5) {
+    throw new Error(
+      `Invalid cron expression: '${schedule}'. Expected 5 fields or a shorthand (@hourly, @daily, @weekly, @monthly, @yearly).`
+    );
+  }
+  return trimmed;
+}
+
+function nextFireMs(cron: string, from: Date = new Date()): number {
+  return CronExpressionParser.parse(cron, { currentDate: from }).next().getTime();
+}
+
+interface ScheduledTask {
+  id: string;
+  name: string;
+  description?: string;
+  cron: string;
+  method: string;
+  params: Record<string, unknown>;
+  fireOnce: boolean;
+  maxExecutions: number;
+  status: 'active' | 'paused' | 'completed' | 'error';
+  createdAt: string;
+  lastExecutionAt?: string;
+  executionCount: number;
+  errorMessage?: string;
+  photonId: string;
+}
+
+async function listSchedules(ctx: DurableObjectState): Promise<ScheduledTask[]> {
+  const map = await ctx.storage.list<ScheduledTask>({ prefix: SCHEDULE_PREFIX });
+  return Array.from(map.values());
+}
+
+/**
+ * Walk every active schedule, find the earliest next-fire time, and set the
+ * DO alarm to it. If nothing is active, clear the alarm. Called after every
+ * mutation (create/update/cancel) and after each alarm() dispatch.
+ */
+async function rescheduleAlarm(ctx: DurableObjectState): Promise<void> {
+  const tasks = await listSchedules(ctx);
+  let earliest = Infinity;
+  const now = Date.now();
+  for (const task of tasks) {
+    if (task.status !== 'active') continue;
+    // Compute next-fire from the later of (lastExecutionAt, now-1s) so we
+    // don't immediately re-fire a task that just executed.
+    const fromTs = Math.max(
+      task.lastExecutionAt ? Date.parse(task.lastExecutionAt) : 0,
+      now - 1000
+    );
+    const t = nextFireMs(task.cron, new Date(fromTs));
+    if (t < earliest) earliest = t;
+  }
+  if (earliest === Infinity) {
+    await ctx.storage.deleteAlarm();
+  } else {
+    await ctx.storage.setAlarm(earliest);
+  }
+}
+
+function createScheduleProvider(ctx: DurableObjectState, photonId: string) {
+  return {
+    async create(opts: {
+      name: string;
+      schedule: string;
+      method: string;
+      params?: Record<string, unknown>;
+      description?: string;
+      fireOnce?: boolean;
+      maxExecutions?: number;
+    }): Promise<ScheduledTask> {
+      const cron = resolveCron(opts.schedule);
+      const all = await listSchedules(ctx);
+      if (all.find((t) => t.name === opts.name)) {
+        throw new Error(`Schedule '${opts.name}' already exists. Use update() to modify it.`);
+      }
+      const task: ScheduledTask = {
+        id: crypto.randomUUID(),
+        name: opts.name,
+        description: opts.description,
+        cron,
+        method: opts.method,
+        params: opts.params ?? {},
+        fireOnce: opts.fireOnce ?? false,
+        maxExecutions: opts.maxExecutions ?? 0,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        executionCount: 0,
+        photonId,
+      };
+      await ctx.storage.put(SCHEDULE_PREFIX + task.id, task);
+      await rescheduleAlarm(ctx);
+      return task;
+    },
+    async get(id: string): Promise<ScheduledTask | null> {
+      return (await ctx.storage.get<ScheduledTask>(SCHEDULE_PREFIX + id)) ?? null;
+    },
+    async getByName(name: string): Promise<ScheduledTask | null> {
+      const all = await listSchedules(ctx);
+      return all.find((t) => t.name === name) ?? null;
+    },
+    async list(status?: ScheduledTask['status']): Promise<ScheduledTask[]> {
+      const all = await listSchedules(ctx);
+      return status ? all.filter((t) => t.status === status) : all;
+    },
+    async cancel(id: string): Promise<boolean> {
+      const ok = await ctx.storage.delete(SCHEDULE_PREFIX + id);
+      if (ok) await rescheduleAlarm(ctx);
+      return ok;
+    },
+    async update(
+      id: string,
+      updates: Partial<
+        Pick<ScheduledTask, 'method' | 'params' | 'description' | 'fireOnce' | 'maxExecutions'>
+      > & { schedule?: string }
+    ): Promise<ScheduledTask> {
+      const cur = await ctx.storage.get<ScheduledTask>(SCHEDULE_PREFIX + id);
+      if (!cur) throw new Error(`Schedule ${id} not found`);
+      const next: ScheduledTask = {
+        ...cur,
+        ...updates,
+        cron: updates.schedule ? resolveCron(updates.schedule) : cur.cron,
+      };
+      await ctx.storage.put(SCHEDULE_PREFIX + id, next);
+      await rescheduleAlarm(ctx);
+      return next;
+    },
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -378,6 +542,46 @@ export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
 
   async webSocketClose(_ws: WebSocket, _code: number, _reason: string): Promise<void> {
     // No-op.
+  }
+
+  /**
+   * Alarm fired by the DO scheduler. Walk every persisted schedule, dispatch
+   * those that are due, advance their bookkeeping, and reschedule the next
+   * alarm. Errors on an individual task move it to status='error' and don't
+   * block the others.
+   */
+  async alarm(): Promise<void> {
+    const tasks = await listSchedules(this.ctx);
+    const now = Date.now();
+    for (const task of tasks) {
+      if (task.status !== 'active') continue;
+      const fromTs = task.lastExecutionAt ? Date.parse(task.lastExecutionAt) : Date.parse(task.createdAt);
+      const due = nextFireMs(task.cron, new Date(fromTs));
+      // 1s tolerance for alarm jitter; anything still in the future is skipped.
+      if (due > now + 1000) continue;
+      try {
+        const fn = (this.#photon as any)[task.method];
+        if (typeof fn !== 'function') {
+          throw new Error(`Scheduled method '${task.method}' not found on photon`);
+        }
+        const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === task.method);
+        const callArgs = spreadArgs(toolDef, task.params || {});
+        await fn.call(this.#photon, ...callArgs);
+        task.lastExecutionAt = new Date(now).toISOString();
+        task.executionCount += 1;
+        if (
+          task.fireOnce ||
+          (task.maxExecutions > 0 && task.executionCount >= task.maxExecutions)
+        ) {
+          task.status = 'completed';
+        }
+      } catch (err) {
+        task.errorMessage = err instanceof Error ? err.message : String(err);
+        task.status = 'error';
+      }
+      await this.ctx.storage.put(SCHEDULE_PREFIX + task.id, task);
+    }
+    await rescheduleAlarm(this.ctx);
   }
 }
 

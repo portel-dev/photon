@@ -404,8 +404,11 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
 
   // Create package.json. Photon-declared dependencies land in `dependencies`
   // so wrangler bundles them into the Worker; build tooling stays in
-  // `devDependencies`.
-  const runtimeDeps: Record<string, string> = {};
+  // `devDependencies`. The runtime shim's auto-injected deps (cron-parser
+  // for `this.schedule`) get merged in here too — pure-JS, work on Workers.
+  const runtimeDeps: Record<string, string> = {
+    'cron-parser': '^5.0.0',
+  };
   for (const dep of photonDeps) {
     runtimeDeps[dep.name] = dep.version;
   }
@@ -417,7 +420,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       dev: 'wrangler dev',
       deploy: 'wrangler deploy',
     },
-    ...(Object.keys(runtimeDeps).length > 0 && { dependencies: runtimeDeps }),
+    dependencies: runtimeDeps,
     devDependencies: {
       '@cloudflare/workers-types': '^4.0.0',
       wrangler: '^4.0.0',

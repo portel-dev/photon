@@ -24,6 +24,7 @@ instance.
 | `this.memory.{get,set,delete,has,keys,update,list,clear}` | `ctx.storage` (SQLite-backed) |
 | `this.emit({channel, ...})` | Broadcast to hibernated WebSockets attached to this DO |
 | Subscriber (Beam SSE in local) | WebSocket client connected to `/events?channel=...` |
+| `this.schedule.{create,get,getByName,list,cancel,update}` | DO alarm multiplexer over `ctx.storage` (entries persisted under `__sched__:<id>`; alarm always set to next-firing) |
 | `this.callerCwd` | `undefined` (no cwd on a Worker; falls through to the photon's own fallback) |
 
 ## Generated worker shape
@@ -91,18 +92,33 @@ Cleanup runs in `webSocketClose`.
 A request without any of these lands on the singleton instance — the
 right default for "everyone shares one queue" demos like chatroulette.
 
+## Schedule multiplexer
+
+A Durable Object has a single alarm slot. The runtime shim sidesteps that by
+persisting every schedule entry under `__sched__:<id>` in `ctx.storage` and
+always setting the alarm to the next-firing entry across all of them. On
+`alarm()` it walks every entry, dispatches anything due (with a 1s jitter
+tolerance), updates `lastExecutionAt`/`executionCount`/`status`, and
+recomputes the next alarm. Cron parsing uses `cron-parser` (auto-injected
+into every generated worker's `dependencies`).
+
+Behavior matches the local `ScheduleProvider`: `create` rejects duplicate
+names, `fireOnce` and `maxExecutions` move tasks to `'completed'`, and a
+scheduled call that throws moves the task to `'error'` with `errorMessage`
+set without blocking other entries.
+
 ## Out of scope for v1
 
-These keep the v1 PR small. Each is a follow-up on the same DO
-infrastructure:
+These are follow-ups on the same DO infrastructure:
 
-- `this.schedule` via DO alarms (needs a persisted schedule queue + alarm
-  multiplexer since DO has one alarm slot)
-- `this.sample` / `this.confirm` / `this.elicit` (need a durable
-  human-in-the-loop task pattern, no client to interactively prompt on CF)
-- Cross-photon `this.call` (needs service bindings or a dispatcher Worker)
-- @stateful event auto-emission (rides on the same emit pipe; ship after
-  emit is verified)
+- `this.sample` / `this.confirm` / `this.elicit` — MCP server-initiated
+  requests over the GET /mcp SSE channel, with photon execution suspended
+  on a Promise resolved when the client posts the response back.
+- Cross-photon `this.call` — bundle each `@photon` dependency as a sibling
+  DO class in the same Worker; the runtime shim routes calls via
+  `env.PHOTON_OTHER.idFromName(instance).fetch(internal-rpc)`.
+- `@stateful` event auto-emission — rides on the same emit pipe; ship after
+  end-to-end emit is verified in production.
 
 ## Verification
 
