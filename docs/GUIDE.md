@@ -1814,10 +1814,14 @@ hops to a sibling photon DO declared in the host's `@photons`. Pick the
 instance per request with `?instance=<name>` or the `X-Photon-Instance`
 header; omit both to land on the shared `'default'` singleton.
 
-Not yet supported on the Cloudflare target (queued follow-up):
-`this.sample` / `this.confirm` / `this.elicit`. See
+`this.sample` / `this.confirm` / `this.elicit` are stubbed on the Cloudflare
+target — they throw a clear "not yet supported" error so a photon using them
+fails loud rather than silently returning undefined. The full implementation
+(MCP server-initiated requests over the per-session SSE channel) is queued
+as a follow-up; photons that need these primitives can run on the local
+daemon today. See
 [`docs/internals/CF-DURABLE-OBJECTS.md`](internals/CF-DURABLE-OBJECTS.md)
-for the full mapping.
+for the full mapping and the migration plan.
 
 ---
 

@@ -125,13 +125,35 @@ Single-level resolution only in v1: a sibling photon's own `@photons` are
 not recursively bundled; the deploy emits a warning and the host author
 is expected to declare the full set on the entry photon.
 
-## Out of scope for v1
+## Interactive primitives — current state and follow-up
 
-These are follow-ups on the same DO infrastructure:
+`this.sample`, `this.confirm`, and `this.elicit` are wired as **throwing
+stubs** in v1: a photon that calls them on the CF target gets a clear
+runtime error pointing at this doc, instead of silently returning
+undefined. This satisfies the platform-parity rule that a missing
+capability must fail loudly, not be a silent no-op.
 
-- `this.sample` / `this.confirm` / `this.elicit` — MCP server-initiated
-  requests over the GET /mcp SSE channel, with photon execution suspended
-  on a Promise resolved when the client posts the response back.
+The full implementation needs MCP server-initiated requests over the
+GET /mcp Streamable HTTP SSE channel:
+
+1. The DO holds the SSE connection per client session.
+2. When the photon awaits `this.sample(...)`, the runtime emits a JSON-RPC
+   request (`sampling/createMessage`, `elicitation/create`, etc.) on the
+   client's stream and stores the pending request id in `ctx.storage`.
+3. The client posts the response back as a JSON-RPC reply on POST /mcp.
+4. The runtime correlates by request id and resolves the photon's Promise.
+5. Timeouts and hibernation are handled — the DO either stays awake while a
+   request is pending, or the photon is structured as a generator so its
+   state can be checkpointed across hibernation. v1 will start with the
+   first option (simpler) and migrate to the second when long-pending
+   requests become common.
+
+This is queued as a follow-up PR — the throwing stub in the current shim
+is the placeholder until it lands. Photons that need these primitives can
+run on the local daemon today; CF parity follows.
+
+## Other follow-ups
+
 - `@stateful` event auto-emission — rides on the same emit pipe; ship after
   end-to-end emit is verified in production.
 

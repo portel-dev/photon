@@ -353,6 +353,31 @@ function withCfCapabilities(
     configurable: false,
   });
 
+  // Human/LLM-in-the-loop primitives. The full Cloudflare implementation
+  // requires MCP server-initiated requests over the GET /mcp SSE channel
+  // with per-session state on the DO and Promise pause/resume across
+  // hibernation — significant protocol work, queued as a follow-up. For
+  // now these throw a clear runtime error rather than silently returning
+  // undefined so a photon that uses them on CF fails fast with an
+  // actionable message instead of confusing downstream symptoms.
+  const interactiveStub = (which: string) => () => {
+    throw new Error(
+      `this.${which} is not yet supported on the Cloudflare deploy target. ` +
+        `It needs MCP server-initiated requests, which require a per-session ` +
+        `bidirectional channel that v1 of the DO bridge doesn't carry. ` +
+        `Track the follow-up at docs/internals/CF-DURABLE-OBJECTS.md, or run ` +
+        `this photon on the local daemon (where this.${which} works today).`
+    );
+  };
+  for (const name of ['sample', 'confirm', 'elicit'] as const) {
+    Object.defineProperty(instance, name, {
+      value: interactiveStub(name),
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+  }
+
   return instance;
 }
 
