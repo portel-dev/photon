@@ -94,7 +94,8 @@ Cleanup runs in `webSocketClose`.
 4. Falls back to `'default'`
 
 A request without any of these lands on the singleton instance — the
-right default for "everyone shares one queue" demos like chatroulette.
+right default for shared-room photons where every user lives in one
+matchmaking queue.
 
 ## Schedule multiplexer
 
