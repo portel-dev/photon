@@ -1804,24 +1804,21 @@ This will:
 Use `--dev` to enable the interactive playground in the deployed worker, and
 `--logs` to opt into Cloudflare Workers Logs for dashboard observability.
 
-**Stateful photons.** `this.memory`, `this.emit`, `this.schedule`, and
-`this.call` work the same on Cloudflare as on the local daemon. Each
-`instanceName` runs in its own Durable Object — storage is backed by
-`ctx.storage`, `this.emit({channel, ...})` broadcasts to subscribers
-connected at `wss://<worker>/events?channel=<name>`, `this.schedule.create({...})`
-registers cron entries that fire from the DO's alarm, and `this.call('foo.bar', ...)`
-hops to a sibling photon DO declared in the host's `@photons`. Pick the
-instance per request with `?instance=<name>` or the `X-Photon-Instance`
-header; omit both to land on the shared `'default'` singleton.
-
-`this.sample` / `this.confirm` / `this.elicit` are stubbed on the Cloudflare
-target — they throw a clear "not yet supported" error so a photon using them
-fails loud rather than silently returning undefined. The full implementation
-(MCP server-initiated requests over the per-session SSE channel) is queued
-as a follow-up; photons that need these primitives can run on the local
-daemon today. See
+**Stateful photons.** `this.memory`, `this.emit`, `this.schedule`,
+`this.call`, `this.sample`, `this.confirm`, and `this.elicit` all work
+the same on Cloudflare as on the local daemon. Each `instanceName` runs
+in its own Durable Object — storage is backed by `ctx.storage`,
+`this.emit({channel, ...})` broadcasts to subscribers connected at
+`wss://<worker>/events?channel=<name>`, `this.schedule.create({...})`
+registers cron entries that fire from the DO's alarm, `this.call('foo.bar', ...)`
+hops to a sibling photon DO declared in the host's `@photons`, and
+`this.sample` / `this.confirm` / `this.elicit` ride MCP server-initiated
+requests on the active tool call's SSE response (clients must signal
+`Accept: text/event-stream`). Pick the instance per request with
+`?instance=<name>` or the `X-Photon-Instance` header; omit both to land
+on the shared `'default'` singleton. See
 [`docs/internals/CF-DURABLE-OBJECTS.md`](internals/CF-DURABLE-OBJECTS.md)
-for the full mapping and the migration plan.
+for the full capability mapping.
 
 ---
 

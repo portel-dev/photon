@@ -26,6 +26,9 @@ instance.
 | Subscriber (Beam SSE in local) | WebSocket client connected to `/events?channel=...` |
 | `this.schedule.{create,get,getByName,list,cancel,update}` | DO alarm multiplexer over `ctx.storage` (entries persisted under `__sched__:<id>`; alarm always set to next-firing) |
 | `this.call('sibling.method', params, {instance?})` | `env.PHOTON_<SIBLING>.idFromName(instance).fetch('/__call', {method, args})` |
+| `this.sample(params)` | MCP `sampling/createMessage` request pushed on the active SSE response, awaited by request-id correlation |
+| `this.confirm(question)` | MCP `elicitation/create` with a boolean schema, same SSE round-trip |
+| `this.elicit(params)` | MCP `elicitation/create`, same SSE round-trip |
 | `this.callerCwd` | `undefined` (no cwd on a Worker; falls through to the photon's own fallback) |
 
 ## Generated worker shape
@@ -125,32 +128,40 @@ Single-level resolution only in v1: a sibling photon's own `@photons` are
 not recursively bundled; the deploy emits a warning and the host author
 is expected to declare the full set on the entry photon.
 
-## Interactive primitives — current state and follow-up
+## Server-initiated MCP requests (sample / confirm / elicit)
 
-`this.sample`, `this.confirm`, and `this.elicit` are wired as **throwing
-stubs** in v1: a photon that calls them on the CF target gets a clear
-runtime error pointing at this doc, instead of silently returning
-undefined. This satisfies the platform-parity rule that a missing
-capability must fail loudly, not be a silent no-op.
+`this.sample`, `this.confirm`, and `this.elicit` use the standard MCP
+Streamable HTTP server-initiated request pattern:
 
-The full implementation needs MCP server-initiated requests over the
-GET /mcp Streamable HTTP SSE channel:
+1. Client POSTs `tools/call` to `/mcp` with `Accept: text/event-stream`.
+2. The DO opens an SSE response (`text/event-stream`) instead of the plain
+   JSON path. The original tool call's response stream stays open for the
+   duration of the call.
+3. Inside the tool, when the photon awaits `this.sample({...})`, the
+   runtime generates a request id, writes the corresponding JSON-RPC
+   request (`sampling/createMessage` / `elicitation/create`) to the SSE
+   stream, and parks a Promise keyed by that id in the DO's
+   `pendingRequests` map.
+4. The client receives, runs its LLM (or surfaces the prompt to the user
+   for elicit/confirm), and POSTs the response back to `/mcp` as a
+   separate request — body is a JSON-RPC reply with the matching id.
+5. The DO's POST handler distinguishes a JSON-RPC response from a request
+   (no `method`, id is in the pending map), resolves the parked Promise
+   with the result, and acks with 204.
+6. The original tool's `await` resumes, the tool returns, and the DO
+   writes the final tool result on the SSE stream and closes it.
 
-1. The DO holds the SSE connection per client session.
-2. When the photon awaits `this.sample(...)`, the runtime emits a JSON-RPC
-   request (`sampling/createMessage`, `elicitation/create`, etc.) on the
-   client's stream and stores the pending request id in `ctx.storage`.
-3. The client posts the response back as a JSON-RPC reply on POST /mcp.
-4. The runtime correlates by request id and resolves the photon's Promise.
-5. Timeouts and hibernation are handled — the DO either stays awake while a
-   request is pending, or the photon is structured as a generator so its
-   state can be checkpointed across hibernation. v1 will start with the
-   first option (simpler) and migrate to the second when long-pending
-   requests become common.
+The per-request state (SSE writer, pending map reference) lives on an
+`AsyncLocalStorage` context so concurrent tool calls don't collide. A
+client that POSTs without `Accept: text/event-stream` gets the legacy
+plain JSON response path; calling `this.sample` etc. inside a tool
+invoked that way throws with a clear message pointing at the Accept
+requirement.
 
-This is queued as a follow-up PR — the throwing stub in the current shim
-is the placeholder until it lands. Photons that need these primitives can
-run on the local daemon today; CF parity follows.
+Hibernation isn't a concern: the DO can't hibernate while a fetch handler
+holds an open response stream. Long-pending sampling requests keep the
+DO active until the client responds (or the outer Worker's max_duration
+is hit, configurable in wrangler.toml).
 
 ## Other follow-ups
 

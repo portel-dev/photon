@@ -9,6 +9,7 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { CronExpressionParser } from 'cron-parser';
 __PHOTON_IMPORTS__
 
@@ -353,32 +354,156 @@ function withCfCapabilities(
     configurable: false,
   });
 
-  // Human/LLM-in-the-loop primitives. The full Cloudflare implementation
-  // requires MCP server-initiated requests over the GET /mcp SSE channel
-  // with per-session state on the DO and Promise pause/resume across
-  // hibernation — significant protocol work, queued as a follow-up. For
-  // now these throw a clear runtime error rather than silently returning
-  // undefined so a photon that uses them on CF fails fast with an
-  // actionable message instead of confusing downstream symptoms.
-  const interactiveStub = (which: string) => () => {
-    throw new Error(
-      `this.${which} is not yet supported on the Cloudflare deploy target. ` +
-        `It needs MCP server-initiated requests, which require a per-session ` +
-        `bidirectional channel that v1 of the DO bridge doesn't carry. ` +
-        `Track the follow-up at docs/internals/CF-DURABLE-OBJECTS.md, or run ` +
-        `this photon on the local daemon (where this.${which} works today).`
-    );
-  };
-  for (const name of ['sample', 'confirm', 'elicit'] as const) {
-    Object.defineProperty(instance, name, {
-      value: interactiveStub(name),
-      writable: false,
-      enumerable: false,
-      configurable: false,
-    });
-  }
+  // Human/LLM-in-the-loop primitives. Each one wraps an MCP server-initiated
+  // request (sampling/createMessage, elicitation/create), pushed over the
+  // active tool call's SSE response stream and awaited on a Promise keyed by
+  // request id. The pending map and the SSE writer live on the per-request
+  // AsyncLocalStorage context so concurrent tool calls don't collide.
+  Object.defineProperty(instance, 'sample', {
+    value: cfSample,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+  Object.defineProperty(instance, 'confirm', {
+    value: cfConfirm,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+  Object.defineProperty(instance, 'elicit', {
+    value: cfElicit,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
 
   return instance;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Server-initiated MCP requests — sample / confirm / elicit
+// ════════════════════════════════════════════════════════════════════════════
+
+interface PendingRequest {
+  resolve: (value: any) => void;
+  reject: (error: Error) => void;
+}
+
+interface RequestContext {
+  /** Push one JSON-RPC message to the client over the active SSE response. */
+  send: (msg: unknown) => Promise<void>;
+  /** Shared pending map; the DO's POST /mcp handler resolves entries here. */
+  pendingRequests: Map<string, PendingRequest>;
+}
+
+/**
+ * Per-tool-call context. Set when the DO begins streaming a tool call
+ * response and read by `this.sample` / `this.confirm` / `this.elicit` to
+ * find the right SSE writer + pending map. AsyncLocalStorage propagates
+ * the context across awaits so a tool that calls `await this.sample()`
+ * deep in its async tree still hits the right context.
+ */
+const requestContext = new AsyncLocalStorage<RequestContext>();
+
+function requireRequestContext(which: string): RequestContext {
+  const ctx = requestContext.getStore();
+  if (!ctx) {
+    throw new Error(
+      `this.${which}() requires the calling client to use SSE (Accept: text/event-stream). ` +
+        `Stateless JSON requests can't carry server-initiated MCP messages back to the client. ` +
+        `If you control the client, set the Accept header. If not, the photon should not call ` +
+        `this.${which}() in tools invoked by JSON-only callers.`
+    );
+  }
+  return ctx;
+}
+
+/**
+ * Send a server-initiated JSON-RPC request to the client over the active
+ * SSE stream and await the matching response. The DO's POST /mcp handler
+ * resolves the pending Promise when the client posts back a response with
+ * the same id.
+ */
+async function sendServerRequest(method: string, params: unknown, which: string): Promise<unknown> {
+  const ctx = requireRequestContext(which);
+  const id = crypto.randomUUID();
+  const promise = new Promise<unknown>((resolve, reject) => {
+    ctx.pendingRequests.set(id, { resolve, reject });
+  });
+  await ctx.send({ jsonrpc: '2.0', id, method, params });
+  return promise;
+}
+
+async function cfSample(params: {
+  prompt?: string;
+  messages?: Array<{ role: string; content: { type: string; text?: string } }>;
+  maxTokens?: number;
+  systemPrompt?: string;
+  temperature?: number;
+}): Promise<string> {
+  if (!params.prompt && !params.messages?.length) {
+    throw new Error('this.sample() requires either `prompt` or `messages`.');
+  }
+  const messages =
+    params.messages ??
+    [{ role: 'user' as const, content: { type: 'text' as const, text: params.prompt! } }];
+  const result = (await sendServerRequest(
+    'sampling/createMessage',
+    {
+      messages,
+      maxTokens: params.maxTokens ?? 1024,
+      ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
+      ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+    },
+    'sample'
+  )) as { content?: { type?: string; text?: string } } | string | undefined;
+  if (typeof result === 'string') return result;
+  if (result?.content?.type === 'text' && typeof result.content.text === 'string') {
+    return result.content.text;
+  }
+  return JSON.stringify(result);
+}
+
+async function cfElicit<T = unknown>(params: {
+  message?: string;
+  question?: string;
+  requestedSchema?: unknown;
+  [k: string]: unknown;
+}): Promise<T> {
+  const message = params.message ?? params.question ?? 'Input requested';
+  const result = await sendServerRequest(
+    'elicitation/create',
+    {
+      message,
+      ...(params.requestedSchema ? { requestedSchema: params.requestedSchema } : {}),
+    },
+    'elicit'
+  );
+  // Per MCP elicitation spec the response carries `content` with the user's
+  // answer. Some clients return the answer at the top level for simple
+  // schemas; accept either shape so photon code stays compact.
+  const obj = result as { content?: T } | T;
+  return ((obj as { content?: T })?.content ?? (obj as T));
+}
+
+async function cfConfirm(question: string): Promise<boolean> {
+  const result = await cfElicit<{ confirmed?: boolean } | boolean>({
+    message: question,
+    requestedSchema: {
+      type: 'object',
+      properties: {
+        confirmed: {
+          type: 'boolean',
+          title: 'Confirm',
+          description: question,
+        },
+      },
+      required: ['confirmed'],
+    },
+  });
+  if (typeof result === 'boolean') return result;
+  return Boolean(result?.confirmed);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -506,6 +631,15 @@ abstract class BasePhotonDO extends DurableObject<Env> {
   protected photon: any;
   protected instanceName: string;
 
+  /**
+   * In-flight server-initiated MCP requests, keyed by request id. The active
+   * tool call's `this.sample` / `this.confirm` / `this.elicit` add entries
+   * here; the POST /mcp handler resolves them when the client sends the
+   * response. Lives on the DO instance so it persists across the multiple
+   * fetch handlers (one for the original tool call, one per client response).
+   */
+  protected pendingRequests = new Map<string, PendingRequest>();
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.instanceName = ctx.id.name ?? 'default';
@@ -546,9 +680,17 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       return new Response(null, { status: 101, webSocket: client });
     }
 
-    // MCP Streamable HTTP: single endpoint, JSON-RPC body in, result out.
+    // MCP Streamable HTTP. Three flavors of POST /mcp body:
+    //  - JSON-RPC request (has `method`): tools/call, initialize, etc.
+    //    Tool calls may produce server-initiated requests during execution
+    //    (sample/confirm/elicit), so when the client signals SSE support
+    //    (`Accept: text/event-stream`) we stream the response. Plain JSON
+    //    is the default for clients that don't.
+    //  - JSON-RPC response (has `result` or `error`, no `method`): the
+    //    client answering a server-initiated request. We resolve the
+    //    matching pending entry and ack with 204.
     if (url.pathname === '/mcp' && request.method === 'POST') {
-      return handleStreamableMCP(request, this.photon, this.photonName, this.toolDefinitions);
+      return this._handleMcpPost(request);
     }
     if (url.pathname === '/mcp' && request.method === 'GET') {
       return new Response(': streamable-http\n\n', {
@@ -613,6 +755,117 @@ abstract class BasePhotonDO extends DurableObject<Env> {
     }
 
     return new Response('Not Found', { status: 404, headers: CORS_HEADERS });
+  }
+
+  /**
+   * Handle a single POST /mcp body. Distinguishes JSON-RPC requests from
+   * JSON-RPC responses to server-initiated requests, and chooses between a
+   * plain JSON or SSE-streamed reply for tool calls based on the client's
+   * Accept header.
+   */
+  private async _handleMcpPost(request: Request): Promise<Response> {
+    let body: any;
+    try {
+      body = await request.json();
+    } catch (err: any) {
+      return Response.json(
+        {
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32700, message: `Parse error: ${err?.message ?? String(err)}` },
+        },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    // JSON-RPC RESPONSE coming back to a server-initiated request: route to
+    // the pending Promise, ack with 204. Distinguished by the absence of
+    // `method` plus a known id in the pending map.
+    if (
+      body &&
+      typeof body === 'object' &&
+      body.method === undefined &&
+      body.id !== undefined &&
+      typeof body.id === 'string' &&
+      this.pendingRequests.has(body.id)
+    ) {
+      const pending = this.pendingRequests.get(body.id)!;
+      this.pendingRequests.delete(body.id);
+      if (body.error) {
+        pending.reject(new Error(body.error.message ?? 'Server-initiated request rejected'));
+      } else {
+        pending.resolve(body.result);
+      }
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+    // Tool calls from clients that signal SSE support get a streamed
+    // response so this.sample / this.confirm / this.elicit can push
+    // server-initiated requests inline. All other JSON-RPC methods (and
+    // tool calls from JSON-only clients) use the plain JSON path.
+    const accept = request.headers.get('Accept') ?? '';
+    const wantsSse = accept.includes('text/event-stream');
+    if (body?.method === 'tools/call' && wantsSse) {
+      return this._streamToolCall(body);
+    }
+
+    const result = await handleMCPRequest(body, this.photon, this.photonName, this.toolDefinitions);
+    return Response.json(result, { headers: CORS_HEADERS });
+  }
+
+  /**
+   * SSE-stream a tool call response. Sets up the per-request context so
+   * `this.sample` / `this.confirm` / `this.elicit` can push server-initiated
+   * MCP requests over the same stream and await the client's responses
+   * (which arrive as separate POST /mcp requests routed by `_handleMcpPost`).
+   */
+  private _streamToolCall(rpcRequest: any): Response {
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+    const send = async (msg: unknown): Promise<void> => {
+      await writer.write(encoder.encode(`data: ${JSON.stringify(msg)}\n\n`));
+    };
+
+    const ctx: RequestContext = {
+      send,
+      pendingRequests: this.pendingRequests,
+    };
+
+    // Fire-and-forget: the response stream stays open as long as the writer
+    // is open, which keeps the DO active until the tool finishes and we
+    // close the writer in `finally`.
+    requestContext
+      .run(ctx, async () => {
+        try {
+          const result = await handleMCPRequest(
+            rpcRequest,
+            this.photon,
+            this.photonName,
+            this.toolDefinitions
+          );
+          await send(result);
+        } catch (err: any) {
+          await send({
+            jsonrpc: '2.0',
+            id: rpcRequest?.id ?? null,
+            error: { code: -32603, message: err?.message ?? String(err) },
+          });
+        }
+      })
+      .finally(() => {
+        writer.close().catch(() => {
+          // Stream already torn down on the client side; nothing to do.
+        });
+      });
+
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        ...CORS_HEADERS,
+      },
+    });
   }
 
   async webSocketMessage(_ws: WebSocket, _msg: string | ArrayBuffer): Promise<void> {
