@@ -25,6 +25,7 @@ instance.
 | `this.emit({channel, ...})` | Broadcast to hibernated WebSockets attached to this DO |
 | Subscriber (Beam SSE in local) | WebSocket client connected to `/events?channel=...` |
 | `this.schedule.{create,get,getByName,list,cancel,update}` | DO alarm multiplexer over `ctx.storage` (entries persisted under `__sched__:<id>`; alarm always set to next-firing) |
+| `this.call('sibling.method', params, {instance?})` | `env.PHOTON_<SIBLING>.idFromName(instance).fetch('/__call', {method, args})` |
 | `this.callerCwd` | `undefined` (no cwd on a Worker; falls through to the photon's own fallback) |
 
 ## Generated worker shape
@@ -107,6 +108,23 @@ names, `fireOnce` and `maxExecutions` move tasks to `'completed'`, and a
 scheduled call that throws moves the task to `'error'` with `errorMessage`
 set without blocking other entries.
 
+## Cross-photon calls
+
+The deploy adapter parses `@photons foo, bar` from the host photon's JSDoc,
+resolves each name to a sibling `.photon.ts` file, and bundles every
+sibling as its own DO class in the same Worker. Wrangler binds the host
+photon as `PHOTON` and each sibling as `PHOTON_<UPPER_SNAKE_NAME>`. The
+runtime shim's `this.call(target, params, opts?)` splits the target on
+the first `.`, looks up the binding name in a deploy-time-generated
+`PHOTON_BINDINGS` map, and posts to the sibling DO's internal `/__call`
+endpoint. The internal endpoint dispatches the named method (with the
+same `simpleParams` spreading rule the public MCP surface uses) and
+returns the result inline.
+
+Single-level resolution only in v1: a sibling photon's own `@photons` are
+not recursively bundled; the deploy emits a warning and the host author
+is expected to declare the full set on the entry photon.
+
 ## Out of scope for v1
 
 These are follow-ups on the same DO infrastructure:
@@ -114,9 +132,6 @@ These are follow-ups on the same DO infrastructure:
 - `this.sample` / `this.confirm` / `this.elicit` — MCP server-initiated
   requests over the GET /mcp SSE channel, with photon execution suspended
   on a Promise resolved when the client posts the response back.
-- Cross-photon `this.call` — bundle each `@photon` dependency as a sibling
-  DO class in the same Worker; the runtime shim routes calls via
-  `env.PHOTON_OTHER.idFromName(instance).fetch(internal-rpc)`.
 - `@stateful` event auto-emission — rides on the same emit pipe; ship after
   end-to-end emit is verified in production.
 

@@ -7,19 +7,19 @@ main = "src/worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 __OBSERVABILITY__
-# Durable Object that hosts the photon instance. One DO per instance name
-# carries the photon's `this.memory` (backed by ctx.storage) and acts as
-# the broadcast point for `this.emit` (hibernatable WebSockets). See
-# docs/internals/CF-DURABLE-OBJECTS.md.
-[[durable_objects.bindings]]
-name = "PHOTON"
-class_name = "__PHOTON_DO_CLASS__"
+# Durable Objects backing every photon class bundled into this Worker. The
+# host photon is always bound to `PHOTON`; each `@photons` sibling gets
+# its own `PHOTON_<NAME>` binding so `this.call('sibling.method', args)`
+# can hop via env.PHOTON_<NAME>.idFromName(...). One DO per instance name
+# carries that photon's `this.memory`, `this.emit` subscribers, and
+# `this.schedule` alarm queue. See docs/internals/CF-DURABLE-OBJECTS.md.
+__DURABLE_OBJECT_BINDINGS__
 
 # SQLite-backed DOs share the same KV API as classic DOs but cost less
 # and unlock ctx.storage.sql.exec(...) for photons that opt into queries.
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["__PHOTON_DO_CLASS__"]
+new_sqlite_classes = __SQLITE_CLASSES__
 
 # Uncomment to add environment variables
 # [vars]

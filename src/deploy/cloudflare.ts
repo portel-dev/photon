@@ -82,6 +82,92 @@ function parsePhotonDependencies(source: string): ParsedDependency[] {
 }
 
 /**
+ * Extract `@photons foo, bar` entries from photon JSDoc blocks. These name
+ * sibling photon dependencies — the deploy adapter resolves each to a
+ * `.photon.ts` file and bundles it as its own Durable Object class so the
+ * host photon's `this.call('foo.method', params)` works on Cloudflare.
+ */
+function parsePhotonPhotons(source: string): string[] {
+  const seen = new Set<string>();
+  const jsdocBlocks = source.match(/\/\*\*[\s\S]*?\*\//g) || [];
+  const jsdocText = jsdocBlocks.join('\n');
+  const regex = /@photons\s+([^\r\n]+)/g;
+  let match;
+  while ((match = regex.exec(jsdocText)) !== null) {
+    const entries = match[1]
+      .replace(/\*\/$/, '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    for (const entry of entries) {
+      if (!/^[a-z0-9_-]+$/i.test(entry)) continue;
+      seen.add(entry);
+    }
+  }
+  return Array.from(seen);
+}
+
+/**
+ * Resolve a sibling photon name to its `.photon.ts` file. Searches alongside
+ * the caller first, then PHOTON_DIR / `~/.photon`. Returns null if not
+ * found so the caller can fail with an actionable message.
+ */
+function resolveSiblingPhoton(name: string, callerPath: string): string | null {
+  const sibling = path.join(path.dirname(callerPath), `${name}.photon.ts`);
+  if (existsSync(sibling)) return sibling;
+  const baseDir = process.env.PHOTON_DIR || path.join(homedir(), '.photon');
+  const flat = path.join(baseDir, `${name}.photon.ts`);
+  if (existsSync(flat)) return flat;
+  return null;
+}
+
+/** Convert a photon name to its DO class name (`web-lite` → `WebLitePhotonDO`). */
+function photonNameToDoClass(name: string): string {
+  return (
+    name
+      .split(/[-_]/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('') + 'PhotonDO'
+  );
+}
+
+/** Convert a photon name to its env binding name (`web-lite` → `PHOTON_WEB_LITE`). */
+function photonNameToBinding(name: string): string {
+  return 'PHOTON_' + name.toUpperCase().replace(/-/g, '_');
+}
+
+/**
+ * Strip Node-only and photon-core-specific bits from a photon source so it
+ * can run inside a Worker. Same transformation is applied to the host
+ * photon and every `@photons` sibling.
+ */
+function transformPhotonSource(source: string): string {
+  return (
+    source
+      // Remove photon-core import (both Photon and PhotonMCP)
+      .replace(
+        /import\s+{\s*(?:Photon|PhotonMCP)\s*}\s+from\s+['"]@portel\/photon-core['"];?\n?/g,
+        ''
+      )
+      // Remove `extends Photon` / `extends PhotonMCP`
+      .replace(/extends\s+(?:Photon|PhotonMCP)\s*{/g, '{')
+      // Stub Node-only imports
+      .replace(/import\s+\*\s+as\s+fs\s+from\s+['"]fs['"]/g, '// fs not available in Workers')
+      .replace(/import\s+\*\s+as\s+path\s+from\s+['"]path['"]/g, '// path not available in Workers')
+      .replace(/import\s+{\s*[^}]+\s*}\s+from\s+['"]fs['"]/g, '// fs not available in Workers')
+      .replace(
+        /import\s+{\s*[^}]+\s*}\s+from\s+['"]fs\/promises['"]/g,
+        '// fs not available in Workers'
+      )
+      .replace(/import\s+{\s*[^}]+\s*}\s+from\s+['"]path['"]/g, '// path not available in Workers')
+      // Strip the @dependencies docblock line so it doesn't show up in the
+      // bundled source — the version is already pinned in package.json.
+      .replace(/\s*\*\s*@dependencies[^\n]*/g, '')
+  );
+}
+
+/**
  * Node built-in modules that wrangler can supply via `nodejs_compat` and
  * therefore don't need a `@dependencies` entry. Includes both bare names
  * (`fs`) and prefixed names (`node:fs`); the prefix form is stripped before
@@ -341,49 +427,146 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     );
   }
 
-  // Read worker template
+  // Resolve `@photons` siblings — each becomes its own DO class in the
+  // same Worker so the host photon's `this.call('sibling.method', args)`
+  // hops via env.PHOTON_<SIBLING>.idFromName(...).fetch(internal-rpc).
+  // Single-level resolution for v1 (we don't recursively follow the
+  // siblings' own @photons; warn loudly if any are present).
+  const siblingNames = parsePhotonPhotons(sourceCode);
+  type PhotonSpec = {
+    name: string;
+    /** TS-identifier import name, e.g. `WebLitePhoton` */
+    importName: string;
+    /** Module specifier inside the generated worker, e.g. `'./dep-web-lite'` */
+    importPath: string;
+    /** DO class name, e.g. `WebLitePhotonDO` */
+    doClass: string;
+    /** Wrangler binding name, e.g. `PHOTON_WEB_LITE` (host always uses bare `PHOTON`) */
+    binding: string;
+    /** Tool definitions for this photon's MCP surface */
+    toolDefs: any[];
+    /** Transformed source written to outputDir/src */
+    source: string;
+    /** Where the source lives in outputDir/src/ */
+    sourceFileBase: string;
+    /** Whether this is the externally-routed host photon */
+    isHost: boolean;
+  };
+
+  function nameToImportSymbol(n: string): string {
+    return (
+      n
+        .split(/[-_]/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join('') + 'Photon'
+    );
+  }
+
+  const transformedHost = transformPhotonSource(sourceCode);
+  const photons: PhotonSpec[] = [
+    {
+      name: photonName,
+      importName: nameToImportSymbol(photonName),
+      importPath: './photon',
+      doClass: photonDoClassName,
+      binding: 'PHOTON',
+      toolDefs,
+      source: transformedHost,
+      sourceFileBase: 'photon.ts',
+      isHost: true,
+    },
+  ];
+
+  for (const sibName of siblingNames) {
+    const sibPath = resolveSiblingPhoton(sibName, absolutePath);
+    if (!sibPath) {
+      throw new Error(
+        `@photons '${sibName}' could not be resolved. Looked next to ${absolutePath} and in PHOTON_DIR.\n` +
+          `Make sure ${sibName}.photon.ts exists and is reachable.`
+      );
+    }
+    const sibSource = await fs.readFile(sibPath, 'utf-8');
+    const sibExtracted = extractor.extractFromSource(sibSource);
+    const sibTools = sibExtracted.map((tool: any) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      ...(tool.simpleParams ? { simpleParams: true } : {}),
+    }));
+    // Sibling-level @photons are not recursively bundled in v1 — flag so the
+    // user knows their indirect dependency isn't carried along.
+    const sibSiblings = parsePhotonPhotons(sibSource);
+    if (sibSiblings.length > 0) {
+      logger.warn(
+        `@photons sibling '${sibName}' itself declares @photons: ${sibSiblings.join(', ')}. ` +
+          `Transitive @photons are not bundled in v1 — declare them on the host photon instead.`
+      );
+    }
+    // Sibling @dependencies must be bundled too. Merge into runtimeDeps below.
+    const sibDeps = parsePhotonDependencies(sibSource);
+    photonDeps.push(
+      ...sibDeps.filter((d) => !photonDeps.find((existing) => existing.name === d.name))
+    );
+
+    photons.push({
+      name: sibName,
+      importName: nameToImportSymbol(sibName),
+      importPath: `./dep-${sibName}`,
+      doClass: photonNameToDoClass(sibName),
+      binding: photonNameToBinding(sibName),
+      toolDefs: sibTools,
+      source: transformPhotonSource(sibSource),
+      sourceFileBase: `dep-${sibName}.ts`,
+      isHost: false,
+    });
+  }
+
+  if (photons.length > 1) {
+    logger.info(
+      `Bundling ${photons.length - 1} @photons sibling(s): ${photons
+        .slice(1)
+        .map((p) => p.name)
+        .join(', ')}`
+    );
+  }
+
+  // Read worker template and substitute multi-photon blocks
   const packageRoot = getPackageRoot();
   const templatePath = path.join(packageRoot, 'templates', 'cloudflare', 'worker.ts.template');
   let workerCode = await fs.readFile(templatePath, 'utf-8');
 
-  // Replace placeholders
+  const photonImports = photons
+    .map((p) => `import ${p.importName} from '${p.importPath}';`)
+    .join('\n');
+  const photonBindingsMap = JSON.stringify(
+    Object.fromEntries(photons.map((p) => [p.name, p.binding]))
+  );
+  const photonDoClasses = photons
+    .map(
+      (p) => `export class ${p.doClass} extends BasePhotonDO {
+  protected readonly photonName = ${JSON.stringify(p.name)};
+  protected readonly toolDefinitions: any[] = ${JSON.stringify(p.toolDefs, null, 2)};
+  protected createPhoton() { return new ${p.importName}(); }
+}`
+    )
+    .join('\n\n');
+
   workerCode = workerCode
-    .replace(/__TOOL_DEFINITIONS__/g, JSON.stringify(toolDefs, null, 2))
-    .replace(/__PHOTON_NAME__/g, photonName)
-    .replace(/__PHOTON_DO_CLASS__/g, photonDoClassName)
+    .replace(/__PHOTON_IMPORTS__/g, photonImports)
+    .replace(/__PHOTON_BINDINGS_MAP__/g, photonBindingsMap)
+    .replace(/__PHOTON_DO_CLASSES__/g, photonDoClasses)
+    .replace(/__HOST_PHOTON_NAME__/g, photonName)
+    .replace(/__HOST_BINDING__/g, 'PHOTON')
     .replace(/__DEV_MODE__/g, String(devMode));
 
-  // Copy photon file and rename import
-  const photonCode = await fs.readFile(absolutePath, 'utf-8');
-
-  // Transform photon code for Workers compatibility
-  // 1. Remove @portel/photon-core import and Photon/PhotonMCP extension
-  // 2. Remove Node.js-specific imports
-  let transformedPhoton = photonCode
-    // Remove photon-core import (both Photon and PhotonMCP)
-    .replace(
-      /import\s+{\s*(?:Photon|PhotonMCP)\s*}\s+from\s+['"]@portel\/photon-core['"];?\n?/g,
-      ''
-    )
-    // Remove extends Photon or extends PhotonMCP
-    .replace(/extends\s+(?:Photon|PhotonMCP)\s*{/g, '{')
-    // Remove Node.js imports
-    .replace(/import\s+\*\s+as\s+fs\s+from\s+['"]fs['"]/g, '// fs not available in Workers')
-    .replace(/import\s+\*\s+as\s+path\s+from\s+['"]path['"]/g, '// path not available in Workers')
-    .replace(/import\s+{\s*[^}]+\s*}\s+from\s+['"]fs['"]/g, '// fs not available in Workers')
-    .replace(
-      /import\s+{\s*[^}]+\s*}\s+from\s+['"]fs\/promises['"]/g,
-      '// fs not available in Workers'
-    )
-    .replace(/import\s+{\s*[^}]+\s*}\s+from\s+['"]path['"]/g, '// path not available in Workers')
-    // Remove @dependencies comment
-    .replace(/\s*\*\s*@dependencies[^\n]*/g, '');
-
-  // Write files
+  // Write photon source files (host + each sibling)
   await fs.writeFile(path.join(outputDir, 'src', 'worker.ts'), workerCode);
-  await fs.writeFile(path.join(outputDir, 'src', 'photon.ts'), transformedPhoton);
+  for (const p of photons) {
+    await fs.writeFile(path.join(outputDir, 'src', p.sourceFileBase), p.source);
+  }
 
-  // Create wrangler.toml
+  // Create wrangler.toml — one binding per photon, all classes in one migration
   const wranglerTemplatePath = path.join(
     packageRoot,
     'templates',
@@ -395,10 +578,19 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // stays minimal. Workers Logs has a small free tier; opt-in keeps quota
   // usage explicit.
   const observabilityReplacement = withLogs ? '\n[observability]\nenabled = true\n' : '';
+  const doBindingsToml = photons
+    .map(
+      (p) => `[[durable_objects.bindings]]
+name = "${p.binding}"
+class_name = "${p.doClass}"`
+    )
+    .join('\n\n');
+  const sqliteClassesToml = JSON.stringify(photons.map((p) => p.doClass));
   let wranglerConfig = await fs.readFile(wranglerTemplatePath, 'utf-8');
   wranglerConfig = wranglerConfig
     .replace(/__PHOTON_NAME__/g, photonName)
-    .replace(/__PHOTON_DO_CLASS__/g, photonDoClassName)
+    .replace(/__DURABLE_OBJECT_BINDINGS__/g, doBindingsToml)
+    .replace(/__SQLITE_CLASSES__/g, sqliteClassesToml)
     .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement);
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);
 

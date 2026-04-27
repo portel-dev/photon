@@ -2,27 +2,30 @@
  * Photon MCP Worker for Cloudflare
  * Auto-generated - do not edit directly
  *
- * Architecture: each photon instance lives in a Durable Object so
- * `this.memory` (backed by ctx.storage) and `this.emit` (broadcast to
- * hibernatable WebSockets) work identically to the local daemon.
- * One DO per `instanceName` — see docs/internals/CF-DURABLE-OBJECTS.md.
+ * Architecture: each photon (the host plus any `@photons` siblings) lives
+ * in its own Durable Object class so `this.memory`, `this.emit`,
+ * `this.schedule`, and `this.call` work identically to the local daemon.
+ * One DO per `instanceName` per photon — see docs/internals/CF-DURABLE-OBJECTS.md.
  */
 
 import { DurableObject } from 'cloudflare:workers';
 import { CronExpressionParser } from 'cron-parser';
-// @ts-ignore - Will be replaced during build
-import PhotonClass from './photon';
+__PHOTON_IMPORTS__
 
 interface Env {
   PHOTON: DurableObjectNamespace;
   [key: string]: any;
 }
 
-// Tool definitions extracted at build time
-// @ts-ignore - Will be replaced during build
-const TOOL_DEFINITIONS: any[] = __TOOL_DEFINITIONS__;
-const PHOTON_NAME = '__PHOTON_NAME__';
 const DEV_MODE = __DEV_MODE__;
+const HOST_PHOTON_NAME = '__HOST_PHOTON_NAME__';
+
+/**
+ * Photon name → Worker env binding name. Generated at deploy time from the
+ * host photon's source plus every `@photons` sibling. `this.call('foo.bar')`
+ * uses this to find the right DO namespace.
+ */
+const PHOTON_BINDINGS: Record<string, string> = __PHOTON_BINDINGS_MAP__;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -31,18 +34,16 @@ const CORS_HEADERS = {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// Photon ↔ Durable Object capability shim
+// Memory proxy — ctx.storage backing for this.memory
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
  * Build a `MemoryBackend`-shaped accessor over `ctx.storage`. Mirrors the
- * `this.memory` API the local runtime exposes (get/set/delete/has/keys/list/
- * clear/update). Per-namespace keys are encoded as `${namespace}:${key}` so
- * one DO storage table holds multiple namespaces while preserving the
- * boundary the runtime relies on.
- *
- * The DO input gate already serializes calls per-DO, so `update` is just
- * read-modify-write — no additional locking needed.
+ * `this.memory` API the local runtime exposes. Per-namespace keys are
+ * encoded as `${namespace}:${key}` so one DO storage table holds multiple
+ * namespaces while preserving the boundary the runtime relies on. The DO
+ * input gate already serializes calls per-DO, so `update` is just
+ * read-modify-write — no extra locking needed.
  */
 function createMemoryProxy(ctx: DurableObjectState) {
   const ns = (key: string, namespace = 'default') => `${namespace}:${key}`;
@@ -96,69 +97,9 @@ function createMemoryProxy(ctx: DurableObjectState) {
   };
 }
 
-/**
- * Wire the runtime capabilities onto a freshly-constructed photon instance.
- *
- * Defines `this.memory` (backed by ctx.storage), `this.emit` (broadcasts to
- * subscribed WebSockets attached to this DO), and `this.callerCwd` (no-op
- * `undefined` — there's no cwd on a Worker, so the photon's own fallback to
- * `process.cwd()` runs and yields whatever the runtime considers default).
- *
- * Properties are non-enumerable so they don't leak into JSON output and
- * non-writable so photon code can't accidentally clobber them.
- */
-function withCfCapabilities(instance: any, ctx: DurableObjectState): any {
-  Object.defineProperty(instance, 'memory', {
-    value: createMemoryProxy(ctx),
-    writable: false,
-    enumerable: false,
-    configurable: false,
-  });
-
-  Object.defineProperty(instance, 'emit', {
-    value: (event: { channel?: string; [k: string]: unknown }) => {
-      const channel = (event && typeof event === 'object' && event.channel) || 'default';
-      const payload = JSON.stringify(event);
-      // ctx.getWebSockets(tag) returns sockets accepted with that tag.
-      for (const ws of ctx.getWebSockets(channel)) {
-        try {
-          ws.send(payload);
-        } catch {
-          // Socket closing; webSocketClose will reap.
-        }
-      }
-    },
-    writable: false,
-    enumerable: false,
-    configurable: false,
-  });
-
-  Object.defineProperty(instance, 'schedule', {
-    value: createScheduleProvider(ctx, PHOTON_NAME),
-    writable: false,
-    enumerable: false,
-    configurable: false,
-  });
-
-  Object.defineProperty(instance, 'callerCwd', {
-    get() {
-      return undefined;
-    },
-    enumerable: false,
-    configurable: false,
-  });
-
-  return instance;
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // Schedule provider — DO alarm multiplexer
 // ════════════════════════════════════════════════════════════════════════════
-
-// `this.schedule.create({...})` persists an entry in DO storage; the DO has
-// a single alarm slot which we multiplex across N entries by always setting
-// it to the next-firing one. On `alarm()` we dispatch every due entry,
-// recompute, and reset. Mirrors the local ScheduleProvider API surface.
 
 const SCHEDULE_PREFIX = '__sched__:';
 
@@ -210,19 +151,12 @@ async function listSchedules(ctx: DurableObjectState): Promise<ScheduledTask[]> 
   return Array.from(map.values());
 }
 
-/**
- * Walk every active schedule, find the earliest next-fire time, and set the
- * DO alarm to it. If nothing is active, clear the alarm. Called after every
- * mutation (create/update/cancel) and after each alarm() dispatch.
- */
 async function rescheduleAlarm(ctx: DurableObjectState): Promise<void> {
   const tasks = await listSchedules(ctx);
   let earliest = Infinity;
   const now = Date.now();
   for (const task of tasks) {
     if (task.status !== 'active') continue;
-    // Compute next-fire from the later of (lastExecutionAt, now-1s) so we
-    // don't immediately re-fire a task that just executed.
     const fromTs = Math.max(
       task.lastExecutionAt ? Date.parse(task.lastExecutionAt) : 0,
       now - 1000
@@ -308,21 +242,128 @@ function createScheduleProvider(ctx: DurableObjectState, photonId: string) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Cross-photon call — env.PHOTON_<NAME> stub routing
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * `this.call('sibling.method', params, {instance?})` — hops to a sibling
+ * photon's DO via the env binding generated at deploy time. The sibling DO
+ * exposes an internal /__call endpoint that dispatches the request to the
+ * named method (with the same simpleParams spreading rule the public MCP
+ * surface uses) and returns the result inline.
+ */
+function createCallProvider(env: Env, callerName: string) {
+  return async (
+    target: string,
+    params: Record<string, unknown> = {},
+    options?: { instance?: string }
+  ): Promise<unknown> => {
+    const dotIndex = target.indexOf('.');
+    if (dotIndex === -1) {
+      throw new Error(
+        `Invalid call target: '${target}'. Expected format: 'photonName.methodName'.`
+      );
+    }
+    const photonName = target.slice(0, dotIndex);
+    const methodName = target.slice(dotIndex + 1);
+    if (photonName === callerName) {
+      throw new Error(
+        `this.call('${target}') points at the caller's own photon. Call the method directly via this.${methodName}(...) instead.`
+      );
+    }
+    const bindingName = PHOTON_BINDINGS[photonName];
+    if (!bindingName) {
+      throw new Error(
+        `Unknown photon '${photonName}' in this.call('${target}'). Add it to the host photon's @photons docblock so it gets bundled.`
+      );
+    }
+    const ns = env[bindingName] as DurableObjectNamespace | undefined;
+    if (!ns) {
+      throw new Error(
+        `Worker is missing binding '${bindingName}'. The deploy adapter should have generated it; rerun \`photon host deploy cf\`.`
+      );
+    }
+    const stub = ns.get(ns.idFromName(options?.instance ?? 'default'));
+    const res = await stub.fetch('http://photon.internal/__call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: methodName, args: params }),
+    });
+    const payload = (await res.json()) as { ok: boolean; result?: unknown; error?: string };
+    if (!payload.ok) {
+      throw new Error(payload.error ?? `Cross-photon call to ${target} failed`);
+    }
+    return payload.result;
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Capability shim — wires this.* on the photon instance
+// ════════════════════════════════════════════════════════════════════════════
+
+function withCfCapabilities(
+  instance: any,
+  ctx: DurableObjectState,
+  env: Env,
+  photonName: string
+): any {
+  Object.defineProperty(instance, 'memory', {
+    value: createMemoryProxy(ctx),
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(instance, 'emit', {
+    value: (event: { channel?: string; [k: string]: unknown }) => {
+      const channel = (event && typeof event === 'object' && event.channel) || 'default';
+      const payload = JSON.stringify(event);
+      for (const ws of ctx.getWebSockets(channel)) {
+        try {
+          ws.send(payload);
+        } catch {
+          // Socket closing; webSocketClose hook will reap.
+        }
+      }
+    },
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(instance, 'schedule', {
+    value: createScheduleProvider(ctx, photonName),
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(instance, 'call', {
+    value: createCallProvider(env, photonName),
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(instance, 'callerCwd', {
+    get() {
+      return undefined;
+    },
+    enumerable: false,
+    configurable: false,
+  });
+
+  return instance;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Tool dispatch
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
  * Convert the JSON-RPC `arguments` object into the positional-call arg list
- * the photon method expects.
- *
- * - Methods declared with `(item: string, qty: number)` have `simpleParams:
- *   true` on their tool def. Walk `inputSchema.properties` in declaration
- *   order and pull each value out of `args`.
- * - Methods declared with `(params: { item: string })` have no `simpleParams`
- *   flag. Pass the whole args object through as a single positional arg.
- *
- * Mirrors the local loader logic so a photon behaves identically whether it
- * runs on the daemon or as a Cloudflare Worker.
+ * the photon method expects. Mirrors the local loader's logic so a photon
+ * behaves identically whether it runs on the daemon or as a Cloudflare Worker.
  */
 function spreadArgs(toolDef: any, args: Record<string, unknown>): unknown[] {
   if (toolDef?.simpleParams && args && typeof args === 'object') {
@@ -332,7 +373,12 @@ function spreadArgs(toolDef: any, args: Record<string, unknown>): unknown[] {
   return [args];
 }
 
-async function handleMCPRequest(request: any, photon: any): Promise<any> {
+async function handleMCPRequest(
+  request: any,
+  photon: any,
+  photonName: string,
+  toolDefinitions: any[]
+): Promise<any> {
   const { method, params, id } = request;
 
   switch (method) {
@@ -343,7 +389,7 @@ async function handleMCPRequest(request: any, photon: any): Promise<any> {
         result: {
           protocolVersion: '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: PHOTON_NAME, version: '1.0.0' },
+          serverInfo: { name: photonName, version: '1.0.0' },
         },
       };
 
@@ -351,7 +397,7 @@ async function handleMCPRequest(request: any, photon: any): Promise<any> {
       return {
         jsonrpc: '2.0',
         id,
-        result: { tools: TOOL_DEFINITIONS },
+        result: { tools: toolDefinitions },
       };
 
     case 'tools/call': {
@@ -361,13 +407,9 @@ async function handleMCPRequest(request: any, photon: any): Promise<any> {
         if (typeof fn !== 'function') {
           throw new Error(`Unknown tool: ${name}`);
         }
-        const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === name);
+        const toolDef = toolDefinitions.find((t: any) => t.name === name);
         const callArgs = spreadArgs(toolDef, args || {});
         const result = await fn.call(photon, ...callArgs);
-        // String returns (e.g. markdown from `read`) flow through as-is so
-        // clients receive renderable text. Other shapes are JSON-stringified
-        // for legibility. Structured shapes are also surfaced via
-        // `structuredContent` per MCP — clients that prefer JSON pick it up.
         const isString = typeof result === 'string';
         const text = isString ? result : JSON.stringify(result, null, 2);
         const isObject = result !== null && typeof result === 'object';
@@ -404,7 +446,12 @@ async function handleMCPRequest(request: any, photon: any): Promise<any> {
   }
 }
 
-async function handleStreamableMCP(request: Request, photon: any): Promise<Response> {
+async function handleStreamableMCP(
+  request: Request,
+  photon: any,
+  photonName: string,
+  toolDefinitions: any[]
+): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -418,37 +465,53 @@ async function handleStreamableMCP(request: Request, photon: any): Promise<Respo
       { status: 400, headers: CORS_HEADERS }
     );
   }
-  const result = await handleMCPRequest(body, photon);
+  const result = await handleMCPRequest(body, photon, photonName, toolDefinitions);
   return Response.json(result, { headers: CORS_HEADERS });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Durable Object — hosts one photon instance
+// BasePhotonDO — shared logic for every per-photon DO class
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Durable Object that owns a photon instance for the lifetime of the
- * (photon class, instanceName) pair.
- *
- * Storage and emit subscribers live here; the outer Worker is a thin router
- * that picks the DO ID from the request and forwards the rest unchanged.
- */
-export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
-  #photon: any;
-  #instanceName: string;
+abstract class BasePhotonDO extends DurableObject<Env> {
+  protected abstract readonly photonName: string;
+  protected abstract readonly toolDefinitions: any[];
+  protected abstract createPhoton(): any;
+
+  protected photon: any;
+  protected instanceName: string;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.#instanceName = ctx.id.name ?? 'default';
-    this.#photon = withCfCapabilities(new PhotonClass(), ctx);
+    this.instanceName = ctx.id.name ?? 'default';
+    this.photon = withCfCapabilities(this.createPhoton(), ctx, env, this.photonName);
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    // Hibernatable WebSocket upgrade for emit subscribers.
-    // Sockets are tagged with the channel they subscribe to so this.emit
-    // can fan out via ctx.getWebSockets(channel).
+    // Internal cross-photon call — invoked by sibling DOs via this.call.
+    // Not exposed externally (outer Worker doesn't route to this path).
+    if (url.pathname === '/__call' && request.method === 'POST') {
+      try {
+        const { method, args } = (await request.json()) as {
+          method: string;
+          args: Record<string, unknown>;
+        };
+        const fn = (this.photon as any)[method];
+        if (typeof fn !== 'function') {
+          return Response.json({ ok: false, error: `Unknown method: ${method}` });
+        }
+        const toolDef = this.toolDefinitions.find((t: any) => t.name === method);
+        const callArgs = spreadArgs(toolDef, args || {});
+        const result = await fn.call(this.photon, ...callArgs);
+        return Response.json({ ok: true, result });
+      } catch (error: any) {
+        return Response.json({ ok: false, error: error?.message ?? String(error) });
+      }
+    }
+
+    // Hibernatable WebSocket upgrade for emit subscribers, tagged by channel.
     if (url.pathname === '/events' && request.headers.get('Upgrade') === 'websocket') {
       const channel = url.searchParams.get('channel') ?? 'default';
       const pair = new WebSocketPair();
@@ -460,10 +523,9 @@ export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
 
     // MCP Streamable HTTP: single endpoint, JSON-RPC body in, result out.
     if (url.pathname === '/mcp' && request.method === 'POST') {
-      return handleStreamableMCP(request, this.#photon);
+      return handleStreamableMCP(request, this.photon, this.photonName, this.toolDefinitions);
     }
     if (url.pathname === '/mcp' && request.method === 'GET') {
-      // Spec-compliant no-op SSE stream for clients that probe for one.
       return new Response(': streamable-http\n\n', {
         headers: {
           'Content-Type': 'text/event-stream',
@@ -480,8 +542,8 @@ export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
     if (url.pathname === '/' && request.method === 'GET') {
       return Response.json(
         {
-          name: PHOTON_NAME,
-          instance: this.#instanceName,
+          name: this.photonName,
+          instance: this.instanceName,
           transport: 'streamable-http',
           runtime: 'cloudflare-workers',
           endpoints: {
@@ -489,7 +551,7 @@ export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
             events: '/events?channel=<name>',
             ...(DEV_MODE ? { playground: '/playground' } : {}),
           },
-          tools: TOOL_DEFINITIONS.length,
+          tools: this.toolDefinitions.length,
         },
         { headers: CORS_HEADERS }
       );
@@ -498,29 +560,24 @@ export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
     // Dev-only endpoints
     if (DEV_MODE) {
       if (url.pathname === '/playground') {
-        return new Response(getPlaygroundHTML(), {
+        return new Response(getPlaygroundHTML(this.photonName, this.toolDefinitions), {
           headers: { 'Content-Type': 'text/html' },
         });
       }
-
       if (url.pathname === '/api/tools') {
-        return Response.json({ tools: TOOL_DEFINITIONS }, { headers: CORS_HEADERS });
+        return Response.json({ tools: this.toolDefinitions }, { headers: CORS_HEADERS });
       }
-
       if (url.pathname === '/api/call' && request.method === 'POST') {
         const { tool, args } = (await request.json()) as { tool: string; args: any };
         try {
-          const fn = (this.#photon as any)[tool];
+          const fn = (this.photon as any)[tool];
           if (typeof fn !== 'function') {
             throw new Error(`Unknown tool: ${tool}`);
           }
-          const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === tool);
+          const toolDef = this.toolDefinitions.find((t: any) => t.name === tool);
           const callArgs = spreadArgs(toolDef, args || {});
-          const result = await fn.call(this.#photon, ...callArgs);
-          return Response.json(
-            { success: true, data: result },
-            { headers: CORS_HEADERS }
-          );
+          const result = await fn.call(this.photon, ...callArgs);
+          return Response.json({ success: true, data: result }, { headers: CORS_HEADERS });
         } catch (error: any) {
           return Response.json(
             { success: false, error: error.message },
@@ -533,40 +590,37 @@ export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
     return new Response('Not Found', { status: 404, headers: CORS_HEADERS });
   }
 
-  // Hibernation hooks. ctx.getWebSockets() auto-prunes closed sockets so
-  // the close hook is a no-op for v1; future per-photon webSocketClose
-  // hooks would dispatch from here.
   async webSocketMessage(_ws: WebSocket, _msg: string | ArrayBuffer): Promise<void> {
     // Subscribers don't send messages in v1; ignore.
   }
 
   async webSocketClose(_ws: WebSocket, _code: number, _reason: string): Promise<void> {
-    // No-op.
+    // No-op — ctx.getWebSockets() prunes closed sockets.
   }
 
   /**
    * Alarm fired by the DO scheduler. Walk every persisted schedule, dispatch
-   * those that are due, advance their bookkeeping, and reschedule the next
-   * alarm. Errors on an individual task move it to status='error' and don't
-   * block the others.
+   * those that are due, advance bookkeeping, and reschedule the next alarm.
+   * Per-task errors move that task to status='error' without blocking others.
    */
   async alarm(): Promise<void> {
     const tasks = await listSchedules(this.ctx);
     const now = Date.now();
     for (const task of tasks) {
       if (task.status !== 'active') continue;
-      const fromTs = task.lastExecutionAt ? Date.parse(task.lastExecutionAt) : Date.parse(task.createdAt);
+      const fromTs = task.lastExecutionAt
+        ? Date.parse(task.lastExecutionAt)
+        : Date.parse(task.createdAt);
       const due = nextFireMs(task.cron, new Date(fromTs));
-      // 1s tolerance for alarm jitter; anything still in the future is skipped.
       if (due > now + 1000) continue;
       try {
-        const fn = (this.#photon as any)[task.method];
+        const fn = (this.photon as any)[task.method];
         if (typeof fn !== 'function') {
           throw new Error(`Scheduled method '${task.method}' not found on photon`);
         }
-        const toolDef = TOOL_DEFINITIONS.find((t: any) => t.name === task.method);
+        const toolDef = this.toolDefinitions.find((t: any) => t.name === task.method);
         const callArgs = spreadArgs(toolDef, task.params || {});
-        await fn.call(this.#photon, ...callArgs);
+        await fn.call(this.photon, ...callArgs);
         task.lastExecutionAt = new Date(now).toISOString();
         task.executionCount += 1;
         if (
@@ -586,7 +640,13 @@ export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Outer Worker — routes every request to the right DO instance
+// Generated DO classes — one per photon (host + every @photons sibling)
+// ════════════════════════════════════════════════════════════════════════════
+
+__PHOTON_DO_CLASSES__
+
+// ════════════════════════════════════════════════════════════════════════════
+// Outer Worker — routes every external request to the host photon DO
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -594,10 +654,6 @@ export class __PHOTON_DO_CLASS__ extends DurableObject<Env> {
  *   1. ?instance=<name> query param
  *   2. X-Photon-Instance header
  *   3. 'default' singleton
- *
- * For demos that share state across all visitors (e.g. a single matchmaking
- * queue), no header is needed and everyone lands on 'default'. For
- * multi-tenant deployments, the caller picks an instance per tenant.
  */
 function extractInstance(request: Request): string {
   const url = new URL(request.url);
@@ -613,13 +669,14 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id, X-Photon-Instance, Upgrade',
+          'Access-Control-Allow-Headers':
+            'Content-Type, Mcp-Session-Id, X-Photon-Instance, Upgrade',
         },
       });
     }
     const instance = extractInstance(request);
-    const id = env.PHOTON.idFromName(instance);
-    return env.PHOTON.get(id).fetch(request);
+    const id = env.__HOST_BINDING__.idFromName(instance);
+    return env.__HOST_BINDING__.get(id).fetch(request);
   },
 };
 
@@ -627,13 +684,13 @@ export default {
 // Dev playground UI
 // ════════════════════════════════════════════════════════════════════════════
 
-function getPlaygroundHTML(): string {
+function getPlaygroundHTML(photonName: string, toolDefinitions: any[]): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${PHOTON_NAME} - Playground</title>
+  <title>${photonName} - Playground</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root { --bg: #0a0a0f; --card: #12121a; --border: #1e1e2e; --text: #e4e4e7; --muted: #71717a; --accent: #6366f1; --green: #22c55e; }
@@ -665,7 +722,7 @@ function getPlaygroundHTML(): string {
 </head>
 <body>
   <div class="header">
-    <h1>${PHOTON_NAME}</h1>
+    <h1>${photonName}</h1>
     <span class="badge">Cloudflare Workers</span>
   </div>
   <div class="container">
@@ -685,7 +742,7 @@ function getPlaygroundHTML(): string {
     </div>
   </div>
   <script>
-    const tools = ${JSON.stringify(TOOL_DEFINITIONS)};
+    const tools = ${JSON.stringify(toolDefinitions)};
     let selectedTool = null;
 
     function renderTools() {

@@ -1804,18 +1804,19 @@ This will:
 Use `--dev` to enable the interactive playground in the deployed worker, and
 `--logs` to opt into Cloudflare Workers Logs for dashboard observability.
 
-**Stateful photons.** `this.memory`, `this.emit`, and `this.schedule` work the
-same on Cloudflare as on the local daemon. Each `instanceName` runs in its own
-Durable Object — storage is backed by `ctx.storage`, `this.emit({channel, ...})`
-broadcasts to subscribers connected at `wss://<worker>/events?channel=<name>`,
-and `this.schedule.create({...})` registers cron entries that fire from the
-DO's alarm. Pick the instance per request with `?instance=<name>` or the
-`X-Photon-Instance` header; omit both to land on the shared `'default'`
-singleton.
+**Stateful photons.** `this.memory`, `this.emit`, `this.schedule`, and
+`this.call` work the same on Cloudflare as on the local daemon. Each
+`instanceName` runs in its own Durable Object — storage is backed by
+`ctx.storage`, `this.emit({channel, ...})` broadcasts to subscribers
+connected at `wss://<worker>/events?channel=<name>`, `this.schedule.create({...})`
+registers cron entries that fire from the DO's alarm, and `this.call('foo.bar', ...)`
+hops to a sibling photon DO declared in the host's `@photons`. Pick the
+instance per request with `?instance=<name>` or the `X-Photon-Instance`
+header; omit both to land on the shared `'default'` singleton.
 
-Not yet supported on the Cloudflare target (each is a queued follow-up):
-`this.sample` / `this.confirm` / `this.elicit`, and cross-photon `this.call`.
-See [`docs/internals/CF-DURABLE-OBJECTS.md`](internals/CF-DURABLE-OBJECTS.md)
+Not yet supported on the Cloudflare target (queued follow-up):
+`this.sample` / `this.confirm` / `this.elicit`. See
+[`docs/internals/CF-DURABLE-OBJECTS.md`](internals/CF-DURABLE-OBJECTS.md)
 for the full mapping.
 
 ---
