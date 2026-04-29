@@ -15,6 +15,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
+import { formatLabel } from '../utils/format-label.js';
 
 interface ActiveRow {
   id: string;
@@ -352,7 +353,7 @@ export class DaemonPanel extends LitElement {
         <table>
           <thead>
             <tr>
-              <th>PHOTON_DIR</th>
+              <th>Location</th>
               <th>Photon</th>
               <th>Method</th>
               <th>Cron</th>
@@ -372,7 +373,7 @@ export class DaemonPanel extends LitElement {
                     <tr>
                       <td>${tilde(r.workingDir)}</td>
                       <td>${r.photon}</td>
-                      <td>${r.method}</td>
+                      <td>${formatLabel(r.method)}</td>
                       <td><code>${r.cron}</code></td>
                       <td>${formatWhen(r.nextRun)}</td>
                       <td>${formatWhen(r.lastRun)}</td>
@@ -408,7 +409,7 @@ export class DaemonPanel extends LitElement {
         <table>
           <thead>
             <tr>
-              <th>PHOTON_DIR</th>
+              <th>Location</th>
               <th>Photon</th>
               <th>Method</th>
               <th>Cron</th>
@@ -425,7 +426,7 @@ export class DaemonPanel extends LitElement {
                     <tr>
                       <td>${tilde(r.workingDir)}</td>
                       <td>${r.photon}</td>
-                      <td>${r.method}</td>
+                      <td>${formatLabel(r.method)}</td>
                       <td><code>${r.cron}</code></td>
                       <td class="actions">
                         <button @click=${() => this._scheduleAction('enable', r.photon, r.method)}>
@@ -449,7 +450,7 @@ export class DaemonPanel extends LitElement {
         <table>
           <thead>
             <tr>
-              <th>PHOTON_DIR</th>
+              <th>Location</th>
               <th>Photon</th>
               <th>Route</th>
               <th>Method</th>
@@ -466,7 +467,7 @@ export class DaemonPanel extends LitElement {
                       <td>${tilde(r.workingDir)}</td>
                       <td>${r.photon}</td>
                       <td><code>${r.route}</code></td>
-                      <td>${r.method}</td>
+                      <td>${formatLabel(r.method)}</td>
                     </tr>
                   `
                 )}
@@ -484,7 +485,7 @@ export class DaemonPanel extends LitElement {
         <table>
           <thead>
             <tr>
-              <th>PHOTON_DIR</th>
+              <th>Location</th>
               <th>Photon</th>
               <th>Instances</th>
             </tr>

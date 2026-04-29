@@ -3,9 +3,11 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges, motion } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { pencil, formInput, play, user, bot, users, sizedIcon } from '../icons.js';
+import { formatLabel } from '../utils/format-label.js';
 
 interface MethodInfo {
   name: string;
+  title?: string;
   description: string;
   params: { type?: string; properties?: Record<string, any>; required?: string[] };
   icon?: string;
@@ -512,7 +514,7 @@ export class MethodCard extends LitElement {
         style="${isTyped ? `--type-accent: ${typeAccent}` : ''}"
         role="button"
         tabindex="0"
-        aria-label="${this.method.name}${hasDescription
+        aria-label="${this.method.title || formatLabel(this.method.name)}${hasDescription
           ? ': ' + this._renderDescription(this.method.description)
           : ''}"
         @click=${(e: Event) => this._handleCardClick(e)}
@@ -534,7 +536,9 @@ export class MethodCard extends LitElement {
                 : ''}
               <span class="${this.editable ? 'editable' : ''}">
                 <h3 class="title">
-                  <span class="title-name">${this.method.name}</span>${this._renderParamSignature()}
+                  <span class="title-name"
+                    >${this.method.title || formatLabel(this.method.name)}</span
+                  >${this._renderParamSignature()}
                 </h3>
                 ${this.editable
                   ? html`<span
@@ -812,8 +816,9 @@ export class MethodCard extends LitElement {
       // 1. Line-starting tags (when JSDoc is multi-line and tag is on its own line)
       .replace(/^\s*@\w+[^\n]*/gm, '')
       // 2. Trailing tags at end of string — when schema-extractor joins JSDoc lines with spaces
-      //    the tag ends up inline: "Description text @template"
-      .replace(/\s+@\w+(\s+@\w+)*\s*$/, '')
+      //    the tag ends up inline: "Description text @title Say" or "Description @readOnly @trayItem Status"
+      //    Handle tags that may have one or more value words after them (e.g. @title Say, @menu.label Check Status)
+      .replace(/(?:\s+@[\w.]+(?:\s+(?!@)[\w.]+)*)+\s*$/, '')
       // Remove stray markdown characters (unclosed ** or `)
       .replace(/\*{1,2}/g, '')
       .replace(/`/g, '')

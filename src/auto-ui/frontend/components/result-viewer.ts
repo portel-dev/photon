@@ -8668,6 +8668,19 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     if (this._isMermaidString(text)) {
       return this._renderMermaid(text);
     }
+    // Short scalar values (numbers, booleans, or single-line strings under 120 chars)
+    // get a result card so they don't render as bare isolated text.
+    const isScalar =
+      typeof data === 'number' ||
+      typeof data === 'boolean' ||
+      (typeof data === 'string' && !text.includes('\n') && text.length < 120);
+    if (isScalar) {
+      return html`<div
+        style="display:inline-block;background:var(--bg-glass);border:1px solid var(--border-glass);border-radius:var(--radius-md);padding:var(--space-sm) var(--space-md);font-size:var(--text-lg);font-weight:500;font-family:var(--font-mono);color:var(--t-primary);"
+      >
+        ${this._highlightText(text)}
+      </div>`;
+    }
     return this._highlightText(text);
   }
 
@@ -9431,6 +9444,11 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
   private _formatCellValue(value: any, key: string, highlight = false): TemplateResult | string {
     if (value === null || value === undefined) return '—';
+    if (
+      value === '' ||
+      (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
+    )
+      return '—';
     if (typeof value === 'boolean') return value ? '✓' : '✗';
 
     // Check for column format pipe (from @columnFormats hint)
@@ -9459,11 +9477,22 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       `;
     }
 
-    // Check for date fields
-    if (this._isDateField(key) && (typeof value === 'string' || typeof value === 'number')) {
+    // Check for date fields by key name, or auto-detect ISO 8601 date strings
+    const isDateKey = this._isDateField(key);
+    const isIsoString =
+      typeof value === 'string' &&
+      /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(value);
+    if ((isDateKey || isIsoString) && (typeof value === 'string' || typeof value === 'number')) {
       const date = new Date(value);
       if (!isNaN(date.getTime())) {
-        const dateStr = date.toLocaleString();
+        // For date-only keys (ending in 'date') or date-only ISO strings (no time component),
+        // show just the date without the time portion.
+        const isDateOnly =
+          (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) ||
+          key.toLowerCase().endsWith('date');
+        const dateStr = isDateOnly
+          ? date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+          : date.toLocaleString();
         return highlight ? this._highlightText(dateStr) : dateStr;
       }
     }
@@ -9688,6 +9717,7 @@ ${str}</pre
       lower.endsWith('at') ||
       lower.endsWith('date') ||
       lower.endsWith('time') ||
+      lower.endsWith('run') ||
       lower === 'created' ||
       lower === 'updated' ||
       lower === 'modified' ||

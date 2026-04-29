@@ -44,6 +44,7 @@ import {
 import { ViewportAwareProxy } from '../services/viewport-aware-proxy.js';
 import { ViewportManager, getPageSizeForClient } from '../services/viewport-manager.js';
 import { buildBeamRoutePath, parseBeamRoutePath } from '../utils/beam-route.js';
+import { formatLabel } from '../utils/format-label.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
@@ -5275,7 +5276,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); background: var(--bg-glass); flex-shrink: 0;"
                 >
                   <span style="font-size: 12px; font-weight: 500; color: var(--t-primary);"
-                    >${this._selectedMethod.name}</span
+                    >${this._selectedMethod.title || formatLabel(this._selectedMethod.name)}</span
                   >
                   <div style="position: relative; flex-shrink: 0;">
                     <button
@@ -5769,10 +5770,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Two cases handled:
     // 1. Line-starting @tags (tag on its own JSDoc line)
     // 2. Trailing @tags at end of string — when schema-extractor joins JSDoc lines with spaces
-    //    and a tag like @template ends up inline: "Description text @template"
+    //    and a tag like @template ends up inline: "Description text @title Say"
+    //    Handle tags that may have one or more value words after them (e.g. @title Say, @menu.label Check Status)
     const cleaned = description
       .replace(/^\s*@\w+[^\n]*/gm, '')
-      .replace(/\s+@\w+(\s+@\w+)*\s*$/, '')
+      .replace(/(?:\s+@[\w.]+(?:\s+(?!@)[\w.]+)*)+\s*$/, '')
       // Collapse multiple spaces only (not newlines) so markdown structure is preserved
       .replace(/[ \t]{2,}/g, ' ')
       // Reconstruct list structure that may have been flattened during JSDoc extraction:
@@ -6016,9 +6018,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
             ${opts.allMethods?.map(
               (m: any) =>
                 html`<option .selected=${m.name === opts.method.name} value=${m.name}>
-                  ${m.name}
+                  ${m.title || formatLabel(m.name)}
                 </option>`
-            ) || html`<option value=${opts.method.name}>${opts.method.name}</option>`}
+            ) ||
+            html`<option value=${opts.method.name}>
+              ${opts.method.title || formatLabel(opts.method.name)}
+            </option>`}
           </select>
 
           <div style="flex: 1;"></div>
