@@ -1578,7 +1578,18 @@ export class PhotonLoader {
             },
           }
         );
-        instance.channel = channelFn;
+        // Only inject if 'channel' is not already defined as a getter on the instance/prototype.
+        // Some photons define a private `get channel()` getter for their own internal use —
+        // attempting a plain assignment onto a getter-only property throws in strict mode.
+        const channelDescriptor =
+          Object.getOwnPropertyDescriptor(instance, 'channel') ??
+          Object.getOwnPropertyDescriptor(Object.getPrototypeOf(instance), 'channel');
+        const channelIsGetter = channelDescriptor?.get !== undefined;
+        if (!channelIsGetter) {
+          instance.channel = channelFn;
+        }
+        // If the photon already has its own getter for 'channel', skip injection —
+        // the photon is using the name for its own purpose and likely calls this.emit() directly.
       }
 
       // Check @cli dependencies (required system CLI tools)
