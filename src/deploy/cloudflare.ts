@@ -376,16 +376,19 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   logger.debug('Extracting tool definitions...');
   const extractor = new SchemaExtractor();
   const sourceCode = await fs.readFile(absolutePath, 'utf-8');
-  const extracted = extractor.extractFromSource(sourceCode);
+  const metadata = extractor.extractAllFromSource(sourceCode);
 
-  const toolDefs = extracted.map((tool: any) => ({
+  const toolDefs = metadata.tools.map((tool: any) => ({
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
     ...(tool.simpleParams ? { simpleParams: true } : {}),
   }));
 
-  logger.info(`Found ${toolDefs.length} tools`);
+  const routeDefs = metadata.httpRoutes ?? [];
+  const cfAccessEnabled = metadata.auth === 'cf-access';
+
+  logger.info(`Found ${toolDefs.length} tools, ${routeDefs.length} HTTP routes`);
 
   // Extract `@dependencies` from the photon source. These get bundled into
   // the Worker by wrangler, so they must land in package.json's dependencies
@@ -445,6 +448,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     binding: string;
     /** Tool definitions for this photon's MCP surface */
     toolDefs: any[];
+    /** HTTP routes from @get/@post tags */
+    routeDefs: any[];
     /** Transformed source written to outputDir/src */
     source: string;
     /** Where the source lives in outputDir/src/ */
@@ -472,6 +477,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       doClass: photonDoClassName,
       binding: 'PHOTON',
       toolDefs,
+      routeDefs,
       source: transformedHost,
       sourceFileBase: 'photon.ts',
       isHost: true,
@@ -487,13 +493,14 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       );
     }
     const sibSource = await fs.readFile(sibPath, 'utf-8');
-    const sibExtracted = extractor.extractFromSource(sibSource);
-    const sibTools = sibExtracted.map((tool: any) => ({
+    const sibMeta = extractor.extractAllFromSource(sibSource);
+    const sibTools = sibMeta.tools.map((tool: any) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
       ...(tool.simpleParams ? { simpleParams: true } : {}),
     }));
+    const sibRoutes = sibMeta.httpRoutes ?? [];
     // Sibling-level @photons are not recursively bundled in v1 — flag so the
     // user knows their indirect dependency isn't carried along.
     const sibSiblings = parsePhotonPhotons(sibSource);
@@ -516,6 +523,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       doClass: photonNameToDoClass(sibName),
       binding: photonNameToBinding(sibName),
       toolDefs: sibTools,
+      routeDefs: sibRoutes,
       source: transformPhotonSource(sibSource),
       sourceFileBase: `dep-${sibName}.ts`,
       isHost: false,
@@ -547,6 +555,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       (p) => `export class ${p.doClass} extends BasePhotonDO {
   protected readonly photonName = ${JSON.stringify(p.name)};
   protected readonly toolDefinitions: any[] = ${JSON.stringify(p.toolDefs, null, 2)};
+  protected readonly httpRoutes: any[] = ${JSON.stringify(p.routeDefs, null, 2)};
   protected createPhoton() { return new ${p.importName}(); }
 }`
     )
@@ -558,7 +567,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .replace(/__PHOTON_DO_CLASSES__/g, photonDoClasses)
     .replace(/__HOST_PHOTON_NAME__/g, photonName)
     .replace(/__HOST_BINDING__/g, 'PHOTON')
-    .replace(/__DEV_MODE__/g, String(devMode));
+    .replace(/__DEV_MODE__/g, String(devMode))
+    .replace(/__CF_ACCESS_ENABLED__/g, String(cfAccessEnabled));
 
   // Write photon source files (host + each sibling)
   await fs.writeFile(path.join(outputDir, 'src', 'worker.ts'), workerCode);

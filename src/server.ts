@@ -2557,6 +2557,47 @@ export class PhotonServer {
           return;
         }
 
+        // @get / @post HTTP routes — dispatch to photon method, public (no auth)
+        const httpRoutes = (this.mcp as any)?._httpRoutes as
+          | Array<{ method: string; path: string; handler: string }>
+          | undefined;
+        if (httpRoutes?.length && req.method) {
+          const route = httpRoutes.find((r) => r.method === req.method && r.path === url.pathname);
+          if (route) {
+            const photonInstance = (this.mcp as any)?.instance;
+            const fn = photonInstance?.[route.handler];
+            if (typeof fn === 'function') {
+              try {
+                // Collect body for POST routes
+                let bodyBuffer = Buffer.alloc(0);
+                await new Promise<void>((resolve) => {
+                  req.on('data', (chunk: Buffer) => {
+                    bodyBuffer = Buffer.concat([bodyBuffer, chunk]);
+                  });
+                  req.on('end', resolve);
+                });
+                // Build Web-standard Request
+                const webReq = new Request(url.toString(), {
+                  method: req.method,
+                  headers: req.headers as Record<string, string>,
+                  ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
+                });
+                const webRes: Response = await fn.call(photonInstance, webReq);
+                const responseHeaders: Record<string, string> = {};
+                webRes.headers.forEach((value, key) => {
+                  responseHeaders[key] = value;
+                });
+                if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                res.writeHead(webRes.status, responseHeaders);
+                res.end(Buffer.from(await webRes.arrayBuffer()));
+              } catch (err: any) {
+                res.writeHead(500).end(err?.message ?? 'Internal Server Error');
+              }
+              return;
+            }
+          }
+        }
+
         res.writeHead(404).end('Not Found');
       })();
     });

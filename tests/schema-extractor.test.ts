@@ -1792,7 +1792,71 @@ async function runTests() {
     console.log('✅ @autorun combined with @icon');
   }
 
-  console.log('\n✅ All Schema Extractor tests passed! (82 tests)');
+  // @get route extraction
+  {
+    const source = `
+      export default class Cal {
+        /**
+         * Add an event
+         */
+        async add(params: { title: string }) {}
+
+        /**
+         * iCal subscription feed
+         * @get /calendar.ics
+         */
+        async ical(request: Request): Promise<Response> {
+          return new Response('');
+        }
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    assert.equal(result.tools.length, 1, '@get method should not appear in tools');
+    assert.equal(result.tools[0].name, 'add', 'Only non-route method in tools');
+    assert.equal(result.httpRoutes?.length, 1, 'Should have 1 HTTP route');
+    assert.equal(result.httpRoutes?.[0].method, 'GET', 'Route method should be GET');
+    assert.equal(result.httpRoutes?.[0].path, '/calendar.ics', 'Route path should match');
+    assert.equal(result.httpRoutes?.[0].handler, 'ical', 'Route handler should be method name');
+    console.log('✅ @get route extracted, not in tools');
+  }
+
+  // @post route extraction
+  {
+    const source = `
+      export default class Webhook {
+        /**
+         * Handle Stripe events
+         * @post /webhook/stripe
+         */
+        async handleStripe(request: Request): Promise<Response> {
+          return new Response('ok');
+        }
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    assert.equal(result.tools.length, 0, '@post method should not appear in tools');
+    assert.equal(result.httpRoutes?.[0].method, 'POST', 'Route method should be POST');
+    assert.equal(result.httpRoutes?.[0].path, '/webhook/stripe', 'Route path should match');
+    console.log('✅ @post route extracted, not in tools');
+  }
+
+  // @auth cf-access
+  {
+    const source = `
+      /**
+       * Calendar photon
+       * @auth cf-access
+       */
+      export default class Cal {
+        async add(params: { title: string }) {}
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    assert.equal(result.auth, 'cf-access', 'Should extract cf-access auth');
+    console.log('✅ @auth cf-access extracted');
+  }
+
+  console.log('\n✅ All Schema Extractor tests passed! (85 tests)');
 }
 
 // Run if executed directly

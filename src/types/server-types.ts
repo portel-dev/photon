@@ -20,6 +20,8 @@ export interface PhotonClassWithMeta extends PhotonClassExtended {
   hasSettings?: boolean;
   /** Internal tool schema map used for diagnostics */
   _toolSchemas?: Record<string, unknown>;
+  /** HTTP routes from @get/@post tags */
+  _httpRoutes?: Array<{ method: string; path: string; handler: string }>;
 }
 
 /**

@@ -1605,6 +1605,7 @@ export class PhotonLoader {
         statics,
         settingsSchema,
         auth: extractedAuth,
+        httpRoutes: extractedHttpRoutes,
       } = await this.extractTools(MCPClass, absolutePath);
 
       // ═══ SETTINGS INJECTION ═══
@@ -1674,6 +1675,7 @@ export class PhotonLoader {
       if (classIcon) result.icon = classIcon;
       if (isStateful) result.stateful = true;
       if (extractedAuth) result.auth = extractedAuth;
+      if (extractedHttpRoutes?.length) (result as any)._httpRoutes = extractedHttpRoutes;
       // Store class constructor for static method access
       result.classConstructor = MCPClass as unknown as Record<
         string,
@@ -2057,6 +2059,7 @@ export class PhotonLoader {
       statics,
       settingsSchema,
       auth: extractedAuth,
+      httpRoutes: extractedHttpRoutes,
     } = await this.extractTools(MCPClass, absolutePath, tsContent);
 
     // Settings injection
@@ -2097,6 +2100,7 @@ export class PhotonLoader {
     if (classIcon) result.icon = classIcon;
     if (isStateful) result.stateful = true;
     if (extractedAuth) result.auth = extractedAuth;
+    if (extractedHttpRoutes?.length) (result as any)._httpRoutes = extractedHttpRoutes;
     result.classConstructor = MCPClass as unknown as Record<
       string,
       (...args: unknown[]) => unknown
@@ -2293,6 +2297,7 @@ export class PhotonLoader {
     statics: StaticInfo[];
     settingsSchema?: SettingsSchema;
     auth?: string;
+    httpRoutes?: Array<{ method: string; path: string; handler: string }>;
   }> {
     const methodNames = this.getToolMethods(mcpClass);
     let tools: PhotonTool[] = [];
@@ -2403,6 +2408,7 @@ export class PhotonLoader {
             statics,
             settingsSchema: metadata.settingsSchema,
             auth: this.extractAuthTag(source),
+            httpRoutes: metadata.httpRoutes,
           };
         }
         throw jsonError;

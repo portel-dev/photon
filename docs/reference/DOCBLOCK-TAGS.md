@@ -84,6 +84,7 @@ The `@auth` tag enables MCP OAuth 2.1 authentication, making `this.caller` avail
 | `@auth required` | All methods require a valid JWT. Anonymous callers get 401. |
 | `@auth optional` | Caller populated if token present, anonymous allowed (default without tag). |
 | `@auth https://accounts.google.com` | OIDC provider URL (implies required). Advertised in PRM metadata. |
+| `@auth cf-access` | Cloudflare Access mode. CF Access JWT email is used as the instance identity on CF deployments. Each unique email gets its own isolated DO instance. |
 
 **What the runtime does when `@auth` is set:**
 1. Serves `/.well-known/oauth-protected-resource` (RFC 9728 Protected Resource Metadata)
@@ -321,6 +322,34 @@ async generate({ quarter }: { quarter: string }) {
 - Any operation where the client shouldn't block waiting
 
 **How results are stored:** The execution audit trail (`~/.photon/.data/{photonId}/logs/executions.jsonl`) records the full result, timing, and any errors once the background task completes.
+
+## HTTP Route Tags
+
+These method-level tags expose a photon method as a public HTTP endpoint. The method is **not** registered as an MCP tool - it is HTTP-only and does not appear to LLM clients. Works on `photon sse` (local) and `photon deploy cloudflare`. Not available over stdio.
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `@get /path` | Expose method as an HTTP GET handler. | `@get /calendar.ics` |
+| `@post /path` | Expose method as an HTTP POST handler. | `@post /webhook/stripe` |
+
+The method receives a Web-standard `Request` and must return a `Response`:
+
+```typescript
+/**
+ * Calendar feed for iPhone/iCal subscription
+ * @get /calendar.ics
+ */
+async ical(request: Request): Promise<Response> {
+  const events = await this.memory.get('events') ?? [];
+  return new Response(buildICal(events), {
+    headers: { 'Content-Type': 'text/calendar; charset=utf-8' },
+  });
+}
+```
+
+On Cloudflare deployments with `@auth cf-access`, each authenticated user's email maps to their own DO instance automatically. The `@get` handler runs on the right instance without any extra routing code.
+
+---
 
 ## Daemon Feature Tags
 

@@ -638,6 +638,7 @@ async function handleStreamableMCP(
 abstract class BasePhotonDO extends DurableObject<Env> {
   protected abstract readonly photonName: string;
   protected abstract readonly toolDefinitions: any[];
+  protected readonly httpRoutes: { method: string; path: string; handler: string }[] = [];
   protected abstract createPhoton(): any;
 
   protected photon: any;
@@ -762,6 +763,23 @@ abstract class BasePhotonDO extends DurableObject<Env> {
             { success: false, error: error.message },
             { status: 500, headers: CORS_HEADERS }
           );
+        }
+      }
+    }
+
+    // @get / @post HTTP routes — dispatch to photon method, bypass MCP
+    const httpRoute = this.httpRoutes.find(
+      (r) => r.method === request.method && r.path === url.pathname
+    );
+    if (httpRoute) {
+      const fn = (this.photon as any)[httpRoute.handler];
+      if (typeof fn === 'function') {
+        try {
+          const response = await fn.call(this.photon, request);
+          if (response instanceof Response) return response;
+          return Response.json(response, { headers: CORS_HEADERS });
+        } catch (error: any) {
+          return new Response(error?.message ?? 'Internal Server Error', { status: 500 });
         }
       }
     }
@@ -939,13 +957,30 @@ __PHOTON_DO_CLASSES__
 // Outer Worker — routes every external request to the host photon DO
 // ════════════════════════════════════════════════════════════════════════════
 
+const CF_ACCESS_ENABLED = __CF_ACCESS_ENABLED__;
+
 /**
  * Pick the photon instance name from (in priority order):
- *   1. ?instance=<name> query param
- *   2. X-Photon-Instance header
- *   3. 'default' singleton
+ *   1. CF Access JWT email — when @auth cf-access is set on the photon
+ *   2. ?instance=<name> query param
+ *   3. X-Photon-Instance header
+ *   4. 'default' singleton
+ *
+ * CF Access verifies the JWT at the edge before the request reaches this
+ * Worker, so we trust the claim without re-verifying the signature here.
  */
 function extractInstance(request: Request): string {
+  if (CF_ACCESS_ENABLED) {
+    const jwt = request.headers.get('Cf-Access-Jwt-Assertion');
+    if (jwt) {
+      try {
+        const payload = JSON.parse(atob(jwt.split('.')[1]));
+        if (payload?.email) return payload.email as string;
+      } catch {
+        // malformed JWT — fall through to default resolution
+      }
+    }
+  }
   const url = new URL(request.url);
   return (
     url.searchParams.get('instance') ?? request.headers.get('X-Photon-Instance') ?? 'default'
