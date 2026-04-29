@@ -55,6 +55,16 @@ export function formatLabel(name: string): string {
           'MCP',
           'SSH',
           'CLI',
+          'MD',
+          'PR',
+          'CI',
+          'CD',
+          'ENV',
+          'SDK',
+          'OS',
+          'DB',
+          'IO',
+          'GIT',
         ].includes(upper)
       ) {
         // Special case: "Ids" -> "IDs"
