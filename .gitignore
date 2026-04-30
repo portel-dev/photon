@@ -77,3 +77,8 @@ tests/fixtures/marketplaces.json
 # Symlinks into personal demo directories. Developer-specific.
 tests/beam/fixtures/agent-router
 tests/beam/fixtures/agent-router.photon.ts
+# Runtime artifacts the daemon writes to repo root
+/daemon.lock
+/.migrated
+/.context/
+/people/
