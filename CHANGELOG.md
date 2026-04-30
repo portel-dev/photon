@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.26.1](https://github.com/portel-dev/photon/compare/v1.26.0...v1.26.1) (2026-04-30)
+
+### Bug Fixes
+
+* **test:** increase mcp-config startup wait from 200ms to 1500ms for CI ([4c03620](https://github.com/portel-dev/photon/commit/4c03620a906401704400acec084edd6ddd3acf18))
+
 ## [1.26.0](https://github.com/portel-dev/photon/compare/v1.25.0...v1.26.0) (2026-04-30)
 
 ### Features
