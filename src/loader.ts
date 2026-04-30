@@ -2419,7 +2419,7 @@ export class PhotonLoader {
             statics,
             settingsSchema: metadata.settingsSchema,
             auth: this.extractAuthTag(source),
-            httpRoutes: metadata.httpRoutes,
+            httpRoutes: (metadata as any).httpRoutes,
           };
         }
         throw jsonError;

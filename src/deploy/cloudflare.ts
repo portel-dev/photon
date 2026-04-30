@@ -385,7 +385,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     ...(tool.simpleParams ? { simpleParams: true } : {}),
   }));
 
-  const routeDefs = metadata.httpRoutes ?? [];
+  const routeDefs = (metadata as any).httpRoutes ?? [];
   const cfAccessEnabled = metadata.auth === 'cf-access';
 
   logger.info(`Found ${toolDefs.length} tools, ${routeDefs.length} HTTP routes`);
@@ -500,7 +500,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       inputSchema: tool.inputSchema,
       ...(tool.simpleParams ? { simpleParams: true } : {}),
     }));
-    const sibRoutes = sibMeta.httpRoutes ?? [];
+    const sibRoutes = (sibMeta as any).httpRoutes ?? [];
     // Sibling-level @photons are not recursively bundled in v1 — flag so the
     // user knows their indirect dependency isn't carried along.
     const sibSiblings = parsePhotonPhotons(sibSource);
