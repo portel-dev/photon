@@ -1258,6 +1258,7 @@ export interface PsSnapshot {
   }>;
   webhooks: Array<{ photon: string; route: string; method: string; workingDir?: string }>;
   sessions: Array<{ photon: string; workingDir?: string; key: string; instanceCount: number }>;
+  suppressed?: Array<{ photon: string; method: string; suppressedAt: string; workingDir: string }>;
 }
 
 /** Fire-and-forget helper for the new RPCs. Returns the parsed result.data. */

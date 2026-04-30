@@ -96,6 +96,7 @@ SUITES=(
   "oauth:$RUN tests/oauth.test.ts"
   "oauth-sqlite-stores:$RUN tests/oauth-sqlite-stores.test.ts"
   "schedule-baseDir-regression:$RUN tests/schedule-baseDir-regression.test.ts"
+  "schedule-suppress-disable:$RUN tests/schedule-suppress-disable.test.ts"
   "serv-http-auth:$RUN tests/serv-http-auth.test.ts"
   "session-resolver:$RUN tests/session-resolver.test.ts"
   "session-resolver-disk-fallback:$RUN tests/session-resolver-disk-fallback.test.ts"

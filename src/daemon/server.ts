@@ -1564,8 +1564,13 @@ function syncActiveSchedulesAtBoot(): void {
 
     // Register timers for active (non-paused) entries. Keys are scoped to
     // basePath so two PHOTON_DIRs with the same photon:method don't collide.
+    const suppressedSet = new Set((file.suppressed ?? []).map((s) => `${s.photon}:${s.method}`));
     for (const entry of file.active) {
       if (entry.paused) continue;
+      // Defense-in-depth: if disable_schedule wrote to suppressed but an older
+      // active entry wasn't pruned (e.g., migration ran before disable was processed),
+      // skip registration so the explicit disable always wins.
+      if (suppressedSet.has(`${entry.photon}:${entry.method}`)) continue;
       const key = declaredKey(entry.photon, entry.method, basePath);
       const decl = declaredSchedules.get(key);
       if (!decl) {
@@ -2356,9 +2361,17 @@ interface ActiveScheduleEntry {
   enabledBy: string;
   paused?: boolean;
 }
+interface SuppressedEntry {
+  photon: string;
+  method: string;
+  suppressedAt: string;
+}
+
 interface ActiveSchedulesFile {
   version: 1;
   active: ActiveScheduleEntry[];
+  /** Methods explicitly disabled via `photon ps disable` — suppresses @scheduled auto-registration at boot. */
+  suppressed?: SuppressedEntry[];
   /** One-time marker so the auto-migrate step only runs once per base. */
   migratedFromAutoRegister?: boolean;
 }
@@ -2382,6 +2395,11 @@ function readActiveSchedulesFile(baseDir: string): ActiveSchedulesFile {
             typeof e.method === 'string' &&
             typeof e.enabledAt === 'string'
         ),
+        suppressed: Array.isArray(parsed.suppressed)
+          ? parsed.suppressed.filter(
+              (s: any) => s && typeof s.photon === 'string' && typeof s.method === 'string'
+            )
+          : undefined,
         migratedFromAutoRegister: !!parsed.migratedFromAutoRegister,
       };
     }
@@ -2429,10 +2447,22 @@ async function autoRegisterFromMetadata(
     // session object, so read it from the underlying loader — the same
     // source of truth used for the per-base schedules dir below.
     const sessionWorkingDir = manager.loader?.baseDir;
+    const suppressedInBase =
+      readActiveSchedulesFile(sessionWorkingDir ?? getDefaultContext().baseDir).suppressed ?? [];
+
     for (const tool of tools) {
       if (tool.scheduled) {
         const jobId = declaredKey(photonName, tool.name, sessionWorkingDir);
         if (!scheduledJobs.has(jobId)) {
+          // Respect explicit disable: if this method was disabled via `photon ps disable`,
+          // a suppressed entry persists across daemon restarts to prevent re-registration.
+          if (suppressedInBase.some((s) => s.photon === photonName && s.method === tool.name)) {
+            logger.debug('Skipping @scheduled auto-registration — explicitly suppressed', {
+              photon: photonName,
+              method: tool.name,
+            });
+            continue;
+          }
           const job = {
             id: jobId,
             method: tool.name,
@@ -2510,6 +2540,12 @@ async function autoRegisterFromMetadata(
           if (task.status !== 'active') continue;
           const jobId = `${photonName}:sched:${task.id}`;
           if (scheduledJobs.has(asScheduleKey(jobId))) continue;
+          // Skip if an @scheduled annotation already registered a job for this method.
+          // Both registration paths would fire independently, causing double execution.
+          const coveredByAnnotation = Array.from(scheduledJobs.values()).some(
+            (j) => j.photonName === photonName && j.method === task.method && j.createdBy === 'auto'
+          );
+          if (coveredByAnnotation) continue;
 
           const job = {
             id: jobId,
@@ -3053,11 +3089,33 @@ async function handleRequest(
         instanceCount: mgr.getSessions().length,
       });
     }
+    // Collect suppressed entries across all known bases so the CLI can display them.
+    const knownBases = new Set<string>([defaultBase]);
+    for (const decl of declaredSchedules.values()) {
+      if (decl.workingDir) knownBases.add(path.resolve(decl.workingDir));
+    }
+    const suppressed: Array<{
+      photon: string;
+      method: string;
+      suppressedAt: string;
+      workingDir: string;
+    }> = [];
+    for (const base of knownBases) {
+      const schedFile = readActiveSchedulesFile(base);
+      for (const s of schedFile.suppressed ?? []) {
+        suppressed.push({
+          photon: s.photon,
+          method: s.method,
+          suppressedAt: s.suppressedAt,
+          workingDir: base,
+        });
+      }
+    }
     return {
       type: 'result',
       id: request.id,
       success: true,
-      data: { active, declared, webhooks, sessions },
+      data: { active, declared, webhooks, sessions, suppressed },
     };
   }
 
@@ -3106,6 +3164,12 @@ async function handleRequest(
         enabledAt: new Date().toISOString(),
         enabledBy: (request as { source?: string }).source || 'rpc',
       });
+    }
+    // Clear any suppression entry so the schedule auto-registers on the next restart.
+    if (file.suppressed) {
+      file.suppressed = file.suppressed.filter(
+        (s) => !(s.photon === photon && s.method === method)
+      );
     }
     writeActiveSchedulesFile(base, file);
     // Also record this base so daemon restarts find it.
@@ -3169,6 +3233,16 @@ async function handleRequest(
     const before = file.active.length;
     file.active = file.active.filter((e) => !(e.photon === photon && e.method === method));
     const removed = before - file.active.length;
+    // If this method has a @scheduled declaration, add a suppression entry so
+    // the daemon won't re-register it on the next restart. Without this, every
+    // boot auto-registration would re-fire the cron even after `photon ps disable`.
+    if (match) {
+      const suppressed = file.suppressed ?? [];
+      if (!suppressed.some((s) => s.photon === photon && s.method === method)) {
+        suppressed.push({ photon, method, suppressedAt: new Date().toISOString() });
+        file.suppressed = suppressed;
+      }
+    }
     writeActiveSchedulesFile(base, file);
     // Clear the timer if one is running. Use the declaration's key when we
     // have it; otherwise scan to find any scheduled job for this (photon, method)

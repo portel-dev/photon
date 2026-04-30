@@ -105,6 +105,9 @@ export function registerPsCommands(program: Command): void {
           sessions: wantAll || typeFilter === 'sessions',
         };
 
+        const suppressed = snap.suppressed ?? [];
+        const filteredSuppressed = suppressed.filter((s) => inBase(s.workingDir));
+
         if (show.active) {
           process.stdout.write(`\nACTIVE SCHEDULES (${active.length})\n`);
           process.stdout.write(
@@ -118,6 +121,28 @@ export function registerPsCommands(program: Command): void {
                 fmtWhen(a.nextRun),
                 fmtWhen(a.lastRun),
                 String(a.runCount),
+              ])
+            )
+          );
+          if (active.length > 0) {
+            process.stdout.write(
+              `  Manage: photon ps disable <photon>:<method>  stop and persist across restarts\n` +
+                `          photon ps pause <photon>:<method>   pause without removing\n`
+            );
+          }
+        }
+        if (filteredSuppressed.length > 0 && (wantAll || typeFilter === 'declared')) {
+          process.stdout.write(
+            `\nSUPPRESSED (@scheduled disabled) (${filteredSuppressed.length})\n`
+          );
+          process.stdout.write(
+            renderTable(
+              ['PHOTON_DIR', 'PHOTON', 'METHOD', 'HINT'],
+              filteredSuppressed.map((s) => [
+                tilde(s.workingDir),
+                s.photon,
+                s.method,
+                `photon ps enable ${s.photon}:${s.method}`,
               ])
             )
           );
