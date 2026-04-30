@@ -112,8 +112,8 @@ async function startBeamServer(port: number, dir: string): Promise<ChildProcess>
       if (allOutput.includes('⚡ Photon Beam') && !beamReady) {
         beamReady = true;
         clearTimeout(timeout);
-        // Wait a moment for photons to be fully indexed
-        setTimeout(resolve, 200);
+        // Wait for photons to be fully indexed — CI machines need more time
+        setTimeout(resolve, 1500);
       }
     };
 
