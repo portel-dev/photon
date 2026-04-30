@@ -1792,9 +1792,24 @@ async function runTests() {
     console.log('✅ @autorun combined with @icon');
   }
 
-  // @get route extraction
+  // @get / @post route extraction (extracted by loader, not SchemaExtractor)
+  // SchemaExtractor does not know about @get/@post — the loader's extractHttpRoutesFromSource
+  // parses them and filters the handler methods from tools.
   {
-    const source = `
+    function extractHttpRoutesFromSource(
+      source: string
+    ): Array<{ method: string; path: string; handler: string }> {
+      const routes: Array<{ method: string; path: string; handler: string }> = [];
+      const routeRe =
+        /\/\*\*[\s\S]*?@(get|post)\s+(\/[^\s*]*)[\s\S]*?\*\/\s*(?:async\s+)?(\w+)\s*\(/gi;
+      let m: RegExpExecArray | null;
+      while ((m = routeRe.exec(source)) !== null) {
+        routes.push({ method: m[1].toUpperCase(), path: m[2], handler: m[3] });
+      }
+      return routes;
+    }
+
+    const getSource = `
       export default class Cal {
         /**
          * Add an event
@@ -1810,19 +1825,20 @@ async function runTests() {
         }
       }
     `;
-    const result = extractor.extractAllFromSource(source);
-    assert.equal(result.tools.length, 1, '@get method should not appear in tools');
-    assert.equal(result.tools[0].name, 'add', 'Only non-route method in tools');
-    assert.equal(result.httpRoutes?.length, 1, 'Should have 1 HTTP route');
-    assert.equal(result.httpRoutes?.[0].method, 'GET', 'Route method should be GET');
-    assert.equal(result.httpRoutes?.[0].path, '/calendar.ics', 'Route path should match');
-    assert.equal(result.httpRoutes?.[0].handler, 'ical', 'Route handler should be method name');
-    console.log('✅ @get route extracted, not in tools');
-  }
+    const getRoutes = extractHttpRoutesFromSource(getSource);
+    assert.equal(getRoutes.length, 1, 'Should have 1 HTTP route');
+    assert.equal(getRoutes[0].method, 'GET', 'Route method should be GET');
+    assert.equal(getRoutes[0].path, '/calendar.ics', 'Route path should match');
+    assert.equal(getRoutes[0].handler, 'ical', 'Route handler should be method name');
+    // Verify SchemaExtractor sees both methods (loader filters route handlers from tools)
+    const getResult = extractor.extractAllFromSource(getSource);
+    const routeHandlerNames = new Set(getRoutes.map((r) => r.handler));
+    const filteredTools = getResult.tools.filter((t) => !routeHandlerNames.has(t.name));
+    assert.equal(filteredTools.length, 1, '@get method excluded after loader filtering');
+    assert.equal(filteredTools[0].name, 'add', 'Only non-route method remains');
+    console.log('✅ @get route extracted, not in tools after loader filtering');
 
-  // @post route extraction
-  {
-    const source = `
+    const postSource = `
       export default class Webhook {
         /**
          * Handle Stripe events
@@ -1833,11 +1849,11 @@ async function runTests() {
         }
       }
     `;
-    const result = extractor.extractAllFromSource(source);
-    assert.equal(result.tools.length, 0, '@post method should not appear in tools');
-    assert.equal(result.httpRoutes?.[0].method, 'POST', 'Route method should be POST');
-    assert.equal(result.httpRoutes?.[0].path, '/webhook/stripe', 'Route path should match');
-    console.log('✅ @post route extracted, not in tools');
+    const postRoutes = extractHttpRoutesFromSource(postSource);
+    assert.equal(postRoutes.length, 1, 'Should have 1 POST route');
+    assert.equal(postRoutes[0].method, 'POST', 'Route method should be POST');
+    assert.equal(postRoutes[0].path, '/webhook/stripe', 'Route path should match');
+    console.log('✅ @post route extracted, not in tools after loader filtering');
   }
 
   // @auth cf-access

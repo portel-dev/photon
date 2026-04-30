@@ -2296,6 +2296,25 @@ export class PhotonLoader {
   }
 
   /**
+   * Extract @get and @post HTTP route declarations from photon source.
+   * Methods tagged with @get or @post are HTTP-only and must NOT appear as MCP tools.
+   */
+  private extractHttpRoutesFromSource(
+    source: string
+  ): Array<{ method: string; path: string; handler: string }> {
+    const routes: Array<{ method: string; path: string; handler: string }> = [];
+    // Match JSDoc blocks that contain @get or @post followed by the async method name.
+    // Pattern: /** ... @get /path ... */ async methodName(
+    const routeRe =
+      /\/\*\*[\s\S]*?@(get|post)\s+(\/[^\s*]*)[\s\S]*?\*\/\s*(?:async\s+)?(\w+)\s*\(/gi;
+    let m: RegExpExecArray | null;
+    while ((m = routeRe.exec(source)) !== null) {
+      routes.push({ method: m[1].toUpperCase(), path: m[2], handler: m[3] });
+    }
+    return routes;
+  }
+
+  /**
    * Extract tools, templates, and statics from a class
    */
   private async extractTools(
@@ -2384,8 +2403,14 @@ export class PhotonLoader {
           const source = sourceContent || (await readText(sourceFilePath));
           const metadata = extractor.extractAllFromSource(source);
 
-          // Filter by method names that exist in the class
-          tools = metadata.tools.filter((t) => methodNames.includes(t.name));
+          // Extract @get/@post HTTP routes from source (not in photon-core SchemaExtractor)
+          const httpRoutesFromSource = this.extractHttpRoutesFromSource(source);
+          const routeHandlerNames = new Set(httpRoutesFromSource.map((r) => r.handler));
+
+          // Filter by method names that exist in the class; exclude HTTP-route methods from tools
+          tools = metadata.tools.filter(
+            (t) => methodNames.includes(t.name) && !routeHandlerNames.has(t.name)
+          );
           templates = metadata.templates.filter((t) => methodNames.includes(t.name));
           statics = metadata.statics.filter((s) => methodNames.includes(s.name));
 
@@ -2419,7 +2444,7 @@ export class PhotonLoader {
             statics,
             settingsSchema: metadata.settingsSchema,
             auth: this.extractAuthTag(source),
-            httpRoutes: (metadata as any).httpRoutes,
+            httpRoutes: httpRoutesFromSource.length ? httpRoutesFromSource : undefined,
           };
         }
         throw jsonError;
