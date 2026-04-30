@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.26.0](https://github.com/portel-dev/photon/compare/v1.25.0...v1.26.0) (2026-04-30)
+
+### Features
+
+* **deploy/cf:** --logs flag enables Workers Logs in generated wrangler.toml ([6a23d21](https://github.com/portel-dev/photon/commit/6a23d21dc612ae40e87cb15c405c488e19fb2194))
+* **deploy/cf:** cross-photon this.call via sibling DO bindings ([b5f7cc6](https://github.com/portel-dev/photon/commit/b5f7cc6c09e1893e835ad75ff591012528341711))
+* **deploy/cf:** expose env on photon instances + auto-bind Workers AI ([3b27d75](https://github.com/portel-dev/photon/commit/3b27d75dbb39a130d1668f271efd1f54a718c4cc))
+* **deploy/cf:** full sample/confirm/elicit via SSE response stream ([c409ec8](https://github.com/portel-dev/photon/commit/c409ec83ccb567dcf982dcbe995487ab0682edff))
+* **deploy/cf:** host stateful photons in Durable Objects ([d3cefd1](https://github.com/portel-dev/photon/commit/d3cefd1fb79d7cd0f9cd7bfb294e77e3a27c6455))
+* **deploy/cf:** scratch outputDir + actionable failure block ([ebcc3a0](https://github.com/portel-dev/photon/commit/ebcc3a0d23e4bfca05e10ea6df92b83a21c8e3cb))
+* **deploy/cf:** spread positional args + warn on undeclared imports ([daefb5b](https://github.com/portel-dev/photon/commit/daefb5bcf9ff6da73e552f652919030635fe6243))
+* **deploy/cf:** this.schedule via DO alarm multiplexer ([8a26dd8](https://github.com/portel-dev/photon/commit/8a26dd83c92b7e9533eac0d820f4dc6a6075df5c))
+* **deploy/cf:** throwing stubs for sample/confirm/elicit ([db55711](https://github.com/portel-dev/photon/commit/db55711b6f3d9dd1fb7d879445ceaf9f9b51ae93))
+* HTTP route dispatch for @get/[@post](https://github.com/post) tags on SSE and CF deployments ([f16a1ba](https://github.com/portel-dev/photon/commit/f16a1ba1f59c5b8a29b37aaae158ebe6ac302a8b))
+
+### Bug Fixes
+
+* **beam:** expand acronym list in formatLabel (MD, PR, CI, CD, ENV, SDK, OS, DB, IO, GIT) ([b329ecd](https://github.com/portel-dev/photon/commit/b329ecdc18fbdbbf4e4709f864e316227eb003ae))
+* **beam:** strip docblock tags from descriptions, humanize method names, format ISO dates ([4d104f7](https://github.com/portel-dev/photon/commit/4d104f76264e8e3303ad8ec832e6fd0be4405d82))
+* **loader:** extract @get/[@post](https://github.com/post) HTTP routes in loader, not photon-core ([ccac75c](https://github.com/portel-dev/photon/commit/ccac75c74cc04319e04ceec87f6eb5e7a34e6282))
+* **loader:** skip channel injection when photon already defines a getter named 'channel' ([81ce7da](https://github.com/portel-dev/photon/commit/81ce7da58d1118604accd3b5ddeafbbe3c6f8e2c))
+* **schedule:** persist disable_schedule across daemon restarts + dedup annotation/provider ([c2d3ffc](https://github.com/portel-dev/photon/commit/c2d3ffc5a4edb9772b158385dbba208c4720d34e))
+* **ts:** cast httpRoutes access to any until photon-core type is updated ([613946b](https://github.com/portel-dev/photon/commit/613946b98e862f89210d3541f1d2adbcc81b310d))
+
 ## [1.25.0](https://github.com/portel-dev/photon/compare/v1.24.0...v1.25.0) (2026-04-25)
 
 ### Features
