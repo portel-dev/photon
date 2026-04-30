@@ -157,49 +157,144 @@ volumes:
 
 ## Cloudflare Workers
 
-Photons can be deployed to Cloudflare Workers for edge computing.
+Photons deploy to Cloudflare Workers via a Durable Objects bridge. Each photon instance maps 1:1 to a Durable Object (DO), giving it persistent state, hibernation, and edge-local execution without any infrastructure setup.
 
-### Generate Worker Bundle
+### Deploy
 
 ```bash
 photon host deploy my-photon --target cloudflare
 ```
 
-### Manual Setup
+This compiles your photon, generates a `wrangler.toml`, and deploys via Wrangler in one step.
 
-1. Create a `wrangler.toml`:
+### What the CF Runtime Provides
+
+| Capability | How it works on CF |
+|------------|--------------------|
+| `this.memory` | KV namespace auto-bound as `PHOTON_KV` |
+| `this.schedule` | DO Alarm multiplexer - each scheduled method becomes an alarm |
+| `this.call(otherPhoton)` | Sibling DO binding resolved by photon name |
+| `this.sample` / `this.confirm` / `this.elicit` | Forwarded over the SSE response stream |
+| `@get /path` / `@post /path` | Dispatched by the Worker fetch handler before MCP routing |
+| `@env MY_KEY` | Read from `wrangler.toml` `[vars]` or CF Secrets |
+| Workers AI (`@ai`) | `AI` binding auto-generated and injected |
+| `@auth cf-access` | Each CF Access email maps to its own DO instance |
+
+### Stateful Photons with Durable Objects
+
+Photons with `@stateful` or `this.memory` automatically run inside a Durable Object for persistent state. The bridge handles routing:
+
+```typescript
+export default class TaskBoard {
+  /**
+   * Add a task to the board
+   * @stateful
+   */
+  async addTask({ title }: { title: string }) {
+    const tasks = (await this.memory.get<string[]>('tasks')) ?? [];
+    tasks.push(title);
+    await this.memory.set('tasks', tasks);
+    return { tasks };
+  }
+}
+```
+
+No wrangler config changes needed - `photon host deploy` generates the DO binding automatically.
+
+### Scheduled Methods on CF
+
+`@scheduled` methods run as DO Alarms on Cloudflare rather than daemon cron jobs:
+
+```typescript
+/**
+ * Sync external data hourly
+ * @scheduled 0 * * * *
+ */
+async syncData() {
+  // Runs as a DO Alarm on CF - no daemon needed
+}
+```
+
+### HTTP Routes on CF
+
+`@get` and `@post` tags work on Cloudflare deployments. The Worker fetch handler dispatches to the annotated method before falling through to MCP routing:
+
+```typescript
+/**
+ * Public iCal feed
+ * @get /calendar.ics
+ */
+async ical(request: Request): Promise<Response> {
+  const events = await this.memory.get('events') ?? [];
+  return new Response(buildICal(events), {
+    headers: { 'Content-Type': 'text/calendar; charset=utf-8' },
+  });
+}
+```
+
+### Workers AI
+
+If your photon uses an `@ai` constructor parameter, the `AI` binding is auto-generated in `wrangler.toml` and injected at runtime:
+
+```typescript
+export default class Summarizer {
+  constructor(
+    /** @ai */
+    private ai: Ai
+  ) {}
+
+  async summarize({ text }: { text: string }) {
+    return this.ai.run('@cf/meta/llama-3.1-8b-instruct', {
+      prompt: `Summarize: ${text}`,
+    });
+  }
+}
+```
+
+### Per-User Isolation with CF Access
+
+Add `@auth cf-access` to route each authenticated Cloudflare Access user to their own DO instance:
+
+```typescript
+/**
+ * Personal task board - one instance per user
+ * @auth cf-access
+ */
+export default class PersonalBoard {
+  // Each CF Access email gets its own isolated DO instance
+}
+```
+
+### Manual wrangler.toml
+
+`photon host deploy` generates this automatically, but if you need manual control:
 
 ```toml
 name = "my-photon-worker"
 main = "dist/worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-06-01"
 
 [vars]
 ENVIRONMENT = "production"
 
-# For KV storage
+[[durable_objects.bindings]]
+name = "PHOTON_DO"
+class_name = "PhotonDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["PhotonDurableObject"]
+
 [[kv_namespaces]]
 binding = "PHOTON_KV"
 id = "your-kv-id"
 ```
 
-2. Build the worker bundle:
-
-```bash
-photon host build my-photon --target cloudflare --output dist/worker.js
-```
-
-3. Deploy:
-
-```bash
-npx wrangler deploy
-```
-
 ### Limitations
 
-- No filesystem access (use KV or R2 for storage)
-- 50ms CPU limit on free tier
-- Bundle size limit of 1MB compressed
+- No filesystem access (use `this.memory` backed by KV or R2)
+- CPU time limit per request (use DO hibernation for long-running work)
+- Bundle size limit of 1 MB compressed
 
 ---
 

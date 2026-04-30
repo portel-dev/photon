@@ -427,6 +427,21 @@ async weekdayCleanup(): Promise<void> {
 - `0 9-17 * * 1-5` - Every hour during business hours (Mon-Fri)
 - `0,30 * * * *` - Every 30 minutes
 
+**Schedule Management:**
+
+`@scheduled` methods appear in `photon ps` as DECLARED schedules. Use `photon ps enable` to enroll them:
+
+```bash
+photon ps enable my-photon:scheduledArchiveOldTasks
+photon ps disable my-photon:scheduledArchiveOldTasks
+```
+
+`disable` removes the method from the active schedule list AND writes a suppression entry to `.data/.active-schedules.json`. This suppression persists across daemon restarts — the method will not re-enroll automatically until you explicitly run `photon ps enable` again.
+
+Suppressed methods appear in a dedicated SUPPRESSED section in `photon ps` output so they are discoverable without being silently lost.
+
+> **Do not mix `@scheduled` with `this.schedule.create()`** for the same method. The runtime detects the duplicate and skips the programmatic registration (the annotation wins). Use `@scheduled` for simple fixed crons and `this.schedule.create()` only when you need a runtime-derived schedule (e.g., user-configured intervals).
+
 ### Distributed Locks
 
 Use `@locked` to ensure only one instance of a method runs at a time across all processes.
