@@ -700,6 +700,27 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
   }
 
   if (!sessionManager) {
+    // Ghost-schedule guard: when the photon source is gone from every known
+    // base, the lazy-load can never succeed. Rescheduling here would loop
+    // every interval forever. A reinstall in flight may briefly fail this
+    // probe — the lost tick is acceptable because photons rebuild their
+    // schedules on first invocation.
+    if (!isPhotonSourceResolvableSync(job.photonName, job.workingDir)) {
+      logger.warn('Dropping orphan scheduled job — photon source missing', {
+        jobId,
+        photon: job.photonName,
+        sourceFile: job.sourceFile,
+      });
+      if (job.sourceFile) {
+        try {
+          fs.unlinkSync(job.sourceFile);
+        } catch {
+          // File may have been removed by a concurrent cleanup
+        }
+      }
+      unscheduleJob(jobId);
+      return;
+    }
     logger.warn('Cannot run job - photon not initialized', { jobId, photon: job.photonName });
     scheduleJob(job); // Reschedule anyway
     return;
@@ -795,6 +816,54 @@ function unscheduleJob(jobId: ScheduleKey): boolean {
  */
 function resolveScheduleDir(photonName: string, workingDir?: string): string {
   return getPhotonSchedulesDir('', photonName, workingDir || getDefaultContext().baseDir);
+}
+
+const PHOTON_SOURCE_EXTENSIONS = ['.photon.ts', '.photon.tsx', '.photon.js'];
+
+/**
+ * Synchronous probe for whether a photon's source file exists in any base
+ * the daemon knows about. Mirrors the search order of @portel/photon-core's
+ * async `resolvePhotonPath` (flat first, then one-level namespace subdirs)
+ * but stays sync so it can be called from cron tick handlers and the boot
+ * schedule loader without an extra await.
+ *
+ * Used to detect ghost schedules: a `<base>/.data/<photon>/schedules/*.json`
+ * file persists across restarts even after the photon source is uninstalled.
+ * Without this probe, ghost schedules either fire forever (short cron) or
+ * sit dormant and reappear after every restart.
+ */
+function isPhotonSourceResolvableSync(photonName: string, baseHint?: string): boolean {
+  const candidates = new Set<string>();
+  if (baseHint) candidates.add(path.resolve(baseHint));
+  try {
+    candidates.add(path.resolve(getDefaultContext().baseDir));
+  } catch {
+    /* default context may be missing in early boot */
+  }
+  try {
+    for (const b of listActiveBases()) candidates.add(path.resolve(b.path));
+  } catch {
+    /* registry may not be initialized */
+  }
+  for (const base of candidates) {
+    for (const ext of PHOTON_SOURCE_EXTENSIONS) {
+      if (fs.existsSync(path.join(base, `${photonName}${ext}`))) return true;
+    }
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(base, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+      for (const ext of PHOTON_SOURCE_EXTENSIONS) {
+        if (fs.existsSync(path.join(base, entry.name, `${photonName}${ext}`))) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -948,6 +1017,27 @@ function loadDaemonSchedulesFromDir(
   return loadPersistedSchedulesFromDir(schedulesPath, ttlMs, photonNameHint, workingDirHint, {
     alreadyRegistered: (id) => scheduledJobs.has(asScheduleKey(id)),
     register: (job) => {
+      // Drop schedules whose photon source is gone before they ever enter the
+      // cron map. Without this, every daemon boot reloads ghost schedules
+      // from `<base>/.data/<photon>/schedules/*.json`; long-cron ghosts then
+      // sit dormant in memory and resurrect on the next restart even after
+      // the runJob orphan probe would have caught them.
+      if (!isPhotonSourceResolvableSync(job.photonName, job.workingDir)) {
+        logger.warn('Dropping persisted schedule — photon source missing', {
+          jobId: job.id,
+          photon: job.photonName,
+          workingDir: job.workingDir,
+          sourceFile: job.sourceFile,
+        });
+        if (job.sourceFile) {
+          try {
+            fs.unlinkSync(job.sourceFile);
+          } catch {
+            // File may have been removed concurrently
+          }
+        }
+        return false;
+      }
       // Seed in-memory lastRun from persisted lastExecutionAt so the post-run
       // reschedule path keeps updating the same field instead of starting at 0.
       const scheduledJob = job as typeof job & { lastRun?: number };
@@ -3225,7 +3315,13 @@ async function handleRequest(
     }
     const match = matches[0];
     // Disable tolerates a missing declaration so the caller can clean up
-    // orphan active-schedule rows after the source file is deleted.
+    // orphan active-schedule rows after the source file is deleted. When
+    // there's no declaration AND no caller-pinned base, treat the disable
+    // as a hard guarantee and broaden the in-memory sweep + persisted-file
+    // walk across every known base — the user can't be expected to know
+    // which PHOTON_DIR seeded a ghost schedule.
+    const orphan = !match;
+    const broaden = orphan && !preferredBase;
     const base = path.resolve(
       match?.decl.workingDir ?? preferredBase ?? getDefaultContext().baseDir
     );
@@ -3252,28 +3348,85 @@ async function handleRequest(
     // flagged.
     const key = match?.key ?? declaredKey(photon, method, base);
     unscheduleJob(key);
+    let filesRemoved = 0;
     // Defensive sweep: during upgrade transitions a daemon may still hold
     // timers registered under the pre-base-scoping `${photon}:${method}` key
     // format. Report-success-but-keep-firing is worse than a noisy sweep, so
-    // also drop any job matching this request — but only when the job is
-    // scoped to THIS base (or the legacy "no base" form). Without this check,
-    // disabling foo:bar under base X would also stop foo:bar under base Y,
-    // silently breaking the other PHOTON_DIR's timer.
+    // also drop any job matching this request. Restrict to `base` unless this
+    // is an orphan disable without a preferred base — see comment above.
+    // Persisted ScheduleProvider files are unlinked here so they don't
+    // resurrect on the next daemon restart; without this, disable was a
+    // memory-only operation and the boot loader would replay the ghost.
     for (const staleKey of Array.from(scheduledJobs.keys())) {
       const job = scheduledJobs.get(staleKey);
       if (!job) continue;
       if (job.photonName !== photon || job.method !== method) continue;
       if (staleKey === key) continue; // already handled above
-      // Only sweep legacy keys (no base prefix) and keys scoped to `base`.
       const jobBase = job.workingDir ? path.resolve(job.workingDir) : undefined;
-      if (jobBase && jobBase !== base) continue;
+      if (!broaden && jobBase && jobBase !== base) continue;
+      if (job.sourceFile) {
+        try {
+          fs.unlinkSync(job.sourceFile);
+          filesRemoved++;
+        } catch {
+          // File may have been removed concurrently
+        }
+      }
       unscheduleJob(staleKey);
+    }
+    // Even when no in-memory job matched, scan persisted ScheduleProvider
+    // files. Useful for ghost schedules whose timer was already dropped
+    // (e.g. by the runJob orphan check) but whose JSON file would
+    // otherwise revive the ghost on the next daemon restart.
+    if (orphan) {
+      const basesToScan = new Set<string>();
+      basesToScan.add(base);
+      if (broaden) {
+        try {
+          basesToScan.add(path.resolve(getDefaultContext().baseDir));
+        } catch {
+          /* ignore */
+        }
+        try {
+          for (const b of listActiveBases()) basesToScan.add(path.resolve(b.path));
+        } catch {
+          /* ignore */
+        }
+      }
+      for (const baseDir of basesToScan) {
+        const dir = resolveScheduleDir(photon, baseDir);
+        let entries: string[];
+        try {
+          entries = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+        } catch {
+          continue;
+        }
+        for (const f of entries) {
+          const fp = path.join(dir, f);
+          try {
+            const task = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+            if (task.method === method) {
+              fs.unlinkSync(fp);
+              filesRemoved++;
+            }
+          } catch {
+            // Ignore malformed file or unlink race
+          }
+        }
+      }
     }
     return {
       type: 'result',
       id: request.id,
       success: true,
-      data: { photon, method, base, removed: removed > 0, status: 'disabled' },
+      data: {
+        photon,
+        method,
+        base,
+        removed: removed > 0 || filesRemoved > 0,
+        filesRemoved,
+        status: 'disabled',
+      },
     };
   }
 

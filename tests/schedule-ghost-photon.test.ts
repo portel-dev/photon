@@ -1,0 +1,266 @@
+/**
+ * Regression test: schedules whose photon source has been removed must not
+ * survive across daemon restarts.
+ *
+ * Before this fix:
+ *   - `<base>/.data/<photonName>/schedules/*.json` files were reloaded on
+ *     every daemon boot regardless of whether the photon source still
+ *     existed. With a short cron (* * * * *), `runJob` would log
+ *     "Cannot run job - photon not initialized" every minute and reschedule
+ *     itself forever. With a long cron (e.g. daily) the registration sat
+ *     dormant and reappeared after each restart.
+ *   - `disable_schedule` only updated the in-memory cron map and the
+ *     active-schedules.json suppressed list. The persisted ScheduleProvider
+ *     JSON files on disk were left untouched, so the next daemon restart
+ *     resurrected the ghost.
+ *
+ * After the fix:
+ *   - The boot loader probes for the photon source under any known base
+ *     before registering. Missing source ⇒ skip + unlink the persisted file.
+ *   - `runJob` does the same probe at fire time as a backstop.
+ *   - `disable_schedule` walks `<base>/.data/<photon>/schedules/` and unlinks
+ *     persisted ScheduleProvider files matching the disabled method. When the
+ *     caller didn't pin a base, the sweep visits every known base.
+ *
+ * The test boots a daemon against a tmpDir with NO photon source, plants a
+ * ScheduleProvider file under `.data/ghost/schedules/`, and asserts the file
+ * is removed by the boot loader before any timer is scheduled.
+ */
+
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as net from 'node:net';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-ghost-photon-test-'));
+const socketPath = path.join(tmpDir, 'daemon.sock');
+const ghostPhoton = 'ghost-photon';
+const livePhoton = 'live-photon';
+const livePhotonFile = path.join(tmpDir, `${livePhoton}.photon.ts`);
+const serverPath = path.join(process.cwd(), 'dist', 'daemon', 'server.js');
+
+const livePhotonSource = `
+export default class LivePhoton {
+  /**
+   * @scheduled 0 12 * * *
+   */
+  async tick(): Promise<{ ok: true }> {
+    return { ok: true };
+  }
+}
+`;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPidAlive(pid: number | undefined): boolean {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForSocket(target: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(target)) {
+      const connected = await new Promise<boolean>((resolve) => {
+        const client = net.createConnection(target);
+        client.on('connect', () => {
+          client.destroy();
+          resolve(true);
+        });
+        client.on('error', () => resolve(false));
+      });
+      if (connected) return;
+    }
+    await wait(50);
+  }
+  throw new Error('Timed out waiting for daemon socket');
+}
+
+async function waitForExit(child: ChildProcess, timeoutMs = 8_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidAlive(child.pid)) return;
+    await wait(50);
+  }
+  throw new Error(`Daemon pid ${child.pid} did not exit in time`);
+}
+
+function startDaemon(): { child: ChildProcess; logs: string[] } {
+  const logs: string[] = [];
+  const child = spawn(process.execPath, [serverPath, socketPath], {
+    cwd: tmpDir,
+    env: { ...process.env, PHOTON_DIR: tmpDir },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout?.on('data', (d) => logs.push(...d.toString().split('\n').filter(Boolean)));
+  child.stderr?.on('data', (d) => logs.push(...d.toString().split('\n').filter(Boolean)));
+  return { child, logs };
+}
+
+async function stopDaemon(child: ChildProcess): Promise<void> {
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    return;
+  }
+  try {
+    await waitForExit(child, 5_000);
+  } catch {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function sendRequest(
+  sock: string,
+  req: Record<string, unknown>,
+  timeoutMs = 20_000
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(sock);
+    let buf = '';
+    const timer = setTimeout(() => {
+      client.destroy();
+      reject(new Error('request timeout'));
+    }, timeoutMs);
+    client.on('connect', () => client.write(JSON.stringify({ id: 'test-1', ...req }) + '\n'));
+    client.on('data', (chunk) => {
+      buf += chunk.toString();
+      const nl = buf.indexOf('\n');
+      if (nl !== -1) {
+        clearTimeout(timer);
+        client.destroy();
+        resolve(JSON.parse(buf.slice(0, nl)));
+      }
+    });
+    client.on('error', reject);
+  });
+}
+
+function plantGhostScheduleFile(photonName: string, method: string, cron: string): string {
+  const dir = path.join(tmpDir, '.data', photonName, 'schedules');
+  fs.mkdirSync(dir, { recursive: true });
+  const id = randomUUID();
+  const task = {
+    id,
+    name: `${photonName}-${method}`,
+    cron,
+    method,
+    params: {},
+    fireOnce: false,
+    maxExecutions: 0,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    executionCount: 0,
+    photonId: photonName,
+  };
+  const filePath = path.join(dir, `${id}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(task, null, 2));
+  return filePath;
+}
+
+let passed = 0;
+let failed = 0;
+
+async function test(name: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+    passed++;
+    console.log(`  ✓ ${name}`);
+  } catch (err: any) {
+    failed++;
+    console.log(`  ✗ ${name}`);
+    console.log(`    ${err?.message || String(err)}`);
+  }
+}
+
+async function main(): Promise<void> {
+  console.log('\nschedule ghost-photon regression:\n');
+
+  fs.writeFileSync(livePhotonFile, livePhotonSource);
+
+  let daemon: ChildProcess | null = null;
+
+  try {
+    await test('boot loader unlinks ghost ScheduleProvider files when source is missing', async () => {
+      const ghostFile = plantGhostScheduleFile(ghostPhoton, 'poll_inbox', '* * * * *');
+      const liveSchedFile = plantGhostScheduleFile(livePhoton, 'tick', '0 12 * * *');
+      assert.ok(fs.existsSync(ghostFile), 'ghost file must exist before daemon boot');
+      assert.ok(fs.existsSync(liveSchedFile), 'live file must exist before daemon boot');
+
+      ({ child: daemon } = startDaemon());
+      await waitForSocket(socketPath);
+      // Allow boot scan to complete.
+      await wait(1_500);
+
+      assert.equal(
+        fs.existsSync(ghostFile),
+        false,
+        'ghost schedule file must be unlinked at boot when no photon source can be resolved'
+      );
+      assert.ok(
+        fs.existsSync(liveSchedFile),
+        'live schedule file must NOT be unlinked when its photon source exists'
+      );
+
+      const snap = (await sendRequest(socketPath, { type: 'ps' })) as {
+        data: { active: Array<{ photon: string; method: string }> };
+      };
+      const ghostActive = snap.data.active.some((a) => a.photon === ghostPhoton);
+      assert.equal(
+        ghostActive,
+        false,
+        `ghost photon must not appear in active schedules. active=${JSON.stringify(snap.data.active)}`
+      );
+    });
+
+    await test('disable_schedule unlinks orphan ScheduleProvider files across all bases', async () => {
+      // Plant a fresh orphan after boot — the boot-loader path can't fire
+      // again until restart, so this exercises the disable_schedule cleanup
+      // independently. With no `--base` (preferredBase undefined) the orphan
+      // sweep must walk every known base and unlink matching files.
+      const ghostFile = plantGhostScheduleFile('disable-orphan', 'sync', '*/5 * * * *');
+      assert.ok(fs.existsSync(ghostFile));
+
+      const res = (await sendRequest(socketPath, {
+        type: 'disable_schedule',
+        photonName: 'disable-orphan',
+        method: 'sync',
+      })) as { success?: boolean; data?: { filesRemoved?: number } };
+      assert.ok(res.success, `disable_schedule should succeed for orphan: ${JSON.stringify(res)}`);
+      assert.ok(
+        (res.data?.filesRemoved ?? 0) >= 1,
+        `disable_schedule should report at least one file removed. data=${JSON.stringify(res.data)}`
+      );
+      assert.equal(
+        fs.existsSync(ghostFile),
+        false,
+        'persisted ScheduleProvider file must be unlinked by disable_schedule'
+      );
+    });
+  } finally {
+    if (daemon) await stopDaemon(daemon);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  console.log(`\n  ${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+}
+
+void main().catch((err) => {
+  console.error('Test crashed:', err);
+  process.exit(1);
+});
