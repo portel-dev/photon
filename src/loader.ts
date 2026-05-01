@@ -113,6 +113,12 @@ import {
 } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
 import { getInstanceStatePath } from './context-store.js';
+import {
+  ContextRegistry,
+  RepeatDetector,
+  assembleSampleParams,
+  type SampleParams,
+} from './sample-augmenter.js';
 
 interface DependencySpec {
   name: string;
@@ -270,6 +276,13 @@ function detectEmitHelperUsage(source: string): boolean {
   return /this\.(toast|log|status|progress|thinking)\s*\(/.test(source);
 }
 
+// Per-instance state keys for sample augmentation. Symbols prevent name
+// collisions with user-defined properties. State lives on the instance object
+// so it is GC'd with the instance and survives across separate executeTool calls
+// that share the same instance.
+const _kContextRegistry = Symbol('photon.contextRegistry');
+const _kRepeatDetector = Symbol('photon.repeatDetector');
+
 /**
  * Always-inject `this.sample`, `this.confirm`, and `this.elicit` on plain
  * classes. Each pulls its provider out of the ALS execution context
@@ -280,6 +293,15 @@ function detectEmitHelperUsage(source: string): boolean {
  * so a plain class and a class that extends Photon behave identically.
  */
 function injectSamplingAndElicitation(instance: any): void {
+  if (!instance.context) {
+    Object.defineProperty(instance, 'context', {
+      get() {
+        if (!this[_kContextRegistry]) this[_kContextRegistry] = new ContextRegistry();
+        return this[_kContextRegistry] as ContextRegistry;
+      },
+      configurable: true,
+    });
+  }
   if (!instance.confirm) {
     instance.confirm = async (question: string): Promise<boolean> => {
       const store = executionContext.getStore() as
@@ -314,16 +336,7 @@ function injectSamplingAndElicitation(instance: any): void {
     };
   }
   if (!instance.sample) {
-    instance.sample = async (params: {
-      prompt?: string;
-      messages?: Array<{ role: 'user' | 'assistant'; content: any }>;
-      systemPrompt?: string;
-      maxTokens?: number;
-      temperature?: number;
-      modelPreferences?: unknown;
-      stopSequences?: string[];
-      includeContext?: 'none' | 'thisServer' | 'allServers';
-    }): Promise<string> => {
+    instance.sample = async (params: SampleParams): Promise<string> => {
       const store = executionContext.getStore() as
         | { samplingProvider?: (p: any) => Promise<any> }
         | undefined;
@@ -336,20 +349,25 @@ function injectSamplingAndElicitation(instance: any): void {
       if (!params.prompt && !params.messages?.length) {
         throw new Error('this.sample() requires either `prompt` or `messages`.');
       }
-      const messages = params.messages ?? [
-        { role: 'user' as const, content: { type: 'text', text: params.prompt! } },
-      ];
-      const result = await store.samplingProvider({
-        messages,
-        systemPrompt: params.systemPrompt,
-        maxTokens: params.maxTokens ?? 1024,
-        temperature: params.temperature,
-        modelPreferences: params.modelPreferences,
-        stopSequences: params.stopSequences,
-        includeContext: params.includeContext,
-      });
+
+      if (!instance[_kContextRegistry]) instance[_kContextRegistry] = new ContextRegistry();
+      if (!instance[_kRepeatDetector]) instance[_kRepeatDetector] = new RepeatDetector();
+      const contextReg = instance[_kContextRegistry] as ContextRegistry;
+      const detector = instance[_kRepeatDetector] as RepeatDetector;
+
+      const augmented = await assembleSampleParams(
+        params,
+        instance.memory,
+        contextReg,
+        detector.consumeSignal()
+      );
+
+      const result = await store.samplingProvider(augmented);
       const first = Array.isArray(result.content) ? result.content[0] : result.content;
-      return first?.type === 'text' ? first.text : '';
+      const text = first?.type === 'text' ? first.text : '';
+
+      detector.record(text);
+      return text;
     };
   }
 }
