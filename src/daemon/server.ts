@@ -705,7 +705,8 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
     // every interval forever. A reinstall in flight may briefly fail this
     // probe — the lost tick is acceptable because photons rebuild their
     // schedules on first invocation.
-    if (!isPhotonSourceResolvableSync(job.photonName, job.workingDir)) {
+    const probe = probePhotonSource(job.photonName, job.workingDir);
+    if (!probe.resolved) {
       logger.warn('Dropping orphan scheduled job — photon source missing', {
         jobId,
         photon: job.photonName,
@@ -721,9 +722,35 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
       unscheduleJob(jobId);
       return;
     }
-    logger.warn('Cannot run job - photon not initialized', { jobId, photon: job.photonName });
-    scheduleJob(job); // Reschedule anyway
-    return;
+    // Legacy schedule with no workingDir but the photon lives in a
+    // registered non-default base: pin workingDir and retry the lazy-load
+    // once. Without this self-heal, the probe says OK but the next
+    // `getOrCreateSessionManager` (which only checks workingDir +
+    // defaultBase) returns null again and the schedule reschedules forever.
+    if (!job.workingDir && probe.ownerBase) {
+      job.workingDir = probe.ownerBase;
+      logger.info('Pinned scheduled job to resolved base — retrying lazy-load', {
+        jobId,
+        photon: job.photonName,
+        resolvedBase: probe.ownerBase,
+      });
+      try {
+        sessionManager =
+          (await getOrCreateSessionManager(job.photonName, job.photonPath, job.workingDir)) ??
+          undefined;
+      } catch (err) {
+        logger.warn('Lazy-load retry after base pin failed', {
+          jobId,
+          photon: job.photonName,
+          error: getErrorMessage(err),
+        });
+      }
+    }
+    if (!sessionManager) {
+      logger.warn('Cannot run job - photon not initialized', { jobId, photon: job.photonName });
+      scheduleJob(job); // Reschedule anyway
+      return;
+    }
   }
 
   logger.info('Running scheduled job', { jobId, method: job.method, photon: job.photonName });
@@ -845,7 +872,10 @@ const PHOTON_SOURCE_EXTENSIONS = ['.photon.ts', '.photon.tsx', '.photon.js'];
  * Sync so cron tick handlers and the boot schedule loader can call it
  * without an await.
  */
-function isPhotonSourceResolvableSync(photonName: string, baseHint?: string): boolean {
+function probePhotonSource(
+  photonName: string,
+  baseHint?: string
+): { resolved: boolean; ownerBase?: string } {
   // Parse `namespace:name` format the same way photon-core's resolvePath does.
   // Without this, a namespaced photon like `team:foo` would be probed as the
   // literal string `team:foo.photon.ts` (which never exists) and its valid
@@ -887,13 +917,17 @@ function isPhotonSourceResolvableSync(photonName: string, baseHint?: string): bo
     if (namespace) {
       // Namespace-qualified: only `<base>/<namespace>/<name>.photon.{ts,tsx,js}`.
       for (const ext of PHOTON_SOURCE_EXTENSIONS) {
-        if (fs.existsSync(path.join(base, namespace, `${bareName}${ext}`))) return true;
+        if (fs.existsSync(path.join(base, namespace, `${bareName}${ext}`))) {
+          return { resolved: true, ownerBase: base };
+        }
       }
       continue;
     }
     // Unqualified: flat first, then one-level namespace subdirs.
     for (const ext of PHOTON_SOURCE_EXTENSIONS) {
-      if (fs.existsSync(path.join(base, `${bareName}${ext}`))) return true;
+      if (fs.existsSync(path.join(base, `${bareName}${ext}`))) {
+        return { resolved: true, ownerBase: base };
+      }
     }
     let entries: fs.Dirent[];
     try {
@@ -905,11 +939,13 @@ function isPhotonSourceResolvableSync(photonName: string, baseHint?: string): bo
       if (!entry.isDirectory()) continue;
       if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
       for (const ext of PHOTON_SOURCE_EXTENSIONS) {
-        if (fs.existsSync(path.join(base, entry.name, `${bareName}${ext}`))) return true;
+        if (fs.existsSync(path.join(base, entry.name, `${bareName}${ext}`))) {
+          return { resolved: true, ownerBase: base };
+        }
       }
     }
   }
-  return false;
+  return { resolved: false };
 }
 
 /**
@@ -1068,7 +1104,8 @@ function loadDaemonSchedulesFromDir(
       // from `<base>/.data/<photon>/schedules/*.json`; long-cron ghosts then
       // sit dormant in memory and resurrect on the next restart even after
       // the runJob orphan probe would have caught them.
-      if (!isPhotonSourceResolvableSync(job.photonName, job.workingDir)) {
+      const probe = probePhotonSource(job.photonName, job.workingDir);
+      if (!probe.resolved) {
         logger.warn('Dropping persisted schedule — photon source missing', {
           jobId: job.id,
           photon: job.photonName,
@@ -1083,6 +1120,20 @@ function loadDaemonSchedulesFromDir(
           }
         }
         return false;
+      }
+      // Legacy schedules carry no `workingDir`. Pin the resolved base so
+      // runJob's lazy-load (which only checks workingDir + defaultBase, not
+      // every registered base) can find the photon at fire time. Without
+      // this, the probe says "OK" but `getOrCreateSessionManager` returns
+      // null for photons living in non-default bases — back to the
+      // reschedule loop. Codex P2 finding.
+      if (!job.workingDir && probe.ownerBase) {
+        job.workingDir = probe.ownerBase;
+        logger.info('Pinned legacy schedule to resolved base', {
+          jobId: job.id,
+          photon: job.photonName,
+          resolvedBase: probe.ownerBase,
+        });
       }
       // Seed in-memory lastRun from persisted lastExecutionAt so the post-run
       // reschedule path keeps updating the same field instead of starting at 0.
