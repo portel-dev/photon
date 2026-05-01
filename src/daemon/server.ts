@@ -5486,6 +5486,56 @@ function startServer(): void {
   });
 }
 
+/**
+ * Scan the OS process table for any other process whose argv looks like
+ * a Photon daemon for THIS exact socket path. Returns their PIDs. Used to
+ * defend against the multi-daemon-on-one-socket failure mode where a
+ * previous daemon survived a stop/start race (or was launched bypassing
+ * the DaemonManager entirely, e.g. directly via `node server.js` from a
+ * test or worktree). The owner-record check only spots siblings the
+ * previous daemon successfully recorded; an argv scan finds the rest
+ * regardless of which runtime (node/bun/deno) launched them.
+ *
+ * Match shape: argv contains `daemon/server.js` AND the literal socket
+ * path. Self is filtered. Windows is skipped (named-pipe IPC has its own
+ * exclusivity guarantees and `ps` isn't available).
+ */
+function findImposterDaemonPids(): number[] {
+  if (process.platform === 'win32') return [];
+  const pids: number[] = [];
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { spawnSync } = require('child_process') as typeof import('child_process');
+    const result = spawnSync('ps', ['-ax', '-o', 'pid=,args='], {
+      encoding: 'utf-8',
+      timeout: 3000,
+    });
+    if (result.status !== 0) return [];
+    const myPid = process.pid;
+    for (const rawLine of (result.stdout || '').split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const m = line.match(/^(\d+)\s+(.*)$/);
+      if (!m) continue;
+      const pid = parseInt(m[1], 10);
+      const cmd = m[2];
+      if (!Number.isFinite(pid) || pid === myPid) continue;
+      if (!cmd.includes('daemon/server.js')) continue;
+      // Match the socket path as a whitespace-bounded token so a daemon
+      // for `/tmp/foo.sock` doesn't accidentally match `/tmp/foo.sock.bak`.
+      if (!new RegExp(`(^|\\s)${escapeRegExp(socketPath)}(\\s|$)`).test(cmd)) continue;
+      pids.push(pid);
+    }
+  } catch (err) {
+    logger.warn('Failed to scan for imposter daemons', { error: getErrorMessage(err) });
+  }
+  return pids;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function claimExclusiveOwnership(): Promise<void> {
   const owner = readOwnerRecord(ownerFile);
   if (owner && owner.socketPath === socketPath && owner.pid !== process.pid) {
@@ -5521,6 +5571,43 @@ async function claimExclusiveOwnership(): Promise<void> {
     }
 
     removeOwnerRecord(ownerFile);
+  }
+
+  // Belt-and-suspenders: even after the owner-record path, scan the OS
+  // process table for any other process running `daemon/server.js` against
+  // this same socket. Catches imposters that bypassed DaemonManager (direct
+  // `node server.js` invocations from tests/worktrees, leftover daemons whose
+  // owner record was wiped, daemons started by a different runtime than the
+  // one currently bound).
+  const imposters = findImposterDaemonPids();
+  if (imposters.length > 0) {
+    logger.warn('Imposter daemon(s) detected via argv scan', {
+      socketPath,
+      currentPid: process.pid,
+      imposterPids: imposters,
+    });
+    for (const pid of imposters) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Already gone
+      }
+    }
+    // Wait for graceful exit, then escalate to SIGKILL on holdouts.
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (imposters.every((pid) => !isPidAlive(pid))) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    for (const pid of imposters) {
+      if (!isPidAlive(pid)) continue;
+      logger.warn('Imposter daemon ignored SIGTERM, escalating to SIGKILL', { pid });
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   if (process.platform !== 'win32' && fs.existsSync(socketPath)) {
