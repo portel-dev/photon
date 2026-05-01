@@ -271,6 +271,69 @@ async function main(): Promise<void> {
         `manual command should succeed under host mode, got: ${JSON.stringify(res)}`
       );
     });
+
+    // ── IPC schedule.create is refused on a host-disabled base ─────────────
+    await test('IPC schedule create is refused on a host-disabled base', async () => {
+      const res = (await sendRequest(
+        socketPath,
+        {
+          type: 'schedule',
+          photonName,
+          method: 'tick',
+          cron: '*/5 * * * *',
+          args: {},
+          jobId: 'host-mode-ipc-1',
+          sessionId: 'test-ipc',
+          workingDir: tmpDir,
+        },
+        15_000
+      )) as { success?: boolean; data?: { scheduled?: boolean; reason?: string } };
+      assert.equal(
+        res.success,
+        false,
+        `IPC schedule must fail on host-disabled base, got: ${JSON.stringify(res)}`
+      );
+      assert.ok(
+        res.data?.reason?.includes('host-disabled'),
+        `reason should mention host-disabled, got: ${JSON.stringify(res.data)}`
+      );
+
+      // Make sure the timer wasn't installed.
+      const snap = await fetchPs(socketPath);
+      const localActive = snap.active.filter((a) => a.workingDir === tmpDir);
+      assert.equal(
+        localActive.length,
+        0,
+        `No timers should exist after refused IPC schedule. Found: ${JSON.stringify(localActive)}`
+      );
+    });
+
+    // ── enable_schedule is refused on a host-disabled base ─────────────────
+    await test('enable_schedule is refused on a host-disabled base', async () => {
+      const res = (await sendRequest(
+        socketPath,
+        {
+          type: 'enable_schedule',
+          photonName,
+          method: 'tick',
+          workingDir: tmpDir,
+        },
+        15_000
+      )) as { success?: boolean; error?: string };
+      // Two acceptable failure shapes: "no declaration found" (host mode
+      // skipped boot discovery, so declaredSchedules is empty) OR
+      // "host-disabled" (declaration exists but the gate fired). Either
+      // proves the marker prevents arming.
+      assert.equal(
+        res.success,
+        undefined,
+        `enable_schedule must NOT succeed on host-disabled base, got: ${JSON.stringify(res)}`
+      );
+      assert.ok(
+        res.error,
+        `enable_schedule should return an error message, got: ${JSON.stringify(res)}`
+      );
+    });
   } finally {
     if (daemonNoMarker) await stopDaemon(daemonNoMarker);
     if (daemonWithMarker) await stopDaemon(daemonWithMarker);

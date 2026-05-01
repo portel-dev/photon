@@ -1168,6 +1168,19 @@ function loadDaemonSchedulesFromDir(
           resolvedBase: probe.ownerBase,
         });
       }
+      // Host mode: the per-base loader already gates by isHostDisabledBase
+      // before calling probePhotonSource, but the legacy flat-root path
+      // (~/.photon/schedules/<photon>/*.json) walks ALL bases via probe and
+      // could resolve to a host-disabled base. Drop here so legacy files
+      // can't reanimate a quiet machine.
+      if (job.workingDir && isHostDisabledBase(job.workingDir)) {
+        logger.info('Skipping persisted schedule — owning base is host-disabled', {
+          jobId: job.id,
+          photon: job.photonName,
+          base: job.workingDir,
+        });
+        return false;
+      }
       // Seed in-memory lastRun from persisted lastExecutionAt so the post-run
       // reschedule path keeps updating the same field instead of starting at 0.
       const scheduledJob = job as typeof job & { lastRun?: number };
@@ -3248,6 +3261,32 @@ async function handleRequest(
       };
     }
 
+    // Host mode: refuse to arm a cron when the owning base is host-disabled.
+    // Without this, a manual `photon run` on a host-disabled machine could
+    // call this.schedule.create() and immediately install a timer — silently
+    // defeating the marker. The check uses the request's workingDir (or the
+    // default base when unset), matching the resolution that scheduleJob
+    // would otherwise apply.
+    const scheduleBase = request.workingDir
+      ? path.resolve(request.workingDir)
+      : path.resolve(getDefaultContext().baseDir);
+    if (isHostDisabledBase(scheduleBase)) {
+      logger.info('Refusing schedule create — host-disabled base', {
+        base: scheduleBase,
+        photon: photonName,
+        method: request.method,
+      });
+      return {
+        type: 'result',
+        id: request.id,
+        success: false,
+        data: {
+          scheduled: false,
+          reason: `host-disabled: ${scheduleBase} has a .photon-no-host marker`,
+        },
+      };
+    }
+
     // Generate IPC job ID with workingDir hash to prevent cross-project collisions
     const dirHash = request.workingDir
       ? crypto.createHash('sha256').update(request.workingDir).digest('hex').slice(0, 8)
@@ -3440,6 +3479,18 @@ async function handleRequest(
     }
     const { key, decl } = matches[0];
     const base = path.resolve(decl.workingDir || getDefaultContext().baseDir);
+    // Host mode: refuse to arm a timer when the owning base is host-disabled.
+    // Disable still works (broad sweep) so users can clear stale state from
+    // any machine; only enabling background work is blocked.
+    if (isHostDisabledBase(base)) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Cannot enable ${photon}:${method} — base ${base} is host-disabled ` +
+          `(remove ${base}/.photon-no-host to allow scheduling).`,
+      };
+    }
     const file = readActiveSchedulesFile(base);
     const existing = file.active.find((e) => e.photon === photon && e.method === method);
     if (existing) {
@@ -3655,6 +3706,18 @@ async function handleRequest(
     const decl = match?.decl;
     const base = path.resolve(decl?.workingDir ?? preferredBase ?? getDefaultContext().baseDir);
     const key = match?.key ?? declaredKey(photon, method, base);
+    // Host mode: pause is allowed (it stops background work, consistent with
+    // the marker's intent). Resume is rejected because it would arm a timer
+    // on a quiet machine.
+    if (!pause && isHostDisabledBase(base)) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Cannot resume ${photon}:${method} — base ${base} is host-disabled ` +
+          `(remove ${base}/.photon-no-host to allow scheduling).`,
+      };
+    }
     const file = readActiveSchedulesFile(base);
     const entry = file.active.find((e) => e.photon === photon && e.method === method);
     if (!entry) {
@@ -5466,6 +5529,18 @@ function startHealthMonitor(): void {
 function startupWatchPhotons(): void {
   const photonDir = getDefaultContext().baseDir;
   if (!fs.existsSync(photonDir)) return;
+
+  // Host mode: when the default base is host-disabled, skip the file
+  // watcher, the eager onInitialize loader, and the directory watcher
+  // entirely. They all activate background work that the marker is
+  // supposed to suppress. The photon-paths map stays empty for this
+  // base; manual `photon run` populates entries on demand.
+  if (isHostDisabledBase(photonDir)) {
+    logger.info('Skipping startupWatchPhotons — host-disabled default base', {
+      base: photonDir,
+    });
+    return;
+  }
 
   let entries: fs.Dirent[];
   try {
