@@ -98,6 +98,34 @@ function tilde(p: string | undefined): string {
   return '…/' + parts.slice(-2).join('/');
 }
 
+/**
+ * Convert common cron strings to human-readable form. Falls back to the raw
+ * string for patterns we don't recognise so power users still see the truth.
+ */
+function humanizeCron(cron: string): string {
+  const trimmed = cron.trim();
+  if (trimmed === '* * * * *') return 'Every minute';
+  if (trimmed === '0 * * * *') return 'Hourly';
+  if (trimmed === '0 0 * * *') return 'Daily at midnight';
+  if (trimmed === '0 12 * * *') return 'Daily at noon';
+  if (trimmed === '0 0 * * 0') return 'Weekly (Sunday)';
+  if (trimmed === '0 0 * * 1') return 'Weekly (Monday)';
+  if (trimmed === '0 0 1 * *') return 'Monthly';
+  let m = trimmed.match(/^\*\/(\d+) \* \* \* \*$/);
+  if (m) return `Every ${m[1]} minutes`;
+  m = trimmed.match(/^0 \*\/(\d+) \* \* \*$/);
+  if (m) return `Every ${m[1]} hours`;
+  m = trimmed.match(/^0 (\d{1,2}) \* \* \*$/);
+  if (m) {
+    const h = parseInt(m[1], 10);
+    if (h >= 0 && h <= 23) {
+      const suffix = h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`;
+      return `Daily at ${suffix}`;
+    }
+  }
+  return trimmed;
+}
+
 @customElement('daemon-panel')
 export class DaemonPanel extends LitElement {
   static styles = [
@@ -374,7 +402,7 @@ export class DaemonPanel extends LitElement {
                       <td>${tilde(r.workingDir)}</td>
                       <td>${r.photon}</td>
                       <td>${formatLabel(r.method)}</td>
-                      <td><code>${r.cron}</code></td>
+                      <td title="${r.cron}">${humanizeCron(r.cron)}</td>
                       <td>${formatWhen(r.nextRun)}</td>
                       <td>${formatWhen(r.lastRun)}</td>
                       <td>${r.runCount}</td>
@@ -427,7 +455,7 @@ export class DaemonPanel extends LitElement {
                       <td>${tilde(r.workingDir)}</td>
                       <td>${r.photon}</td>
                       <td>${formatLabel(r.method)}</td>
-                      <td><code>${r.cron}</code></td>
+                      <td title="${r.cron}">${humanizeCron(r.cron)}</td>
                       <td class="actions">
                         <button @click=${() => this._scheduleAction('enable', r.photon, r.method)}>
                           Enable
@@ -569,7 +597,7 @@ export class DaemonPanel extends LitElement {
         <button class="refresh" @click=${() => this._refresh()} ?disabled=${this._loading}>
           ${this._loading ? 'Refreshing…' : 'Refresh'}
         </button>
-        <span class="hint">auto-refresh every ${POLL_INTERVAL_MS / 1000}s</span>
+        <span class="hint">Auto-refresh every ${POLL_INTERVAL_MS / 1000}s</span>
       </div>
 
       ${this._error ? html`<div class="error">${this._error}</div>` : ''} ${this._renderActive()}
