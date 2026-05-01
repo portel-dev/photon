@@ -6208,6 +6208,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
                           ↓ Export
                         </button>
                         <button @click=${() => this._handleShareResult()}>Share</button>
+                        <button
+                          @click=${() => {
+                            const rv: any = this.shadowRoot?.querySelector('result-viewer');
+                            const el: HTMLElement | null | undefined =
+                              rv?.shadowRoot?.querySelector('.container') || rv;
+                            if (!el) return;
+                            if (document.fullscreenElement) {
+                              void document.exitFullscreen?.();
+                            } else {
+                              void el.requestFullscreen?.();
+                            }
+                          }}
+                          title="Toggle fullscreen"
+                        >
+                          ⛶ Fullscreen
+                        </button>
                       </div>
                     </div>`
                   : ''}
