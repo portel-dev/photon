@@ -102,27 +102,71 @@ function tilde(p: string | undefined): string {
  * Convert common cron strings to human-readable form. Falls back to the raw
  * string for patterns we don't recognise so power users still see the truth.
  */
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+function formatHour(h: number): string {
+  return h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`;
+}
+
+function describeWeekdays(spec: string): string | null {
+  if (spec === '*') return 'every day';
+  if (spec === '1-5') return 'weekdays';
+  if (spec === '0,6' || spec === '6,0') return 'weekends';
+  if (/^\d$/.test(spec)) {
+    const n = parseInt(spec, 10);
+    if (n >= 0 && n <= 6) return WEEKDAY_NAMES[n];
+  }
+  return null;
+}
+
+/**
+ * Convert common cron strings to human-readable form. Falls back to the raw
+ * string for patterns we don't recognise so power users still see the truth.
+ */
 function humanizeCron(cron: string): string {
   const trimmed = cron.trim();
   if (trimmed === '* * * * *') return 'Every minute';
   if (trimmed === '0 * * * *') return 'Hourly';
   if (trimmed === '0 0 * * *') return 'Daily at midnight';
   if (trimmed === '0 12 * * *') return 'Daily at noon';
-  if (trimmed === '0 0 * * 0') return 'Weekly (Sunday)';
-  if (trimmed === '0 0 * * 1') return 'Weekly (Monday)';
   if (trimmed === '0 0 1 * *') return 'Monthly';
-  let m = trimmed.match(/^\*\/(\d+) \* \* \* \*$/);
+
+  // Step minutes: `*/5 * * * *` and `0/5 * * * *` (vixie-cron also accepts
+  // start/step where start defaults to 0; both forms appear in the wild).
+  let m = trimmed.match(/^(?:\*|0)\/(\d+) \* \* \* \*$/);
   if (m) return `Every ${m[1]} minutes`;
-  m = trimmed.match(/^0 \*\/(\d+) \* \* \*$/);
+
+  // Step hours.
+  m = trimmed.match(/^0 (?:\*|0)\/(\d+) \* \* \*$/);
   if (m) return `Every ${m[1]} hours`;
+
+  // Daily at <h>: `0 <h> * * *`
   m = trimmed.match(/^0 (\d{1,2}) \* \* \*$/);
   if (m) {
     const h = parseInt(m[1], 10);
-    if (h >= 0 && h <= 23) {
-      const suffix = h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`;
-      return `Daily at ${suffix}`;
+    if (h >= 0 && h <= 23) return `Daily at ${formatHour(h)}`;
+  }
+
+  // <weekday(s)> at <h>: `0 <h> * * <dow>` covers `0 8 * * 1-5` (weekdays at 8am),
+  // `0 9 * * 0` (Sundays at 9am), `0 17 * * 0,6` (weekends at 5pm).
+  m = trimmed.match(/^0 (\d{1,2}) \* \* ([0-9,-]+)$/);
+  if (m) {
+    const h = parseInt(m[1], 10);
+    const dayLabel = describeWeekdays(m[2]);
+    if (h >= 0 && h <= 23 && dayLabel) {
+      const cap = dayLabel[0].toUpperCase() + dayLabel.slice(1);
+      return `${cap} at ${formatHour(h)}`;
     }
   }
+
   return trimmed;
 }
 
