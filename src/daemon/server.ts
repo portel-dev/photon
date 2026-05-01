@@ -859,6 +859,27 @@ function resolveScheduleDir(photonName: string, workingDir?: string): string {
 
 const PHOTON_SOURCE_EXTENSIONS = ['.photon.ts', '.photon.tsx', '.photon.js'];
 
+const HOST_DISABLE_MARKER = '.photon-no-host';
+
+/**
+ * A base is "host-disabled" when a `.photon-no-host` marker file exists at
+ * its root. The daemon will not load ScheduleProvider files, auto-register
+ * `@scheduled` annotations, or wire `@webhook` routes for that base.
+ *
+ * Manual `photon run` on a photon under that base still works — host mode
+ * only suppresses background activation. Used to keep one machine the sole
+ * scheduler/runner across a multi-host setup that shares a `~/Projects`
+ * tree (e.g. via Syncthing): place the marker at the base root on every
+ * host that should be quiet.
+ */
+function isHostDisabledBase(basePath: string): boolean {
+  try {
+    return fs.existsSync(path.join(basePath, HOST_DISABLE_MARKER));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Synchronous probe for whether a photon's source file is resolvable.
  * Mirrors the resolution semantics used by `runJob` and the photon-core
@@ -1340,9 +1361,17 @@ function loadAllPersistedSchedules(): void {
   // Always include the default base even if the registry hasn't recorded it yet.
   const defaultBase = getDefaultContext().baseDir;
   if (!bases.some((b) => b.path === path.resolve(defaultBase))) {
-    scanBaseDataRoot(defaultBase);
+    if (isHostDisabledBase(defaultBase)) {
+      logger.info('Skipping schedule load — host-disabled base', { base: defaultBase });
+    } else {
+      scanBaseDataRoot(defaultBase);
+    }
   }
   for (const base of bases) {
+    if (isHostDisabledBase(base.path)) {
+      logger.info('Skipping schedule load — host-disabled base', { base: base.path });
+      continue;
+    }
     scanBaseDataRoot(base.path);
   }
 
@@ -1555,6 +1584,12 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
   const core = await import('@portel/photon-core');
 
   for (const basePath of baseCandidates) {
+    if (isHostDisabledBase(basePath)) {
+      logger.info('Skipping proactive metadata discovery — host-disabled base', {
+        base: basePath,
+      });
+      continue;
+    }
     let photons: Awaited<ReturnType<typeof core.listPhotonFilesWithNamespace>>;
     try {
       photons = await core.listPhotonFilesWithNamespace(basePath);
@@ -1621,6 +1656,10 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
  */
 function watchBaseForProactiveMetadata(basePath: string, _isDefaultBase: boolean): void {
   if (baseDirWatchers.has(basePath)) return;
+  if (isHostDisabledBase(basePath)) {
+    logger.info('Skipping proactive metadata watcher — host-disabled base', { base: basePath });
+    return;
+  }
   try {
     if (!fs.existsSync(basePath)) return;
   } catch {
@@ -1722,6 +1761,10 @@ function syncActiveSchedulesAtBoot(): void {
   let missingRefs = 0;
 
   for (const basePath of bases) {
+    if (isHostDisabledBase(basePath)) {
+      logger.info('Skipping active-schedules sync — host-disabled base', { base: basePath });
+      continue;
+    }
     const file = readActiveSchedulesFile(basePath);
     let dirty = false;
 
@@ -2664,6 +2707,18 @@ async function autoRegisterFromMetadata(
   const autoKey = compositeKey(photonName, manager.loader?.baseDir);
   if (autoRegistered.has(autoKey)) return;
   autoRegistered.add(autoKey);
+
+  // Host mode: skip @scheduled / @webhook auto-registration when this base
+  // has the .photon-no-host marker. Manual `photon run` still works because
+  // it goes through the command handler, not this auto-register path.
+  const baseForHostCheck = manager.loader?.baseDir ?? getDefaultContext().baseDir;
+  if (isHostDisabledBase(baseForHostCheck)) {
+    logger.debug('Skipping auto-register — host-disabled base', {
+      photon: photonName,
+      base: baseForHostCheck,
+    });
+    return;
+  }
 
   try {
     // Get a session to access the loaded photon's tools

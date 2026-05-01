@@ -25,7 +25,8 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
+import { spawnDaemonPG, stopDaemonPG } from './helpers/daemon-pg.js';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-suppress-test-'));
 const socketPath = path.join(tmpDir, 'daemon.sock');
@@ -50,16 +51,6 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isPidAlive(pid: number | undefined): boolean {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function waitForSocket(target: string, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -79,20 +70,11 @@ async function waitForSocket(target: string, timeoutMs = 10_000): Promise<void> 
   throw new Error('Timed out waiting for daemon socket');
 }
 
-async function waitForExit(child: ChildProcess, timeoutMs = 8_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!isPidAlive(child.pid)) return;
-    await wait(50);
-  }
-  throw new Error(`Daemon pid ${child.pid} did not exit in time`);
-}
-
 function startDaemon(): { child: ChildProcess; logs: string[] } {
   const logs: string[] = [];
   // Isolate from the user's global bases registry — see schedule-ghost-photon.test.ts.
   const isolatedRegistry = path.join(tmpDir, '.bases-test.json');
-  const child = spawn(process.execPath, [serverPath, socketPath], {
+  const child = spawnDaemonPG([serverPath, socketPath], {
     cwd: tmpDir,
     env: {
       ...process.env,
@@ -107,20 +89,7 @@ function startDaemon(): { child: ChildProcess; logs: string[] } {
 }
 
 async function stopDaemon(child: ChildProcess): Promise<void> {
-  try {
-    child.kill('SIGTERM');
-  } catch {
-    return;
-  }
-  try {
-    await waitForExit(child, 5_000);
-  } catch {
-    try {
-      child.kill('SIGKILL');
-    } catch {
-      /* ignore */
-    }
-  }
+  await stopDaemonPG(child);
 }
 
 function sendRequest(

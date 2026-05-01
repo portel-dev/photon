@@ -28,7 +28,8 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
+import { spawnDaemonPG, stopDaemonPG, isPidAlive } from './helpers/daemon-pg.js';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-imposter-test-'));
 const socketPath = path.join(tmpDir, 'daemon.sock');
@@ -38,16 +39,6 @@ const serverPath = path.join(process.cwd(), 'dist', 'daemon', 'server.js');
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isPidAlive(pid: number | undefined): boolean {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function waitForSocket(target: string, timeoutMs = 10_000): Promise<void> {
@@ -80,7 +71,7 @@ async function waitForExit(pid: number, timeoutMs = 8_000): Promise<boolean> {
 
 function startDaemon(): ChildProcess {
   const isolatedRegistry = path.join(tmpDir, '.bases-test.json');
-  return spawn(process.execPath, [serverPath, socketPath], {
+  return spawnDaemonPG([serverPath, socketPath], {
     cwd: tmpDir,
     env: {
       ...process.env,
@@ -154,21 +145,7 @@ async function main(): Promise<void> {
   } finally {
     for (const child of [daemonA, daemonB]) {
       if (!child) continue;
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        /* ignore */
-      }
-      if (child.pid) {
-        const exited = await waitForExit(child.pid, 5_000);
-        if (!exited) {
-          try {
-            child.kill('SIGKILL');
-          } catch {
-            /* ignore */
-          }
-        }
-      }
+      await stopDaemonPG(child);
     }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
