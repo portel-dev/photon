@@ -1031,7 +1031,7 @@ export class MarketplaceView extends LitElement {
           <span class="count">${this._allItems.length}</span>
         </button>
         ${this._sources
-          .filter((s) => s.enabled)
+          .filter((s) => s.enabled && !s.name.endsWith('.photon.ts'))
           .map(
             (source) => html`
               <button
