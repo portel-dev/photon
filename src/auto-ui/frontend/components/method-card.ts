@@ -655,7 +655,7 @@ export class MethodCard extends LitElement {
   private _renderParamSignature() {
     if (this.method.isTemplate) return '';
     const props = this.method.params?.properties || {};
-    const paramNames = Object.keys(props);
+    const paramNames = Object.keys(props).map((p) => formatLabel(p));
     if (paramNames.length === 0) return '';
     if (paramNames.length <= 4) {
       return html`<span class="method-params method-params-trunc">(${paramNames.join(', ')}</span

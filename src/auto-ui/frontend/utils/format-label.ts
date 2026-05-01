@@ -34,6 +34,23 @@ export function formatLabel(name: string): string {
     .split(/\s+/)
     .map((word) => {
       if (!word) return '';
+      // Mixed-case brand spellings (return as-is regardless of input case)
+      const lower = word.toLowerCase();
+      const mixedCase: Record<string, string> = {
+        oauth: 'OAuth',
+        whatsapp: 'WhatsApp',
+        github: 'GitHub',
+        gitlab: 'GitLab',
+        bitbucket: 'Bitbucket',
+        macos: 'macOS',
+        ios: 'iOS',
+        ipad: 'iPad',
+        iphone: 'iPhone',
+        npm: 'npm',
+        npx: 'npx',
+      };
+      if (lower in mixedCase) return mixedCase[lower];
+
       // Uppercase known acronyms
       const upper = word.toUpperCase();
       if (
@@ -65,6 +82,31 @@ export function formatLabel(name: string): string {
           'DB',
           'IO',
           'GIT',
+          'CPU',
+          'GPU',
+          'RAM',
+          'RPC',
+          'TCP',
+          'UDP',
+          'DNS',
+          'JWT',
+          'TLS',
+          'SSL',
+          'CDN',
+          'SVG',
+          'PNG',
+          'JPG',
+          'PDF',
+          'YAML',
+          'TOML',
+          'CSV',
+          'TSV',
+          'UUID',
+          'CRUD',
+          'REST',
+          'GRPC',
+          'MIME',
+          'PATH',
         ].includes(upper)
       ) {
         // Special case: "Ids" -> "IDs"
