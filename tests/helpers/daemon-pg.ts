@@ -18,20 +18,72 @@
  *      best-effort kills every still-tracked child group.
  */
 
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { spawn, execSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 
 const tracked = new Set<ChildProcess>();
 let cleanupInstalled = false;
 
+const REAPER_GRACE_MS = 500;
+
+function pgIsAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Block the calling thread for ~ms milliseconds without using setTimeout.
+ * Required from `process.on('exit')`, where the event loop is shut down and
+ * timers don't fire. Uses `/bin/sleep` because Node's only synchronous-sleep
+ * primitive is `Atomics.wait` on a SharedArrayBuffer, which has been gated
+ * behind COOP/COEP isolation rules in some runtimes.
+ */
+function syncSleep(ms: number): void {
+  try {
+    execSync(`/bin/sleep ${(ms / 1000).toFixed(3)}`, { stdio: 'ignore' });
+  } catch {
+    /* best-effort */
+  }
+}
+
 function installProcessCleanup(): void {
   if (cleanupInstalled) return;
   cleanupInstalled = true;
+  // Reaper escalates: SIGTERM the group, busy-wait up to REAPER_GRACE_MS,
+  // then SIGKILL anything still alive. The wait is synchronous because
+  // 'exit' handlers run after the event loop has drained — async timers
+  // and Promise resolution will not fire here. SIGKILL on a parent
+  // process is unhandleable; nothing this helper does covers that case.
   const reap = (): void => {
+    const pgids: number[] = [];
     for (const child of tracked) {
+      if (!child.pid) continue;
       try {
-        if (child.pid) process.kill(-child.pid, 'SIGTERM');
+        process.kill(-child.pid, 'SIGTERM');
+        pgids.push(child.pid);
       } catch {
         /* group already gone */
+      }
+    }
+    if (pgids.length === 0) {
+      tracked.clear();
+      return;
+    }
+    const deadline = Date.now() + REAPER_GRACE_MS;
+    while (Date.now() < deadline) {
+      if (pgids.every((pgid) => !pgIsAlive(pgid))) break;
+      syncSleep(50);
+    }
+    for (const pgid of pgids) {
+      if (pgIsAlive(pgid)) {
+        try {
+          process.kill(-pgid, 'SIGKILL');
+        } catch {
+          /* race with natural exit */
+        }
       }
     }
     tracked.clear();
@@ -86,29 +138,55 @@ async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
  * the group signal is denied (EPERM on shared CI hosts) and finally to
  * SIGKILL if the daemon ignores TERM. Always removes the child from the
  * tracked set so the process-exit reaper doesn't double-fire.
+ *
+ * Logs (to stderr) when both group-kill and per-pid kill fail with
+ * something other than ESRCH, so a leak path becomes visible in test
+ * output instead of silently dropping the child from tracking.
  */
 export async function stopDaemonPG(child: ChildProcess, timeoutMs = 5_000): Promise<void> {
   tracked.delete(child);
   if (!child.pid) return;
   const pid = child.pid;
+  let signaled = false;
   try {
     process.kill(-pid, 'SIGTERM');
-  } catch {
-    try {
-      child.kill('SIGTERM');
-    } catch {
+    signaled = true;
+  } catch (groupErr: any) {
+    if (groupErr?.code !== 'ESRCH') {
+      try {
+        child.kill('SIGTERM');
+        signaled = true;
+      } catch (perPidErr: any) {
+        if (perPidErr?.code !== 'ESRCH') {
+          console.error(
+            `[daemon-pg] stopDaemonPG: both group and per-pid SIGTERM failed for pid ${pid}: ` +
+              `group=${groupErr?.code ?? groupErr?.message}, perPid=${perPidErr?.code ?? perPidErr?.message}`
+          );
+        }
+        return;
+      }
+    } else {
+      // ESRCH on group => already gone, treat as success.
       return;
     }
   }
+  if (!signaled) return;
   const exited = await waitForExit(pid, timeoutMs);
   if (!exited) {
     try {
       process.kill(-pid, 'SIGKILL');
-    } catch {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        /* already gone */
+    } catch (groupErr: any) {
+      if (groupErr?.code !== 'ESRCH') {
+        try {
+          child.kill('SIGKILL');
+        } catch (perPidErr: any) {
+          if (perPidErr?.code !== 'ESRCH') {
+            console.error(
+              `[daemon-pg] stopDaemonPG: SIGKILL escalation failed for pid ${pid}: ` +
+                `group=${groupErr?.code ?? groupErr?.message}, perPid=${perPidErr?.code ?? perPidErr?.message}`
+            );
+          }
+        }
       }
     }
   }

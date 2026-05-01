@@ -10,25 +10,62 @@ import type { Command } from 'commander';
 import { getErrorMessage } from '../../shared/error-handler.js';
 
 const PHOTON_FILE_EXTS = ['.photon.ts', '.photon.tsx', '.photon.js'];
+
+// Directories that never contain user-authored photons. Walking into them
+// just wastes IO. Covers the JS/TS, Python, Rust, Java, Cocoa, and Ruby
+// build/cache trees — codex consult P8 finding.
 const SKIP_DIRS = new Set([
   'node_modules',
-  '.git',
-  '.data',
-  '.cache',
   'dist',
   'build',
   'out',
+  'target',
+  'vendor',
+  'coverage',
+  'Pods',
+  'DerivedData',
+  '.git',
   '.next',
+  '.turbo',
+  '.parcel-cache',
+  '.cache',
+  '.data',
+  '.gradle',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.tox',
 ]);
 
 /**
  * Return true if `dir` (or any subdirectory) contains a `.photon.{ts,tsx,js}`
- * file. Returns at first hit; bounded by `MAX_DEPTH` so a misplaced base
- * pointing at `$HOME` doesn't walk the whole filesystem. Skips well-known
- * heavy directories (node_modules, .git, dist, etc.).
+ * file. Bounded by `maxDepth` so a base pointing at `$HOME` does not walk
+ * the entire tree.
+ *
+ * Dot-directories: codex consult P7 — the previous walker skipped every
+ * dot-dir, which can hide a legitimate photon under `.examples/` or a
+ * user-authored hidden folder. Now only skips entries explicitly listed
+ * in SKIP_DIRS, so user-authored hidden dirs are visited.
+ *
+ * Symlinks: `Dirent.isDirectory()` is false for symlinked directories, so
+ * the previous walker silently ignored them. We now check
+ * `Dirent.isSymbolicLink()`, resolve via `fs.realpathSync.native`, and
+ * traverse the target. A `visited` set keyed on real paths prevents loops
+ * (a -> b -> a or self-symlinks).
  */
 function hasPhotonFile(dir: string, maxDepth = 6): boolean {
-  const stack: Array<{ p: string; d: number }> = [{ p: dir, d: 0 }];
+  const visited = new Set<string>();
+  let startReal: string;
+  try {
+    startReal = fs.realpathSync.native(dir);
+  } catch {
+    return false;
+  }
+  visited.add(startReal);
+  const stack: Array<{ p: string; d: number }> = [{ p: startReal, d: 0 }];
+
   while (stack.length > 0) {
     const { p, d } = stack.pop()!;
     let entries: fs.Dirent[];
@@ -40,10 +77,31 @@ function hasPhotonFile(dir: string, maxDepth = 6): boolean {
     for (const entry of entries) {
       if (entry.isFile()) {
         if (PHOTON_FILE_EXTS.some((ext) => entry.name.endsWith(ext))) return true;
-      } else if (entry.isDirectory() && d < maxDepth) {
-        if (SKIP_DIRS.has(entry.name)) continue;
-        if (entry.name.startsWith('.') && entry.name !== '.') continue;
-        stack.push({ p: path.join(p, entry.name), d: d + 1 });
+        continue;
+      }
+      if (d >= maxDepth) continue;
+      if (SKIP_DIRS.has(entry.name)) continue;
+
+      const childPath = path.join(p, entry.name);
+      if (entry.isDirectory()) {
+        stack.push({ p: childPath, d: d + 1 });
+      } else if (entry.isSymbolicLink()) {
+        let real: string;
+        try {
+          real = fs.realpathSync.native(childPath);
+        } catch {
+          continue;
+        }
+        if (visited.has(real)) continue;
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(real);
+        } catch {
+          continue;
+        }
+        if (!stat.isDirectory()) continue;
+        visited.add(real);
+        stack.push({ p: real, d: d + 1 });
       }
     }
   }
