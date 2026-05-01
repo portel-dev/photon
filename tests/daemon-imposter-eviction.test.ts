@@ -79,9 +79,14 @@ async function waitForExit(pid: number, timeoutMs = 8_000): Promise<boolean> {
 }
 
 function startDaemon(): ChildProcess {
+  const isolatedRegistry = path.join(tmpDir, '.bases-test.json');
   return spawn(process.execPath, [serverPath, socketPath], {
     cwd: tmpDir,
-    env: { ...process.env, PHOTON_DIR: tmpDir },
+    env: {
+      ...process.env,
+      PHOTON_DIR: tmpDir,
+      PHOTON_BASES_REGISTRY: isolatedRegistry,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }

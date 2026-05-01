@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { spawnSync } from 'child_process';
 import { SessionManager } from './session-manager.js';
 import { transferHotReloadState } from './hot-reload-state.js';
 import { resolveWithGlobalFallback } from './session-resolver.js';
@@ -654,7 +655,13 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
   const job = scheduledJobs.get(jobId);
   if (!job) return;
 
-  const key = compositeKey(job.photonName, job.workingDir);
+  // `key` may be recomputed after the legacy-base self-heal below — the
+  // initial value reflects the schedule's stored workingDir (often undefined
+  // for legacy ScheduleProvider files), and the post-pin value reflects the
+  // resolved owning base. trackExecution/untrackExecution must run against
+  // the post-pin key so hot-reload drain sees the in-flight execution under
+  // the same key that other code paths use for the photon. Codex P3.
+  let key = compositeKey(job.photonName, job.workingDir);
 
   // Phantom prune: when a ScheduleProvider-sourced job's backing file
   // has been deleted (e.g. `this.schedule.cancel()` ran the unlink
@@ -729,6 +736,11 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
     // defaultBase) returns null again and the schedule reschedules forever.
     if (!job.workingDir && probe.ownerBase) {
       job.workingDir = probe.ownerBase;
+      // Recompute the execution key against the resolved base so
+      // trackExecution/untrackExecution and any consumer that looks up the
+      // base-scoped key (notably hot-reload drain) see this run under the
+      // same identity as the rest of the photon's lifecycle.
+      key = compositeKey(job.photonName, job.workingDir);
       logger.info('Pinned scheduled job to resolved base — retrying lazy-load', {
         jobId,
         photon: job.photonName,
@@ -5630,8 +5642,6 @@ function findImposterDaemonPids(): number[] {
   if (process.platform === 'win32') return [];
   const pids: number[] = [];
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { spawnSync } = require('child_process') as typeof import('child_process');
     const result = spawnSync('ps', ['-ax', '-o', 'pid=,args='], {
       encoding: 'utf-8',
       timeout: 3000,

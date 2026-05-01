@@ -97,9 +97,18 @@ async function waitForExit(child: ChildProcess, timeoutMs = 8_000): Promise<void
 
 function startDaemon(): { child: ChildProcess; logs: string[] } {
   const logs: string[] = [];
+  // Isolate from the user's global bases registry (~/.photon/.data/.bases.json).
+  // Without this, the test daemon discovers every PHOTON_DIR the user has
+  // ever opened — slowing boot, polluting active schedules, and making
+  // assertions timing-sensitive.
+  const isolatedRegistry = path.join(tmpDir, '.bases-test.json');
   const child = spawn(process.execPath, [serverPath, socketPath], {
     cwd: tmpDir,
-    env: { ...process.env, PHOTON_DIR: tmpDir },
+    env: {
+      ...process.env,
+      PHOTON_DIR: tmpDir,
+      PHOTON_BASES_REGISTRY: isolatedRegistry,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout?.on('data', (d) => logs.push(...d.toString().split('\n').filter(Boolean)));
