@@ -197,7 +197,15 @@ async function main(): Promise<void> {
   try {
     await test('boot loader unlinks ghost ScheduleProvider files when source is missing', async () => {
       const ghostFile = plantGhostScheduleFile(ghostPhoton, 'poll_inbox', '* * * * *');
-      const liveSchedFile = plantGhostScheduleFile(livePhoton, 'tick', '0 12 * * *');
+      // Use a method that has no @scheduled annotation so the boot-time
+      // annotation-vs-provider dedup doesn't legitimately drop this file.
+      // (livePhotonSource only annotates `tick`; `provider_only_method`
+      // exists in source but not in any @scheduled tag.)
+      const liveSchedFile = plantGhostScheduleFile(
+        livePhoton,
+        'provider_only_method',
+        '0 12 * * *'
+      );
       assert.ok(fs.existsSync(ghostFile), 'ghost file must exist before daemon boot');
       assert.ok(fs.existsSync(liveSchedFile), 'live file must exist before daemon boot');
 
@@ -224,6 +232,46 @@ async function main(): Promise<void> {
         ghostActive,
         false,
         `ghost photon must not appear in active schedules. active=${JSON.stringify(snap.data.active)}`
+      );
+    });
+
+    await test('boot dedup: @scheduled annotation drops ScheduleProvider duplicate for the same method', async () => {
+      // Field repro: a photon (e.g. kith-sync) annotates `scheduled_sync`
+      // with @scheduled AND also calls `this.schedule.create({ method:
+      // "scheduled_sync" })` from inside the class. Both registrations
+      // landed in the cron map at boot, so the method fired twice per
+      // interval. Annotation is the source of truth; provider duplicate
+      // must be evicted AND its persisted file removed at boot.
+      const dupFile = plantGhostScheduleFile(livePhoton, 'tick', '0 12 * * *');
+      assert.ok(fs.existsSync(dupFile), 'duplicate provider file must exist before boot');
+
+      // Restart daemon so the boot path runs against the planted file.
+      if (daemon) await stopDaemon(daemon);
+      try {
+        fs.unlinkSync(socketPath);
+      } catch {
+        /* already gone */
+      }
+      ({ child: daemon } = startDaemon());
+      await waitForSocket(socketPath);
+      await wait(1_500);
+
+      assert.equal(
+        fs.existsSync(dupFile),
+        false,
+        'ScheduleProvider file for an @scheduled-annotated method must be unlinked at boot'
+      );
+
+      const snap = (await sendRequest(socketPath, { type: 'ps' })) as {
+        data: { active: Array<{ id: string; photon: string; method: string }> };
+      };
+      const tickJobs = snap.data.active.filter(
+        (a) => a.photon === livePhoton && a.method === 'tick'
+      );
+      assert.equal(
+        tickJobs.length,
+        1,
+        `exactly one timer must remain for tick (annotation wins). got: ${JSON.stringify(tickJobs)}`
       );
     });
 

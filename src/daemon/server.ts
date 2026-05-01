@@ -1678,6 +1678,39 @@ function syncActiveSchedulesAtBoot(): void {
         continue;
       }
       if (scheduledJobs.has(key)) continue;
+      // Boot-time annotation-vs-provider dedup: a photon that uses both
+      // `@scheduled` AND `this.schedule.create()` for the same method ends
+      // up with both a persisted ScheduleProvider file and an annotation
+      // job. The runtime dedup in autoRegisterFromMetadata only catches
+      // this AFTER the photon is loaded into a session — at boot, both
+      // already landed in scheduledJobs from loadAllPersistedSchedules.
+      // The annotation is the source of truth (codebase intent), so drop
+      // the provider sibling and unlink its persisted file. Without this,
+      // a kith-sync method like scheduled_freshness_scan fires every 15
+      // minutes from BOTH timers; field reports show duplicate browser
+      // navigation and double API calls.
+      for (const [staleKey, job] of Array.from(scheduledJobs.entries())) {
+        if (job.photonName !== entry.photon || job.method !== entry.method) continue;
+        if (staleKey === key) continue;
+        if (!staleKey.includes(':sched:')) continue; // only ScheduleProvider keys
+        const jobBase = job.workingDir ? path.resolve(job.workingDir) : undefined;
+        if (jobBase && jobBase !== basePath) continue; // scope to this base
+        logger.info('Dropping ScheduleProvider duplicate of @scheduled method', {
+          photon: entry.photon,
+          method: entry.method,
+          providerJobId: staleKey,
+          annotationJobId: key,
+          sourceFile: job.sourceFile,
+        });
+        if (job.sourceFile) {
+          try {
+            fs.unlinkSync(job.sourceFile);
+          } catch {
+            // File may have been removed concurrently
+          }
+        }
+        unscheduleJob(staleKey);
+      }
       const ok = scheduleJob({
         id: key,
         method: decl.method,
