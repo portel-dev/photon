@@ -496,9 +496,7 @@ export class ResultViewer extends LitElement {
         width: 140px;
         font-weight: 600;
         color: var(--t-muted);
-        text-transform: uppercase;
         font-size: var(--text-xs);
-        letter-spacing: 0.05em;
       }
 
       /* List Styles */
@@ -9405,7 +9403,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
   }
 
   private _applyPipe(value: any, pipe: string, arg?: string): string {
-    if (value === null || value === undefined) return '—';
+    if (value === null || value === undefined) return '·';
     switch (pipe) {
       case 'currency':
         return typeof value === 'number'
@@ -9443,12 +9441,12 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
   }
 
   private _formatCellValue(value: any, key: string, highlight = false): TemplateResult | string {
-    if (value === null || value === undefined) return '—';
+    if (value === null || value === undefined) return '·';
     if (
       value === '' ||
       (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
     )
-      return '—';
+      return '·';
     if (typeof value === 'boolean') return value ? '✓' : '✗';
 
     // Check for column format pipe (from @columnFormats hint)
@@ -9514,7 +9512,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     }
 
     if (Array.isArray(value)) {
-      if (value.length === 0) return '—';
+      if (value.length === 0) return '·';
       // Array of primitives → inline chips
       if (value.every((v) => typeof v !== 'object' || v === null)) {
         return html`<span style="display:flex;flex-wrap:wrap;gap:3px;"
