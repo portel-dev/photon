@@ -821,30 +821,34 @@ function resolveScheduleDir(photonName: string, workingDir?: string): string {
 const PHOTON_SOURCE_EXTENSIONS = ['.photon.ts', '.photon.tsx', '.photon.js'];
 
 /**
- * Synchronous probe for whether a photon's source file exists in any base
- * the daemon knows about. Mirrors the search order of @portel/photon-core's
- * async `resolvePhotonPath` (flat first, then one-level namespace subdirs)
- * but stays sync so it can be called from cron tick handlers and the boot
- * schedule loader without an extra await.
+ * Synchronous probe for whether a photon's source file is resolvable from
+ * the schedule's owning base. Mirrors the resolution path used by `runJob`
+ * (workingDir first, then default base) so a ghost detected here is exactly
+ * a schedule whose lazy-load would also fail at fire time.
  *
- * Used to detect ghost schedules: a `<base>/.data/<photon>/schedules/*.json`
- * file persists across restarts even after the photon source is uninstalled.
- * Without this probe, ghost schedules either fire forever (short cron) or
- * sit dormant and reappear after every restart.
+ * The probe is intentionally TIGHT: it does NOT walk every registered base.
+ * A photon installed at `~/Projects/foo/x.photon.ts` is "the foo photon
+ * under foo base", not "x.photon.ts everywhere". Without this scoping, a
+ * legitimate copy of `claw` under `~/Projects/claw/` would mask ghost claw
+ * schedule files left behind in `~/Projects/kith/.data/claw/schedules/` and
+ * the kith ghost would keep firing — exactly what the broader probe missed
+ * on the laptop where multiple bases coexist.
+ *
+ * Mirrors the search order of @portel/photon-core's async resolvePhotonPath
+ * (flat files first, then one-level namespace subdirs) but stays sync so
+ * cron tick handlers and the boot schedule loader can call it without
+ * an await.
  */
 function isPhotonSourceResolvableSync(photonName: string, baseHint?: string): boolean {
-  const candidates = new Set<string>();
-  if (baseHint) candidates.add(path.resolve(baseHint));
+  const candidates: string[] = [];
+  if (baseHint) candidates.push(path.resolve(baseHint));
+  let defaultBase: string | undefined;
   try {
-    candidates.add(path.resolve(getDefaultContext().baseDir));
+    defaultBase = path.resolve(getDefaultContext().baseDir);
   } catch {
     /* default context may be missing in early boot */
   }
-  try {
-    for (const b of listActiveBases()) candidates.add(path.resolve(b.path));
-  } catch {
-    /* registry may not be initialized */
-  }
+  if (defaultBase && !candidates.includes(defaultBase)) candidates.push(defaultBase);
   for (const base of candidates) {
     for (const ext of PHOTON_SOURCE_EXTENSIONS) {
       if (fs.existsSync(path.join(base, `${photonName}${ext}`))) return true;

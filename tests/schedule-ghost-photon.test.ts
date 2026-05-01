@@ -227,6 +227,52 @@ async function main(): Promise<void> {
       );
     });
 
+    await test('cross-base ghost: photon in base A is NOT enough to keep schedules alive in base B', async () => {
+      // Real-world case from the laptop: claw photon exists at
+      // `/Users/arul/Projects/claw/claw.photon.ts` (legitimate), but stale
+      // claw schedule files left behind in `/Users/arul/Projects/kith/.data/`
+      // were also being kept alive by the original loose probe. Tightening
+      // the probe to "schedule's own base + default" matches runJob's
+      // resolution path so ghosts in unrelated bases are correctly dropped.
+      const otherBase = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-other-base-'));
+      try {
+        // Plant the photon in the "other" base only.
+        fs.writeFileSync(
+          path.join(otherBase, 'cross-base-photon.photon.ts'),
+          `export default class CrossBase {
+            /** @scheduled 0 12 * * * */
+            async tick() { return { ok: true }; }
+          }`
+        );
+        // Plant a schedule for it in OUR tmpDir base (no source here).
+        const crossGhost = plantGhostScheduleFile('cross-base-photon', 'tick', '* * * * *');
+        assert.ok(fs.existsSync(crossGhost), 'cross-base ghost file must exist');
+
+        // Force the daemon to re-run the boot loader by sending a
+        // request that triggers schedule reload. Since the daemon is
+        // already up, plant the file then send any RPC — the boot
+        // loader path won't re-run mid-session, so we instead just
+        // restart the daemon for this assertion.
+        if (daemon) await stopDaemon(daemon);
+        try {
+          fs.unlinkSync(socketPath);
+        } catch {
+          /* already gone */
+        }
+        ({ child: daemon } = startDaemon());
+        await waitForSocket(socketPath);
+        await wait(1_500);
+
+        assert.equal(
+          fs.existsSync(crossGhost),
+          false,
+          'cross-base ghost must be unlinked: a photon in another base does not legitimize schedules under THIS base'
+        );
+      } finally {
+        fs.rmSync(otherBase, { recursive: true, force: true });
+      }
+    });
+
     await test('disable_schedule unlinks orphan ScheduleProvider files across all bases', async () => {
       // Plant a fresh orphan after boot — the boot-loader path can't fire
       // again until restart, so this exercises the disable_schedule cleanup
