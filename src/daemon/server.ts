@@ -821,37 +821,79 @@ function resolveScheduleDir(photonName: string, workingDir?: string): string {
 const PHOTON_SOURCE_EXTENSIONS = ['.photon.ts', '.photon.tsx', '.photon.js'];
 
 /**
- * Synchronous probe for whether a photon's source file is resolvable from
- * the schedule's owning base. Mirrors the resolution path used by `runJob`
- * (workingDir first, then default base) so a ghost detected here is exactly
- * a schedule whose lazy-load would also fail at fire time.
+ * Synchronous probe for whether a photon's source file is resolvable.
+ * Mirrors the resolution semantics used by `runJob` and the photon-core
+ * async `resolvePhotonPath`: namespace-qualified names (`team:foo`) only
+ * search `<base>/team/foo.photon.{ts,tsx,js}`; unqualified names search
+ * flat files first, then one-level namespace subdirs.
  *
- * The probe is intentionally TIGHT: it does NOT walk every registered base.
- * A photon installed at `~/Projects/foo/x.photon.ts` is "the foo photon
- * under foo base", not "x.photon.ts everywhere". Without this scoping, a
- * legitimate copy of `claw` under `~/Projects/claw/` would mask ghost claw
- * schedule files left behind in `~/Projects/kith/.data/claw/schedules/` and
- * the kith ghost would keep firing — exactly what the broader probe missed
- * on the laptop where multiple bases coexist.
+ * Scoping rules:
+ *   - When `baseHint` is supplied (per-base layout: schedule has a
+ *     `workingDir`), probe ONLY that base + the default base. This is the
+ *     resolver runJob actually uses, so a ghost detected here is exactly a
+ *     schedule whose lazy-load would fail at fire time. Do NOT walk every
+ *     registered base — a legitimate copy of `claw` at `~/Projects/claw/`
+ *     must not mask stale claw schedule files left in
+ *     `~/Projects/kith/.data/claw/schedules/`.
+ *   - When `baseHint` is undefined (legacy `~/.photon/schedules/<photon>/`
+ *     layout — no `workingDir` recorded on the task), the schedule could
+ *     belong to a photon in any registered base. Walk every base in the
+ *     active registry. This avoids deleting valid legacy ScheduleProvider
+ *     files for photons that live in a non-default PHOTON_DIR (Codex P2
+ *     finding).
  *
- * Mirrors the search order of @portel/photon-core's async resolvePhotonPath
- * (flat files first, then one-level namespace subdirs) but stays sync so
- * cron tick handlers and the boot schedule loader can call it without
- * an await.
+ * Sync so cron tick handlers and the boot schedule loader can call it
+ * without an await.
  */
 function isPhotonSourceResolvableSync(photonName: string, baseHint?: string): boolean {
+  // Parse `namespace:name` format the same way photon-core's resolvePath does.
+  // Without this, a namespaced photon like `team:foo` would be probed as the
+  // literal string `team:foo.photon.ts` (which never exists) and its valid
+  // schedule file under `<base>/team/foo.photon.ts` would be unlinked at
+  // boot. Codex P2 finding.
+  const colonIdx = photonName.indexOf(':');
+  let namespace: string | undefined;
+  let bareName = photonName;
+  if (colonIdx !== -1) {
+    namespace = photonName.slice(0, colonIdx);
+    bareName = photonName.slice(colonIdx + 1);
+  }
+
   const candidates: string[] = [];
-  if (baseHint) candidates.push(path.resolve(baseHint));
   let defaultBase: string | undefined;
   try {
     defaultBase = path.resolve(getDefaultContext().baseDir);
   } catch {
     /* default context may be missing in early boot */
   }
-  if (defaultBase && !candidates.includes(defaultBase)) candidates.push(defaultBase);
+  if (baseHint) {
+    candidates.push(path.resolve(baseHint));
+    if (defaultBase && !candidates.includes(defaultBase)) candidates.push(defaultBase);
+  } else {
+    // Legacy layout: no owning base recorded. The photon could live in
+    // any registered base — walk all of them before declaring missing.
+    if (defaultBase) candidates.push(defaultBase);
+    try {
+      for (const b of listActiveBases()) {
+        const resolved = path.resolve(b.path);
+        if (!candidates.includes(resolved)) candidates.push(resolved);
+      }
+    } catch {
+      /* registry may not be initialized */
+    }
+  }
+
   for (const base of candidates) {
+    if (namespace) {
+      // Namespace-qualified: only `<base>/<namespace>/<name>.photon.{ts,tsx,js}`.
+      for (const ext of PHOTON_SOURCE_EXTENSIONS) {
+        if (fs.existsSync(path.join(base, namespace, `${bareName}${ext}`))) return true;
+      }
+      continue;
+    }
+    // Unqualified: flat first, then one-level namespace subdirs.
     for (const ext of PHOTON_SOURCE_EXTENSIONS) {
-      if (fs.existsSync(path.join(base, `${photonName}${ext}`))) return true;
+      if (fs.existsSync(path.join(base, `${bareName}${ext}`))) return true;
     }
     let entries: fs.Dirent[];
     try {
@@ -863,7 +905,7 @@ function isPhotonSourceResolvableSync(photonName: string, baseHint?: string): bo
       if (!entry.isDirectory()) continue;
       if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
       for (const ext of PHOTON_SOURCE_EXTENSIONS) {
-        if (fs.existsSync(path.join(base, entry.name, `${photonName}${ext}`))) return true;
+        if (fs.existsSync(path.join(base, entry.name, `${bareName}${ext}`))) return true;
       }
     }
   }
