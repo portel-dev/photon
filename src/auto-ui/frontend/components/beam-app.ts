@@ -9933,7 +9933,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           <h2
             style="font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; color: var(--t-primary); margin: 0 0 4px 0;"
           >
-            ${photon.name} Settings
+            ${formatLabel(photon.name)} Settings
           </h2>
           <p style="color: var(--t-muted); font-size: var(--text-sm); margin: 0; line-height: 1.5;">
             ${activeTab === 'setup'
