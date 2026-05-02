@@ -182,107 +182,201 @@ export class DaemonPanel extends LitElement {
         overflow-y: auto;
       }
 
-      h1 {
-        font-size: 1.5rem;
-        margin: 0 0 var(--space-sm) 0;
+      .pulse-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--space-md);
+        margin-bottom: var(--space-xs);
       }
 
-      h2 {
-        font-size: 1rem;
-        margin: var(--space-lg) 0 var(--space-xs) 0;
+      h1 {
+        font-size: 1.5rem;
+        margin: 0;
         color: var(--t-primary);
+      }
+
+      .auto-refresh {
+        color: var(--t-muted);
+        font-size: 0.8rem;
       }
 
       p.hint {
         color: var(--t-muted);
         font-size: 0.85rem;
-        margin: 0 0 var(--space-md) 0;
+        margin: 0 0 var(--space-lg) 0;
       }
 
-      .refresh-bar {
-        display: flex;
-        align-items: center;
-        gap: var(--space-sm);
+      /* Card-style section */
+      section.card {
+        background: color-mix(in srgb, var(--bg-glass) 60%, transparent);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
         margin-bottom: var(--space-md);
       }
 
-      button.refresh {
-        background: var(--surface-secondary, #222);
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-md);
+        margin-bottom: var(--space-sm);
+      }
+
+      .section-title {
+        margin: 0;
+        font-size: var(--text-sm);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
         color: var(--t-primary);
-        border: 1px solid var(--border, #333);
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+
+      .section-count {
+        color: var(--t-muted);
+        font-size: var(--text-xs);
+        font-weight: 500;
+        letter-spacing: normal;
+        text-transform: none;
+      }
+
+      .section-hint {
+        color: var(--t-muted);
+        font-size: 0.8rem;
+        margin: 0 0 var(--space-sm) 0;
+      }
+
+      button.refresh {
+        background: var(--bg-glass);
+        color: var(--t-primary);
+        border: 1px solid var(--border-glass);
         padding: 4px 12px;
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         cursor: pointer;
+        font-size: 0.85rem;
+        transition: all 0.15s ease;
       }
       button.refresh:hover {
-        background: var(--surface-hover, #2a2a2a);
+        background: var(--bg-glass-strong);
+        border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-glass));
+      }
+      button.refresh:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
       }
 
       .table-wrap {
         overflow-x: auto;
-        border: 1px solid var(--border, #333);
-        border-radius: 4px;
       }
 
       table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         font-size: 0.85rem;
       }
 
       th,
       td {
-        padding: 6px 10px;
+        padding: 8px 10px;
         text-align: left;
-        border-bottom: 1px solid var(--border, #2a2a2a);
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      tbody tr:hover td {
+        background: color-mix(in srgb, var(--bg-glass) 60%, transparent);
       }
 
       th {
-        background: var(--surface-secondary, #1a1a1a);
+        background: transparent;
         font-weight: 600;
         color: var(--t-muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      th.num,
+      td.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      td.cron {
+        font-family: var(--font-mono);
+        color: var(--t-muted);
+      }
+
+      td.method {
+        color: var(--t-primary);
+        font-weight: 500;
+      }
+
+      td.location {
+        color: var(--t-muted);
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
       }
 
       tr.empty td {
         text-align: center;
         color: var(--t-muted);
         padding: var(--space-md);
+        font-style: italic;
       }
 
       .actions {
         display: flex;
         gap: 4px;
+        justify-content: flex-end;
       }
 
       .actions button {
         font-size: 0.75rem;
-        padding: 2px 8px;
-        border: 1px solid var(--border, #333);
+        padding: 3px 10px;
+        border: 1px solid var(--border-glass);
         background: transparent;
         color: var(--t-primary);
         cursor: pointer;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
+        transition: all 0.15s ease;
       }
 
       .actions button:hover {
-        background: var(--surface-hover, #2a2a2a);
+        background: var(--bg-glass-strong);
+        border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-glass));
+      }
+
+      .actions button.primary {
+        background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-glass));
+        border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-glass));
       }
 
       .status-success {
-        color: var(--success, #4ade80);
+        color: var(--color-success, #4ade80);
       }
       .status-error {
-        color: var(--danger, #f87171);
+        color: var(--color-error, #f87171);
       }
       .status-timeout {
-        color: var(--warning, #fbbf24);
+        color: var(--color-warning, #fbbf24);
       }
 
       .error {
-        background: var(--danger-bg, #3a1b1b);
-        color: var(--danger, #f87171);
-        padding: var(--space-sm);
-        border-radius: 4px;
+        background: color-mix(in srgb, var(--color-error, #f87171) 12%, transparent);
+        color: var(--color-error, #f87171);
+        border: 1px solid color-mix(in srgb, var(--color-error, #f87171) 30%, transparent);
+        padding: var(--space-sm) var(--space-md);
+        border-radius: var(--radius-sm);
         font-size: 0.85rem;
         margin-bottom: var(--space-md);
       }
@@ -293,8 +387,8 @@ export class DaemonPanel extends LitElement {
         right: 0;
         bottom: 0;
         width: min(520px, 100vw);
-        background: var(--surface-primary, #111);
-        border-left: 1px solid var(--border, #333);
+        background: var(--bg-elevated, #111);
+        border-left: 1px solid var(--border-glass);
         padding: var(--space-md);
         overflow-y: auto;
         z-index: 9999;
@@ -310,11 +404,11 @@ export class DaemonPanel extends LitElement {
 
       .drawer-header button {
         background: transparent;
-        border: 1px solid var(--border, #333);
+        border: 1px solid var(--border-glass);
         color: var(--t-primary);
         padding: 4px 10px;
         cursor: pointer;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
       }
     `,
   ];
@@ -417,168 +511,199 @@ export class DaemonPanel extends LitElement {
     this._history = null;
   }
 
+  private _sectionHead(title: string, count: number) {
+    return html`
+      <div class="section-head">
+        <h2 class="section-title">
+          ${title} ${count > 0 ? html`<span class="section-count">${count}</span>` : ''}
+        </h2>
+      </div>
+    `;
+  }
+
   private _renderActive() {
     const rows = this._snap?.active ?? [];
     return html`
-      <h2>Active schedules (${rows.length})</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Location</th>
-              <th>Photon</th>
-              <th>Method</th>
-              <th>Cron</th>
-              <th>Next run</th>
-              <th>Last run</th>
-              <th>Runs</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.length === 0
-              ? html`<tr class="empty">
-                  <td colspan="8">no active schedules</td>
-                </tr>`
-              : rows.map(
-                  (r) => html`
-                    <tr>
-                      <td>${tilde(r.workingDir)}</td>
-                      <td>${r.photon}</td>
-                      <td>${formatLabel(r.method)}</td>
-                      <td title="${r.cron}">${humanizeCron(r.cron)}</td>
-                      <td>${formatWhen(r.nextRun)}</td>
-                      <td>${formatWhen(r.lastRun)}</td>
-                      <td>${r.runCount}</td>
-                      <td class="actions">
-                        <button @click=${() => this._openHistory(r.photon, r.method)}>
-                          History
-                        </button>
-                        <button @click=${() => this._scheduleAction('pause', r.photon, r.method)}>
-                          Pause
-                        </button>
-                        <button @click=${() => this._scheduleAction('disable', r.photon, r.method)}>
-                          Disable
-                        </button>
-                      </td>
-                    </tr>
-                  `
-                )}
-          </tbody>
-        </table>
-      </div>
+      <section class="card">
+        ${this._sectionHead('Active schedules', rows.length)}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Location</th>
+                <th>Photon</th>
+                <th>Method</th>
+                <th>Cron</th>
+                <th>Next run</th>
+                <th>Last run</th>
+                <th class="num">Runs</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length === 0
+                ? html`<tr class="empty">
+                    <td colspan="8">No active schedules.</td>
+                  </tr>`
+                : rows.map(
+                    (r) => html`
+                      <tr>
+                        <td class="location" title="${r.workingDir ?? ''}">
+                          ${tilde(r.workingDir)}
+                        </td>
+                        <td>${r.photon}</td>
+                        <td class="method">${formatLabel(r.method)}</td>
+                        <td class="cron" title="${r.cron}">${humanizeCron(r.cron)}</td>
+                        <td>${formatWhen(r.nextRun)}</td>
+                        <td>${formatWhen(r.lastRun)}</td>
+                        <td class="num">${r.runCount}</td>
+                        <td class="actions">
+                          <button @click=${() => this._openHistory(r.photon, r.method)}>
+                            History
+                          </button>
+                          <button @click=${() => this._scheduleAction('pause', r.photon, r.method)}>
+                            Pause
+                          </button>
+                          <button
+                            @click=${() => this._scheduleAction('disable', r.photon, r.method)}
+                          >
+                            Disable
+                          </button>
+                        </td>
+                      </tr>
+                    `
+                  )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     `;
   }
 
   private _renderDeclared() {
     const rows = (this._snap?.declared ?? []).filter((d) => !d.active);
     return html`
-      <h2>Declared but not enrolled (${rows.length})</h2>
-      <p class="hint">
-        These photons declare <code>@scheduled</code> methods that haven't been enrolled yet.
-      </p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Location</th>
-              <th>Photon</th>
-              <th>Method</th>
-              <th>Cron</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.length === 0
-              ? html`<tr class="empty">
-                  <td colspan="5">no dormant declarations</td>
-                </tr>`
-              : rows.map(
-                  (r) => html`
-                    <tr>
-                      <td>${tilde(r.workingDir)}</td>
-                      <td>${r.photon}</td>
-                      <td>${formatLabel(r.method)}</td>
-                      <td title="${r.cron}">${humanizeCron(r.cron)}</td>
-                      <td class="actions">
-                        <button @click=${() => this._scheduleAction('enable', r.photon, r.method)}>
-                          Enable
-                        </button>
-                      </td>
-                    </tr>
-                  `
-                )}
-          </tbody>
-        </table>
-      </div>
+      <section class="card">
+        ${this._sectionHead('Declared but not enrolled', rows.length)}
+        <p class="section-hint">
+          Photons declaring <code>@scheduled</code> methods that haven't been enrolled yet.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Location</th>
+                <th>Photon</th>
+                <th>Method</th>
+                <th>Cron</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length === 0
+                ? html`<tr class="empty">
+                    <td colspan="5">No dormant declarations.</td>
+                  </tr>`
+                : rows.map(
+                    (r) => html`
+                      <tr>
+                        <td class="location" title="${r.workingDir ?? ''}">
+                          ${tilde(r.workingDir)}
+                        </td>
+                        <td>${r.photon}</td>
+                        <td class="method">${formatLabel(r.method)}</td>
+                        <td class="cron" title="${r.cron}">${humanizeCron(r.cron)}</td>
+                        <td class="actions">
+                          <button
+                            class="primary"
+                            @click=${() => this._scheduleAction('enable', r.photon, r.method)}
+                          >
+                            Enable
+                          </button>
+                        </td>
+                      </tr>
+                    `
+                  )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     `;
   }
 
   private _renderWebhooks() {
     const rows = this._snap?.webhooks ?? [];
     return html`
-      <h2>Webhooks (${rows.length})</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Location</th>
-              <th>Photon</th>
-              <th>Route</th>
-              <th>Method</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.length === 0
-              ? html`<tr class="empty">
-                  <td colspan="4">no webhook routes</td>
-                </tr>`
-              : rows.map(
-                  (r) => html`
-                    <tr>
-                      <td>${tilde(r.workingDir)}</td>
-                      <td>${r.photon}</td>
-                      <td><code>${r.route}</code></td>
-                      <td>${formatLabel(r.method)}</td>
-                    </tr>
-                  `
-                )}
-          </tbody>
-        </table>
-      </div>
+      <section class="card">
+        ${this._sectionHead('Webhooks', rows.length)}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Location</th>
+                <th>Photon</th>
+                <th>Route</th>
+                <th>Method</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length === 0
+                ? html`<tr class="empty">
+                    <td colspan="4">No webhook routes.</td>
+                  </tr>`
+                : rows.map(
+                    (r) => html`
+                      <tr>
+                        <td class="location" title="${r.workingDir ?? ''}">
+                          ${tilde(r.workingDir)}
+                        </td>
+                        <td>${r.photon}</td>
+                        <td class="cron"><code>${r.route}</code></td>
+                        <td class="method">${formatLabel(r.method)}</td>
+                      </tr>
+                    `
+                  )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     `;
   }
 
   private _renderSessions() {
     const rows = this._snap?.sessions ?? [];
     return html`
-      <h2>Active sessions (${rows.length})</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Location</th>
-              <th>Photon</th>
-              <th>Instances</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.length === 0
-              ? html`<tr class="empty">
-                  <td colspan="3">no loaded sessions</td>
-                </tr>`
-              : rows.map(
-                  (r) => html`
-                    <tr>
-                      <td>${tilde(r.workingDir)}</td>
-                      <td>${r.photon}</td>
-                      <td>${r.instanceCount}</td>
-                    </tr>
-                  `
-                )}
-          </tbody>
-        </table>
-      </div>
+      <section class="card">
+        ${this._sectionHead('Active sessions', rows.length)}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Location</th>
+                <th>Photon</th>
+                <th class="num">Instances</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length === 0
+                ? html`<tr class="empty">
+                    <td colspan="3">No loaded sessions.</td>
+                  </tr>`
+                : rows.map(
+                    (r) => html`
+                      <tr>
+                        <td class="location" title="${r.workingDir ?? ''}">
+                          ${tilde(r.workingDir)}
+                        </td>
+                        <td>${r.photon}</td>
+                        <td class="num">${r.instanceCount}</td>
+                      </tr>
+                    `
+                  )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     `;
   }
 
@@ -631,18 +756,16 @@ export class DaemonPanel extends LitElement {
 
   render() {
     return html`
-      <h1>Daemon</h1>
-      <p class="hint">
-        Observability for scheduled work, webhook routes, and loaded sessions. Mirrors
-        <code>photon ps</code>.
-      </p>
-
-      <div class="refresh-bar">
+      <div class="pulse-header">
+        <h1>Pulse</h1>
         <button class="refresh" @click=${() => this._refresh()} ?disabled=${this._loading}>
           ${this._loading ? 'Refreshing…' : 'Refresh'}
         </button>
-        <span class="hint">Auto-refresh every ${POLL_INTERVAL_MS / 1000}s</span>
       </div>
+      <p class="hint">
+        Heartbeat of the daemon: scheduled work, webhook routes, and loaded sessions. Mirrors
+        <code>photon ps</code>. Auto-refresh every ${POLL_INTERVAL_MS / 1000}s.
+      </p>
 
       ${this._error ? html`<div class="error">${this._error}</div>` : ''} ${this._renderActive()}
       ${this._renderDeclared()} ${this._renderWebhooks()} ${this._renderSessions()}

@@ -4219,22 +4219,16 @@ export class BeamApp extends LitElement {
                 .activity=${this._activityLog}
                 @clear-activity=${() => (this._activityLog = [])}
               ></photon-pulse>`
-            : this._mainTab === 'log'
-              ? html`<activity-log
-                  .items=${this._activityLog}
-                  .fullscreen=${true}
-                  @clear=${() => (this._activityLog = [])}
-                ></activity-log>`
-              : this._mainTab === 'help' && this._selectedPhoton
-                ? this._renderPhotonHelpView()
-                : this._mainTab === 'settings' && this._selectedPhoton
-                  ? this._renderSettingsView()
-                  : this._mainTab === 'methods' &&
-                      !this._selectedMethod &&
-                      (this._selectedPhoton?.isApp ||
-                        (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
-                    ? this._renderMethodsBentoOnly()
-                    : this._renderContent()}
+            : this._mainTab === 'help' && this._selectedPhoton
+              ? this._renderPhotonHelpView()
+              : this._mainTab === 'settings' && this._selectedPhoton
+                ? this._renderSettingsView()
+                : this._mainTab === 'methods' &&
+                    !this._selectedMethod &&
+                    (this._selectedPhoton?.isApp ||
+                      (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
+                  ? this._renderMethodsBentoOnly()
+                  : this._renderContent()}
         </div>
       </main>
 
