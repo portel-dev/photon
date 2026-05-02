@@ -64,18 +64,11 @@ export class BeamSidebar extends LitElement {
         overflow: visible;
       }
 
-      /* Inline-size container so the filter row, title prefix, and
-         photon-row chrome can react to the current sidebar width without
-         needing JS measurements. Applied here, not on :host: Safari
-         doesn't reliably register the shadow host as a containment
-         context, so its container queries silently never fire. */
       .sidebar-content {
         flex: 1;
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        container-type: inline-size;
-        container-name: sidebar;
       }
 
       .sidebar-scroll {
@@ -201,11 +194,11 @@ export class BeamSidebar extends LitElement {
       }
 
       /* Drop the "Photon " prefix in narrow sidebars so the title shrinks
-         to just "Beam" instead of wrapping onto two lines. */
-      @container sidebar (max-width: 340px) {
-        .logo-prefix {
-          display: none;
-        }
+         to just "Beam" instead of wrapping onto two lines. Driven by the
+         width-mode attribute that ResizeObserver sets on :host. */
+      :host([width-mode='narrow']) .logo-prefix,
+      :host([width-mode='compact']) .logo-prefix {
+        display: none;
       }
 
       .status-indicator {
@@ -868,32 +861,33 @@ export class BeamSidebar extends LitElement {
          that, switch to icon-only buttons so we never show the broken
          "Favori…" / "Market…" state. The user can drag the sidebar wider
          to bring the labels back. */
-      @container sidebar (max-width: 340px) {
-        .filter-btn {
-          position: relative;
-          padding: var(--space-xs);
-          gap: 0;
-        }
-        .filter-btn .filter-btn-label {
-          display: none;
-        }
-        .filter-btn .update-badge {
-          /* Marketplace's update count becomes a corner badge so it
-             stays visible in the icon-only layout. */
-          position: absolute;
-          top: 2px;
-          right: 4px;
-          min-width: 14px;
-          height: 14px;
-          padding: 0 4px;
-          font-size: 9px;
-          line-height: 1;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          border: 1.5px solid var(--bg-elevated, #0b1018);
-          border-radius: 999px;
-        }
+      :host([width-mode='narrow']) .filter-btn,
+      :host([width-mode='compact']) .filter-btn {
+        position: relative;
+        padding: var(--space-xs);
+        gap: 0;
+      }
+      :host([width-mode='narrow']) .filter-btn .filter-btn-label,
+      :host([width-mode='compact']) .filter-btn .filter-btn-label {
+        display: none;
+      }
+      :host([width-mode='narrow']) .filter-btn .update-badge,
+      :host([width-mode='compact']) .filter-btn .update-badge {
+        /* Marketplace's update count becomes a corner badge so it
+           stays visible in the icon-only layout. */
+        position: absolute;
+        top: 2px;
+        right: 4px;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 4px;
+        font-size: 9px;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1.5px solid var(--bg-elevated, #0b1018);
+        border-radius: 999px;
       }
 
       .settings-btn {
@@ -1074,12 +1068,35 @@ export class BeamSidebar extends LitElement {
   @state()
   private _notificationWarmth: Map<string, number> = new Map();
 
+  /** Width-mode reflected as an attribute on :host so CSS can target it.
+   *  Set by ResizeObserver — Safari's container-query support on shadow
+   *  hosts is unreliable, so we drive narrow-mode behavior with JS. */
+  @property({ type: String, reflect: true, attribute: 'width-mode' })
+  widthMode: 'narrow' | 'compact' | 'wide' = 'wide';
+
+  private _resizeObserver: ResizeObserver | null = null;
+
   connectedCallback() {
     super.connectedCallback();
     this._loadFavorites();
     this._loadRecent();
     this._loadCollapsed();
     this._ensureActiveSectionOpen();
+    // Observe our own size — narrow mode: filter row + title shrink;
+    // compact mode: only photon-row right padding tightens further.
+    this._resizeObserver = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      const next: 'narrow' | 'compact' | 'wide' =
+        w === 0 ? this.widthMode : w <= 280 ? 'narrow' : w <= 340 ? 'compact' : 'wide';
+      if (next !== this.widthMode) this.widthMode = next;
+    });
+    this._resizeObserver.observe(this);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = null;
   }
 
   private _loadFavorites() {
