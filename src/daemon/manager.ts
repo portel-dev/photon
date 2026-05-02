@@ -417,11 +417,38 @@ export class DaemonManager {
   }
 
   private cleanupStale(): void {
-    for (const pid of this.getTrackedPids()) {
+    const pids = this.getTrackedPids();
+    for (const pid of pids) {
       try {
         process.kill(pid, 'SIGTERM');
       } catch {
         // Process already dead
+      }
+    }
+    // Wait briefly for SIGTERM to take effect, then SIGKILL stragglers.
+    // Without this, a process whose async shutdown coroutine is hung
+    // (e.g., destroyGraceful waiting on a stuck session) survives as
+    // an orphan after we delete its pid/socket files — leaving the
+    // exact "marked running but socket is unreachable" state we tried
+    // to recover from in the first place.
+    for (const pid of pids) {
+      const deadline = Date.now() + 1500;
+      let stillAlive = true;
+      while (Date.now() < deadline) {
+        try {
+          process.kill(pid, 0);
+        } catch {
+          stillAlive = false;
+          break;
+        }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      }
+      if (stillAlive) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Already dead or no permission — best effort
+        }
       }
     }
     if (fs.existsSync(this.ctx.pidFile)) {
