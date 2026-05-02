@@ -62,6 +62,10 @@ export class BeamSidebar extends LitElement {
         height: 100%;
         color: var(--t-primary);
         overflow: visible;
+        /* Inline-size container so the filter row can react to the
+           current sidebar width without needing JS measurements. */
+        container-type: inline-size;
+        container-name: sidebar;
       }
 
       .sidebar-content {
@@ -806,42 +810,74 @@ export class BeamSidebar extends LitElement {
         color: white;
       }
 
-      /* Notification bubble — small circular badge that floats on the
-         icon to call out the count without stealing horizontal space from
-         the button label. Tuned to match the approval bubble at the bottom
-         of the sidebar. */
+      /* Favorites count is rendered centered inside the star itself —
+         no separate badge, no horizontal space stolen from the label. */
       .filter-icon-wrap {
         position: relative;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        color: var(--color-warning, #f59e0b);
       }
 
-      .filter-count-bubble {
+      .filter-icon-wrap svg {
+        width: 22px;
+        height: 22px;
+      }
+
+      .filter-count-in-star {
         position: absolute;
-        top: -6px;
-        right: -8px;
-        min-width: 14px;
-        height: 14px;
-        padding: 0 4px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 9px;
-        font-weight: 700;
+        top: 56%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 10px;
+        font-weight: 800;
         line-height: 1;
-        color: white;
-        background: var(--color-warning, #f59e0b);
-        border: 1.5px solid var(--bg-elevated, #0b1018);
-        border-radius: 999px;
+        color: var(--bg-elevated, #0b1018);
         font-variant-numeric: tabular-nums;
+        letter-spacing: -0.04em;
         pointer-events: none;
       }
 
-      .filter-btn.active .filter-count-bubble {
-        background: white;
+      .filter-btn.active .filter-icon-wrap {
+        color: white;
+      }
+      .filter-btn.active .filter-count-in-star {
         color: var(--accent-primary);
+      }
+
+      /* Three labels ("Favorites", "Marketplace", "Pulse" = 24 chars)
+         only fit cleanly when the sidebar is wider than ~340px. Below
+         that, switch to icon-only buttons so we never show the broken
+         "Favori…" / "Market…" state. The user can drag the sidebar wider
+         to bring the labels back. */
+      @container sidebar (max-width: 340px) {
+        .filter-btn {
+          position: relative;
+          padding: var(--space-xs);
+          gap: 0;
+        }
+        .filter-btn .filter-btn-label {
+          display: none;
+        }
+        .filter-btn .update-badge {
+          /* Marketplace's update count becomes a corner badge so it
+             stays visible in the icon-only layout. */
+          position: absolute;
+          top: 2px;
+          right: 4px;
+          min-width: 14px;
+          height: 14px;
+          padding: 0 4px;
+          font-size: 9px;
+          line-height: 1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1.5px solid var(--bg-elevated, #0b1018);
+          border-radius: 999px;
+        }
       }
 
       .settings-btn {
@@ -1284,7 +1320,7 @@ export class BeamSidebar extends LitElement {
               <span class="filter-icon-wrap">
                 ${starFilled}
                 ${this._favorites.size > 0
-                  ? html`<span class="filter-count-bubble" aria-hidden="true"
+                  ? html`<span class="filter-count-in-star" aria-hidden="true"
                       >${this._favorites.size}</span
                     >`
                   : ''}
