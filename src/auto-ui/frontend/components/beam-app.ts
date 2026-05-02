@@ -4280,6 +4280,7 @@ export class BeamApp extends LitElement {
               <div class="tab-pane" ?hidden=${this._mainTab !== 'log'}>
                 <photon-pulse
                   .photonName=${sel.name}
+                  .availableMethods=${(sel.methods || []).map((m: any) => m.name)}
                   .activity=${this._activityLog}
                   @clear-activity=${() => (this._activityLog = [])}
                 ></photon-pulse>

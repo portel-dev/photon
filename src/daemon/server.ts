@@ -1827,6 +1827,36 @@ function syncActiveSchedulesAtBoot(): void {
       // skip registration so the explicit disable always wins.
       if (suppressedSet.has(`${entry.photon}:${entry.method}`)) continue;
       const key = declaredKey(entry.photon, entry.method, basePath);
+
+      // Manual entry: cron is embedded directly, no @scheduled declaration
+      // required. Re-validate the cron each boot since the file is hand-editable.
+      if (entry.cron) {
+        const { isValid } = parseCron(entry.cron);
+        if (!isValid) {
+          logger.warn('Manual schedule has invalid cron — skipping', {
+            base: basePath,
+            photon: entry.photon,
+            method: entry.method,
+            cron: entry.cron,
+          });
+          continue;
+        }
+        if (scheduledJobs.has(key)) continue;
+        const ok = scheduleJob({
+          id: key,
+          method: entry.method,
+          args: {},
+          cron: entry.cron,
+          runCount: 0,
+          createdAt: Date.now(),
+          createdBy: 'manual',
+          photonName: entry.photon,
+          workingDir: basePath,
+        });
+        if (ok) registered++;
+        continue;
+      }
+
       const decl = declaredSchedules.get(key);
       if (!decl) {
         missingRefs++;
@@ -2648,6 +2678,13 @@ interface ActiveScheduleEntry {
   enabledAt: string;
   enabledBy: string;
   paused?: boolean;
+  /**
+   * Manual cron schedule added via the UI / `add_manual_schedule` RPC.
+   * When present, the entry carries its own cron and does not require a
+   * matching `@scheduled` declaration. Boot sync registers the timer
+   * directly from this field.
+   */
+  cron?: string;
 }
 interface SuppressedEntry {
   photon: string;
@@ -2676,13 +2713,22 @@ function readActiveSchedulesFile(baseDir: string): ActiveSchedulesFile {
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.active)) {
       return {
         version: 1,
-        active: parsed.active.filter(
-          (e: any) =>
-            e &&
-            typeof e.photon === 'string' &&
-            typeof e.method === 'string' &&
-            typeof e.enabledAt === 'string'
-        ),
+        active: parsed.active
+          .filter(
+            (e: any) =>
+              e &&
+              typeof e.photon === 'string' &&
+              typeof e.method === 'string' &&
+              typeof e.enabledAt === 'string'
+          )
+          .map((e: any) => ({
+            photon: e.photon,
+            method: e.method,
+            enabledAt: e.enabledAt,
+            enabledBy: typeof e.enabledBy === 'string' ? e.enabledBy : 'unknown',
+            paused: !!e.paused,
+            cron: typeof e.cron === 'string' ? e.cron : undefined,
+          })),
         suppressed: Array.isArray(parsed.suppressed)
           ? parsed.suppressed.filter(
               (s: any) => s && typeof s.photon === 'string' && typeof s.method === 'string'
@@ -3442,6 +3488,117 @@ async function handleRequest(
       id: request.id,
       success: true,
       data: { active, declared, webhooks, sessions, suppressed },
+    };
+  }
+
+  // Add an ad-hoc cron schedule for any public method on a photon. Unlike
+  // `enable_schedule`, this does not require an `@scheduled` JSDoc tag in
+  // source — the cron expression is supplied by the caller and persisted
+  // directly in the active-schedules file. Used by the Pulse UI's
+  // "Add schedule" form.
+  if (request.type === 'add_manual_schedule') {
+    const photon = (request as { photonName?: string }).photonName;
+    const method = (request as { method?: string }).method;
+    const cron = (request as { cron?: string }).cron;
+    if (!photon || !method || !cron) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: '`add_manual_schedule` requires photonName, method, and cron',
+      };
+    }
+    const cronCheck = parseCron(cron);
+    if (!cronCheck.isValid) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: `Invalid cron expression: "${cron}"`,
+      };
+    }
+    const preferredBase = (request as { workingDir?: string }).workingDir;
+    // Refuse to shadow a `@scheduled` declaration — direct the user to
+    // `enable_schedule` so the source-of-truth stays the JSDoc tag.
+    const declMatches = findDeclarationsFor(photon, method, preferredBase);
+    if (declMatches.length > 0) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `${photon}:${method} already has a @scheduled declaration. ` +
+          `Use enable/disable to manage it, or remove the @scheduled tag first.`,
+      };
+    }
+    const base = path.resolve(
+      preferredBase ?? probePhotonSource(photon).ownerBase ?? getDefaultContext().baseDir
+    );
+    if (isHostDisabledBase(base)) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Cannot add manual schedule for ${photon}:${method} — base ${base} is host-disabled ` +
+          `(remove ${base}/.photon-no-host to allow scheduling).`,
+      };
+    }
+    const file = readActiveSchedulesFile(base);
+    const existing = file.active.find((e) => e.photon === photon && e.method === method);
+    const nowIso = new Date().toISOString();
+    if (existing) {
+      // Update the cron in place — same semantics as resave.
+      existing.cron = cron;
+      existing.paused = false;
+      existing.enabledAt = nowIso;
+      existing.enabledBy = (request as { source?: string }).source || 'manual';
+    } else {
+      file.active.push({
+        photon,
+        method,
+        cron,
+        enabledAt: nowIso,
+        enabledBy: (request as { source?: string }).source || 'manual',
+      });
+    }
+    // Clear any matching suppression — manual add is an explicit re-enable.
+    if (file.suppressed) {
+      file.suppressed = file.suppressed.filter(
+        (s) => !(s.photon === photon && s.method === method)
+      );
+    }
+    writeActiveSchedulesFile(base, file);
+    try {
+      touchBase(base);
+    } catch {
+      /* non-fatal */
+    }
+    const key = declaredKey(photon, method, base);
+    // If a timer for this key was already running (e.g. previous manual entry
+    // with a different cron), unscheduleJob first so scheduleJob arms the new cron.
+    if (scheduledJobs.has(key)) {
+      unscheduleJob(key);
+    }
+    const ok = scheduleJob({
+      id: key,
+      method,
+      args: {},
+      cron,
+      runCount: 0,
+      createdAt: Date.now(),
+      createdBy: 'manual',
+      photonName: photon,
+      workingDir: base,
+    });
+    if (!ok) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: `Failed to schedule ${photon}:${method} — see daemon logs.`,
+      };
+    }
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { photon, method, cron, base, status: 'active' },
     };
   }
 

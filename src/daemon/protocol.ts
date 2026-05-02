@@ -32,6 +32,7 @@ export interface DaemonRequest {
     | 'disable_schedule'
     | 'pause_schedule'
     | 'resume_schedule'
+    | 'add_manual_schedule'
     | 'get_execution_history'
     | 'list_locks'
     | 'get_events_since'
@@ -199,6 +200,7 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'disable_schedule',
     'pause_schedule',
     'resume_schedule',
+    'add_manual_schedule',
     'get_execution_history',
     'list_locks',
     'get_events_since',

@@ -11,6 +11,7 @@
  *   POST /api/daemon/schedules/disable      – body: { photon, method }
  *   POST /api/daemon/schedules/pause        – body: { photon, method }
  *   POST /api/daemon/schedules/resume       – body: { photon, method }
+ *   POST /api/daemon/schedules/add          – body: { photon, method, cron }   (manual schedule, no @scheduled tag required)
  *   GET  /api/daemon/history?photon=&method=&limit=&sinceTs=
  */
 
@@ -89,8 +90,39 @@ export const handleDaemonRoutes: RouteHandler = async (req, res, url) => {
 
   if (url.pathname.startsWith('/api/daemon/schedules/') && (req.method === 'POST' || !req.method)) {
     const action = url.pathname.slice('/api/daemon/schedules/'.length);
-    if (!['enable', 'disable', 'pause', 'resume'].includes(action)) {
+    if (!['enable', 'disable', 'pause', 'resume', 'add'].includes(action)) {
       writeJson(res, 404, { error: `Unknown schedule action "${action}"` });
+      return true;
+    }
+    if (action === 'add') {
+      const raw = await readBody(req);
+      let parsed: unknown;
+      try {
+        parsed = raw ? JSON.parse(raw) : {};
+      } catch {
+        writeJson(res, 400, { error: 'Invalid JSON body' });
+        return true;
+      }
+      const body = parsed as { photon?: unknown; method?: unknown; cron?: unknown };
+      if (typeof body.photon !== 'string' || !body.photon.trim()) {
+        writeJson(res, 400, { error: 'Missing or invalid "photon"' });
+        return true;
+      }
+      if (typeof body.method !== 'string' || !body.method.trim()) {
+        writeJson(res, 400, { error: 'Missing or invalid "method"' });
+        return true;
+      }
+      if (typeof body.cron !== 'string' || !body.cron.trim()) {
+        writeJson(res, 400, { error: 'Missing or invalid "cron"' });
+        return true;
+      }
+      try {
+        const client = await import('../../../daemon/client.js');
+        const result = await client.addManualSchedule(body.photon, body.method, body.cron);
+        writeJson(res, 200, { ok: true, result });
+      } catch (err) {
+        writeJson(res, 500, { error: getErrorMessage(err) });
+      }
       return true;
     }
     const parsed = await readAction(req);

@@ -1341,6 +1341,20 @@ export async function resumeSchedule(
 ): Promise<unknown> {
   return sendSimpleDaemonRequest({ type: 'resume_schedule', photonName, method, workingDir });
 }
+export async function addManualSchedule(
+  photonName: string,
+  method: string,
+  cron: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({
+    type: 'add_manual_schedule',
+    photonName,
+    method,
+    cron,
+    workingDir,
+  });
+}
 
 export interface ExecutionHistoryEntry {
   ts: number;
