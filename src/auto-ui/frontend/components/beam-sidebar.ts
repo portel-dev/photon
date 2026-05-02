@@ -62,6 +62,8 @@ export class BeamSidebar extends LitElement {
         height: 100%;
         color: var(--t-primary);
         overflow: visible;
+        container-type: inline-size;
+        container-name: sidebar;
       }
 
       .sidebar-content {
@@ -849,10 +851,11 @@ export class BeamSidebar extends LitElement {
       }
 
       /* Responsive narrow mode: shrink the title to "Beam" and switch
-         the three filter buttons to icon-only at viewport widths where
-         the labels would otherwise wrap or ellipsize. Plain media query,
-         no shadow-DOM gotchas. */
-      @media (max-width: 720px) {
+         the three filter buttons to icon-only when the sidebar itself
+         (not the viewport) is narrow. Container query watches :host's
+         inline-size, so it fires whenever the user drags the sidebar
+         below the threshold regardless of window width. */
+      @container sidebar (max-width: 280px) {
         .logo-prefix {
           display: none;
         }
@@ -865,8 +868,6 @@ export class BeamSidebar extends LitElement {
           display: none;
         }
         .filter-btn .update-badge {
-          /* Marketplace's update count becomes a corner badge so it
-             stays visible without a label. */
           position: absolute;
           top: 2px;
           right: 4px;
