@@ -395,7 +395,10 @@ export class BeamSidebar extends LitElement {
       }
 
       .photon-item {
-        padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
+        /* Right padding intentionally tight (4px) — the counts pill is the
+           visual end of the row. Anything more reads as wasted space and
+           steals room from the photon name. */
+        padding: var(--space-sm) 4px var(--space-sm) var(--space-md);
         margin-bottom: var(--space-xs);
         border-radius: var(--radius-sm);
         cursor: pointer;
