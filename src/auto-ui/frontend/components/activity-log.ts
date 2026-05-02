@@ -228,6 +228,24 @@ export class ActivityLog extends LitElement {
         transform: rotate(-90deg);
       }
 
+      .empty-hint {
+        color: var(--t-muted);
+        font-size: var(--text-sm);
+        padding: var(--space-lg) var(--space-md);
+        text-align: center;
+        border: 1px dashed var(--border-glass);
+        border-radius: var(--radius-sm);
+        background: color-mix(in srgb, var(--bg-glass) 50%, transparent);
+      }
+
+      :host([fullscreen]) .empty-hint {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 120px;
+      }
+
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .log-item {
@@ -292,7 +310,10 @@ export class ActivityLog extends LitElement {
         ? this.items.filter((i) => i.photonName === this.filter)
         : this.items;
 
-    if (this.items.length === 0) return html``;
+    // In compact (non-fullscreen) mode, hide entirely when empty so method
+    // detail panes stay clean. In fullscreen mode (Pulse tab), always show
+    // the header + an empty-state hint so the page never goes blank.
+    if (this.items.length === 0 && !this.fullscreen) return html``;
 
     const hasFilterableEntries =
       this.filter && this.items.some((i) => i.photonName === this.filter);
@@ -340,26 +361,34 @@ export class ActivityLog extends LitElement {
 
       ${this._collapsed
         ? ''
-        : html`
-            <ul class="log-list" role="log" aria-live="polite" aria-label="Activity log entries">
-              ${visible.map(
-                (item) => html`
-                  <li class="log-item type-${item.type}">
-                    <span class="type-icon" aria-hidden="true">${typeIcon(item.type)}</span>
-                    <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>
-                    <span class="content"
-                      ><span class="visually-hidden">${item.type}: </span
-                      >${item.message}${item.durationMs != null
-                        ? html`<span class="duration">${item.durationMs}ms</span>`
-                        : ''}${item.count && item.count > 1
-                        ? html`<span class="count">(×${item.count})</span>`
-                        : ''}</span
-                    >
-                  </li>
-                `
-              )}
-            </ul>
-          `}
+        : visible.length === 0
+          ? html`<div class="empty-hint" role="status">
+              ${this.items.length === 0
+                ? this.filter
+                  ? `No activity yet for ${this.filter}. Method calls and tool fires will appear here in real time.`
+                  : 'No activity yet. Method calls and tool fires will appear here in real time.'
+                : `No activity yet for ${this.filter}. Toggle the filter off to see all photons.`}
+            </div>`
+          : html`
+              <ul class="log-list" role="log" aria-live="polite" aria-label="Activity log entries">
+                ${visible.map(
+                  (item) => html`
+                    <li class="log-item type-${item.type}">
+                      <span class="type-icon" aria-hidden="true">${typeIcon(item.type)}</span>
+                      <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>
+                      <span class="content"
+                        ><span class="visually-hidden">${item.type}: </span
+                        >${item.message}${item.durationMs != null
+                          ? html`<span class="duration">${item.durationMs}ms</span>`
+                          : ''}${item.count && item.count > 1
+                          ? html`<span class="count">(×${item.count})</span>`
+                          : ''}</span
+                      >
+                    </li>
+                  `
+                )}
+              </ul>
+            `}
     `;
   }
 

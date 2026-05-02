@@ -769,10 +769,12 @@ export class BeamSidebar extends LitElement {
         display: flex;
         gap: var(--space-sm);
         margin-top: var(--space-sm);
+        min-width: 0;
       }
 
       .filter-btn {
-        flex: 1;
+        flex: 1 1 0;
+        min-width: 0;
         padding: var(--space-xs) var(--space-sm);
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
@@ -784,7 +786,14 @@ export class BeamSidebar extends LitElement {
         justify-content: center;
         gap: 4px;
         font-size: var(--text-sm);
+        white-space: nowrap;
+        overflow: hidden;
         transition: all 0.2s;
+      }
+
+      .filter-btn-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .filter-btn:hover {
@@ -794,6 +803,27 @@ export class BeamSidebar extends LitElement {
       .filter-btn.active {
         background: var(--accent-primary);
         border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .filter-count-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 16px;
+        height: 16px;
+        padding: 0 5px;
+        font-size: var(--text-2xs);
+        font-weight: 600;
+        line-height: 1;
+        color: var(--t-primary);
+        background: var(--bg-glass-strong);
+        border-radius: var(--radius-full);
+        flex-shrink: 0;
+      }
+
+      .filter-btn.active .filter-count-badge {
+        background: rgba(255, 255, 255, 0.2);
         color: white;
       }
 
@@ -1232,14 +1262,17 @@ export class BeamSidebar extends LitElement {
               aria-pressed="${this._showFavoritesOnly}"
               aria-label="Filter by favorites"
             >
-              ${starFilled} Favorites ${this._favorites.size > 0 ? `(${this._favorites.size})` : ''}
+              ${starFilled}<span class="filter-btn-label">Favorites</span>
+              ${this._favorites.size > 0
+                ? html`<span class="filter-count-badge">${this._favorites.size}</span>`
+                : ''}
             </button>
             <button
               class="filter-btn"
               @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
               aria-label="Open marketplace"
             >
-              ${marketplaceIcon} Marketplace
+              ${marketplaceIcon}<span class="filter-btn-label">Marketplace</span>
               ${this.updatesAvailable > 0
                 ? html`<span class="update-badge">${this.updatesAvailable}</span>`
                 : ''}
@@ -1247,10 +1280,10 @@ export class BeamSidebar extends LitElement {
             <button
               class="filter-btn"
               @click=${() => this.dispatchEvent(new CustomEvent('daemon'))}
-              aria-label="Open daemon panel"
-              title="View scheduled jobs, webhooks, and sessions"
+              aria-label="Open Pulse panel"
+              title="Pulse: scheduled jobs, webhooks, and sessions"
             >
-              ${activityIcon} Daemon
+              ${activityIcon}<span class="filter-btn-label">Pulse</span>
             </button>
           </div>
         </div>
@@ -1664,7 +1697,7 @@ export class BeamSidebar extends LitElement {
     const tabs = [
       ...(this.isApp ? [{ id: 'app', label: 'App', icon: appTabIcon }] : []),
       { id: 'methods', label: 'Methods', icon: methodsTabIcon },
-      { id: 'log', label: 'Activity', icon: activityIcon },
+      { id: 'log', label: 'Pulse', icon: activityIcon },
       ...(this.hasSettings || this.hasSetup
         ? [{ id: 'settings', label: 'Settings', icon: settingsIcon }]
         : []),
