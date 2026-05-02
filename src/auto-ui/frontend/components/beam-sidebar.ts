@@ -189,10 +189,20 @@ export class BeamSidebar extends LitElement {
         cursor: pointer;
         user-select: none;
         transition: opacity 0.15s;
+        white-space: nowrap;
+        min-width: 0;
       }
 
       .logo:hover {
         opacity: 0.8;
+      }
+
+      /* Drop the "Photon " prefix in narrow sidebars so the title shrinks
+         to just "Beam" instead of wrapping onto two lines. */
+      @container sidebar (max-width: 340px) {
+        .logo-prefix {
+          display: none;
+        }
       }
 
       .status-indicator {
@@ -1252,7 +1262,7 @@ export class BeamSidebar extends LitElement {
                 this.dispatchEvent(new CustomEvent('home', { bubbles: true, composed: true }))}
               title="Go home"
             >
-              Photon Beam
+              <span class="logo-prefix">Photon </span>Beam
               <span
                 class="status-indicator ${this.connected
                   ? 'connected'
