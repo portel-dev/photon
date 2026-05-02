@@ -7,6 +7,7 @@ import './components/result-viewer.js';
 import './components/file-picker.js';
 import './components/marketplace-view.js';
 import './components/daemon-panel.js';
+import './components/photon-pulse.js';
 import './components/custom-ui-renderer.js';
 import './components/canvas-renderer.js';
 import './components/mcp-app-renderer.js';
