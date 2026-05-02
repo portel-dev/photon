@@ -462,6 +462,21 @@ export class BeamApp extends LitElement {
         flex-direction: column;
       }
 
+      /* Tab panes — siblings inside .main-content-scroll. The active pane
+         is visible; non-active siblings stay mounted (DOM + component
+         state) but are hidden via display: none, so an iframe survives a
+         quick Pulse/Help peek and a half-typed form is still there when
+         you return. */
+      .tab-pane {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+      .tab-pane[hidden] {
+        display: none !important;
+      }
+
       /* Page transition when switching photons */
       @keyframes page-enter {
         from {
@@ -4019,11 +4034,20 @@ export class BeamApp extends LitElement {
           .hasPath=${!!this._selectedPhoton?.path}
           @tab-change=${(e: CustomEvent) => {
             const tab = e.detail.tab;
+            const prevTab = this._mainTab;
             this._mainTab = tab;
             if (tab === 'methods') {
-              this._closeSecondPanel();
-              this._selectedMethod = null;
-              this._view = 'list';
+              // Methods is the bento+form pair. Coming from an overlay tab
+              // (Pulse/Help) means "return to where I was" — keep the
+              // current method+view so the half-typed form survives. Coming
+              // from Methods itself acts as the back gesture: reset to the
+              // bento so the user can pick a different method.
+              const fromOverlay = prevTab === 'log' || prevTab === 'help';
+              if (!fromOverlay) {
+                this._closeSecondPanel();
+                this._selectedMethod = null;
+                this._view = 'list';
+              }
               this._updateRoute();
               return;
             }
@@ -4087,11 +4111,21 @@ export class BeamApp extends LitElement {
             ) {
               this._view = 'mcp-app';
             }
-            // Handle app tab for native apps
+            // Handle app tab for native apps. Re-entering this tab (e.g.,
+            // after a quick Pulse/Help peek) must not re-invoke when the app
+            // is already running — otherwise the iframe URL regenerates and
+            // the in-app state is lost.
             if (tab === 'app' && this._selectedPhoton?.isApp && this._selectedPhoton?.appEntry) {
-              this._selectedMethod = this._selectedPhoton.appEntry;
-              this._view = 'form';
-              this._maybeAutoInvoke(this._selectedPhoton.appEntry);
+              const appEntry = this._selectedPhoton.appEntry;
+              const alreadyMounted =
+                this._selectedMethod?.name === appEntry.name &&
+                this._view === 'form' &&
+                this._lastResult != null;
+              if (!alreadyMounted) {
+                this._selectedMethod = appEntry;
+                this._view = 'form';
+                this._maybeAutoInvoke(appEntry);
+              }
             }
           }}
           @toggle-focus=${() => this._toggleFocusMode()}
@@ -4213,22 +4247,48 @@ export class BeamApp extends LitElement {
                 <div style="flex: 1; min-width: 0;">${this._renderPhotonToolbar()}</div>
               </div>`
             : ''}
-          ${this._mainTab === 'log' && this._selectedPhoton
-            ? html`<photon-pulse
-                .photonName=${this._selectedPhoton.name}
-                .activity=${this._activityLog}
-                @clear-activity=${() => (this._activityLog = [])}
-              ></photon-pulse>`
-            : this._mainTab === 'help' && this._selectedPhoton
-              ? this._renderPhotonHelpView()
-              : this._mainTab === 'settings' && this._selectedPhoton
-                ? this._renderSettingsView()
-                : this._mainTab === 'methods' &&
-                    !this._selectedMethod &&
-                    (this._selectedPhoton?.isApp ||
-                      (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp))
-                  ? this._renderMethodsBentoOnly()
-                  : this._renderContent()}
+          ${(() => {
+            const sel = this._selectedPhoton;
+            if (!sel) return this._renderContent();
+
+            // Settings tab still uses a conditional render — switching to it
+            // mutates _selectedMethod to the settings method, so its DOM
+            // can't safely persist alongside the methods/app pane. Settings
+            // state retention is out of scope for plan B.
+            if (this._mainTab === 'settings') {
+              return this._renderSettingsView();
+            }
+
+            // Persistent panes: the Methods/App content pane stays mounted
+            // across Pulse and Help tab switches so an app's iframe and a
+            // selected method's form survive a quick reference detour. The
+            // Source tab still mutates _view='source' (out of scope);
+            // switching photons resets everything as before.
+            const isOverlay = this._mainTab === 'log' || this._mainTab === 'help';
+            const isAppPhoton = !!sel.isApp || !!(sel.isExternalMCP && sel.hasMcpApp);
+            const showsAppBento =
+              this._mainTab === 'methods' && !this._selectedMethod && isAppPhoton;
+            return html`
+              <div class="tab-pane" ?hidden=${isOverlay || showsAppBento}>
+                ${this._renderContent()}
+              </div>
+              ${isAppPhoton
+                ? html`<div class="tab-pane" ?hidden=${!showsAppBento}>
+                    ${this._renderMethodsBentoOnly()}
+                  </div>`
+                : ''}
+              <div class="tab-pane" ?hidden=${this._mainTab !== 'log'}>
+                <photon-pulse
+                  .photonName=${sel.name}
+                  .activity=${this._activityLog}
+                  @clear-activity=${() => (this._activityLog = [])}
+                ></photon-pulse>
+              </div>
+              <div class="tab-pane" ?hidden=${this._mainTab !== 'help'}>
+                ${this._renderPhotonHelpView()}
+              </div>
+            `;
+          })()}
         </div>
       </main>
 
@@ -8652,11 +8712,25 @@ ${photon.errorMessage || 'Unknown error'}</pre
           lines.push('');
         }
 
-        // Parameters
-        if (method.params && method.params.length > 0) {
+        // Parameters — `method.params` is sometimes a JSON-Schema object
+        // ({ properties, required }) instead of a flat list, depending on
+        // upstream extraction. Normalize to an array of {name, type, required, description}.
+        const paramList: any[] = Array.isArray(method.params)
+          ? method.params
+          : method.params && typeof method.params === 'object' && method.params.properties
+            ? Object.entries(method.params.properties).map(([n, prop]: [string, any]) => ({
+                name: n,
+                type: prop?.type,
+                description: prop?.description,
+                required: Array.isArray(method.params.required)
+                  ? method.params.required.includes(n)
+                  : false,
+              }))
+            : [];
+        if (paramList.length > 0) {
           lines.push('| Name | Type | Required | Description |');
           lines.push('|------|------|----------|-------------|');
-          for (const param of method.params) {
+          for (const param of paramList) {
             const required = param.required ? '✓' : '';
             const desc = param.description || '-';
             lines.push(`| \`${param.name}\` | ${param.type || 'any'} | ${required} | ${desc} |`);
@@ -8666,7 +8740,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
         // CLI usage for this method
         if (!photon.internal) {
-          const paramHints = (method.params || [])
+          const paramHints = paramList
             .filter((p: any) => p.required)
             .map((p: any) => `--${p.name} <${p.type || 'value'}>`)
             .join(' ');
