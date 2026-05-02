@@ -848,28 +848,39 @@ export class BeamSidebar extends LitElement {
         color: var(--accent-primary);
       }
 
-      /* Icon-only filter buttons (label spans omitted in render()). */
-      .filter-btn.icon-only {
-        position: relative;
-        padding: var(--space-xs);
-        gap: 0;
-      }
-      .filter-btn.icon-only .update-badge {
-        /* Marketplace's update count becomes a corner badge so it stays
-           visible in the icon-only layout. */
-        position: absolute;
-        top: 2px;
-        right: 4px;
-        min-width: 14px;
-        height: 14px;
-        padding: 0 4px;
-        font-size: 9px;
-        line-height: 1;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 1.5px solid var(--bg-elevated, #0b1018);
-        border-radius: 999px;
+      /* Responsive narrow mode: shrink the title to "Beam" and switch
+         the three filter buttons to icon-only at viewport widths where
+         the labels would otherwise wrap or ellipsize. Plain media query,
+         no shadow-DOM gotchas. */
+      @media (max-width: 720px) {
+        .logo-prefix {
+          display: none;
+        }
+        .filter-btn {
+          position: relative;
+          padding: var(--space-xs);
+          gap: 0;
+        }
+        .filter-btn .filter-btn-label {
+          display: none;
+        }
+        .filter-btn .update-badge {
+          /* Marketplace's update count becomes a corner badge so it
+             stays visible without a label. */
+          position: absolute;
+          top: 2px;
+          right: 4px;
+          min-width: 14px;
+          height: 14px;
+          padding: 0 4px;
+          font-size: 9px;
+          line-height: 1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1.5px solid var(--bg-elevated, #0b1018);
+          border-radius: 999px;
+        }
       }
 
       .settings-btn {
@@ -1050,35 +1061,12 @@ export class BeamSidebar extends LitElement {
   @state()
   private _notificationWarmth: Map<string, number> = new Map();
 
-  /** Width-mode reflected as an attribute on :host so CSS can target it.
-   *  Set by ResizeObserver — Safari's container-query support on shadow
-   *  hosts is unreliable, so we drive narrow-mode behavior with JS. */
-  @property({ type: String, reflect: true, attribute: 'width-mode' })
-  widthMode: 'narrow' | 'compact' | 'wide' = 'wide';
-
-  private _resizeObserver: ResizeObserver | null = null;
-
   connectedCallback() {
     super.connectedCallback();
     this._loadFavorites();
     this._loadRecent();
     this._loadCollapsed();
     this._ensureActiveSectionOpen();
-    // Observe our own size — narrow mode: filter row + title shrink;
-    // compact mode: only photon-row right padding tightens further.
-    this._resizeObserver = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      const next: 'narrow' | 'compact' | 'wide' =
-        w === 0 ? this.widthMode : w <= 280 ? 'narrow' : w <= 340 ? 'compact' : 'wide';
-      if (next !== this.widthMode) this.widthMode = next;
-    });
-    this._resizeObserver.observe(this);
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    this._resizeObserver?.disconnect();
-    this._resizeObserver = null;
   }
 
   private _loadFavorites() {
@@ -1267,7 +1255,7 @@ export class BeamSidebar extends LitElement {
                 this.dispatchEvent(new CustomEvent('home', { bubbles: true, composed: true }))}
               title="Go home"
             >
-              ${this.widthMode === 'wide' ? 'Photon Beam' : 'Beam'}
+              <span class="logo-prefix">Photon </span>Beam
               <span
                 class="status-indicator ${this.connected
                   ? 'connected'
@@ -1322,52 +1310,46 @@ export class BeamSidebar extends LitElement {
               ${plus}
             </button>
           </div>
-          ${(() => {
-            const compact = this.widthMode !== 'wide';
-            const compactClass = compact ? 'icon-only' : '';
-            return html`<div class="filter-row" role="group" aria-label="Filter options">
-              <button
-                class="filter-btn ${this._showFavoritesOnly ? 'active' : ''} ${compactClass}"
-                @click=${() => this._toggleFavoritesFilter()}
-                title="Show favorites only (f)"
-                aria-pressed="${this._showFavoritesOnly}"
-                aria-label="Filter by favorites${this._favorites.size > 0
-                  ? ` (${this._favorites.size})`
-                  : ''}"
-              >
-                <span class="filter-icon-wrap">
-                  ${starFilled}
-                  ${this._favorites.size > 0
-                    ? html`<span class="filter-count-in-star" aria-hidden="true"
-                        >${this._favorites.size}</span
-                      >`
-                    : ''}
-                </span>
-                ${compact ? '' : html`<span class="filter-btn-label">Favorites</span>`}
-              </button>
-              <button
-                class="filter-btn ${compactClass}"
-                @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
-                aria-label="Open marketplace"
-                title="Marketplace"
-              >
-                ${marketplaceIcon}${compact
-                  ? ''
-                  : html`<span class="filter-btn-label">Marketplace</span>`}
-                ${this.updatesAvailable > 0
-                  ? html`<span class="update-badge">${this.updatesAvailable}</span>`
+          <div class="filter-row" role="group" aria-label="Filter options">
+            <button
+              class="filter-btn ${this._showFavoritesOnly ? 'active' : ''}"
+              @click=${() => this._toggleFavoritesFilter()}
+              title="Show favorites only (f)"
+              aria-pressed="${this._showFavoritesOnly}"
+              aria-label="Filter by favorites${this._favorites.size > 0
+                ? ` (${this._favorites.size})`
+                : ''}"
+            >
+              <span class="filter-icon-wrap">
+                ${starFilled}
+                ${this._favorites.size > 0
+                  ? html`<span class="filter-count-in-star" aria-hidden="true"
+                      >${this._favorites.size}</span
+                    >`
                   : ''}
-              </button>
-              <button
-                class="filter-btn ${compactClass}"
-                @click=${() => this.dispatchEvent(new CustomEvent('daemon'))}
-                aria-label="Open Pulse panel"
-                title="Pulse: scheduled jobs, webhooks, and sessions"
-              >
-                ${activityIcon}${compact ? '' : html`<span class="filter-btn-label">Pulse</span>`}
-              </button>
-            </div>`;
-          })()}
+              </span>
+              <span class="filter-btn-label">Favorites</span>
+            </button>
+            <button
+              class="filter-btn"
+              @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
+              aria-label="Open marketplace"
+              title="Marketplace"
+            >
+              ${marketplaceIcon}<span class="filter-btn-label">Marketplace</span>
+              ${this.updatesAvailable > 0
+                ? html`<span class="update-badge">${this.updatesAvailable}</span>`
+                : ''}
+            </button>
+            <button
+              class="filter-btn"
+              @click=${() => this.dispatchEvent(new CustomEvent('daemon'))}
+              aria-label="Open Pulse panel"
+              title="Pulse: scheduled jobs, webhooks, and sessions"
+            >
+              ${activityIcon}<span class="filter-btn-label">Pulse</span>
+            </button>
+          </div>
         </div>
 
         <div class="sidebar-scroll">
