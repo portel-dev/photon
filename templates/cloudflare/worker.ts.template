@@ -535,6 +535,65 @@ function spreadArgs(toolDef: any, args: Record<string, unknown>): unknown[] {
   return [args];
 }
 
+/**
+ * Match a request against the `@get`/`@post` route table. Two passes:
+ * exact paths first (cheaper, also gives them precedence over patterns
+ * that would also match), then `:param` patterns. Returns the matched
+ * route plus any extracted path params, or null when nothing matches.
+ *
+ * Patterns: `/b/:token` matches `/b/abc123` -> { token: 'abc123' }.
+ * Segment counts must be equal -- `/b/:token` does not match `/b/x/y`.
+ *
+ * Tested in tests/cf-template-route-matcher.test.ts. Keep the two
+ * definitions in sync if either is edited.
+ */
+function matchHttpRoute(
+  routes: { method: string; path: string; handler: string }[],
+  method: string,
+  pathname: string
+): {
+  route: { method: string; path: string; handler: string };
+  params: Record<string, string>;
+} | null {
+  for (const route of routes) {
+    if (route.method !== method) continue;
+    if (!route.path.includes(':') && route.path === pathname) {
+      return { route, params: {} };
+    }
+  }
+  for (const route of routes) {
+    if (route.method !== method) continue;
+    if (!route.path.includes(':')) continue;
+    const params = matchPathPattern(route.path, pathname);
+    if (params) return { route, params };
+  }
+  return null;
+}
+
+function matchPathPattern(
+  pattern: string,
+  pathname: string
+): Record<string, string> | null {
+  const patternParts = pattern.split('/').filter(Boolean);
+  const pathParts = pathname.split('/').filter(Boolean);
+  if (patternParts.length !== pathParts.length) return null;
+  const params: Record<string, string> = {};
+  for (let i = 0; i < patternParts.length; i++) {
+    const pp = patternParts[i];
+    const rp = pathParts[i];
+    if (pp.startsWith(':')) {
+      try {
+        params[pp.slice(1)] = decodeURIComponent(rp);
+      } catch {
+        return null;
+      }
+    } else if (pp !== rp) {
+      return null;
+    }
+  }
+  return params;
+}
+
 async function handleMCPRequest(
   request: any,
   photon: any,
@@ -767,15 +826,16 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       }
     }
 
-    // @get / @post HTTP routes — dispatch to photon method, bypass MCP
-    const httpRoute = this.httpRoutes.find(
-      (r) => r.method === request.method && r.path === url.pathname
-    );
-    if (httpRoute) {
-      const fn = (this.photon as any)[httpRoute.handler];
+    // @get / @post HTTP routes — dispatch to photon method, bypass MCP.
+    // Handler signature: (request: Request, params?: Record<string, string>)
+    // — the second arg carries `:param` values extracted from the path so a
+    // route declared `@get /b/:token` receives `{ token }`.
+    const matchedRoute = matchHttpRoute(this.httpRoutes, request.method, url.pathname);
+    if (matchedRoute) {
+      const fn = (this.photon as any)[matchedRoute.route.handler];
       if (typeof fn === 'function') {
         try {
-          const response = await fn.call(this.photon, request);
+          const response = await fn.call(this.photon, request, matchedRoute.params);
           if (response instanceof Response) return response;
           return Response.json(response, { headers: CORS_HEADERS });
         } catch (error: any) {
