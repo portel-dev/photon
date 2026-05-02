@@ -806,25 +806,42 @@ export class BeamSidebar extends LitElement {
         color: white;
       }
 
-      .filter-count-badge {
+      /* Notification bubble — small circular badge that floats on the
+         icon to call out the count without stealing horizontal space from
+         the button label. Tuned to match the approval bubble at the bottom
+         of the sidebar. */
+      .filter-icon-wrap {
+        position: relative;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 16px;
-        height: 16px;
-        padding: 0 5px;
-        font-size: var(--text-2xs);
-        font-weight: 600;
-        line-height: 1;
-        color: var(--t-primary);
-        background: var(--bg-glass-strong);
-        border-radius: var(--radius-full);
         flex-shrink: 0;
       }
 
-      .filter-btn.active .filter-count-badge {
-        background: rgba(255, 255, 255, 0.2);
+      .filter-count-bubble {
+        position: absolute;
+        top: -6px;
+        right: -8px;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1;
         color: white;
+        background: var(--color-warning, #f59e0b);
+        border: 1.5px solid var(--bg-elevated, #0b1018);
+        border-radius: 999px;
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+      }
+
+      .filter-btn.active .filter-count-bubble {
+        background: white;
+        color: var(--accent-primary);
       }
 
       .settings-btn {
@@ -1260,12 +1277,19 @@ export class BeamSidebar extends LitElement {
               @click=${() => this._toggleFavoritesFilter()}
               title="Show favorites only (f)"
               aria-pressed="${this._showFavoritesOnly}"
-              aria-label="Filter by favorites"
+              aria-label="Filter by favorites${this._favorites.size > 0
+                ? ` (${this._favorites.size})`
+                : ''}"
             >
-              ${starFilled}<span class="filter-btn-label">Favorites</span>
-              ${this._favorites.size > 0
-                ? html`<span class="filter-count-badge">${this._favorites.size}</span>`
-                : ''}
+              <span class="filter-icon-wrap">
+                ${starFilled}
+                ${this._favorites.size > 0
+                  ? html`<span class="filter-count-bubble" aria-hidden="true"
+                      >${this._favorites.size}</span
+                    >`
+                  : ''}
+              </span>
+              <span class="filter-btn-label">Favorites</span>
             </button>
             <button
               class="filter-btn"
