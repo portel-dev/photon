@@ -62,17 +62,20 @@ export class BeamSidebar extends LitElement {
         height: 100%;
         color: var(--t-primary);
         overflow: visible;
-        /* Inline-size container so the filter row can react to the
-           current sidebar width without needing JS measurements. */
-        container-type: inline-size;
-        container-name: sidebar;
       }
 
+      /* Inline-size container so the filter row, title prefix, and
+         photon-row chrome can react to the current sidebar width without
+         needing JS measurements. Applied here, not on :host: Safari
+         doesn't reliably register the shadow host as a containment
+         context, so its container queries silently never fire. */
       .sidebar-content {
         flex: 1;
         overflow: hidden;
         display: flex;
         flex-direction: column;
+        container-type: inline-size;
+        container-name: sidebar;
       }
 
       .sidebar-scroll {
