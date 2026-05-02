@@ -193,14 +193,6 @@ export class BeamSidebar extends LitElement {
         opacity: 0.8;
       }
 
-      /* Drop the "Photon " prefix in narrow sidebars so the title shrinks
-         to just "Beam" instead of wrapping onto two lines. Driven by the
-         width-mode attribute that ResizeObserver sets on :host. */
-      :host([width-mode='narrow']) .logo-prefix,
-      :host([width-mode='compact']) .logo-prefix {
-        display: none;
-      }
-
       .status-indicator {
         width: 9px;
         height: 9px;
@@ -856,25 +848,15 @@ export class BeamSidebar extends LitElement {
         color: var(--accent-primary);
       }
 
-      /* Three labels ("Favorites", "Marketplace", "Pulse" = 24 chars)
-         only fit cleanly when the sidebar is wider than ~340px. Below
-         that, switch to icon-only buttons so we never show the broken
-         "Favori…" / "Market…" state. The user can drag the sidebar wider
-         to bring the labels back. */
-      :host([width-mode='narrow']) .filter-btn,
-      :host([width-mode='compact']) .filter-btn {
+      /* Icon-only filter buttons (label spans omitted in render()). */
+      .filter-btn.icon-only {
         position: relative;
         padding: var(--space-xs);
         gap: 0;
       }
-      :host([width-mode='narrow']) .filter-btn .filter-btn-label,
-      :host([width-mode='compact']) .filter-btn .filter-btn-label {
-        display: none;
-      }
-      :host([width-mode='narrow']) .filter-btn .update-badge,
-      :host([width-mode='compact']) .filter-btn .update-badge {
-        /* Marketplace's update count becomes a corner badge so it
-           stays visible in the icon-only layout. */
+      .filter-btn.icon-only .update-badge {
+        /* Marketplace's update count becomes a corner badge so it stays
+           visible in the icon-only layout. */
         position: absolute;
         top: 2px;
         right: 4px;
@@ -1285,7 +1267,7 @@ export class BeamSidebar extends LitElement {
                 this.dispatchEvent(new CustomEvent('home', { bubbles: true, composed: true }))}
               title="Go home"
             >
-              <span class="logo-prefix">Photon </span>Beam
+              ${this.widthMode === 'wide' ? 'Photon Beam' : 'Beam'}
               <span
                 class="status-indicator ${this.connected
                   ? 'connected'
@@ -1340,45 +1322,52 @@ export class BeamSidebar extends LitElement {
               ${plus}
             </button>
           </div>
-          <div class="filter-row" role="group" aria-label="Filter options">
-            <button
-              class="filter-btn ${this._showFavoritesOnly ? 'active' : ''}"
-              @click=${() => this._toggleFavoritesFilter()}
-              title="Show favorites only (f)"
-              aria-pressed="${this._showFavoritesOnly}"
-              aria-label="Filter by favorites${this._favorites.size > 0
-                ? ` (${this._favorites.size})`
-                : ''}"
-            >
-              <span class="filter-icon-wrap">
-                ${starFilled}
-                ${this._favorites.size > 0
-                  ? html`<span class="filter-count-in-star" aria-hidden="true"
-                      >${this._favorites.size}</span
-                    >`
+          ${(() => {
+            const compact = this.widthMode !== 'wide';
+            const compactClass = compact ? 'icon-only' : '';
+            return html`<div class="filter-row" role="group" aria-label="Filter options">
+              <button
+                class="filter-btn ${this._showFavoritesOnly ? 'active' : ''} ${compactClass}"
+                @click=${() => this._toggleFavoritesFilter()}
+                title="Show favorites only (f)"
+                aria-pressed="${this._showFavoritesOnly}"
+                aria-label="Filter by favorites${this._favorites.size > 0
+                  ? ` (${this._favorites.size})`
+                  : ''}"
+              >
+                <span class="filter-icon-wrap">
+                  ${starFilled}
+                  ${this._favorites.size > 0
+                    ? html`<span class="filter-count-in-star" aria-hidden="true"
+                        >${this._favorites.size}</span
+                      >`
+                    : ''}
+                </span>
+                ${compact ? '' : html`<span class="filter-btn-label">Favorites</span>`}
+              </button>
+              <button
+                class="filter-btn ${compactClass}"
+                @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
+                aria-label="Open marketplace"
+                title="Marketplace"
+              >
+                ${marketplaceIcon}${compact
+                  ? ''
+                  : html`<span class="filter-btn-label">Marketplace</span>`}
+                ${this.updatesAvailable > 0
+                  ? html`<span class="update-badge">${this.updatesAvailable}</span>`
                   : ''}
-              </span>
-              <span class="filter-btn-label">Favorites</span>
-            </button>
-            <button
-              class="filter-btn"
-              @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
-              aria-label="Open marketplace"
-            >
-              ${marketplaceIcon}<span class="filter-btn-label">Marketplace</span>
-              ${this.updatesAvailable > 0
-                ? html`<span class="update-badge">${this.updatesAvailable}</span>`
-                : ''}
-            </button>
-            <button
-              class="filter-btn"
-              @click=${() => this.dispatchEvent(new CustomEvent('daemon'))}
-              aria-label="Open Pulse panel"
-              title="Pulse: scheduled jobs, webhooks, and sessions"
-            >
-              ${activityIcon}<span class="filter-btn-label">Pulse</span>
-            </button>
-          </div>
+              </button>
+              <button
+                class="filter-btn ${compactClass}"
+                @click=${() => this.dispatchEvent(new CustomEvent('daemon'))}
+                aria-label="Open Pulse panel"
+                title="Pulse: scheduled jobs, webhooks, and sessions"
+              >
+                ${activityIcon}${compact ? '' : html`<span class="filter-btn-label">Pulse</span>`}
+              </button>
+            </div>`;
+          })()}
         </div>
 
         <div class="sidebar-scroll">
