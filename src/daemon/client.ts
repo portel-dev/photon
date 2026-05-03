@@ -127,14 +127,26 @@ export class DaemonShutdownError extends Error {
 }
 
 /**
- * Open a Unix-domain socket connection to the daemon.
+ * Detects a Windows named-pipe address (e.g. `\\.\pipe\photon-daemon`).
+ * Named pipes have no filesystem entry, so existsSync would always return
+ * false and incorrectly fail the connection.
+ */
+function isWindowsNamedPipe(socketPath: string): boolean {
+  return process.platform === 'win32' && socketPath.startsWith('\\\\.\\pipe\\');
+}
+
+/**
+ * Open a connection to the daemon (Unix domain socket on POSIX, named
+ * pipe on Windows).
  *
  * Wraps net.createConnection() with two safeguards every caller used to
  * have to repeat (and most forgot):
  *
- *   1. existsSync guard — if the socket file is missing, fail with a
+ *   1. existsSync guard — if the unix socket file is missing, fail with a
  *      clean ENOENT error rather than letting Bun throw synchronously
  *      before any 'error' listener can attach (which crashes the process).
+ *      Skipped for Windows named pipes — they have no filesystem entry,
+ *      so existsSync returns false even when the daemon is reachable.
  *   2. try/catch around createConnection — TOCTOU between the existsSync
  *      check and the actual connect call leaves a small window where
  *      the file vanishes; wrap to convert any sync throw into a normal
@@ -146,7 +158,7 @@ export class DaemonShutdownError extends Error {
  * 'error' event handling used everywhere else.
  */
 function connectToDaemon(socketPath: string): net.Socket {
-  if (!fs.existsSync(socketPath)) {
+  if (!isWindowsNamedPipe(socketPath) && !fs.existsSync(socketPath)) {
     const err = new Error(`connect ENOENT ${socketPath}`) as NodeJS.ErrnoException & {
       address?: string;
     };
@@ -162,6 +174,23 @@ function connectToDaemon(socketPath: string): net.Socket {
     // some other sync throw (EACCES, EPERM). Re-throw so the enclosing
     // Promise rejects normally instead of the process crashing.
     throw err;
+  }
+}
+
+/**
+ * connectToDaemon variant for the best-effort health-check helpers
+ * (pingDaemon, queryDaemonStatus, clearInstances) whose Promise
+ * executors only have `resolve` — a sync throw from connectToDaemon
+ * would surface as an unhandled rejection their callers don't expect.
+ *
+ * Returns null instead of throwing, so the caller can resolve a fallback
+ * value (false/null) and keep the "is the daemon reachable?" semantics.
+ */
+function tryConnectToDaemon(socketPath: string): net.Socket | null {
+  try {
+    return connectToDaemon(socketPath);
+  } catch {
+    return null;
   }
 }
 
@@ -1432,14 +1461,18 @@ export async function fetchExecutionHistory(
 export async function pingDaemon(photonName: string): Promise<boolean> {
   const socketPath = getGlobalSocketPath();
 
-  if (!fs.existsSync(socketPath)) {
+  if (!isWindowsNamedPipe(socketPath) && !fs.existsSync(socketPath)) {
     return false;
   }
 
   const requestId = `ping_${Date.now()}`;
 
   return new Promise((resolve) => {
-    const client = connectToDaemon(socketPath);
+    const client = tryConnectToDaemon(socketPath);
+    if (!client) {
+      resolve(false);
+      return;
+    }
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1497,15 +1530,20 @@ export async function queryDaemonStatus(): Promise<{
   const socketPath = getGlobalSocketPath();
 
   // Bail early if socket doesn't exist — avoids Bun crashing on ENOENT
-  // before the 'error' event listener can be attached
-  if (!fs.existsSync(socketPath)) {
+  // before the 'error' event listener can be attached.
+  // Skip the existsSync check on Windows named pipes (no FS entry).
+  if (!isWindowsNamedPipe(socketPath) && !fs.existsSync(socketPath)) {
     return null;
   }
 
   const requestId = `status_${Date.now()}`;
 
   return new Promise((resolve) => {
-    const client = connectToDaemon(socketPath);
+    const client = tryConnectToDaemon(socketPath);
+    if (!client) {
+      resolve(null);
+      return;
+    }
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1558,14 +1596,18 @@ export async function queryDaemonStatus(): Promise<{
 export async function clearInstances(photonName: string, workingDir?: string): Promise<boolean> {
   const socketPath = getGlobalSocketPath();
 
-  if (!fs.existsSync(socketPath)) {
+  if (!isWindowsNamedPipe(socketPath) && !fs.existsSync(socketPath)) {
     return false;
   }
 
   const requestId = `clearinst_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve) => {
-    const client = connectToDaemon(socketPath);
+    const client = tryConnectToDaemon(socketPath);
+    if (!client) {
+      resolve(false);
+      return;
+    }
 
     const timeout = setTimeout(() => {
       client.destroy();
