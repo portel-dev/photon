@@ -616,6 +616,20 @@ const scheduledJobs = new Map<
 >();
 const jobTimers = new Map<ScheduleKey, NodeJS.Timeout>();
 
+/**
+ * Per-job count of consecutive failures whose error message points at a
+ * missing photon source file (ENOENT against a *.photon.ts path). When
+ * the count exceeds AUTO_SUPPRESS_THRESHOLD, the schedule is suppressed
+ * and unscheduled — see runJob's catch block. Reset on any successful
+ * run or non-ENOENT failure.
+ *
+ * Without this, a deleted photon file leaves its scheduled methods
+ * firing forever (every minute / hour / etc.) — each run failing with
+ * ENOENT, log spam, no recovery, no operator signal beyond the noise.
+ */
+const photonFileMissingFailures = new Map<ScheduleKey, number>();
+const AUTO_SUPPRESS_THRESHOLD = 3;
+
 // parseCron moved to ./cron.ts so the boot loader and tests can reuse it.
 
 function scheduleJob(
@@ -780,6 +794,7 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
   let status: ExecutionStatus = 'success';
   let errorMessage: string | undefined;
   let result: unknown;
+  let suppressedThisRun = false;
   try {
     const session = await sessionManager.getOrCreateSession('scheduler', 'scheduler');
     result = await sessionManager.loader.executeTool(session.instance, job.method, job.args || {});
@@ -801,6 +816,7 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
     });
 
     logger.info('Job completed', { jobId, method: job.method, runCount: job.runCount });
+    photonFileMissingFailures.delete(jobId);
   } catch (error) {
     status = 'error';
     errorMessage = getErrorMessage(error);
@@ -812,6 +828,57 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
       method: job.method,
       error: errorMessage,
     });
+
+    // Auto-suppress when the photon source file has clearly vanished.
+    // Without this, a deleted .photon.ts keeps its scheduled methods
+    // firing forever — every fire failing with ENOENT, log spam, no
+    // recovery, no operator signal beyond the noise.
+    const isPhotonFileMissing =
+      errorMessage.includes('ENOENT') &&
+      (errorMessage.includes('.photon.ts') ||
+        (job.photonPath != null && errorMessage.includes(job.photonPath)) ||
+        (job.sourceFile != null && errorMessage.includes(job.sourceFile)));
+    if (isPhotonFileMissing) {
+      const count = (photonFileMissingFailures.get(jobId) ?? 0) + 1;
+      photonFileMissingFailures.set(jobId, count);
+      if (count >= AUTO_SUPPRESS_THRESHOLD) {
+        // Cross-check with the authoritative source probe before suppressing —
+        // a transient ENOENT during reinstall shouldn't kill the schedule.
+        const probe = probePhotonSource(job.photonName, job.workingDir);
+        if (!probe.resolved) {
+          const suppressBase = path.resolve(
+            job.workingDir ?? probe.ownerBase ?? getDefaultContext().baseDir
+          );
+          logger.error(
+            'Auto-suppressing schedule: photon source missing for ' +
+              `${count} consecutive runs. Re-enable with \`photon ps enable ${job.photonName}:${job.method}\` ` +
+              'after the source file is restored.',
+            {
+              jobId,
+              photon: job.photonName,
+              method: job.method,
+              suppressBase,
+            }
+          );
+          try {
+            writeSuppressedEntry(suppressBase, job.photonName, job.method);
+          } catch (writeErr) {
+            logger.warn('Failed to persist suppression entry', {
+              error: getErrorMessage(writeErr),
+            });
+          }
+          unscheduleJob(jobId);
+          suppressedThisRun = true;
+        } else {
+          // Source reappeared between failures — reset counter.
+          photonFileMissingFailures.set(jobId, 0);
+        }
+      }
+    } else {
+      // Different failure class — reset the photon-missing counter so
+      // unrelated noise doesn't accumulate toward suppression.
+      photonFileMissingFailures.delete(jobId);
+    }
   } finally {
     untrackExecution(key);
     recordExecution(
@@ -829,6 +896,7 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
     );
   }
 
+  if (suppressedThisRun) return;
   scheduleJob(job);
 }
 
@@ -843,7 +911,27 @@ function unscheduleJob(jobId: ScheduleKey): boolean {
   if (existed) {
     logger.info('Job unscheduled', { jobId });
   }
+  // Forget any auto-suppress counter for this slot — if the same key
+  // is later re-scheduled, the count starts fresh.
+  photonFileMissingFailures.delete(jobId);
   return existed;
+}
+
+/**
+ * Append a suppressed entry to a base's active-schedules file so the
+ * daemon won't re-register the schedule at next boot. Idempotent on the
+ * (photon, method) pair.
+ */
+function writeSuppressedEntry(baseDir: string, photon: string, method: string): void {
+  const file = readActiveSchedulesFile(baseDir);
+  const suppressed = file.suppressed ?? [];
+  if (!suppressed.some((s) => s.photon === photon && s.method === method)) {
+    suppressed.push({ photon, method, suppressedAt: new Date().toISOString() });
+    file.suppressed = suppressed;
+  }
+  // Drop any active-row that matches — no point keeping it around.
+  file.active = file.active.filter((e) => !(e.photon === photon && e.method === method));
+  writeActiveSchedulesFile(baseDir, file);
 }
 
 /**
