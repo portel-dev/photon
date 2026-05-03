@@ -14,7 +14,6 @@ import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
-import { formatLabel } from '../utils/format-label.js';
 
 interface ActiveRow {
   id: string;
@@ -729,7 +728,7 @@ export class DaemonPanel extends LitElement {
         <span class="status-dot ${dormant ? 'dormant' : ''}"></span>
         <span class="entity"
           ><span class="photon-part">${photon}</span><span class="sep">.</span
-          ><span class="method-part">${formatLabel(method)}</span></span
+          ><span class="method-part">${method}</span></span
         >
       </span>
     `;
@@ -986,7 +985,7 @@ export class DaemonPanel extends LitElement {
                             ${verb ? html`<span class="route-verb">${verb}</span>` : ''}
                             <span class="route-path">${path}</span>
                             <span class="route-arrow">→</span>
-                            <span class="route-handler">${formatLabel(r.method)}</span>
+                            <span class="route-handler">${r.method}</span>
                           </span>
                         </td>
                       </tr>
