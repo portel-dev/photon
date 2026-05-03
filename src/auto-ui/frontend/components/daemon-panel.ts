@@ -1,14 +1,13 @@
 /**
- * Daemon Panel — Beam UI surface mirroring `photon ps`.
+ * Pulse panel — heartbeat dashboard for the daemon. Mirrors `photon ps`.
  *
- * Fetches `/api/daemon/ps` and renders four tables: active schedules,
- * declared-but-dormant schedules, webhook routes, and active sessions.
- * Per-row action buttons drive the enable/disable/pause/resume POST
- * endpoints. A History drawer per active-schedule row pulls from
+ * Sections: a chip strip of loaded photons up top, then schedules,
+ * webhooks, and pending (declared-but-dormant) schedules. Schedules and
+ * webhooks group rows by working directory. Per-row icon buttons drive
+ * enable/disable/pause/resume; a History drawer pulls from
  * `/api/daemon/history`.
  *
- * Refresh strategy: polling every 3s while mounted. SSE auto-refresh
- * (photon-reloaded / job-fired) is a follow-up.
+ * Polls `/api/daemon/ps` every 3s while mounted.
  */
 
 import { LitElement, html, css } from 'lit';
@@ -96,6 +95,23 @@ function tilde(p: string | undefined): string {
   const parts = p.split('/').filter(Boolean);
   if (parts.length <= 2) return p;
   return '…/' + parts.slice(-2).join('/');
+}
+
+function isImminent(ts: number | null | undefined): boolean {
+  if (!ts) return false;
+  const delta = ts - Date.now();
+  return delta >= 0 && delta < 60_000;
+}
+
+function groupByLocation<T extends { workingDir?: string }>(rows: T[]): Array<[string, T[]]> {
+  const map = new Map<string, T[]>();
+  for (const r of rows) {
+    const key = r.workingDir ?? '';
+    const list = map.get(key);
+    if (list) list.push(r);
+    else map.set(key, [r]);
+  }
+  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
 }
 
 /**
@@ -196,58 +212,10 @@ export class DaemonPanel extends LitElement {
         color: var(--t-primary);
       }
 
-      .auto-refresh {
-        color: var(--t-muted);
-        font-size: 0.8rem;
-      }
-
       p.hint {
         color: var(--t-muted);
         font-size: 0.85rem;
         margin: 0 0 var(--space-lg) 0;
-      }
-
-      /* Card-style section */
-      section.card {
-        background: color-mix(in srgb, var(--bg-glass) 60%, transparent);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-md);
-        padding: var(--space-md);
-        margin-bottom: var(--space-md);
-      }
-
-      .section-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--space-md);
-        margin-bottom: var(--space-sm);
-      }
-
-      .section-title {
-        margin: 0;
-        font-size: var(--text-sm);
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: var(--t-primary);
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: var(--space-xs);
-      }
-
-      .section-count {
-        color: var(--t-muted);
-        font-size: var(--text-xs);
-        font-weight: 500;
-        letter-spacing: normal;
-        text-transform: none;
-      }
-
-      .section-hint {
-        color: var(--t-muted);
-        font-size: 0.8rem;
-        margin: 0 0 var(--space-sm) 0;
       }
 
       button.refresh {
@@ -269,118 +237,334 @@ export class DaemonPanel extends LitElement {
         cursor: not-allowed;
       }
 
+      /* Section card */
+      section.card {
+        background: color-mix(in srgb, var(--bg-glass) 60%, transparent);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        margin-bottom: var(--space-md);
+      }
+
+      .section-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--space-md);
+        margin-bottom: var(--space-sm);
+      }
+
+      .section-title {
+        margin: 0;
+        font-family: 'Azeret Mono', var(--font-mono);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--t-primary);
+        font-weight: 600;
+        display: flex;
+        align-items: baseline;
+        gap: var(--space-xs);
+      }
+
+      .section-count {
+        color: var(--t-muted);
+        font-size: 0.7rem;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+      }
+
+      .section-sub {
+        color: var(--t-muted);
+        font-size: 0.7rem;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+      }
+
+      .section-hint {
+        color: var(--t-muted);
+        font-size: 0.78rem;
+        margin: 0 0 var(--space-sm) 0;
+      }
+
+      .empty-line {
+        color: var(--t-muted);
+        font-size: 0.85rem;
+        font-style: italic;
+        margin: var(--space-xs) 0 0 0;
+      }
+
+      /* Tables */
       .table-wrap {
         overflow-x: auto;
       }
 
-      table {
+      table.grouped {
         width: 100%;
         border-collapse: separate;
         border-spacing: 0;
+      }
+
+      table.grouped td {
+        padding: 6px 8px;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 50%, transparent);
+        vertical-align: middle;
         font-size: 0.85rem;
       }
 
-      th,
-      td {
-        padding: 8px 10px;
-        text-align: left;
-        border-bottom: 1px solid var(--border-glass);
-      }
-
-      tbody tr:last-child td {
+      table.grouped tbody:last-child tr:last-child td {
         border-bottom: none;
       }
 
-      tbody tr:hover td {
+      table.grouped tbody tr:not(.group-header):hover td {
         background: color-mix(in srgb, var(--bg-glass) 60%, transparent);
       }
 
-      th {
+      /* Group header row (location) */
+      tr.group-header td {
+        padding: var(--space-md) 8px var(--space-2xs) 8px;
         background: transparent;
-        font-weight: 600;
+        border-bottom: none;
+      }
+      table.grouped tbody:first-child tr.group-header td {
+        padding-top: var(--space-2xs);
+      }
+      .location-path {
+        font-family: 'Azeret Mono', var(--font-mono);
+        font-size: 0.7rem;
         color: var(--t-muted);
-        font-size: 0.75rem;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        border-bottom: 1px solid var(--border-glass);
+      }
+      .location-meta {
+        color: var(--t-muted);
+        font-size: 0.7rem;
+        margin-left: var(--space-sm);
+        opacity: 0.6;
+        text-transform: lowercase;
       }
 
-      th.num,
-      td.num {
-        text-align: right;
+      /* Entity cell — status dot + photon.method */
+      td.entity-cell {
+        white-space: nowrap;
+        width: 1%;
+      }
+      .entity-row {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--color-success);
+        box-shadow: 0 0 5px color-mix(in srgb, var(--color-success) 50%, transparent);
+        flex-shrink: 0;
+      }
+      .status-dot.dormant {
+        background: var(--t-muted);
+        box-shadow: none;
+        opacity: 0.45;
+      }
+      .entity {
+        font-family: 'Azeret Mono', var(--font-mono);
+        font-size: 0.85rem;
+        white-space: nowrap;
+      }
+      .entity .photon-part {
+        color: var(--t-muted);
+      }
+      .entity .sep {
+        color: var(--t-muted);
+      }
+      .entity .method-part {
+        color: var(--t-primary);
+        font-weight: 600;
+      }
+
+      /* Timing line */
+      td.timing {
+        color: var(--t-muted);
+        font-size: 0.8rem;
         font-variant-numeric: tabular-nums;
       }
-
-      td.cron {
-        font-family: var(--font-mono);
-        color: var(--t-muted);
-      }
-
-      td.method {
+      .timing .schedule {
         color: var(--t-primary);
-        font-weight: 500;
+      }
+      .timing .timing-sep {
+        margin: 0 var(--space-xs);
+        opacity: 0.4;
+      }
+      .timing .imminent {
+        color: var(--accent-primary);
       }
 
-      td.location {
-        color: var(--t-muted);
-        font-family: var(--font-mono);
-        font-size: 0.8rem;
-      }
-
-      tr.empty td {
-        text-align: center;
-        color: var(--t-muted);
-        padding: var(--space-md);
-        font-style: italic;
-      }
-
-      .actions {
-        display: flex;
-        gap: 4px;
-        justify-content: flex-end;
-      }
-
-      .actions button {
-        font-size: 0.75rem;
-        padding: 3px 10px;
-        border: 1px solid var(--border-glass);
-        background: transparent;
+      /* Runs */
+      td.runs {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
         color: var(--t-primary);
-        cursor: pointer;
+        font-size: 0.82rem;
+        white-space: nowrap;
+        width: 1%;
+      }
+      .runs-label {
+        color: var(--t-muted);
+        margin-left: 4px;
+        font-size: 0.72rem;
+      }
+
+      /* Webhook route cell */
+      .route-cell {
+        font-family: 'Azeret Mono', var(--font-mono);
+        font-size: 0.83rem;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-xs);
+        white-space: nowrap;
+      }
+      .route-photon {
+        color: var(--t-muted);
+      }
+      .route-verb {
+        color: var(--accent-secondary);
+        font-weight: 600;
+        font-size: 0.7rem;
+        padding: 1px 5px;
         border-radius: var(--radius-xs);
+        background: color-mix(in srgb, var(--accent-secondary) 12%, transparent);
+        letter-spacing: 0.04em;
+      }
+      .route-path {
+        color: var(--t-primary);
+      }
+      .route-arrow {
+        color: var(--t-muted);
+        opacity: 0.5;
+        margin: 0 4px;
+      }
+      .route-handler {
+        color: var(--t-primary);
+        font-weight: 600;
+      }
+
+      /* Action icons */
+      td.actions {
+        text-align: right;
+        white-space: nowrap;
+        width: 1%;
+      }
+      .icon-bar {
+        display: inline-flex;
+        gap: 2px;
+        justify-content: flex-end;
+        opacity: 0.65;
+        transition: opacity 0.15s ease;
+      }
+      tr:hover .icon-bar,
+      .icon-bar:focus-within {
+        opacity: 1;
+      }
+      .icon-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+      .icon-btn {
+        width: 26px;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--t-muted);
+        border-radius: var(--radius-xs);
+        cursor: pointer;
+        padding: 0;
         transition: all 0.15s ease;
       }
-
-      .actions button:hover {
+      .icon-btn:hover {
         background: var(--bg-glass-strong);
-        border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-glass));
+        color: var(--t-primary);
+        border-color: var(--border-glass);
+      }
+      .icon-btn.danger:hover {
+        color: var(--color-error);
+      }
+      .icon-btn.primary {
+        background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
+        color: var(--accent-primary);
+        border-color: color-mix(in srgb, var(--accent-primary) 30%, var(--border-glass));
+      }
+      .icon-btn.primary:hover {
+        background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
+      }
+      /* Loaded photons chip strip */
+      .chip-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-xs);
+      }
+      .chip {
+        font-family: 'Azeret Mono', var(--font-mono);
+        font-size: 0.78rem;
+        background: color-mix(in srgb, var(--bg-glass) 70%, transparent);
+        color: var(--t-primary);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-full);
+        padding: 3px 10px 3px 8px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .chip.idle {
+        color: var(--t-muted);
+      }
+      .chip-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--color-success);
+        box-shadow: 0 0 4px color-mix(in srgb, var(--color-success) 40%, transparent);
+      }
+      .chip.idle .chip-dot {
+        background: var(--t-muted);
+        opacity: 0.4;
+        box-shadow: none;
+      }
+      .conn-badge {
+        background: var(--accent-primary);
+        color: var(--bg-app);
+        font-weight: 700;
+        font-size: 0.66rem;
+        padding: 1px 7px;
+        border-radius: var(--radius-full);
+        letter-spacing: 0.02em;
       }
 
-      .actions button.primary {
-        background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-glass));
-        border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-glass));
-      }
-
+      /* Status colors (history drawer) */
       .status-success {
-        color: var(--color-success, #4ade80);
+        color: var(--color-success);
       }
       .status-error {
-        color: var(--color-error, #f87171);
+        color: var(--color-error);
       }
       .status-timeout {
-        color: var(--color-warning, #fbbf24);
+        color: var(--color-warning);
       }
 
       .error {
-        background: color-mix(in srgb, var(--color-error, #f87171) 12%, transparent);
-        color: var(--color-error, #f87171);
-        border: 1px solid color-mix(in srgb, var(--color-error, #f87171) 30%, transparent);
+        background: color-mix(in srgb, var(--color-error) 12%, transparent);
+        color: var(--color-error);
+        border: 1px solid color-mix(in srgb, var(--color-error) 30%, transparent);
         padding: var(--space-sm) var(--space-md);
         border-radius: var(--radius-sm);
         font-size: 0.85rem;
         margin-bottom: var(--space-md);
       }
 
+      /* History drawer */
       .drawer {
         position: fixed;
         top: 0;
@@ -394,14 +578,12 @@ export class DaemonPanel extends LitElement {
         z-index: 9999;
         box-shadow: -4px 0 12px rgba(0, 0, 0, 0.4);
       }
-
       .drawer-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: var(--space-md);
       }
-
       .drawer-header button {
         background: transparent;
         border: 1px solid var(--border-glass);
@@ -409,6 +591,25 @@ export class DaemonPanel extends LitElement {
         padding: 4px 10px;
         cursor: pointer;
         border-radius: var(--radius-xs);
+      }
+      .drawer table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 0.85rem;
+      }
+      .drawer th,
+      .drawer td {
+        padding: 8px 10px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-glass);
+      }
+      .drawer th {
+        font-weight: 600;
+        color: var(--t-muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
       }
     `,
   ];
@@ -511,120 +712,249 @@ export class DaemonPanel extends LitElement {
     this._history = null;
   }
 
-  private _sectionHead(title: string, count: number) {
+  private _sectionHead(title: string, count: number, sub?: string) {
     return html`
       <div class="section-head">
         <h2 class="section-title">
-          ${title} ${count > 0 ? html`<span class="section-count">${count}</span>` : ''}
+          ${title} ${count > 0 ? html`<span class="section-count">· ${count}</span>` : ''}
         </h2>
+        ${sub ? html`<span class="section-sub">${sub}</span>` : ''}
       </div>
+    `;
+  }
+
+  private _entity(photon: string, method: string, dormant = false) {
+    return html`
+      <span class="entity-row">
+        <span class="status-dot ${dormant ? 'dormant' : ''}"></span>
+        <span class="entity"
+          ><span class="photon-part">${photon}</span><span class="sep">.</span
+          ><span class="method-part">${formatLabel(method)}</span></span
+        >
+      </span>
+    `;
+  }
+
+  private _timingLine(cron: string, nextRun: number | null, lastRun: number | null) {
+    const imminent = isImminent(nextRun);
+    return html`
+      <span class="schedule" title="${cron}">${humanizeCron(cron)}</span>
+      <span class="timing-sep">·</span>
+      <span class="${imminent ? 'imminent' : ''}">next ${formatWhen(nextRun)}</span>
+      <span class="timing-sep">·</span>
+      <span>last ${formatWhen(lastRun)}</span>
+    `;
+  }
+
+  private _groupHeader(loc: string, count: number, label: string) {
+    return html`
+      <tr class="group-header">
+        <td colspan="4">
+          <span class="location-path" title="${loc || '(no working dir)'}">${tilde(loc)}</span>
+          <span class="location-meta">${count} ${count === 1 ? label : label + 's'}</span>
+        </td>
+      </tr>
+    `;
+  }
+
+  private _iconBtn(opts: {
+    icon: 'history' | 'pause' | 'disable' | 'play';
+    title: string;
+    onClick: () => unknown;
+    variant?: 'danger' | 'primary';
+  }) {
+    const cls = opts.variant ? `icon-btn ${opts.variant}` : 'icon-btn';
+    return html`
+      <button
+        class="${cls}"
+        title="${opts.title}"
+        aria-label="${opts.title}"
+        @click=${opts.onClick}
+      >
+        ${opts.icon === 'history'
+          ? html`<svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M12 7v5l3 2" />
+            </svg>`
+          : opts.icon === 'pause'
+            ? html`<svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="6" y="4" width="4" height="16" />
+                <rect x="14" y="4" width="4" height="16" />
+              </svg>`
+            : opts.icon === 'disable'
+              ? html`<svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                  <line x1="12" y1="2" x2="12" y2="12" />
+                </svg>`
+              : html`<svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polygon points="6 3 20 12 6 21" />
+                </svg>`}
+      </button>
+    `;
+  }
+
+  private _renderLoaded() {
+    const rows = this._snap?.sessions ?? [];
+    if (rows.length === 0) return '';
+    const sorted = [...rows].sort((a, b) => a.photon.localeCompare(b.photon));
+    const totalConn = sorted.reduce((acc, r) => acc + r.instanceCount, 0);
+    const sub = `${totalConn} ${totalConn === 1 ? 'connection' : 'connections'}`;
+    return html`
+      <section class="card">
+        ${this._sectionHead('Loaded photons', rows.length, sub)}
+        <div class="chip-strip">
+          ${sorted.map(
+            (r) => html`
+              <span
+                class="chip ${r.instanceCount === 0 ? 'idle' : ''}"
+                title="${r.workingDir ?? ''}"
+              >
+                <span class="chip-dot"></span>
+                <span>${r.photon}</span>
+                ${r.instanceCount > 0
+                  ? html`<span class="conn-badge">${r.instanceCount}</span>`
+                  : ''}
+              </span>
+            `
+          )}
+        </div>
+      </section>
     `;
   }
 
   private _renderActive() {
     const rows = this._snap?.active ?? [];
+    const groups = groupByLocation(rows);
+    for (const [, list] of groups) {
+      list.sort((a, b) => (a.nextRun ?? Infinity) - (b.nextRun ?? Infinity));
+    }
     return html`
       <section class="card">
-        ${this._sectionHead('Active schedules', rows.length)}
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Location</th>
-                <th>Photon</th>
-                <th>Method</th>
-                <th>Cron</th>
-                <th>Next run</th>
-                <th>Last run</th>
-                <th class="num">Runs</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.length === 0
-                ? html`<tr class="empty">
-                    <td colspan="8">No active schedules.</td>
-                  </tr>`
-                : rows.map(
-                    (r) => html`
-                      <tr>
-                        <td class="location" title="${r.workingDir ?? ''}">
-                          ${tilde(r.workingDir)}
-                        </td>
-                        <td>${r.photon}</td>
-                        <td class="method">${formatLabel(r.method)}</td>
-                        <td class="cron" title="${r.cron}">${humanizeCron(r.cron)}</td>
-                        <td>${formatWhen(r.nextRun)}</td>
-                        <td>${formatWhen(r.lastRun)}</td>
-                        <td class="num">${r.runCount}</td>
-                        <td class="actions">
-                          <button @click=${() => this._openHistory(r.photon, r.method)}>
-                            History
-                          </button>
-                          <button @click=${() => this._scheduleAction('pause', r.photon, r.method)}>
-                            Pause
-                          </button>
-                          <button
-                            @click=${() => this._scheduleAction('disable', r.photon, r.method)}
-                          >
-                            Disable
-                          </button>
-                        </td>
-                      </tr>
-                    `
-                  )}
-            </tbody>
-          </table>
-        </div>
+        ${this._sectionHead('Schedules', rows.length)}
+        ${rows.length === 0
+          ? html`<p class="empty-line">No active schedules.</p>`
+          : html`<div class="table-wrap">
+              <table class="grouped">
+                ${groups.map(
+                  ([loc, items]) => html`
+                    <tbody>
+                      ${this._groupHeader(loc, items.length, 'schedule')}
+                      ${items.map(
+                        (r) => html`
+                          <tr>
+                            <td class="entity-cell">${this._entity(r.photon, r.method)}</td>
+                            <td class="timing">
+                              ${this._timingLine(r.cron, r.nextRun, r.lastRun)}
+                            </td>
+                            <td class="runs">
+                              ${r.runCount.toLocaleString()}<span class="runs-label"
+                                >${r.runCount === 1 ? 'run' : 'runs'}</span
+                              >
+                            </td>
+                            <td class="actions">
+                              <span class="icon-bar">
+                                ${this._iconBtn({
+                                  icon: 'history',
+                                  title: 'History',
+                                  onClick: () => this._openHistory(r.photon, r.method),
+                                })}
+                                ${this._iconBtn({
+                                  icon: 'pause',
+                                  title: 'Pause',
+                                  onClick: () => this._scheduleAction('pause', r.photon, r.method),
+                                })}
+                                ${this._iconBtn({
+                                  icon: 'disable',
+                                  title: 'Disable',
+                                  onClick: () =>
+                                    this._scheduleAction('disable', r.photon, r.method),
+                                  variant: 'danger',
+                                })}
+                              </span>
+                            </td>
+                          </tr>
+                        `
+                      )}
+                    </tbody>
+                  `
+                )}
+              </table>
+            </div>`}
       </section>
     `;
   }
 
   private _renderDeclared() {
     const rows = (this._snap?.declared ?? []).filter((d) => !d.active);
+    if (rows.length === 0) return '';
+    const groups = groupByLocation(rows);
     return html`
       <section class="card">
-        ${this._sectionHead('Declared but not enrolled', rows.length)}
-        <p class="section-hint">
-          Photons declaring <code>@scheduled</code> methods that haven't been enrolled yet.
-        </p>
+        ${this._sectionHead('Pending', rows.length)}
+        <p class="section-hint"><code>@scheduled</code> methods discovered but not yet enrolled.</p>
         <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Location</th>
-                <th>Photon</th>
-                <th>Method</th>
-                <th>Cron</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.length === 0
-                ? html`<tr class="empty">
-                    <td colspan="5">No dormant declarations.</td>
-                  </tr>`
-                : rows.map(
+          <table class="grouped">
+            ${groups.map(
+              ([loc, items]) => html`
+                <tbody>
+                  ${this._groupHeader(loc, items.length, 'pending')}
+                  ${items.map(
                     (r) => html`
                       <tr>
-                        <td class="location" title="${r.workingDir ?? ''}">
-                          ${tilde(r.workingDir)}
+                        <td class="entity-cell">${this._entity(r.photon, r.method, true)}</td>
+                        <td class="timing">
+                          <span class="schedule" title="${r.cron}">${humanizeCron(r.cron)}</span>
                         </td>
-                        <td>${r.photon}</td>
-                        <td class="method">${formatLabel(r.method)}</td>
-                        <td class="cron" title="${r.cron}">${humanizeCron(r.cron)}</td>
+                        <td></td>
                         <td class="actions">
-                          <button
-                            class="primary"
-                            @click=${() => this._scheduleAction('enable', r.photon, r.method)}
-                          >
-                            Enable
-                          </button>
+                          <span class="icon-bar">
+                            ${this._iconBtn({
+                              icon: 'play',
+                              title: 'Enable',
+                              onClick: () => this._scheduleAction('enable', r.photon, r.method),
+                              variant: 'primary',
+                            })}
+                          </span>
                         </td>
                       </tr>
                     `
                   )}
-            </tbody>
+                </tbody>
+              `
+            )}
           </table>
         </div>
       </section>
@@ -633,74 +963,38 @@ export class DaemonPanel extends LitElement {
 
   private _renderWebhooks() {
     const rows = this._snap?.webhooks ?? [];
+    if (rows.length === 0) return '';
+    const groups = groupByLocation(rows);
     return html`
       <section class="card">
         ${this._sectionHead('Webhooks', rows.length)}
         <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Location</th>
-                <th>Photon</th>
-                <th>Route</th>
-                <th>Method</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.length === 0
-                ? html`<tr class="empty">
-                    <td colspan="4">No webhook routes.</td>
-                  </tr>`
-                : rows.map(
-                    (r) => html`
+          <table class="grouped">
+            ${groups.map(
+              ([loc, items]) => html`
+                <tbody>
+                  ${this._groupHeader(loc, items.length, 'route')}
+                  ${items.map((r) => {
+                    const m = r.route.match(/^([A-Z]+)\s+(.+)$/);
+                    const verb = m?.[1] ?? '';
+                    const path = m?.[2] ?? r.route;
+                    return html`
                       <tr>
-                        <td class="location" title="${r.workingDir ?? ''}">
-                          ${tilde(r.workingDir)}
+                        <td>
+                          <span class="route-cell">
+                            <span class="route-photon">${r.photon}</span>
+                            ${verb ? html`<span class="route-verb">${verb}</span>` : ''}
+                            <span class="route-path">${path}</span>
+                            <span class="route-arrow">→</span>
+                            <span class="route-handler">${formatLabel(r.method)}</span>
+                          </span>
                         </td>
-                        <td>${r.photon}</td>
-                        <td class="cron"><code>${r.route}</code></td>
-                        <td class="method">${formatLabel(r.method)}</td>
                       </tr>
-                    `
-                  )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    `;
-  }
-
-  private _renderSessions() {
-    const rows = this._snap?.sessions ?? [];
-    return html`
-      <section class="card">
-        ${this._sectionHead('Active sessions', rows.length)}
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Location</th>
-                <th>Photon</th>
-                <th class="num">Instances</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.length === 0
-                ? html`<tr class="empty">
-                    <td colspan="3">No loaded sessions.</td>
-                  </tr>`
-                : rows.map(
-                    (r) => html`
-                      <tr>
-                        <td class="location" title="${r.workingDir ?? ''}">
-                          ${tilde(r.workingDir)}
-                        </td>
-                        <td>${r.photon}</td>
-                        <td class="num">${r.instanceCount}</td>
-                      </tr>
-                    `
-                  )}
-            </tbody>
+                    `;
+                  })}
+                </tbody>
+              `
+            )}
           </table>
         </div>
       </section>
@@ -763,12 +1057,12 @@ export class DaemonPanel extends LitElement {
         </button>
       </div>
       <p class="hint">
-        Heartbeat of the daemon: scheduled work, webhook routes, and loaded sessions. Mirrors
+        Heartbeat of the daemon: loaded photons, schedules, and webhooks. Mirrors
         <code>photon ps</code>. Auto-refresh every ${POLL_INTERVAL_MS / 1000}s.
       </p>
 
-      ${this._error ? html`<div class="error">${this._error}</div>` : ''} ${this._renderActive()}
-      ${this._renderDeclared()} ${this._renderWebhooks()} ${this._renderSessions()}
+      ${this._error ? html`<div class="error">${this._error}</div>` : ''} ${this._renderLoaded()}
+      ${this._renderActive()} ${this._renderWebhooks()} ${this._renderDeclared()}
       ${this._renderHistoryDrawer()}
     `;
   }
