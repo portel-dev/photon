@@ -109,6 +109,34 @@ function humanizeCron(cron: string): string {
   return trimmed;
 }
 
+/**
+ * Quick presets shown above the cron input. Hand-picked from the patterns
+ * users actually want — covers the 80% case so most users never type a cron.
+ */
+const CRON_PRESETS: Array<{ label: string; cron: string }> = [
+  { label: 'Every minute', cron: '* * * * *' },
+  { label: 'Every 5 min', cron: '*/5 * * * *' },
+  { label: 'Hourly', cron: '0 * * * *' },
+  { label: 'Daily 9am', cron: '0 9 * * *' },
+  { label: 'Weekday mornings', cron: '0 9 * * 1-5' },
+  { label: 'Weekly Mon', cron: '0 9 * * 1' },
+  { label: 'Monthly 1st', cron: '0 0 1 * *' },
+];
+
+/**
+ * Lightweight client-side cron shape check: 5 whitespace-separated fields,
+ * each made of digits, `*`, `/`, `,`, `-`. Mirrors the daemon's parseCron
+ * tolerances closely enough to surface obvious typos as you type — the
+ * server still validates strictly on submit.
+ */
+function isCronShapeValid(cron: string): boolean {
+  const trimmed = cron.trim();
+  if (!trimmed) return false;
+  const parts = trimmed.split(/\s+/);
+  if (parts.length !== 5) return false;
+  return parts.every((p) => /^[0-9*/,-]+$/.test(p));
+}
+
 function formatWhen(ts: number | null | undefined): string {
   if (!ts) return '-';
   const delta = ts - Date.now();
@@ -281,14 +309,27 @@ export class PhotonPulse extends LitElement {
       }
 
       .add-form {
-        display: grid;
-        grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) auto auto;
+        display: flex;
+        flex-direction: column;
         gap: var(--space-sm);
-        align-items: center;
-        padding: var(--space-sm) var(--space-md);
+        padding: var(--space-md);
         background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-glass));
         border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, var(--border-glass));
         border-radius: var(--radius-sm);
+      }
+
+      .field {
+        display: grid;
+        grid-template-columns: 90px 1fr;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .field-label {
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
       }
 
       .add-form select,
@@ -299,7 +340,9 @@ export class PhotonPulse extends LitElement {
         background: var(--bg-elevated, #0b1018);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-xs);
-        padding: 4px 8px;
+        padding: 5px 8px;
+        width: 100%;
+        box-sizing: border-box;
       }
 
       .add-form input {
@@ -312,9 +355,72 @@ export class PhotonPulse extends LitElement {
         border-color: color-mix(in srgb, var(--accent-primary) 60%, var(--border-glass));
       }
 
+      .add-form input.invalid {
+        border-color: color-mix(in srgb, var(--color-warning, #ef4444) 60%, var(--border-glass));
+      }
+
+      .preset-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .preset-chip {
+        font-size: var(--text-xs);
+        padding: 3px 10px;
+        border: 1px solid var(--border-glass);
+        background: var(--bg-elevated, #0b1018);
+        color: var(--t-primary);
+        cursor: pointer;
+        border-radius: 999px;
+        transition: all 0.15s ease;
+        font-family: var(--font-mono);
+      }
+
+      .preset-chip:hover {
+        background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-elevated));
+        border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-glass));
+      }
+
+      .preset-chip.active {
+        background: color-mix(in srgb, var(--accent-primary) 22%, var(--bg-elevated));
+        border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-glass));
+        color: var(--accent-primary);
+      }
+
+      .preview-line {
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding-left: calc(90px + var(--space-sm));
+        min-height: 18px;
+      }
+
+      .preview-line.error {
+        color: var(--color-warning, #ef4444);
+      }
+
+      .preview-arrow {
+        opacity: 0.5;
+      }
+
+      .preview-text {
+        color: var(--t-primary);
+        font-weight: 500;
+      }
+
+      .add-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
       .add-form button {
         font-size: var(--text-xs);
-        padding: 4px 10px;
+        padding: 5px 14px;
         border: 1px solid var(--border-glass);
         background: transparent;
         color: var(--t-primary);
@@ -328,17 +434,16 @@ export class PhotonPulse extends LitElement {
         border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-glass));
       }
 
-      .add-form button:hover {
+      .add-form button:hover:not([disabled]) {
         background: var(--bg-glass-strong);
       }
 
       .add-form button[disabled] {
         opacity: 0.5;
-        cursor: wait;
+        cursor: not-allowed;
       }
 
       .add-hint {
-        grid-column: 1 / -1;
         font-size: var(--text-xs);
         color: var(--t-muted);
       }
@@ -504,44 +609,98 @@ export class PhotonPulse extends LitElement {
     if (this._formMethod && !candidates.includes(this._formMethod)) {
       candidates.unshift(this._formMethod);
     }
+    const trimmedCron = this._formCron.trim();
+    const cronShapeValid = isCronShapeValid(trimmedCron);
+    const humanized = cronShapeValid ? humanizeCron(trimmedCron) : '';
+    const cronHasFriendlyName = humanized && humanized !== trimmedCron;
+    const canSubmit = !!this._formMethod && cronShapeValid && !this._formSubmitting;
     return html`
       <div class="add-form" role="group" aria-label="Add schedule">
-        <select
-          aria-label="Method"
-          .value=${this._formMethod}
-          @change=${(e: Event) => (this._formMethod = (e.target as HTMLSelectElement).value)}
+        <div class="field">
+          <span class="field-label">Method</span>
+          <select
+            aria-label="Method"
+            .value=${this._formMethod}
+            @change=${(e: Event) => (this._formMethod = (e.target as HTMLSelectElement).value)}
+          >
+            <option value="" disabled ?selected=${!this._formMethod}>Pick a method…</option>
+            ${candidates.map(
+              (m) => html`<option value=${m} ?selected=${m === this._formMethod}>${m}</option>`
+            )}
+          </select>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Preset</span>
+          <div class="preset-row" role="group" aria-label="Cron presets">
+            ${CRON_PRESETS.map(
+              (p) => html`
+                <button
+                  type="button"
+                  class="preset-chip ${trimmedCron === p.cron ? 'active' : ''}"
+                  title="${p.cron}"
+                  @click=${() => (this._formCron = p.cron)}
+                >
+                  ${p.label}
+                </button>
+              `
+            )}
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Cron</span>
+          <input
+            aria-label="Cron expression"
+            type="text"
+            placeholder="0 9 * * *"
+            class=${trimmedCron && !cronShapeValid ? 'invalid' : ''}
+            spellcheck="false"
+            autocomplete="off"
+            .value=${this._formCron}
+            @input=${(e: Event) => (this._formCron = (e.target as HTMLInputElement).value)}
+            @keydown=${(e: KeyboardEvent) => {
+              if (e.key === 'Enter' && canSubmit) void this._addManual();
+              if (e.key === 'Escape') this._showAddForm = false;
+            }}
+          />
+        </div>
+
+        <div
+          class="preview-line ${trimmedCron && !cronShapeValid ? 'error' : ''}"
+          role="status"
+          aria-live="polite"
         >
-          <option value="" disabled ?selected=${!this._formMethod}>Pick a method…</option>
-          ${candidates.map(
-            (m) => html`<option value=${m} ?selected=${m === this._formMethod}>${m}</option>`
-          )}
-        </select>
-        <input
-          aria-label="Cron expression"
-          type="text"
-          placeholder="0 9 * * *"
-          .value=${this._formCron}
-          @input=${(e: Event) => (this._formCron = (e.target as HTMLInputElement).value)}
-          @keydown=${(e: KeyboardEvent) => {
-            if (e.key === 'Enter') void this._addManual();
-            if (e.key === 'Escape') this._showAddForm = false;
-          }}
-        />
-        <button class="primary" ?disabled=${this._formSubmitting} @click=${() => this._addManual()}>
-          ${this._formSubmitting ? 'Saving…' : 'Save'}
-        </button>
-        <button
-          ?disabled=${this._formSubmitting}
-          @click=${() => {
-            this._showAddForm = false;
-          }}
-        >
-          Cancel
-        </button>
-        <div class="add-hint">
-          Cron: minute hour day month weekday. Examples: <code>0 9 * * *</code> daily 9am,
-          <code>*/15 * * * *</code> every 15min.
-          <a href="https://crontab.guru/" target="_blank" rel="noopener">crontab.guru</a>
+          ${!trimmedCron
+            ? html`<span>Pick a preset or type a cron expression.</span>`
+            : !cronShapeValid
+              ? html`<span>Cron must have 5 fields: minute hour day month weekday.</span>`
+              : cronHasFriendlyName
+                ? html`<span class="preview-arrow">→</span>
+                    <span class="preview-text">${humanized}</span>`
+                : html`<span class="preview-arrow">→</span>
+                    <span class="preview-text">${trimmedCron}</span>
+                    <span>(custom schedule)</span>`}
+        </div>
+
+        <div class="add-actions">
+          <span class="add-hint">
+            Need help?
+            <a href="https://crontab.guru/" target="_blank" rel="noopener">crontab.guru</a>
+          </span>
+          <span style="display: flex; gap: 6px;">
+            <button
+              ?disabled=${this._formSubmitting}
+              @click=${() => {
+                this._showAddForm = false;
+              }}
+            >
+              Cancel
+            </button>
+            <button class="primary" ?disabled=${!canSubmit} @click=${() => this._addManual()}>
+              ${this._formSubmitting ? 'Saving…' : 'Save'}
+            </button>
+          </span>
         </div>
       </div>
     `;
