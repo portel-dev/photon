@@ -3531,8 +3531,30 @@ async function handleRequest(
       workingDir: j.workingDir ?? defaultBase,
       createdBy: j.createdBy,
     }));
+    // Resolve declared->active equivalence by (photon, method, cron, base).
+    // The exact-key lookup `scheduledJobs.has(declaredKey(...))` only catches
+    // a declaration that was enrolled via `photon ps enable` — it misses
+    // the case where a photon ships BOTH `@scheduled` AND a legacy
+    // `enable_schedule` that calls `this.schedule.create()`. The legacy
+    // path keys jobs as `<photon>:sched:<uuid>`, so the declaration shows
+    // up as DECLARED-not-enrolled even though an equivalent timer is
+    // actively firing (Bug 5 in v1.27.0). Compare on the underlying
+    // identity tuple so the CLI can suppress the cosmetic duplicate.
     const declared = Array.from(declaredSchedules.values()).map((d) => {
       const k = declaredKey(d.photon, d.method, d.workingDir);
+      const declBase = d.workingDir ? path.resolve(d.workingDir) : defaultBase;
+      let isActive = scheduledJobs.has(k);
+      if (!isActive) {
+        for (const job of scheduledJobs.values()) {
+          if (job.photonName !== d.photon) continue;
+          if (job.method !== d.method) continue;
+          if (job.cron !== d.cron) continue;
+          const jobBase = job.workingDir ? path.resolve(job.workingDir) : defaultBase;
+          if (jobBase !== declBase) continue;
+          isActive = true;
+          break;
+        }
+      }
       return {
         key: k,
         photon: d.photon,
@@ -3540,7 +3562,7 @@ async function handleRequest(
         cron: d.cron,
         photonPath: d.photonPath,
         workingDir: d.workingDir ?? defaultBase,
-        active: scheduledJobs.has(k),
+        active: isActive,
       };
     });
     const webhooks: Array<{ photon: string; route: string; method: string; workingDir?: string }> =
