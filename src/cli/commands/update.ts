@@ -26,19 +26,18 @@ export function registerUpdateCommand(program: Command): void {
         const { printInfo, printSuccess, printWarning, printHeader, printError } =
           await import('../../cli-formatter.js');
         const { execSync } = await import('child_process');
+        const { fetchLatestVersion } = await import('../../shared/npm-registry.js');
 
-        // 1. Check latest version
+        // 1. Check latest version. Hits registry.npmjs.org over HTTPS
+        // directly — shelling out to `npm view` failed under launchd PATH
+        // and reported the failure as "registry unreachable" (Bug 3, v1.27.0).
         let latestVersion: string | null = null;
         try {
           latestVersion = await runTask('Checking for updates', async () => {
-            return execSync('npm view @portel/photon version', {
-              encoding: 'utf-8',
-              timeout: 10000,
-              stdio: ['pipe', 'pipe', 'pipe'],
-            }).trim();
+            return await fetchLatestVersion('@portel/photon');
           });
-        } catch {
-          printError('Could not reach npm registry');
+        } catch (err) {
+          printError(`Could not check npm registry: ${getErrorMessage(err)}`);
           process.exit(1);
         }
 
