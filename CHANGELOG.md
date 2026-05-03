@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.28.0](https://github.com/portel-dev/photon/compare/v1.27.0...v1.28.0) (2026-05-03)
+
+### Features
+
+* **sample:** augment this.sample() with memory includes, context registry, and loop detection ([154cca5](https://github.com/portel-dev/photon/commit/154cca5ba9b3d386d0eae93d4ccffebd316a59f7))
+
+### Bug Fixes
+
+* **cli:** use direct HTTPS for npm registry version checks ([8ea3b9d](https://github.com/portel-dev/photon/commit/8ea3b9de8da6d6cb9ae4ebe01347bc4adee939aa))
+* **daemon:** dedupe declared vs active schedules by (photon,method,cron) ([729abd8](https://github.com/portel-dev/photon/commit/729abd8ab50269d7672147c1f40f43c2fd278ae6))
+
 ## [1.27.0](https://github.com/portel-dev/photon/compare/v1.26.1...v1.27.0) (2026-05-03)
 
 ### Features
