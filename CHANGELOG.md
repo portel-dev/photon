@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.27.0](https://github.com/portel-dev/photon/compare/v1.26.1...v1.27.0) (2026-05-03)
+
+### Features
+
+* **beam:** per-photon Pulse view with schedules + activity ([232d59a](https://github.com/portel-dev/photon/commit/232d59af42dd54e34cf927afed748b6836023fc6))
+* **beam:** persist Methods/App across Pulse/Help tab switches ([819ca8c](https://github.com/portel-dev/photon/commit/819ca8c3eb5aaa3f2b19cbbc23b0fcb777f21edb))
+* **cf:** photons can override / via [@get](https://github.com/get) with content negotiation ([d0c96ad](https://github.com/portel-dev/photon/commit/d0c96ad9197f36589c70fc91a944d30baed1623e))
+* **cf:** support :param path matching in @get/[@post](https://github.com/post) routes ([a1ad05f](https://github.com/portel-dev/photon/commit/a1ad05f13817e4524e472524469b0b151a0bf69f))
+* **daemon:** host-mode marker, test PG-kill helper, prune-bases command ([4edeafe](https://github.com/portel-dev/photon/commit/4edeafe223f44f4023e5b2ed1b654210b8ad3577))
+* **pulse:** add cron presets, live preview, and inline validation ([b3a0fa8](https://github.com/portel-dev/photon/commit/b3a0fa890d1a3cc29082e07a16adfc946455087b))
+* **pulse:** add manual cron schedules from the UI ([5d22861](https://github.com/portel-dev/photon/commit/5d22861a019067ba5175ef0e79616bad9d245fcc))
+
+### Bug Fixes
+
+* **beam:** add Fullscreen button to result toolbar ([77b6726](https://github.com/portel-dev/photon/commit/77b672600f94edd1ae32292091f7a222079e7c80))
+* **beam:** clean result table styling ([b0a504f](https://github.com/portel-dev/photon/commit/b0a504f2b104f9a6274f6b2a08b55695d6a47f9b))
+* **beam:** drive narrow-mode from render(), not CSS attribute selectors ([2bccaa3](https://github.com/portel-dev/photon/commit/2bccaa3a9b48e3c80937adabb19cc7cd02bdebee))
+* **beam:** drive narrow-mode with ResizeObserver, not [@container](https://github.com/container) ([e9d5935](https://github.com/portel-dev/photon/commit/e9d5935486112249294a0456e26622e88ab5cf3d))
+* **beam:** drop trailing 'last -' from Pulse timing line ([5163d15](https://github.com/portel-dev/photon/commit/5163d15df78c2750838a89d0aa2ae205c20929fe))
+* **beam:** empty Pulse hint, count badge, rename Daemon→Pulse ([b3c5140](https://github.com/portel-dev/photon/commit/b3c5140bd0df278f546619b439b1a436f00cde7c))
+* **beam:** favorites count inside the star + icon-only narrow mode ([c4800cb](https://github.com/portel-dev/photon/commit/c4800cbd39334a7bde03b0462847898195330c6f))
+* **beam:** hide malformed marketplace source chips ([1e830d9](https://github.com/portel-dev/photon/commit/1e830d9d2abc5c9c177d08c9bb15a312b49641c6))
+* **beam:** humanize cron strings and capitalize daemon refresh hint ([fedd62c](https://github.com/portel-dev/photon/commit/fedd62c73180e8810c4250e1dc88cff0cf505a59))
+* **beam:** humanize method param hints and expand acronym dictionary ([6fd5596](https://github.com/portel-dev/photon/commit/6fd559683ad72787766a4706dc900bfe15e95f06))
+* **beam:** humanize step-minute and weekday-range cron patterns ([ec41a4a](https://github.com/portel-dev/photon/commit/ec41a4a1bf16741220964f780bf512f5805bdee6))
+* **beam:** move sidebar container query off :host (Safari fix) ([34ec9ff](https://github.com/portel-dev/photon/commit/34ec9ff5d44123c63ddef19b2b780ea0818a27a7))
+* **beam:** rename Daemon panel to Pulse + card layout ([bed2eec](https://github.com/portel-dev/photon/commit/bed2eec7807c07e873e50a6c6518df74908c3063))
+* **beam:** separate Pulse schedule groups with whitespace and a rule ([dd88af1](https://github.com/portel-dev/photon/commit/dd88af1fe5e232ff33d5f12107e993836fa3a684))
+* **beam:** show favorites count as a bubble on the star icon ([de6a8f3](https://github.com/portel-dev/photon/commit/de6a8f374a565119729814feb228044048bc6309))
+* **beam:** shrink sidebar title to "Beam" at narrow widths ([00f5314](https://github.com/portel-dev/photon/commit/00f5314709029699dd36657a568dbeff9f6021a1))
+* **beam:** title-case photon name in settings page heading ([d30195b](https://github.com/portel-dev/photon/commit/d30195bdeae35345b1d090721b5c47833f1cbb21))
+* **beam:** trim wasted right padding on photon rows ([884fe6d](https://github.com/portel-dev/photon/commit/884fe6d01a8f01ab234275714cd6c4ada3f49617))
+* **beam:** use container query for sidebar narrow mode ([539f4bc](https://github.com/portel-dev/photon/commit/539f4bce11ef03b494e58d04a42459c755f1b97a))
+* **beam:** use plain [@media](https://github.com/media) query for sidebar narrow mode ([99aaa64](https://github.com/portel-dev/photon/commit/99aaa644177a94f01b484ce5d8fbabd82d915eda))
+* **daemon:** address codex review regressions in connectToDaemon ([cd4d85f](https://github.com/portel-dev/photon/commit/cd4d85f36f9e8f7f16a392c8798f6be95f2fd8b4))
+* **daemon:** auto-suppress schedules whose photon source has vanished ([904974b](https://github.com/portel-dev/photon/commit/904974b864fcd61c687475112e4f5430ed39c4b0))
+* **daemon:** close host-mode bypasses (codex consult P1-P4) ([e189083](https://github.com/portel-dev/photon/commit/e18908369051fbd684031ae8f23df730cc6d3fe4))
+* **daemon:** close imposter-daemon race in waitForDaemon ([7d8105f](https://github.com/portel-dev/photon/commit/7d8105fca12edc4829f48cbad01ced0ca8956ac6))
+* **daemon:** detect PID reuse before signaling tracked daemon process ([f3d3ce0](https://github.com/portel-dev/photon/commit/f3d3ce02023787e499be223c3730019fc7f29217))
+* **daemon:** enforce single daemon per socket via argv scan ([7837b77](https://github.com/portel-dev/photon/commit/7837b77c2ebca656b75202e96100da5581a8bcc1))
+* **daemon:** evict cron jobs in-process when loader runs inside the daemon ([3bdc02e](https://github.com/portel-dev/photon/commit/3bdc02efaf3f3b1397d9774f3a1af4081e895391))
+* **daemon:** make daemon recovery work on Windows named pipes ([f7384ed](https://github.com/portel-dev/photon/commit/f7384ed899730d6ae7877144e2410eab553fc7a6))
+* **daemon:** refuse socket deletion when daemon process survives kill ([30d9ec7](https://github.com/portel-dev/photon/commit/30d9ec79b1c3f9e0dd0a0ccfa489bcd28cdaf23f))
+* **daemon:** wait for SIGTERM before deleting socket/pid files ([96086f7](https://github.com/portel-dev/photon/commit/96086f778a92caf67484737c5f2146d2b41c5cbb))
+* **schedule:** boot-time dedup of [@scheduled](https://github.com/scheduled) vs ScheduleProvider duplicates ([2a210aa](https://github.com/portel-dev/photon/commit/2a210aa32e9284e87f0c1ef8b43e99f24d9a2df4))
+* **schedule:** drop ghost schedules when photon source is missing ([90899a5](https://github.com/portel-dev/photon/commit/90899a536b991d53c7749fbab5757d6714fbf18d))
+* **schedule:** handle namespaced names + legacy-layout probe (codex review) ([cec6b59](https://github.com/portel-dev/photon/commit/cec6b59e590360d865b2e895acf10e83bb78fc3b))
+* **schedule:** pin legacy schedule's owning base so runJob can lazy-load ([9325511](https://github.com/portel-dev/photon/commit/932551156a1f88df7d512c45b6cfa1c24defb77f))
+* **schedule:** recompute exec key after legacy base pin (codex P3) + ESM import ([ec00fdc](https://github.com/portel-dev/photon/commit/ec00fdce299f8f5d600e6b9bf3489ba5bc1603b6))
+* **schedule:** tighten ghost probe to schedule's own base + default ([f160dbb](https://github.com/portel-dev/photon/commit/f160dbb2d2418dee878448acc8e30cfe02f07db1))
+
 ## [1.26.1](https://github.com/portel-dev/photon/compare/v1.26.0...v1.26.1) (2026-04-30)
 
 ### Bug Fixes
