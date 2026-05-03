@@ -743,10 +743,13 @@ export class DaemonPanel extends LitElement {
     const imminent = isImminent(nextRun);
     return html`
       <span class="schedule" title="${cron}">${humanizeCron(cron)}</span>
-      <span class="timing-sep">·</span>
-      <span class="${imminent ? 'imminent' : ''}">next ${formatWhen(nextRun)}</span>
-      <span class="timing-sep">·</span>
-      <span>last ${formatWhen(lastRun)}</span>
+      ${nextRun
+        ? html`<span class="timing-sep">·</span>
+            <span class="${imminent ? 'imminent' : ''}">next ${formatWhen(nextRun)}</span>`
+        : ''}
+      ${lastRun
+        ? html`<span class="timing-sep">·</span> <span>last ${formatWhen(lastRun)}</span>`
+        : ''}
     `;
   }
 
