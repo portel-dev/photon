@@ -587,7 +587,12 @@ export class DaemonManager {
   }
 
   private async isSocketAlive(): Promise<boolean> {
-    if (process.platform === 'win32' || !fs.existsSync(this.ctx.socketPath)) return false;
+    // Windows named pipes have no filesystem entry, so existsSync would
+    // always say "no" even when the pipe is reachable. Skip the FS gate
+    // on win32 and rely on net.createConnection's own probe (the 'error'
+    // event resolves false; the try/catch guards against sync throws).
+    const isPipe = process.platform === 'win32' && this.ctx.socketPath.startsWith('\\\\.\\pipe\\');
+    if (!isPipe && !fs.existsSync(this.ctx.socketPath)) return false;
     return new Promise((resolve) => {
       let sock: net.Socket;
       try {

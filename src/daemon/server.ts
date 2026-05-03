@@ -96,7 +96,12 @@ const ownerFile = getOwnerFilePath(socketPath);
 let daemonOwnershipConfirmed = false;
 
 async function isSocketResponsive(target: string): Promise<boolean> {
-  if (process.platform === 'win32' || !fs.existsSync(target)) return false;
+  // Windows named pipes have no filesystem entry; skip the FS gate on
+  // win32 and let net.createConnection probe the pipe directly. The
+  // 'error' handler below resolves false on failure; the try/catch
+  // wrapper guards against sync throws.
+  const isPipe = process.platform === 'win32' && target.startsWith('\\\\.\\pipe\\');
+  if (!isPipe && !fs.existsSync(target)) return false;
   return new Promise((resolve) => {
     let client: net.Socket;
     try {
