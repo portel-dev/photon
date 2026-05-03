@@ -777,23 +777,35 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    // Info endpoint
+    // Info endpoint with content negotiation. A photon may declare
+    // `@get /` to serve a public HTML homepage; in that case JSON
+    // requests still get the discovery payload and everything else
+    // (browsers, default curl, anything not asking for JSON) falls
+    // through to the photon's handler in the route table below.
     if (url.pathname === '/' && request.method === 'GET') {
-      return Response.json(
-        {
-          name: this.photonName,
-          instance: this.instanceName,
-          transport: 'streamable-http',
-          runtime: 'cloudflare-workers',
-          endpoints: {
-            mcp: '/mcp',
-            events: '/events?channel=<name>',
-            ...(DEV_MODE ? { playground: '/playground' } : {}),
-          },
-          tools: this.toolDefinitions.length,
-        },
-        { headers: CORS_HEADERS }
+      const accept = (request.headers.get('accept') || '').toLowerCase();
+      const wantsJson = accept.includes('application/json');
+      const userHomeRoute = this.httpRoutes.find(
+        (r) => r.method === 'GET' && r.path === '/'
       );
+      if (wantsJson || !userHomeRoute) {
+        return Response.json(
+          {
+            name: this.photonName,
+            instance: this.instanceName,
+            transport: 'streamable-http',
+            runtime: 'cloudflare-workers',
+            endpoints: {
+              mcp: '/mcp',
+              events: '/events?channel=<name>',
+              ...(DEV_MODE ? { playground: '/playground' } : {}),
+            },
+            tools: this.toolDefinitions.length,
+          },
+          { headers: CORS_HEADERS }
+        );
+      }
+      // Fall through to the @get/@post route table (handles `@get /`).
     }
 
     // Dev-only endpoints
