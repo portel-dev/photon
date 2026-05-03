@@ -319,28 +319,33 @@ export class DaemonPanel extends LitElement {
         background: color-mix(in srgb, var(--bg-glass) 60%, transparent);
       }
 
-      /* Group header row (location) */
+      /* Group header row (location) — separated by spacing + thin top rule */
       tr.group-header td {
-        padding: var(--space-md) 8px var(--space-2xs) 8px;
+        padding: var(--space-xl) 8px var(--space-xs) 8px;
         background: transparent;
         border-bottom: none;
+        border-top: 1px solid var(--border-glass);
       }
       table.grouped tbody:first-child tr.group-header td {
         padding-top: var(--space-2xs);
+        border-top: none;
       }
       .location-path {
         font-family: 'Azeret Mono', var(--font-mono);
-        font-size: 0.7rem;
-        color: var(--t-muted);
-        letter-spacing: 0.06em;
+        font-size: 0.72rem;
+        color: var(--t-primary);
+        letter-spacing: 0.08em;
         text-transform: uppercase;
+        font-weight: 600;
       }
       .location-meta {
         color: var(--t-muted);
         font-size: 0.7rem;
         margin-left: var(--space-sm);
-        opacity: 0.6;
+        opacity: 0.7;
         text-transform: lowercase;
+        font-weight: 400;
+        letter-spacing: 0.02em;
       }
 
       /* Entity cell — status dot + photon.method */
