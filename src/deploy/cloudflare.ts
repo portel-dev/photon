@@ -12,6 +12,7 @@ import { detectPM, detectRunner } from '../shared-utils.js';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from '../version.js';
 import { logger } from '../shared/logger.js';
+import { extractHttpRoutesFromSource, type HttpRouteDef } from '../shared/http-route-extractor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -378,14 +379,22 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const sourceCode = await fs.readFile(absolutePath, 'utf-8');
   const metadata = extractor.extractAllFromSource(sourceCode);
 
-  const toolDefs = metadata.tools.map((tool: any) => ({
-    name: tool.name,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-    ...(tool.simpleParams ? { simpleParams: true } : {}),
-  }));
+  // Route extraction must NOT trust photon-core's metadata.httpRoutes —
+  // the published photon-core SchemaExtractor (≤2.25.0) doesn't return
+  // it, which silently shipped empty subclass route tables in 1.27.0 and
+  // 1.28.0. Always source-extract here. See tests/cf-deploy-codegen.test.ts.
+  const routeDefs: HttpRouteDef[] = extractHttpRoutesFromSource(sourceCode);
+  // Route handlers must not also surface as MCP tools — they're HTTP-only.
+  const routeHandlerNames = new Set(routeDefs.map((r) => r.handler));
+  const toolDefs = metadata.tools
+    .filter((tool: { name: string }) => !routeHandlerNames.has(tool.name))
+    .map((tool: any) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      ...(tool.simpleParams ? { simpleParams: true } : {}),
+    }));
 
-  const routeDefs = (metadata as any).httpRoutes ?? [];
   const cfAccessEnabled = metadata.auth === 'cf-access';
 
   logger.info(`Found ${toolDefs.length} tools, ${routeDefs.length} HTTP routes`);
@@ -494,13 +503,17 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     }
     const sibSource = await fs.readFile(sibPath, 'utf-8');
     const sibMeta = extractor.extractAllFromSource(sibSource);
-    const sibTools = sibMeta.tools.map((tool: any) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      ...(tool.simpleParams ? { simpleParams: true } : {}),
-    }));
-    const sibRoutes = (sibMeta as any).httpRoutes ?? [];
+    // Same source-extract rule as the host: don't trust photon-core for routes.
+    const sibRoutes: HttpRouteDef[] = extractHttpRoutesFromSource(sibSource);
+    const sibRouteHandlers = new Set(sibRoutes.map((r) => r.handler));
+    const sibTools = sibMeta.tools
+      .filter((tool: { name: string }) => !sibRouteHandlers.has(tool.name))
+      .map((tool: any) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        ...(tool.simpleParams ? { simpleParams: true } : {}),
+      }));
     // Sibling-level @photons are not recursively bundled in v1 — flag so the
     // user knows their indirect dependency isn't carried along.
     const sibSiblings = parsePhotonPhotons(sibSource);

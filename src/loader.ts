@@ -15,6 +15,7 @@ import {
   type Dirent,
 } from 'fs';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
+import { extractHttpRoutesFromSource } from './shared/http-route-extractor.js';
 import type {
   PhotonInstance,
   EventListenerEntry,
@@ -2327,20 +2328,12 @@ export class PhotonLoader {
   /**
    * Extract @get and @post HTTP route declarations from photon source.
    * Methods tagged with @get or @post are HTTP-only and must NOT appear as MCP tools.
+   * Delegates to the shared module so the cf deploy path uses the same regex.
    */
   private extractHttpRoutesFromSource(
     source: string
   ): Array<{ method: string; path: string; handler: string }> {
-    const routes: Array<{ method: string; path: string; handler: string }> = [];
-    // Match JSDoc blocks that contain @get or @post followed by the async method name.
-    // Pattern: /** ... @get /path ... */ async methodName(
-    const routeRe =
-      /\/\*\*[\s\S]*?@(get|post)\s+(\/[^\s*]*)[\s\S]*?\*\/\s*(?:async\s+)?(\w+)\s*\(/gi;
-    let m: RegExpExecArray | null;
-    while ((m = routeRe.exec(source)) !== null) {
-      routes.push({ method: m[1].toUpperCase(), path: m[2], handler: m[3] });
-    }
-    return routes;
+    return extractHttpRoutesFromSource(source);
   }
 
   /**

@@ -115,6 +115,10 @@ SUITES=(
   "daemon-imposter-eviction:$RUN tests/daemon-imposter-eviction.test.ts"
   "host-mode:$RUN tests/host-mode.test.ts"
   "sample-augmenter:$RUN tests/sample-augmenter.test.ts"
+  "cf-route-matcher:$VITEST tests/cf-template-route-matcher.test.ts"
+  "cf-deploy-codegen:$VITEST tests/cf-deploy-codegen.test.ts"
+  "cf-deploy-stale-core:$VITEST tests/cf-deploy-codegen-stale-core.test.ts"
+  "daemon-rpc-contract:$RUN tests/daemon-rpc-contract.test.ts"
 )
 
 TOTAL=0
