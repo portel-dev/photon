@@ -527,11 +527,42 @@ export class DaemonManager {
   }
 
   /**
+   * Returns true if the process recorded in the startup lock file is
+   * still alive. Used by waitForDaemon to bail out early when the
+   * lock-holding process has crashed mid-spawn.
+   */
+  private isLockHolderAlive(): boolean {
+    try {
+      const holderPid = parseInt(fs.readFileSync(this.lockFile, 'utf-8').trim(), 10);
+      if (!Number.isFinite(holderPid) || holderPid <= 0) return false;
+      return this.isPidStillAlive(holderPid);
+    } catch {
+      // Lock file gone — holder finished and released. Treat as "not alive"
+      // so the caller re-attempts via start() (which will see the daemon
+      // already up via the post-lock isSocketAlive recheck).
+      return false;
+    }
+  }
+
+  /**
    * Wait for another process to finish starting the daemon.
-   * Polls socket availability with a timeout.
+   *
+   * Polls until the socket comes up OR the lock-holding process dies.
+   *
+   * IMPORTANT: maxWait must exceed spawnDaemon's own timeout (10 s).
+   * If we time out faster than the lock holder can finish a healthy
+   * spawn, we'll force-spawn a second daemon — both daemons race to
+   * bind the socket, the loser is detected by the imposter scan and
+   * killed. This is the root cause of the imposter-daemon entries
+   * seen in the log around imposter PID detections.
+   *
+   * Also: do NOT force-unlink the lock file here. acquireStartupLock
+   * already detects stale locks (holder PID dead) and cleans them up
+   * atomically. Force-unlinking from a peer process opens a window
+   * where two processes both think they hold the lock.
    */
   private async waitForDaemon(quiet: boolean): Promise<void> {
-    const maxWait = 5000;
+    const maxWait = 15_000;
     const interval = 200;
     let waited = 0;
 
@@ -547,18 +578,17 @@ export class DaemonManager {
         if (!quiet) this.logger.debug('Daemon started by another process');
         return;
       }
+
+      // If the lock holder died, don't keep waiting — return to start()
+      // immediately so we can claim the lock ourselves.
+      if (!this.isLockHolderAlive()) break;
     }
 
-    // Timeout — the other process may have failed. Try starting ourselves.
     if (!quiet)
-      this.logger.warn('Timed out waiting for daemon from another process, attempting start');
-    // Clean stale lock if holder died during startup
-    try {
-      fs.unlinkSync(this.lockFile);
-    } catch {
-      /* ignore */
-    }
-    // Recursive call — will re-attempt lock acquisition
+      this.logger.warn(
+        'Lock holder gave up or timed out before daemon became reachable; retrying start.'
+      );
+    // Recursive call — acquireStartupLock will handle stale-lock cleanup.
     return this.start(quiet);
   }
 
