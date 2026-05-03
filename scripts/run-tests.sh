@@ -114,6 +114,7 @@ SUITES=(
   "schedule-missed-fire:$RUN tests/schedule-missed-fire.test.ts"
   "daemon-imposter-eviction:$RUN tests/daemon-imposter-eviction.test.ts"
   "host-mode:$RUN tests/host-mode.test.ts"
+  "sample-augmenter:$RUN tests/sample-augmenter.test.ts"
 )
 
 TOTAL=0
