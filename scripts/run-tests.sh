@@ -108,6 +108,7 @@ SUITES=(
   "schedule-autonomous-fire:$RUN tests/schedule-autonomous-fire.test.ts"
   "schedule-boot-load:$RUN tests/schedule-boot-load.test.ts"
   "schedule-ghost-cancel:$RUN tests/schedule-ghost-cancel.test.ts"
+  "schedule-cancel-create-regression:$RUN tests/schedule-cancel-create-regression.test.ts"
   "schedule-ghost-photon:$RUN tests/schedule-ghost-photon.test.ts"
   "schedule-missed-fire:$RUN tests/schedule-missed-fire.test.ts"
   "daemon-imposter-eviction:$RUN tests/daemon-imposter-eviction.test.ts"
