@@ -20,12 +20,26 @@ import { DaemonStatus } from './protocol.js';
 import { DaemonStateMachine, type DaemonState } from './state-machine.js';
 import { getOwnerFilePath, isPidAlive as checkPidAlive, readOwnerRecord } from './ownership.js';
 import { createLogger } from '../shared/logger.js';
-import { getErrorMessage } from '../shared/error-handler.js';
 import { getDefaultContext, type PhotonContext } from '../context.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Thrown when a daemon PID survives SIGTERM and SIGKILL. Callers should
+ * NOT retry an `ensure`/`start` automatically — a surviving process keeps
+ * the socket bound, so spawning a fresh daemon would race or EADDRINUSE.
+ * Surface this to the user instead.
+ */
+export class DaemonOrphanError extends Error {
+  readonly survivorPids: number[];
+  constructor(message: string, survivorPids: number[]) {
+    super(message);
+    this.name = 'DaemonOrphanError';
+    this.survivorPids = survivorPids;
+  }
+}
 
 /**
  * DaemonManager — state-machine-guarded daemon lifecycle.
@@ -212,8 +226,16 @@ export class DaemonManager {
 
     try {
       this.killProcess();
-    } finally {
       this.fsm.transition('stopped');
+    } catch (error) {
+      // killProcess threw because the daemon process won't die. Don't
+      // transition to 'stopped' — the FSM should reflect reality (the
+      // daemon is still running). Re-throw so the caller surfaces it.
+      if (error instanceof DaemonOrphanError) throw error;
+      // Unknown error — best to mark stopped to avoid wedging the FSM,
+      // but propagate the error so the caller knows cleanup was partial.
+      this.fsm.transition('stopped');
+      throw error;
     }
   }
 
@@ -222,21 +244,15 @@ export class DaemonManager {
    */
   async restart(): Promise<void> {
     if (this.fsm.state !== 'stopped') {
+      // If the running daemon refuses to die, killProcess throws
+      // DaemonOrphanError; let it propagate. We must NOT delete the
+      // socket of a still-running daemon and spawn a competitor.
       this.stop();
     }
 
-    // Wait for graceful shutdown
-    await new Promise((r) => setTimeout(r, 300));
-
-    // Clean stale socket if still present
-    if (fs.existsSync(this.ctx.socketPath) && process.platform !== 'win32') {
-      try {
-        fs.unlinkSync(this.ctx.socketPath);
-      } catch {
-        // Ignore — start will also clean it
-      }
-    }
-
+    // killProcess already removed pid/owner/socket files when it succeeded.
+    // No additional unlink needed here — and unlinking unconditionally is
+    // exactly the bug that caused 814 "imposter daemon" restart cycles.
     await this.start(true);
   }
 
@@ -272,6 +288,80 @@ export class DaemonManager {
    * Returns true if lock acquired, false if another process holds it.
    * Handles stale locks (lock holder PID is dead).
    */
+  /**
+   * Returns true if the PID responds to signal 0 (i.e. the process exists
+   * and we have permission to signal it). Robust to ESRCH and EPERM.
+   */
+  private isPidStillAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err: any) {
+      // ESRCH = no such process; EPERM = process exists but not ours
+      // For our purposes EPERM means "alive" — we can't kill it either.
+      return err?.code === 'EPERM';
+    }
+  }
+
+  /**
+   * Synchronously poll until all pids are dead or the timeout expires.
+   * Returns true iff every pid is confirmed dead before the deadline.
+   */
+  private waitForPidsDeadSync(pids: number[], timeoutMs: number): boolean {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (pids.every((pid) => !this.isPidStillAlive(pid))) return true;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+    return pids.every((pid) => !this.isPidStillAlive(pid));
+  }
+
+  /**
+   * SIGTERM → wait → SIGKILL → wait. Returns whether every tracked pid is
+   * confirmed dead. Callers MUST NOT delete socket/pid/owner files unless
+   * this returns true — a surviving process keeps the socket bound, and
+   * unlinking it from underneath leaves the "marked running but socket
+   * unreachable" state we're trying to prevent.
+   */
+  private terminateTrackedPidsSync(pids: number[]): boolean {
+    if (pids.length === 0) return true;
+
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Already dead or no permission — fine, the wait loop will confirm.
+      }
+    }
+    if (this.waitForPidsDeadSync(pids, 3000)) return true;
+
+    const survivors = pids.filter((pid) => this.isPidStillAlive(pid));
+    for (const pid of survivors) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // EPERM (not ours) or ESRCH (just died) — no recourse either way.
+      }
+    }
+    return this.waitForPidsDeadSync(pids, 1500);
+  }
+
+  /**
+   * Unlink pid file, owner file, and socket file. Caller is responsible for
+   * confirming the daemon process is dead first; this helper does not check.
+   */
+  private removeStateFiles(): void {
+    for (const file of [this.ctx.pidFile, this.ownerFile, this.ctx.socketPath]) {
+      if (process.platform === 'win32' && file === this.ctx.socketPath) continue;
+      if (!fs.existsSync(file)) continue;
+      try {
+        fs.unlinkSync(file);
+      } catch {
+        // Race with another cleanup — fine.
+      }
+    }
+  }
+
   private async acquireStartupLock(): Promise<boolean> {
     const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -399,7 +489,17 @@ export class DaemonManager {
   private async isSocketAlive(): Promise<boolean> {
     if (process.platform === 'win32' || !fs.existsSync(this.ctx.socketPath)) return false;
     return new Promise((resolve) => {
-      const sock = net.createConnection(this.ctx.socketPath);
+      let sock: net.Socket;
+      try {
+        // TOCTOU vs. existsSync above: file may vanish, and Bun can throw
+        // synchronously on a missing unix socket before any 'error' listener
+        // attaches. Catch and resolve(false) to keep this defensive helper
+        // from crashing the process.
+        sock = net.createConnection(this.ctx.socketPath);
+      } catch {
+        resolve(false);
+        return;
+      }
       const timer = setTimeout(() => {
         sock.destroy();
         resolve(false);
@@ -418,98 +518,73 @@ export class DaemonManager {
 
   private cleanupStale(): void {
     const pids = this.getTrackedPids();
-    for (const pid of pids) {
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch {
-        // Process already dead
-      }
+    const allDead = this.terminateTrackedPidsSync(pids);
+    if (!allDead) {
+      const survivors = pids.filter((pid) => this.isPidStillAlive(pid));
+      this.logger.error(
+        'Refusing to delete daemon state files: tracked PID(s) survived SIGTERM and SIGKILL. ' +
+          'The socket may still be bound by the surviving process. ' +
+          'Manual intervention required: identify and terminate the orphan, then retry.',
+        { survivorPids: survivors, socketPath: this.ctx.socketPath }
+      );
+      throw new DaemonOrphanError(
+        `Cannot recover daemon: PID ${survivors.join(', ')} survived SIGKILL. ` +
+          `Run \`kill -9 ${survivors.join(' ')}\` and retry.`,
+        survivors
+      );
     }
-    // Wait briefly for SIGTERM to take effect, then SIGKILL stragglers.
-    // Without this, a process whose async shutdown coroutine is hung
-    // (e.g., destroyGraceful waiting on a stuck session) survives as
-    // an orphan after we delete its pid/socket files — leaving the
-    // exact "marked running but socket is unreachable" state we tried
-    // to recover from in the first place.
-    for (const pid of pids) {
-      const deadline = Date.now() + 1500;
-      let stillAlive = true;
-      while (Date.now() < deadline) {
-        try {
-          process.kill(pid, 0);
-        } catch {
-          stillAlive = false;
-          break;
-        }
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-      }
-      if (stillAlive) {
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {
-          // Already dead or no permission — best effort
-        }
-      }
-    }
-    if (fs.existsSync(this.ctx.pidFile)) {
-      try {
-        fs.unlinkSync(this.ctx.pidFile);
-      } catch {
-        // Ignore
-      }
-    }
-    try {
-      fs.unlinkSync(this.ownerFile);
-    } catch {
-      // Ignore
-    }
-    if (fs.existsSync(this.ctx.socketPath) && process.platform !== 'win32') {
-      try {
-        fs.unlinkSync(this.ctx.socketPath);
-      } catch {
-        // Ignore
-      }
-    }
+    this.removeStateFiles();
   }
 
   private killProcess(): void {
     const pids = this.getTrackedPids();
     if (pids.length === 0) return;
+    const allDead = this.terminateTrackedPidsSync(pids);
+    if (!allDead) {
+      const survivors = pids.filter((pid) => this.isPidStillAlive(pid));
+      // Don't unlink files — surviving daemon still owns the socket.
+      this.logger.error(
+        'Daemon stop incomplete: tracked PID(s) survived SIGKILL. State files left intact ' +
+          'so the running daemon stays reachable.',
+        { survivorPids: survivors }
+      );
+      throw new DaemonOrphanError(
+        `Daemon PID ${survivors.join(', ')} did not exit after SIGKILL.`,
+        survivors
+      );
+    }
+    this.removeStateFiles();
+    this.logger.debug('Stopped global daemon', { pids });
+  }
+
+  /**
+   * Rotate the daemon log on each spawn if it has grown past LOG_ROTATE_BYTES.
+   *
+   * Cheap, single-generation rotation: rename log to log.1 (overwriting any
+   * previous .1). Done at spawn time rather than per-write so it adds zero
+   * overhead to the hot path. With the connect/disconnect spam now demoted
+   * to debug, the log should grow slowly enough that a 50 MB cap is plenty
+   * of headroom; the cap exists as a backstop, not a primary defense.
+   */
+  private static readonly LOG_ROTATE_BYTES = 50 * 1024 * 1024;
+  private rotateLogIfTooLarge(): void {
     try {
-      for (const pid of pids) {
-        try {
-          process.kill(pid, 'SIGTERM');
-        } catch (killError: any) {
-          if (killError.code !== 'ESRCH') throw killError;
-        }
-      }
-      // Wait for the process to actually exit before cleaning up filesystem state.
-      // Without this, a quick stop→start sequence can race: the new daemon creates
-      // its socket, then the old daemon's SIGTERM handler deletes it.
-      for (const pid of pids) {
-        const deadline = Date.now() + 3000;
-        while (Date.now() < deadline) {
-          try {
-            process.kill(pid, 0); // throws ESRCH when process is gone
-            const waitMs = 50;
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
-          } catch {
-            break; // Process exited
-          }
-        }
-      }
-      fs.unlinkSync(this.ctx.pidFile);
+      if (!fs.existsSync(this.ctx.logFile)) return;
+      const stat = fs.statSync(this.ctx.logFile);
+      if (stat.size < DaemonManager.LOG_ROTATE_BYTES) return;
+      const rotated = `${this.ctx.logFile}.1`;
       try {
-        fs.unlinkSync(this.ownerFile);
+        fs.unlinkSync(rotated);
       } catch {
-        // Ignore missing owner file
+        // No prior rotated log — fine.
       }
-      if (fs.existsSync(this.ctx.socketPath) && process.platform !== 'win32') {
-        fs.unlinkSync(this.ctx.socketPath);
-      }
-      this.logger.debug('Stopped global daemon', { pids });
-    } catch (error) {
-      this.logger.debug('Error stopping global daemon', { error: getErrorMessage(error) });
+      fs.renameSync(this.ctx.logFile, rotated);
+      this.logger.info('Rotated oversized daemon log', {
+        previousBytes: stat.size,
+        rotatedTo: rotated,
+      });
+    } catch {
+      // Rotation is best-effort — never block daemon spawn on it.
     }
   }
 
@@ -535,6 +610,7 @@ export class DaemonManager {
 
   private async spawnDaemon(quiet: boolean): Promise<void> {
     const daemonScript = this.resolveDaemonScript();
+    this.rotateLogIfTooLarge();
     const logStream = fs.openSync(this.ctx.logFile, 'a');
 
     const child = spawn(process.execPath, [daemonScript, this.ctx.socketPath], {

@@ -127,6 +127,45 @@ export class DaemonShutdownError extends Error {
 }
 
 /**
+ * Open a Unix-domain socket connection to the daemon.
+ *
+ * Wraps net.createConnection() with two safeguards every caller used to
+ * have to repeat (and most forgot):
+ *
+ *   1. existsSync guard — if the socket file is missing, fail with a
+ *      clean ENOENT error rather than letting Bun throw synchronously
+ *      before any 'error' listener can attach (which crashes the process).
+ *   2. try/catch around createConnection — TOCTOU between the existsSync
+ *      check and the actual connect call leaves a small window where
+ *      the file vanishes; wrap to convert any sync throw into a normal
+ *      reject inside the enclosing Promise.
+ *
+ * Use this for every daemon socket connect in the client. Do NOT call
+ * net.createConnection(socketPath) directly — Bun's behavior on a missing
+ * unix socket is to throw synchronously, which bypasses the standard
+ * 'error' event handling used everywhere else.
+ */
+function connectToDaemon(socketPath: string): net.Socket {
+  if (!fs.existsSync(socketPath)) {
+    const err = new Error(`connect ENOENT ${socketPath}`) as NodeJS.ErrnoException & {
+      address?: string;
+    };
+    err.code = 'ENOENT';
+    err.syscall = 'connect';
+    err.address = socketPath;
+    throw err;
+  }
+  try {
+    return net.createConnection(socketPath);
+  } catch (err: any) {
+    // Race: file vanished between existsSync and createConnection, or
+    // some other sync throw (EACCES, EPERM). Re-throw so the enclosing
+    // Promise rejects normally instead of the process crashing.
+    throw err;
+  }
+}
+
+/**
  * Check if an error indicates the daemon is unreachable (crashed or not started)
  */
 function isDaemonConnectionError(error: unknown): boolean {
@@ -220,7 +259,7 @@ export async function reloadDaemonPhoton(
 ): Promise<void> {
   const socketPath = getGlobalSocketPath();
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
     const requestId = `reload_${Date.now()}`;
     let buffer = '';
 
@@ -284,7 +323,7 @@ async function sendCommandDirect(
   const requestId = `req_${Date.now()}_${Math.random()}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     let buffer = '';
     let responseReceived = false;
@@ -437,7 +476,7 @@ export async function subscribeChannel(
     const subscribeId = `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
     return new Promise((resolve, reject) => {
-      const client = net.createConnection(socketPath);
+      const client = connectToDaemon(socketPath);
       let subscribed = false;
       let buffer = '';
 
@@ -607,7 +646,7 @@ export async function publishToChannel(
   const requestId = `pub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -666,7 +705,7 @@ export async function acquireLock(
   const requestId = `lock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const requestTimeout = setTimeout(() => {
       client.destroy();
@@ -725,7 +764,7 @@ export async function releaseLock(
   const requestId = `unlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -780,7 +819,7 @@ export async function listLocks(
   const requestId = `listlocks_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -837,7 +876,7 @@ export async function assignLock(
   const requestId = `assignlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const requestTimeout = setTimeout(() => {
       client.destroy();
@@ -898,7 +937,7 @@ export async function transferLock(
   const requestId = `transferlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const requestTimeout = setTimeout(() => {
       client.destroy();
@@ -958,7 +997,7 @@ export async function releaseIdentityLock(
   const requestId = `releaselock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const requestTimeout = setTimeout(() => {
       client.destroy();
@@ -1014,7 +1053,7 @@ export async function queryLock(
   const requestId = `querylock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const requestTimeout = setTimeout(() => {
       client.destroy();
@@ -1072,7 +1111,7 @@ export async function scheduleJob(
   const requestId = `schedule_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1127,7 +1166,7 @@ export async function unscheduleJob(photonName: string, jobId: string): Promise<
   const requestId = `unschedule_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1187,7 +1226,7 @@ export async function listJobs(photonName: string): Promise<
   const requestId = `listjobs_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1268,7 +1307,7 @@ async function sendSimpleDaemonRequest<T = unknown>(
   const socketPath = getGlobalSocketPath();
   const requestId = req.id || `${req.type}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   return new Promise<T>((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
     let buffer = '';
     const timer = setTimeout(() => {
       client.destroy();
@@ -1400,7 +1439,7 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
   const requestId = `ping_${Date.now()}`;
 
   return new Promise((resolve) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1466,7 +1505,7 @@ export async function queryDaemonStatus(): Promise<{
   const requestId = `status_${Date.now()}`;
 
   return new Promise((resolve) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1526,7 +1565,7 @@ export async function clearInstances(photonName: string, workingDir?: string): P
   const requestId = `clearinst_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1573,7 +1612,7 @@ export async function getEventsSince(
   const requestId = `getevents_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
+    const client = connectToDaemon(socketPath);
 
     const timeout = setTimeout(() => {
       client.destroy();

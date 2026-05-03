@@ -98,7 +98,15 @@ let daemonOwnershipConfirmed = false;
 async function isSocketResponsive(target: string): Promise<boolean> {
   if (process.platform === 'win32' || !fs.existsSync(target)) return false;
   return new Promise((resolve) => {
-    const client = net.createConnection(target);
+    let client: net.Socket;
+    try {
+      // Bun can throw synchronously on a missing/unreachable unix socket
+      // before the 'error' listener attaches — TOCTOU vs. existsSync above.
+      client = net.createConnection(target);
+    } catch {
+      resolve(false);
+      return;
+    }
     const timer = setTimeout(() => {
       client.destroy();
       resolve(false);
@@ -5818,7 +5826,10 @@ function startupWatchPhotons(): void {
 
 function startServer(): void {
   const server = net.createServer((socket) => {
-    logger.info('Client connected');
+    // Demoted from info to debug: scheduler healthchecks open a fresh
+    // connection every minute. At info level these two lines pair up to
+    // dominate the daemon log (5.6M lines / 558 MB seen in the wild).
+    logger.debug('Client connected');
     connectedSockets.add(socket);
 
     let buffer = '';
@@ -5861,7 +5872,7 @@ function startServer(): void {
     });
 
     socket.on('end', () => {
-      logger.info('Client disconnected');
+      logger.debug('Client disconnected');
       connectedSockets.delete(socket);
       cleanupSocketSubscriptions(socket);
     });
