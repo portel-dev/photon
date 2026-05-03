@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.28.1](https://github.com/portel-dev/photon/compare/v1.28.0...v1.28.1) (2026-05-03)
+
+### Bug Fixes
+
+* **deploy/cf:** source-extract @get/[@post](https://github.com/post) routes; never trust photon-core ([3edab51](https://github.com/portel-dev/photon/commit/3edab515b9b0ab61570440d30e927e342a3be947))
+
 ## [1.28.0](https://github.com/portel-dev/photon/compare/v1.27.0...v1.28.0) (2026-05-03)
 
 ### Features
