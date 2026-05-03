@@ -847,6 +847,32 @@ function unscheduleJob(jobId: ScheduleKey): boolean {
 }
 
 /**
+ * Evict a scheduled job by its raw ID. Used by both the IPC `unschedule`
+ * handler and the in-process bridge that the loader uses when it's
+ * running inside the daemon. Returns true iff a job was actually removed.
+ */
+function evictScheduledJobByRawId(rawJobId: string): boolean {
+  const jobId = asScheduleKey(rawJobId);
+  let actualJobId: ScheduleKey = jobId;
+  if (!scheduledJobs.has(jobId)) {
+    // The loader hands us a bare UUID-shaped ID; the registry stores
+    // it under a `<base>::<photon>:ipc:<uuid>` key, so probe both.
+    for (const key of scheduledJobs.keys()) {
+      if (key.endsWith(`:ipc:${jobId}`)) {
+        actualJobId = key;
+        break;
+      }
+    }
+  }
+  const job = scheduledJobs.get(actualJobId);
+  const removed = unscheduleJob(actualJobId);
+  if (removed && job) {
+    deletePersistedIpcSchedule(actualJobId, job.photonName);
+  }
+  return removed;
+}
+
+/**
  * Resolve the canonical schedules dir for a photon under the Option B
  * contract: {workingDir || default baseDir}/.data/{photonName}/schedules/.
  *
@@ -3380,28 +3406,13 @@ async function handleRequest(
   if (request.type === 'unschedule') {
     // IPC input: coerce at the boundary. Job IDs shipped over the protocol
     // are already ScheduleKey-shaped (<base>::<photon>:<method>).
-    const jobId = asScheduleKey(request.jobId!);
-    // Try exact match first, then look for IPC-prefixed version
-    let actualJobId: ScheduleKey = jobId;
-    if (!scheduledJobs.has(jobId)) {
-      // Search for IPC-prefixed job
-      for (const key of scheduledJobs.keys()) {
-        if (key.endsWith(`:ipc:${jobId}`)) {
-          actualJobId = key;
-          break;
-        }
-      }
-    }
-    const job = scheduledJobs.get(actualJobId);
-    const unscheduled = unscheduleJob(actualJobId);
-    if (unscheduled && job) {
-      deletePersistedIpcSchedule(actualJobId, job.photonName);
-    }
+    const rawJobId = request.jobId!;
+    const unscheduled = evictScheduledJobByRawId(rawJobId);
     return {
       type: 'result',
       id: request.id,
       success: true,
-      data: { unscheduled, jobId: actualJobId },
+      data: { unscheduled, jobId: asScheduleKey(rawJobId) },
     };
   }
 
@@ -6214,6 +6225,16 @@ function shutdown(): void {
 // Main execution
 void (async () => {
   await claimExclusiveOwnership();
+  // Register in-process adapters BEFORE the loader can be invoked, so
+  // any photon code path that goes through schedule.cancel() while
+  // running inside the daemon evicts directly instead of round-tripping
+  // through our own Unix socket (which fails during recovery windows).
+  const { registerInProcessAdapters } = await import('./in-process-bridge.js');
+  registerInProcessAdapters({
+    unscheduleJob: async (_photonName: string, jobId: string): Promise<boolean> => {
+      return evictScheduledJobByRawId(jobId);
+    },
+  });
   startupWatchPhotons();
   startServer();
   migrateLegacyIpcSchedules();

@@ -1038,6 +1038,17 @@ export class PhotonLoader {
       const scheduleLogger = this.logger;
       instance._scheduleUnscheduleHook = async (jobId: string) => {
         try {
+          // When this loader runs inside the daemon process itself
+          // (e.g. session manager calling executeTool that triggers
+          // schedule.cancel), prefer a direct in-process eviction over
+          // a Unix-socket round-trip to our own daemon. Without this
+          // the inner call hits ENOENT during the brief windows when
+          // the socket is recovering or missing.
+          const { getInProcessAdapters } = await import('./daemon/in-process-bridge.js');
+          const inProcess = getInProcessAdapters();
+          if (inProcess) {
+            return await inProcess.unscheduleJob(photonNameForSchedule, jobId);
+          }
           const { unscheduleJob } = await import('./daemon/client.js');
           return await unscheduleJob(photonNameForSchedule, jobId);
         } catch (err) {
