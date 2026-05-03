@@ -14,7 +14,7 @@
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { DaemonStateMachine, type DaemonState } from './state-machine.js';
@@ -304,6 +304,73 @@ export class DaemonManager {
   }
 
   /**
+   * Approximate process start time in epoch ms via `ps -o etime=`.
+   *
+   * POSIX-only — Windows daemons skip this check (a separate task tracks
+   * full Windows daemon recovery). Returns null if ps is unavailable, the
+   * pid is dead, or the etime output is unparseable; callers should treat
+   * null as "can't tell" rather than "matches".
+   */
+  private getProcessStartTimeMs(pid: number): number | null {
+    if (process.platform === 'win32') return null;
+    try {
+      const out = execFileSync('ps', ['-o', 'etime=', '-p', String(pid)], {
+        encoding: 'utf-8',
+        timeout: 1000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      if (!out) return null;
+      // ps etime format: [[dd-]hh:]mm:ss
+      const m = out.match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+      if (!m) return null;
+      const days = m[1] ? parseInt(m[1], 10) : 0;
+      const hours = m[2] ? parseInt(m[2], 10) : 0;
+      const mins = parseInt(m[3], 10);
+      const secs = parseInt(m[4], 10);
+      const elapsedSec = days * 86400 + hours * 3600 + mins * 60 + secs;
+      return Date.now() - elapsedSec * 1000;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Heuristic check: is `pid` actually our daemon, or did the kernel
+   * recycle the slot to an unrelated process?
+   *
+   * Why this matters: getTrackedPids reads pid/owner files; if the daemon
+   * died and the kernel reused its PID for an unrelated process, blindly
+   * sending SIGTERM/SIGKILL would terminate that innocent process AND
+   * cleanupStale would refuse to clean (because the "daemon" is "alive"),
+   * leaving the operator wedged with a DaemonOrphanError they can't fix.
+   *
+   * We compare ps-reported process start time against the daemon owner
+   * record's claimedAt timestamp. Daemons claim ownership within ~100ms
+   * of spawning, so a 5s window covers normal jitter. A larger gap in
+   * either direction strongly suggests the slot was recycled.
+   *
+   * Returns:
+   *  - true:  evidence supports "this is our daemon"
+   *  - false: clear evidence of PID reuse — caller should treat as dead
+   *  - null:  can't determine (no owner record, ps failed, etc.) — caller
+   *           should fall back to the conservative behavior (assume ours)
+   *           rather than risk killing a stranger.
+   */
+  private isPidOurDaemon(pid: number): boolean | null {
+    const owner = readOwnerRecord(this.ownerFile);
+    if (!owner || owner.pid !== pid) {
+      // Owner record points to a different PID — the pid file is the only
+      // source for this number, which doesn't strongly tie it to us.
+      // Conservative: return null and let the caller decide.
+      return null;
+    }
+    const startMs = this.getProcessStartTimeMs(pid);
+    if (startMs === null) return null; // ps unavailable / win32 / parse fail
+    const driftMs = Math.abs(startMs - owner.claimedAt);
+    return driftMs <= 5000;
+  }
+
+  /**
    * Synchronously poll until all pids are dead or the timeout expires.
    * Returns true iff every pid is confirmed dead before the deadline.
    */
@@ -318,32 +385,65 @@ export class DaemonManager {
 
   /**
    * SIGTERM → wait → SIGKILL → wait. Returns whether every tracked pid is
-   * confirmed dead. Callers MUST NOT delete socket/pid/owner files unless
-   * this returns true — a surviving process keeps the socket bound, and
-   * unlinking it from underneath leaves the "marked running but socket
-   * unreachable" state we're trying to prevent.
+   * confirmed dead (or the slot has been confirmed recycled), plus the
+   * list of survivors that the caller should report in DaemonOrphanError.
+   * Callers MUST NOT delete socket/pid/owner files unless `allDead` is
+   * true — a surviving daemon keeps the socket bound, and unlinking it
+   * from underneath leaves the "marked running but socket unreachable"
+   * state we're trying to prevent.
+   *
+   * Filters out PIDs that ps says belong to a stranger (the kernel
+   * recycled the slot) — sending signals to them would terminate
+   * unrelated processes. Recycled PIDs are treated as "already dead"
+   * for the purposes of cleanup and are NOT reported as survivors.
    */
-  private terminateTrackedPidsSync(pids: number[]): boolean {
-    if (pids.length === 0) return true;
+  private terminateTrackedPidsSync(pids: number[]): { allDead: boolean; survivors: number[] } {
+    if (pids.length === 0) return { allDead: true, survivors: [] };
 
+    // Skip PIDs we can prove are not ours. isPidOurDaemon returning null
+    // means "can't tell" — fall back to the conservative path (assume
+    // ours, signal it) so we never silently leak a real daemon.
+    const ourPids: number[] = [];
+    const recycledPids: number[] = [];
     for (const pid of pids) {
+      const verdict = this.isPidOurDaemon(pid);
+      if (verdict === false) {
+        recycledPids.push(pid);
+      } else {
+        ourPids.push(pid);
+      }
+    }
+    if (recycledPids.length > 0) {
+      this.logger.warn(
+        'Detected PID reuse — tracked PID(s) belong to unrelated processes; ' +
+          'treating slot as dead and skipping signal delivery.',
+        { recycledPids }
+      );
+    }
+    if (ourPids.length === 0) return { allDead: true, survivors: [] };
+
+    for (const pid of ourPids) {
       try {
         process.kill(pid, 'SIGTERM');
       } catch {
         // Already dead or no permission — fine, the wait loop will confirm.
       }
     }
-    if (this.waitForPidsDeadSync(pids, 3000)) return true;
+    if (this.waitForPidsDeadSync(ourPids, 3000)) {
+      return { allDead: true, survivors: [] };
+    }
 
-    const survivors = pids.filter((pid) => this.isPidStillAlive(pid));
-    for (const pid of survivors) {
+    const stragglers = ourPids.filter((pid) => this.isPidStillAlive(pid));
+    for (const pid of stragglers) {
       try {
         process.kill(pid, 'SIGKILL');
       } catch {
         // EPERM (not ours) or ESRCH (just died) — no recourse either way.
       }
     }
-    return this.waitForPidsDeadSync(pids, 1500);
+    const allDead = this.waitForPidsDeadSync(ourPids, 1500);
+    const survivors = allDead ? [] : ourPids.filter((pid) => this.isPidStillAlive(pid));
+    return { allDead, survivors };
   }
 
   /**
@@ -518,9 +618,8 @@ export class DaemonManager {
 
   private cleanupStale(): void {
     const pids = this.getTrackedPids();
-    const allDead = this.terminateTrackedPidsSync(pids);
+    const { allDead, survivors } = this.terminateTrackedPidsSync(pids);
     if (!allDead) {
-      const survivors = pids.filter((pid) => this.isPidStillAlive(pid));
       this.logger.error(
         'Refusing to delete daemon state files: tracked PID(s) survived SIGTERM and SIGKILL. ' +
           'The socket may still be bound by the surviving process. ' +
@@ -539,9 +638,8 @@ export class DaemonManager {
   private killProcess(): void {
     const pids = this.getTrackedPids();
     if (pids.length === 0) return;
-    const allDead = this.terminateTrackedPidsSync(pids);
+    const { allDead, survivors } = this.terminateTrackedPidsSync(pids);
     if (!allDead) {
-      const survivors = pids.filter((pid) => this.isPidStillAlive(pid));
       // Don't unlink files — surviving daemon still owns the socket.
       this.logger.error(
         'Daemon stop incomplete: tracked PID(s) survived SIGKILL. State files left intact ' +

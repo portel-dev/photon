@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawn } from 'child_process';
 import { DaemonManager, DaemonOrphanError } from '../src/daemon/manager.js';
 import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
 
@@ -154,7 +155,69 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
   }
 
   // ─────────────────────────────────────────────────────────────────
-  // Test 4: log rotation kicks in when the file exceeds the cap.
+  // Test 4: PID reuse — a tracked PID belonging to an unrelated process
+  // (kernel recycled the slot) must NOT receive SIGTERM/SIGKILL, and
+  // cleanupStale must treat the slot as dead and remove state files.
+  // POSIX-only: skipped on Windows because process start time isn't
+  // available there.
+  // ─────────────────────────────────────────────────────────────────
+  if (process.platform !== 'win32') {
+    clearDaemonState();
+    // Spawn a real long-running child whose PID we'll claim falsely.
+    // sleep is universally available on macOS and Linux.
+    const child = spawn('sleep', ['30'], { detached: false, stdio: 'ignore' });
+    if (typeof child.pid !== 'number') {
+      throw new Error('Failed to spawn sleep for PID-reuse test');
+    }
+    const childPid = child.pid;
+
+    try {
+      // Wait briefly for the process to register in ps.
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Seed a daemon owner record that claims this PID was claimed
+      // 60 seconds ago — far outside the 5-second drift window — so
+      // isPidOurDaemon will return false (recycled).
+      fs.writeFileSync(pidFile, String(childPid));
+      writeOwnerRecord(ownerFile, {
+        pid: childPid,
+        socketPath,
+        claimedAt: Date.now() - 60_000,
+      });
+      fs.writeFileSync(socketPath, '');
+
+      const mgr = new DaemonManager(ctx as any);
+      (mgr as any).cleanupStale(); // must not throw
+
+      // Critical: the unrelated process MUST still be alive — we must
+      // not have signaled it.
+      let stillAlive = false;
+      try {
+        process.kill(childPid, 0);
+        stillAlive = true;
+      } catch {
+        stillAlive = false;
+      }
+      assert.equal(stillAlive, true, 'recycled-PID process must NOT be signaled');
+
+      // State files should be cleaned (slot treated as dead).
+      assert.equal(fs.existsSync(pidFile), false, 'pid file removed for recycled slot');
+      assert.equal(fs.existsSync(ownerFile), false, 'owner file removed for recycled slot');
+      assert.equal(fs.existsSync(socketPath), false, 'socket file removed for recycled slot');
+      console.log('  ✅ PID reuse: cleanupStale skips signaling and cleans state');
+    } finally {
+      try {
+        process.kill(childPid, 'SIGKILL');
+      } catch {
+        /* ok */
+      }
+    }
+  } else {
+    console.log('  ⊘ PID reuse test skipped on Windows');
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Test 5: log rotation kicks in when the file exceeds the cap.
   // Backstop against the 558 MB daemon.log seen in the wild.
   // ─────────────────────────────────────────────────────────────────
   {
