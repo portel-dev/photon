@@ -452,6 +452,39 @@ photon test                       # Run tests
 photon ps                         # Observe & control scheduled jobs, webhooks, sessions
 ```
 
+### `photon ps`: scheduled jobs, webhooks, and sessions
+
+`photon ps` is the operator surface for the daemon. Without arguments
+it prints a four-section snapshot — ACTIVE schedules, DECLARED-but-
+not-enrolled, WEBHOOKS, and ACTIVE SESSIONS.
+
+```bash
+photon ps                          # full snapshot
+photon ps --json                   # structured output for scripts
+photon ps --type active            # one section only
+photon ps --base ~/Projects/kith   # filter to one PHOTON_DIR
+```
+
+**Two-step model.** A `@scheduled` annotation in source is **DECLARED**
+until enrolled. Enrollment is per-machine, persistent, and explicit:
+
+```bash
+photon ps enable  newsletter:sendDigest    # DECLARED → ACTIVE
+photon ps disable newsletter:sendDigest    # ACTIVE → suppressed (survives restart)
+photon ps pause   newsletter:sendDigest    # stop firing without removing enrollment
+photon ps resume  newsletter:sendDigest    # undo pause
+photon ps history newsletter:sendDigest    # last 20 firings: timestamp, status, error
+```
+
+For manual cron schedules without a `@scheduled` tag, use the Beam Pulse
+panel ("Add schedule") or call `this.schedule.create()` from photon code.
+
+`this.schedule.create()` (programmatic schedules) skips DECLARED and
+goes straight to ACTIVE. See
+[`docs/GUIDE.md#scheduling`](docs/GUIDE.md#scheduling-scheduled-thisschedule-photon-ps)
+for the full reference, the daemon state layout, and `.photon-no-host`
+for multi-host setups.
+
 ### Install from GitHub
 
 Use qualified refs to install and run photons directly from any GitHub repository:

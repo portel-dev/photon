@@ -19,13 +19,15 @@ Complete guide to creating `.photon.ts` files and understanding how Photon works
 11. [Configuration Convention](#configuration-convention)
 12. [Reactive Collections](#reactive-collections)
 13. [Real-Time Sync](#real-time-sync)
-14. [Common Patterns](#common-patterns)
-15. [CLI Command Reference](#cli-command-reference)
-16. [Testing and Development](#testing-and-development)
-17. [Deployment](#deployment)
-18. [How Photon Works](#how-photon-works)
-19. [Best Practices](#best-practices)
-20. [Troubleshooting](#troubleshooting)
+14. [Sampling: `this.sample()`](#sampling-thissample)
+15. [Scheduling: `@scheduled`, `this.schedule`, `photon ps`](#scheduling-scheduled-thisschedule-photon-ps)
+16. [Common Patterns](#common-patterns)
+17. [CLI Command Reference](#cli-command-reference)
+18. [Testing and Development](#testing-and-development)
+19. [Deployment](#deployment)
+20. [How Photon Works](#how-photon-works)
+21. [Best Practices](#best-practices)
+22. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1289,6 +1291,292 @@ export default class TodoList extends PhotonMCP {
 ```
 
 No explicit `this.emit()` needed. The reactive array handles it.
+
+---
+
+## Sampling: `this.sample()`
+
+`this.sample()` asks the **calling agent's model** to generate text on
+your photon's behalf. No API key, no SDK, the agent that invoked your
+photon pays for the tokens. Routes through MCP sampling on STDIO/Beam,
+through the SSE response stream on Cloudflare Workers, and through a
+hosted-LLM fallback on the local daemon if the client doesn't support
+sampling.
+
+```typescript
+const summary = await this.sample({
+  prompt: `Summarize this in one sentence:\n\n${article}`,
+  maxTokens: 200,
+});
+```
+
+Accepts `prompt` (single user turn) or `messages` (full multi-turn
+history), plus the standard sampling knobs: `systemPrompt`,
+`temperature`, `maxTokens`, `stopSequences`, `modelPreferences`,
+`includeContext`. Returns the model's text output as a string.
+
+### Augmenting `this.sample()` (v1.28.0+)
+
+Three composable behaviors layer onto every `this.sample()` call without
+changing the call site. They make agent loops self-correcting and let
+photons accumulate persistent guidance.
+
+**1. Memory include convention.** Memory keys with reserved prefixes
+auto-inject into every sample call:
+
+| Prefix              | Where it lands                                                      |
+|---------------------|---------------------------------------------------------------------|
+| `include_system_*`  | Prepended to `systemPrompt` (in addition to whatever the caller passed). |
+| `include_transient_*`| Appended as a trailing user message after the conversation turn. |
+
+Persistent guidance pattern:
+
+```typescript
+// Set once, e.g. during onInitialize:
+await this.memory.set('include_system_voice', 'Always answer in plain English. No filler.');
+await this.memory.set('include_system_format', 'Return JSON with keys: title, summary.');
+
+// Now every this.sample() call inherits both system prompts:
+const out = await this.sample({ prompt: userQuestion });
+```
+
+The convention is enforced by `src/sample-augmenter.ts` and the merged
+prompts ride through to the underlying sampling provider unchanged.
+
+> **Filename safety**: the FileMemoryBackend sanitizes key names —
+> non-alphanumerics other than `_ . -` become `_`. Use underscores in
+> the prefix (`include_system_voice`, not `include:system:voice`) so the
+> stored filename and the prefix filter agree.
+
+**2. Transient context registry: `this.context`.** Per-instance named
+sections with priority, assembled into the trailing message alongside
+memory transient includes.
+
+```typescript
+this.context.add('user_intent', 'wants a one-paragraph reply', 'high');
+this.context.add('recent_history', historyBlock, 'medium');
+this.context.add('debug_state',  diagnosticsBlock, 'low');
+
+// Trailing context is assembled under a char budget (default 8000).
+// Whole sections are dropped when over budget — never truncated mid-content.
+// Drop order: low → medium → high.
+```
+
+Useful when the relevant context is computed per call (history, search
+results, current task state) and you don't want to stringify it into
+every prompt manually.
+
+**3. Repeat-loop detection.** The augmenter tracks the last 8 normalized
+responses per instance. On consecutive duplicates, it injects a graded
+signal into the next call's `systemPrompt`:
+
+| Consecutive duplicates | Signal injected            |
+|------------------------|----------------------------|
+| 1                      | `INFO: repeat detected, consider varying your output` |
+| 2                      | `WARN: still repeating, change approach`              |
+| 3+                     | `ERROR: stuck in a loop, abort the current path`      |
+
+The signal is **inline feedback**, not a meta-comment — the model sees
+it as system context for the next turn so it can self-correct.
+`assembleSampleParams()` orders augmentations as: repeat signal →
+memory system → caller's `systemPrompt` (the caller's prompt always
+wins on conflicts).
+
+All three compose. None require any setup beyond writing memory keys
+and adding to `this.context`. To opt out of any single behavior, leave
+its inputs empty — there's no flag.
+
+---
+
+## Scheduling: `@scheduled`, `this.schedule`, `photon ps`
+
+Photon runs methods on a cron schedule via two surfaces:
+
+- **`@scheduled` tag** in source — declares intent. The cron is part of the
+  code, version-controlled, and travels with the photon.
+- **`this.schedule.create()`** at runtime — for schedules whose cron, name,
+  or method is dynamic (e.g. configured by the user through a UI).
+
+Both are managed by the same daemon. `photon ps` is the operator surface.
+
+### The two-step model: DECLARED → ENABLED → ACTIVE
+
+A `@scheduled` annotation does **not** automatically fire its cron. The
+daemon discovers the tag at boot and lists it as **DECLARED**. You enroll
+it with `photon ps enable` and it moves to **ACTIVE**. This split exists
+so a new annotation in source doesn't silently start running the moment
+someone pulls main — enrollment is an explicit operator decision per
+machine.
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  Source (@scheduled)  →  DECLARED  ──[photon ps enable]──→ ACTIVE  │
+│                                          ↑                  │      │
+│                                          └─[photon ps disable]     │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+`this.schedule.create()` skips DECLARED — it writes directly to the
+active schedule list and the timer arms immediately.
+
+### Declaring with `@scheduled`
+
+Place the tag in the method's JSDoc. Five-field standard cron, plus the
+nicknames `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`.
+
+```typescript
+export default class Newsletter {
+  /**
+   * Send the daily digest at 7:00 every morning.
+   *
+   * @scheduled 0 7 * * *
+   */
+  async sendDigest(): Promise<{ sent: number }> {
+    // ... body runs once per cron tick
+  }
+}
+```
+
+After deploying the photon, enroll the schedule:
+
+```bash
+photon ps enable newsletter:sendDigest
+# Enabled newsletter:sendDigest (0 7 * * *) under ~/Projects/my-base
+```
+
+The cron now fires from the daemon. Source edits to the cron string are
+picked up live — the daemon's file watcher rescans on save and re-arms
+the timer. To stop firing without removing the source declaration:
+
+```bash
+photon ps disable newsletter:sendDigest   # back to DECLARED, persists across restarts
+photon ps pause   newsletter:sendDigest   # stays ACTIVE but doesn't fire until resumed
+```
+
+### Programmatic schedules with `this.schedule`
+
+Use this when the cron, name, or method is data — for example, a
+`reminders` photon where users add their own reminder times.
+
+```typescript
+export default class Reminders {
+  async addReminder(params: { name: string; cron: string; message: string }) {
+    return await this.schedule.create({
+      name:     params.name,
+      schedule: params.cron,
+      method:   'fire',
+      params:   { message: params.message },
+    });
+  }
+
+  async removeReminder(params: { name: string }) {
+    return await this.schedule.cancelByName(params.name);
+  }
+
+  async list() {
+    return await this.schedule.list();
+  }
+
+  // The method that actually runs each time the cron fires.
+  async fire(params: { message: string }) {
+    // ... send the reminder
+  }
+}
+```
+
+`this.schedule.create()` returns a `ScheduledTask` with a stable `id`. The
+daemon registers the timer immediately and persists the schedule to
+`{base}/.data/{photon}/schedules/{uuid}.json`. Cancellation (by id or
+name) unlinks the file and evicts the timer in one step.
+
+> **Pre-1.27.0 gotcha (fixed)**: an `enable_schedule` method that called
+> `cancelByName` followed by `create` could silently end up with no
+> active timer if the daemon was in a recovery window. Fixed in v1.27.0.
+> Regression tests live in `tests/schedule-cancel-create-regression.test.ts`
+> and `tests/schedule-ghost-cancel.test.ts`.
+
+### `photon ps` command reference
+
+`photon ps` is the daemon's process viewer. Without arguments it prints
+a four-section snapshot — ACTIVE schedules, DECLARED-but-not-enrolled,
+WEBHOOKS, and ACTIVE SESSIONS — for every PHOTON_DIR the daemon serves.
+
+```bash
+photon ps                          # full snapshot, all bases
+photon ps --json                   # same, structured for scripts
+photon ps --type active            # one section only
+photon ps --base ~/Projects/kith   # filter to one PHOTON_DIR
+```
+
+Subcommands:
+
+| Command                              | What it does                                                                   |
+|--------------------------------------|--------------------------------------------------------------------------------|
+| `photon ps enable <photon>:<method>` | Move a DECLARED `@scheduled` to ACTIVE. Writes to `{base}/.data/.active-schedules.json`. |
+| `photon ps disable <photon>:<method>`| Stop firing AND record the disable so a daemon restart doesn't re-enroll. Use this for "I never want this to fire on this machine." |
+| `photon ps pause <photon>:<method>`  | Keep enrollment but skip ticks until resumed. Use this for short-lived suppression (e.g. while debugging). |
+| `photon ps resume <photon>:<method>` | Undo pause.                                                                    |
+| `photon ps history <photon>:<method>`| Show recent firings: timestamp, duration, success/failure. `--limit N`, `--since <iso>`, `--json`. |
+
+Manual cron schedules without a `@scheduled` tag are added through the
+Beam UI's Pulse panel ("Add schedule") or programmatically via
+`this.schedule.create()` from photon code. They land in the active list
+with the cron string embedded so the boot loader can re-arm them after
+a daemon restart.
+
+If the same photon name lives in two PHOTON_DIRs and the command would be
+ambiguous, every subcommand accepts `--base <dir>` to disambiguate.
+
+### Where state lives
+
+Per-base, under `{base}/.data/`:
+
+```
+{base}/.data/.active-schedules.json   # which @scheduled methods are ACTIVE,
+                                       # plus the suppressed list (persistent disables)
+                                       # and migratedFromAutoRegister flag
+{base}/.data/{photon}/schedules/      # ScheduleProvider files (this.schedule.create)
+{base}/.data/{photon}/state/          # @stateful instance state
+```
+
+Daemon-wide, under `~/.photon/.data/`:
+
+```
+~/.photon/.data/.bases.json   # every PHOTON_DIR the daemon has served
+~/.photon/.data/daemon.log    # boot, fire, error events — first stop for "why isn't this firing"
+~/.photon/.data/daemon.sock   # IPC socket
+```
+
+### Multi-host setups: `.photon-no-host`
+
+If you run the same `~/Projects/<base>` on multiple machines (Syncthing,
+Dropbox, NFS, etc.) you only want one machine to actually fire the
+schedules. Put a marker file in the base on every quiet machine:
+
+```bash
+touch ~/Projects/kith/.photon-no-host
+```
+
+The daemon refuses to load any ScheduleProvider files, register any
+`@scheduled` annotations, or wire any `@webhook` routes for that base.
+`photon run` and direct CLI invocations still work — host mode only
+suppresses background activation. Remove the file to re-enable.
+
+### Diagnosing "my schedule isn't firing"
+
+1. **`photon ps`** — is your method in ACTIVE? If it's in DECLARED, run
+   `photon ps enable <photon>:<method>`.
+2. **`photon ps history <photon>:<method>`** — has it ever fired? Most
+   recent attempt's error is right there.
+3. **`tail -f ~/.photon/.data/daemon.log | grep <photon>`** — boot
+   discovery, registration, fire attempts. Filter for the photon name.
+4. **`.photon-no-host`** in the base? — host-disabled. Daemon log will
+   say `Skipping … host-disabled base`.
+5. **Was the daemon restarted recently?** — a few seconds after restart,
+   `loadAllPersistedSchedules` (sync) has populated ACTIVE for
+   `this.schedule.create()` jobs but `discoverProactiveMetadataAtBoot`
+   (async) may still be scanning sources for `@scheduled`. Wait a few
+   seconds and re-run `photon ps`.
 
 ---
 
