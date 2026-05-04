@@ -6033,6 +6033,45 @@ function startServer(): void {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  // Parent-watchdog mode (opt-in): when PHOTON_DAEMON_WATCHDOG_PID is set
+  // (typically by test helpers via spawnDaemonPG), the daemon polls that
+  // pid every 2s with a zero-signal probe. If the probe throws ESRCH the
+  // parent is gone — the daemon shuts down cleanly so a leaked test
+  // process can't keep a daemon spinning indefinitely. Production
+  // launches (launchd, `photon serve`) leave the env var unset and skip
+  // the watchdog entirely; the polling cost is one syscall every 2s and
+  // only when explicitly opted in.
+  //
+  // Why a poll instead of relying on SIGCHLD or an inherited pipe: we
+  // have no parent-child IPC channel here (the daemon may be spawned by
+  // a long-chain test harness or detached entirely), and a parent that
+  // was SIGKILL'd will not flush any FD the daemon might have inherited.
+  // A 2s poll is the cheapest universal probe.
+  const watchdogPidRaw = process.env.PHOTON_DAEMON_WATCHDOG_PID;
+  if (watchdogPidRaw) {
+    const watchdogPid = Number.parseInt(watchdogPidRaw, 10);
+    if (Number.isFinite(watchdogPid) && watchdogPid > 0) {
+      logger.info('Parent-watchdog enabled', { watchdogPid });
+      const watchdogTimer = setInterval(() => {
+        try {
+          process.kill(watchdogPid, 0);
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException)?.code;
+          if (code === 'ESRCH') {
+            logger.info('Watchdog parent gone, shutting down', { watchdogPid });
+            clearInterval(watchdogTimer);
+            shutdown();
+          }
+          // Other codes (EPERM on shared hosts) are non-fatal —
+          // the parent still exists, we just can't probe it.
+        }
+      }, 2_000);
+      // Don't keep the event loop alive solely on the watchdog; the
+      // daemon's listening socket is the canonical liveness anchor.
+      watchdogTimer.unref?.();
+    }
+  }
+
   // Safety net: catch unhandled errors so a bad photon can't crash the daemon
   process.on('uncaughtException', (err) => {
     logger.error('Uncaught exception (daemon staying alive)', {

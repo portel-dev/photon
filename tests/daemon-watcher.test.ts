@@ -25,7 +25,8 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
   console.error('Uncaught exception:', err);
   process.exit(1);
 });
-import { spawn, type ChildProcess } from 'child_process';
+import { type ChildProcess } from 'child_process';
+import { spawnDaemonPG, stopDaemonPG } from './helpers/daemon-pg.js';
 import type { DaemonRequest, DaemonResponse } from '../dist/daemon/protocol.js';
 
 let passed = 0;
@@ -93,7 +94,10 @@ function startDaemon(): Promise<void> {
       fs.unlinkSync(SOCKET_PATH);
     } catch {}
 
-    daemonProcess = spawn('node', [serverPath, SOCKET_PATH], {
+    // spawnDaemonPG installs process-group reapers AND sets
+    // PHOTON_DAEMON_WATCHDOG_PID so the daemon exits on its own if this
+    // test process dies before reaching teardown. See helpers/daemon-pg.ts.
+    daemonProcess = spawnDaemonPG([serverPath, SOCKET_PATH], {
       env: { ...process.env, PHOTON_STATE_DIR: STATE_DIR },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -128,23 +132,12 @@ function startDaemon(): Promise<void> {
   });
 }
 
-function killDaemon(): Promise<void> {
-  return new Promise((resolve) => {
-    const proc = daemonProcess; // Capture reference to avoid race with startDaemon
-    if (!proc || proc.killed) {
-      resolve();
-      return;
-    }
-    proc.on('exit', () => resolve());
-    proc.kill('SIGTERM');
-    // Force kill after 2s
-    setTimeout(() => {
-      if (proc && !proc.killed) {
-        proc.kill('SIGKILL');
-      }
-      resolve();
-    }, 2000);
-  });
+async function killDaemon(): Promise<void> {
+  const proc = daemonProcess; // Capture reference to avoid race with startDaemon
+  if (!proc || proc.killed) return;
+  // stopDaemonPG SIGTERMs the whole process group (catches anything the
+  // daemon spawned), waits up to 5s, then SIGKILLs the group.
+  await stopDaemonPG(proc);
 }
 
 function getDaemonLog(): string[] {

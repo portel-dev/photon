@@ -101,8 +101,32 @@ function installProcessCleanup(): void {
 
 export function spawnDaemonPG(args: string[], options: SpawnOptions): ChildProcess {
   installProcessCleanup();
-  const child = spawn(process.execPath, args, {
+  // Always pass PHOTON_DAEMON_WATCHDOG_PID so the daemon polls our PID and
+  // exits on its own if this test process dies before reaching teardown.
+  // Belt-and-braces with the process-group reaper above: the reaper kills
+  // on graceful 'exit'/'SIGINT'/'SIGTERM', the watchdog kills on the
+  // unhandleable cases (SIGKILL, OOM, IDE kill, machine sleep + lid).
+  //
+  // Order matters: if the caller explicitly set PHOTON_DAEMON_WATCHDOG_PID
+  // in `options.env` (e.g. the watchdog regression test points it at a
+  // sentinel sleep process), respect that. Default to our own pid only
+  // when unset.
+  const callerEnv = options.env ?? process.env;
+  const env: NodeJS.ProcessEnv = {
+    PHOTON_DAEMON_WATCHDOG_PID: String(process.pid),
+    ...callerEnv,
+  };
+  // Run the daemon under node, NOT process.execPath — when the test runner
+  // is bun, process.execPath = bun, and src/daemon/server.ts:5004 switches
+  // to fs.watchFile stat-polling at a 2s interval to dodge bun's fs.watch
+  // bugs on macOS. That's a real production concern (kept on purpose) but
+  // it makes file-edit-driven tests flaky because they wait <1s for the
+  // first poll. Pinning to node here gives daemon-watcher.test.ts the
+  // sub-millisecond latency the kernel watcher provides, while preserving
+  // bun-mode behavior for anyone running the daemon directly under bun.
+  const child = spawn('node', args, {
     ...options,
+    env,
     detached: true,
   });
   tracked.add(child);

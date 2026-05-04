@@ -563,6 +563,20 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const workingDir = path.resolve(rawWorkingDir);
   const { PHOTON_VERSION } = await import('../version.js');
 
+  // Auto-start the daemon up front so every downstream path that needs it
+  // (subscriptions, /api/daemon/*, marketplace cache reload, ps, hot
+  // reload) can connect without a race. Previously this was gated on
+  // `statefulPhotons.length > 0` near the end of startBeam, which left
+  // workspaces with no stateful photons unable to talk to the daemon at
+  // all — `photon` (no args) printed the Beam URL and then immediately
+  // logged `connect ENOENT /…/daemon.sock`. ensureDaemon is a no-op when
+  // the daemon is already running, so the cost is one socket probe.
+  try {
+    await ensureDaemon();
+  } catch (err) {
+    logger.warn(`Daemon auto-start failed: ${getErrorMessage(err)}`);
+  }
+
   // Run startup migrations (fast no-op when already applied)
   try {
     const { runNamespaceMigration } = await import('../namespace-migration.js');
@@ -2862,17 +2876,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     }
   }
 
-  // Auto-start daemon and subscribe to state-changed events for stateful photons
-  // Uses reconnect: true so subscriptions survive daemon restarts
+  // Subscribe to state-changed events for stateful photons. The daemon is
+  // already up — ensureDaemon was called at the top of startBeam.
   const statefulPhotons = photons.filter((p) => p.stateful && p.configured);
   if (statefulPhotons.length > 0) {
     try {
-      await ensureDaemon();
       for (const photon of statefulPhotons) {
         await subscribeStatefulPhoton(photon.name);
       }
     } catch (err) {
-      logger.warn(`Failed to start daemon for stateful photons: ${getErrorMessage(err)}`);
+      logger.warn(`Failed to subscribe stateful photons: ${getErrorMessage(err)}`);
     }
   }
 
