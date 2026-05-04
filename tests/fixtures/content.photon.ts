@@ -7,12 +7,15 @@ export default class Content {
    * @param text Text to count words in
    */
   async wordCount(params: { text: string }) {
-    const words = params.text.trim().split(/\s+/).filter(w => w.length > 0);
+    const words = params.text
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 0);
     return `Word count: ${words.length}`;
   }
 
   /**
-   * @Template
+   * @prompt
    * Code review prompt
    * @param language Programming language
    * @param code Code to review
@@ -22,13 +25,13 @@ export default class Content {
       role: 'user' as const,
       content: {
         type: 'text' as const,
-        text: `Please review this ${params.language} code:\n\n${params.code}`
-      }
+        text: `Please review this ${params.language} code:\n\n${params.code}`,
+      },
     };
   }
 
   /**
-   * @Template
+   * @prompt
    * Git commit message prompt
    * @param changes Changes to commit
    */
@@ -37,13 +40,13 @@ export default class Content {
       role: 'user' as const,
       content: {
         type: 'text' as const,
-        text: `Generate a commit message for:\n${params.changes}`
-      }
+        text: `Generate a commit message for:\n${params.changes}`,
+      },
     };
   }
 
   /**
-   * @Template
+   * @prompt
    * Pull request description prompt
    * @param title PR title
    * @param changes Changes in PR
@@ -53,37 +56,37 @@ export default class Content {
       role: 'user' as const,
       content: {
         type: 'text' as const,
-        text: `Create a PR description for: ${params.title}\n\nChanges:\n${params.changes}`
-      }
+        text: `Create a PR description for: ${params.title}\n\nChanges:\n${params.changes}`,
+      },
     };
   }
 
   /**
-   * @Static api://docs
+   * @resource api://docs
    * API documentation
    * @mimeType text/markdown
    */
-  async apiDocs(params: {}) {
+  async apiDocs(_params: Record<string, never>) {
     return {
       mimeType: 'text/markdown' as const,
-      text: '# API Documentation\n\nThis is the API docs.'
+      text: '# API Documentation\n\nThis is the API docs.',
     };
   }
 
   /**
-   * @Static config://settings
+   * @resource config://settings
    * Configuration settings
    * @mimeType application/json
    */
-  async configSettings(params: {}) {
+  async configSettings(_params: Record<string, never>) {
     return {
       mimeType: 'application/json' as const,
-      text: JSON.stringify({ setting: 'value' })
+      text: JSON.stringify({ setting: 'value' }),
     };
   }
 
   /**
-   * @Static readme://{projectType}
+   * @resource readme://{projectType}
    * Project README by type
    * @param projectType Type of project (api, web, mobile)
    */
@@ -91,12 +94,12 @@ export default class Content {
     const readmes: Record<string, string> = {
       api: '# API Project\n\nREST API project with endpoints.',
       web: '# Web Project\n\nFrontend web application.',
-      mobile: '# Mobile Project\n\niOS and Android app.'
+      mobile: '# Mobile Project\n\niOS and Android app.',
     };
 
     return {
       mimeType: 'text/markdown' as const,
-      text: readmes[params.projectType] || '# Unknown Project Type'
+      text: readmes[params.projectType] || '# Unknown Project Type',
     };
   }
 }

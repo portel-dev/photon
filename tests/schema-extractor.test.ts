@@ -1872,7 +1872,65 @@ async function runTests() {
     console.log('✅ @auth cf-access extracted');
   }
 
-  console.log('\n✅ All Schema Extractor tests passed! (85 tests)');
+  // Method-level @prompt (canonical lowercase) detection
+  {
+    const source = `
+      /**
+       * Generate a code review prompt
+       * @prompt
+       * @param language Programming language
+       */
+      async codeReview(params: { language: string }) {
+        return asTemplate("review");
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    assert.equal(result.templates.length, 1, '@prompt should detect 1 template');
+    assert.equal(result.templates[0].name, 'codeReview', 'Template name should be codeReview');
+    console.log('✅ @prompt (canonical) detected as template');
+  }
+
+  // Method-level @resource (canonical lowercase) detection with URI template
+  {
+    const source = `
+      /**
+       * Get README by project type
+       * @resource readme://{projectType}
+       * @param projectType Type
+       */
+      async readme(params: { projectType: string }) {
+        return asStatic("readme");
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    assert.equal(result.statics.length, 1, '@resource should detect 1 static');
+    assert.equal(
+      result.statics[0].uri,
+      'readme://{projectType}',
+      'Should extract URI template from @resource'
+    );
+    console.log('✅ @resource (canonical) detected with URI template');
+  }
+
+  // Class-level @resource <id> <path> still parses as static-file asset, not method-level
+  {
+    const source = `
+      /**
+       * Photon with bundled config asset
+       * @resource config ./config.json
+       */
+      export default class Bundled {
+        async noop() { return true; }
+      }
+    `;
+    const result = extractor.extractAssets(source);
+    assert.equal(result.resources.length, 1, 'Class-level @resource should produce 1 asset');
+    assert.equal(result.resources[0].id, 'config', 'Asset id should be "config"');
+    assert.equal(result.resources[0].path, './config.json', 'Asset path should be "./config.json"');
+    console.log('✅ Class-level @resource <id> <path> still recognised as static asset');
+  }
+
+  console.log('\n✅ All Schema Extractor tests passed! (88 tests)');
 }
 
 // Run if executed directly
