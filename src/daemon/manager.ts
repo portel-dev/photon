@@ -617,10 +617,24 @@ export class DaemonManager {
   }
 
   private async isSocketAlive(): Promise<boolean> {
+    // Health check: open a connection AND send a `ping` RPC, waiting up to
+    // 2s for a `pong` reply. The previous version did a TCP connect plus
+    // immediate disconnect — which would pass against a daemon stuck in
+    // an infinite loop on user code, because the listener thread accepts
+    // the connection independent of whether the request handler is alive.
+    // The wedged-daemon class of bug we lived through with PID 67959 (a
+    // leaked test daemon spinning at 100% CPU) would have looked "alive"
+    // by the old probe even though it was not servicing requests.
+    //
+    // ping is the cheapest possible RPC — handler at server.ts:3101
+    // returns { type: 'pong', id } with no I/O, so a healthy daemon
+    // round-trips in <1ms. If the handler doesn't reply within 2s the
+    // daemon is treated as unreachable; cleanupStale() then SIGTERMs +
+    // SIGKILLs and the caller spawns a fresh process.
+    //
     // Windows named pipes have no filesystem entry, so existsSync would
     // always say "no" even when the pipe is reachable. Skip the FS gate
-    // on win32 and rely on net.createConnection's own probe (the 'error'
-    // event resolves false; the try/catch guards against sync throws).
+    // on win32 and rely on net.createConnection's own probe.
     const isPipe = process.platform === 'win32' && this.ctx.socketPath.startsWith('\\\\.\\pipe\\');
     if (!isPipe && !fs.existsSync(this.ctx.socketPath)) return false;
     return new Promise((resolve) => {
@@ -635,19 +649,36 @@ export class DaemonManager {
         resolve(false);
         return;
       }
-      const timer = setTimeout(() => {
+      let buf = '';
+      const id = `health-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      const finish = (alive: boolean): void => {
+        clearTimeout(timer);
         sock.destroy();
-        resolve(false);
-      }, 2_000);
+        resolve(alive);
+      };
+      const timer = setTimeout(() => finish(false), 2_000);
       sock.on('connect', () => {
-        clearTimeout(timer);
-        sock.destroy();
-        resolve(true);
+        try {
+          sock.write(JSON.stringify({ type: 'ping', id }) + '\n');
+        } catch {
+          finish(false);
+        }
       });
-      sock.on('error', () => {
-        clearTimeout(timer);
-        resolve(false);
+      sock.on('data', (chunk) => {
+        buf += chunk.toString();
+        const nl = buf.indexOf('\n');
+        if (nl === -1) return;
+        try {
+          const res = JSON.parse(buf.slice(0, nl)) as { type?: string };
+          // Only `pong` proves the request handler is responsive. A
+          // `shutdown` reply means the daemon is on its way out — treat
+          // as not-alive so the caller spawns a successor.
+          finish(res.type === 'pong');
+        } catch {
+          finish(false);
+        }
       });
+      sock.on('error', () => finish(false));
     });
   }
 

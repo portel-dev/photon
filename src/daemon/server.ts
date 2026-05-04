@@ -6085,6 +6085,53 @@ function startServer(): void {
       stack: reason instanceof Error ? reason.stack : undefined,
     });
   });
+
+  // Periodic self-check: log once when the daemon binary on disk is newer
+  // than this running daemon. The DaemonManager.isBinaryStale path already
+  // restarts the daemon when a CLI command runs after `npm install`, so
+  // the staleness window for interactive users is short. This nudge
+  // covers the *non-interactive* case: a developer who upgrades photon
+  // and then walks away leaving only scheduled jobs running. The daemon
+  // does NOT auto-exit — schedules need continuity, and the next CLI
+  // invocation triggers the same restart anyway. The warning is logged
+  // at most once per detected upgrade so it doesn't spam the log when
+  // running for hours after an upgrade.
+  // Default 60s interval; tests can override via env var to assert the
+  // log warning fires without waiting a full minute.
+  const STALE_CHECK_INTERVAL_MS = Math.max(
+    100,
+    Number.parseInt(process.env.PHOTON_STALE_CHECK_INTERVAL_MS || '', 10) || 60_000
+  );
+  const daemonStartedAtMs = Date.now();
+  let lastWarnedBinaryMtimeMs = 0;
+  const myScript = process.argv[1];
+  if (myScript) {
+    const staleCheckTimer = setInterval(() => {
+      try {
+        const mtime = fs.statSync(myScript).mtimeMs;
+        if (mtime > daemonStartedAtMs && mtime !== lastWarnedBinaryMtimeMs) {
+          lastWarnedBinaryMtimeMs = mtime;
+          logger.warn(
+            'Daemon binary on disk is newer than this running daemon. ' +
+              'Run any photon CLI command (e.g. `photon ps`) to bounce the daemon to the new build, ' +
+              'or restart it manually with `pkill -9 -f daemon/server.js`.',
+            {
+              pid: process.pid,
+              scriptPath: myScript,
+              binaryMtimeMs: mtime,
+              daemonStartedAtMs,
+              ageSec: Math.round((mtime - daemonStartedAtMs) / 1000),
+            }
+          );
+        }
+      } catch {
+        // stat raced with a write — try again next tick.
+      }
+    }, STALE_CHECK_INTERVAL_MS);
+    // Don't keep the event loop alive on this watchdog alone — the
+    // listening socket is the canonical liveness anchor.
+    staleCheckTimer.unref?.();
+  }
 }
 
 /**
