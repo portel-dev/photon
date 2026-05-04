@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.28.2](https://github.com/portel-dev/photon/compare/v1.28.1...v1.28.2) (2026-05-04)
+
+### Bug Fixes
+
+* **daemon,beam:** unconditional auto-start + parent-watchdog against orphan leaks ([fcf3801](https://github.com/portel-dev/photon/commit/fcf3801f9b4e8193188317cdc021393af3bba4d0))
+
 ## [1.28.1](https://github.com/portel-dev/photon/compare/v1.28.0...v1.28.1) (2026-05-03)
 
 ### Bug Fixes
