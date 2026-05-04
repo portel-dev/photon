@@ -2894,7 +2894,25 @@ export class PhotonServer {
                 headers: req.headers as Record<string, string>,
                 ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
               });
-              const result: unknown = await fn.call(photonInstance, webReq);
+              // @expose dispatches receive the parsed JSON body as the first
+              // arg so handlers share the MCP `addTask({title})`-style
+              // signature; @get/@post handlers keep the Request directly so
+              // they can read headers / streams. Empty body → empty object.
+              let result: unknown;
+              if (matchedRoute.expose && req.method !== 'GET') {
+                let parsed: unknown = {};
+                if (bodyBuffer.length > 0) {
+                  try {
+                    parsed = JSON.parse(bodyBuffer.toString('utf-8'));
+                  } catch {
+                    res.writeHead(400).end('Invalid JSON body');
+                    return;
+                  }
+                }
+                result = await fn.call(photonInstance, parsed);
+              } else {
+                result = await fn.call(photonInstance, webReq);
+              }
 
               // Pass-through: if the handler already returned a Response, do
               // NOT touch its bytes. This is the v1.28 contract and is
