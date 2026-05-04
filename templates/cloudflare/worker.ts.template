@@ -1043,13 +1043,18 @@ const CF_ACCESS_ENABLED = __CF_ACCESS_ENABLED__;
  */
 function extractInstance(request: Request): string {
   if (CF_ACCESS_ENABLED) {
+    const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+    if (headerEmail) return headerEmail;
     const jwt = request.headers.get('Cf-Access-Jwt-Assertion');
     if (jwt) {
       try {
-        const payload = JSON.parse(atob(jwt.split('.')[1]));
+        const part = jwt.split('.')[1];
+        const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64 + '==='.slice((b64.length + 3) % 4);
+        const payload = JSON.parse(atob(padded));
         if (payload?.email) return payload.email as string;
-      } catch {
-        // malformed JWT — fall through to default resolution
+      } catch (err) {
+        console.warn('extractInstance: JWT parse failed', err);
       }
     }
   }
