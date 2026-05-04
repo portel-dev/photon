@@ -30,6 +30,14 @@ export interface ResourceServerOptions {
   filePath: string;
   embeddedAssets?: { indexHtml: string; bundleJs: string };
   embeddedUITemplates?: Record<string, Record<string, string>>;
+  /**
+   * Embedded `<photon>/<name>/assets/**` tree for v1.29 directory-style
+   * serving in standalone binaries. Populated by `photon build` when the
+   * companion `assets/` folder exists. Consumed by the directory-style
+   * GET handler so SPA chunks resolve without filesystem access.
+   * Shape: photonName → { relativePath → utf-8 content }.
+   */
+  embeddedAssetTree?: Record<string, Record<string, string>>;
 }
 
 /**

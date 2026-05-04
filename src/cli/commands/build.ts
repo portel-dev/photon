@@ -105,12 +105,14 @@ function resolvePhotonDeps(
 /**
  * Discover @ui HTML templates from a photon source and read their content.
  * Returns a map of asset id → HTML content for embedding in the binary.
- */
-/**
- * Discover @ui HTML templates from a photon source and read their content.
- * Convention: @ui paths are relative to the photon's asset folder
- * (e.g. for claw.photon.ts, asset folder is claw/, so @ui dashboard ./ui/dashboard.html
- * resolves to claw/ui/dashboard.html relative to the photon file).
+ *
+ * Dual-layout resolution (mirrors photon-core's discoverAssets):
+ *   1. {photon}/{name}/assets/{uiPath}  — v1.29 canonical bundle root
+ *   2. {photon}/{name}/{uiPath}         — legacy companion-folder layout
+ *   3. {photon}/{uiPath}                — direct-relative escape hatch
+ *
+ * The new convention's bundle root wins so authors can drop @ui declarations
+ * without rewriting paths the moment they create an `assets/` folder.
  */
 function discoverUITemplates(
   sourceCode: string,
@@ -121,18 +123,17 @@ function discoverUITemplates(
   const photonDir = path.dirname(sourceFilePath);
   const photonName = path.basename(sourceFilePath, '.photon.ts').replace('.photon', '');
   const assetFolder = path.join(photonDir, photonName);
+  const nestedRoot = path.join(assetFolder, 'assets');
   let match;
   while ((match = uiRegex.exec(sourceCode)) !== null) {
     const [, id, uiPath] = match;
-    // Try asset folder convention first (claw/ui/dashboard.html)
-    const assetPath = path.resolve(assetFolder, uiPath.replace(/^\.\//, ''));
-    // Also try direct relative to photon file (./ui/dashboard.html)
-    const directPath = path.resolve(photonDir, uiPath);
-    const resolvedPath = fs.existsSync(assetPath)
-      ? assetPath
-      : fs.existsSync(directPath)
-        ? directPath
-        : null;
+    const cleaned = uiPath.replace(/^\.\//, '');
+    const candidates = [
+      path.resolve(nestedRoot, cleaned),
+      path.resolve(assetFolder, cleaned),
+      path.resolve(photonDir, uiPath),
+    ];
+    const resolvedPath = candidates.find((p) => fs.existsSync(p)) ?? null;
     if (resolvedPath) {
       let html: string;
       if (resolvedPath.endsWith('.tsx')) {
@@ -144,6 +145,63 @@ function discoverUITemplates(
     }
   }
   return templates;
+}
+
+/**
+ * Recursively walk the `<photon>/{name}/assets/` tree and return every file
+ * keyed by path relative to the assets/ root. Used to embed SPA chunks
+ * (sibling JS/CSS next to a declared @ui index.html) into the standalone
+ * binary so directory-style serving works offline. Returns an empty map
+ * when the assets/ folder is absent — preserves byte-compat for legacy
+ * fixtures that only use the {photon}/{name}/ convention.
+ *
+ * Files larger than 16 MiB are skipped with a warning to avoid blowing the
+ * binary template-literal size budget; users hitting that limit should
+ * deploy via Cloudflare's [assets] binding instead.
+ */
+function discoverAssetTree(sourceFilePath: string): Map<string, string> {
+  const tree = new Map<string, string>();
+  const photonDir = path.dirname(sourceFilePath);
+  const photonName = path.basename(sourceFilePath, '.photon.ts').replace('.photon', '');
+  const assetsRoot = path.join(photonDir, photonName, 'assets');
+  if (!fs.existsSync(assetsRoot) || !fs.statSync(assetsRoot).isDirectory()) {
+    return tree;
+  }
+  const MAX_FILE_BYTES = 16 * 1024 * 1024;
+  const stack: string[] = [assetsRoot];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else if (entry.isFile()) {
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(full);
+        } catch {
+          continue;
+        }
+        if (stat.size > MAX_FILE_BYTES) {
+          console.warn(
+            chalk.yellow(
+              `  ⚠ skipping ${path.relative(assetsRoot, full)} (${(stat.size / 1024 / 1024).toFixed(1)} MiB > 16 MiB binary cap)`
+            )
+          );
+          continue;
+        }
+        const rel = path.relative(assetsRoot, full).split(path.sep).join('/');
+        tree.set(rel, fs.readFileSync(full, 'utf-8'));
+      }
+    }
+  }
+  return tree;
 }
 
 export function registerBuildCommand(program: Command) {
@@ -308,6 +366,32 @@ export function registerBuildCommand(program: Command) {
             spinner.start('Continuing build...');
           }
 
+          // Discover the recursive `<photon>/<name>/assets/**` tree (Track E).
+          // Bundles SPA chunks (sibling JS/CSS next to a declared @ui index.html)
+          // so directory-style serving works in standalone binaries. Empty when
+          // the assets/ folder is absent — preserves byte-compat for fixtures
+          // that only use the legacy <photon>/<name>/{ui,prompts,resources}/
+          // convention.
+          const allAssetTrees = new Map<string, Map<string, string>>();
+          const mainPhotonName = path.basename(photonPath, '.photon.ts').replace('.photon', '');
+          const mainTree = discoverAssetTree(photonPath);
+          if (mainTree.size > 0) allAssetTrees.set(mainPhotonName, mainTree);
+          for (const dep of photonDeps) {
+            const depTree = discoverAssetTree(dep.filePath);
+            if (depTree.size > 0) {
+              const depPhotonName = path
+                .basename(dep.filePath, '.photon.ts')
+                .replace('.photon', '');
+              allAssetTrees.set(depPhotonName, depTree);
+            }
+          }
+          if (allAssetTrees.size > 0) {
+            let totalAssetFiles = 0;
+            for (const [, tree] of allAssetTrees) totalAssetFiles += tree.size;
+            spinner.info(`Embedding ${totalAssetFiles} file(s) from assets/ tree(s)`);
+            spinner.start('Continuing build...');
+          }
+
           // Resolve the photon runtime package path for the entrypoint import.
           const photonPkgDir = path.resolve(__dirname, '..', '..'); // dist/ -> package root
           let photonImportPath = path.relative(workingDir, path.join(photonPkgDir, 'index.js'));
@@ -389,6 +473,27 @@ export function registerBuildCommand(program: Command) {
             uiTemplatesConst = `const UI_TEMPLATES: Record<string, Record<string, string>> = {\n${entries.join(',\n')}\n};`;
           }
 
+          // Generate embedded asset tree constant. Same shape as UI_TEMPLATES
+          // but keyed by relative path (e.g. 'dashboard/dist/chunks/main.js')
+          // rather than asset id. Consumed by the v1.29 directory-style
+          // serving path; an empty object is harmless for binaries built
+          // from photons that don't use the assets/ convention.
+          let assetTreeConst =
+            'const EMBEDDED_ASSET_TREE: Record<string, Record<string, string>> = {};';
+          if (allAssetTrees.size > 0) {
+            const entries: string[] = [];
+            for (const [photonName, tree] of allAssetTrees) {
+              const fileEntries: string[] = [];
+              for (const [relPath, content] of tree) {
+                fileEntries.push(
+                  `    ${JSON.stringify(relPath)}: \`${escapeForTemplateLiteral(content)}\``
+                );
+              }
+              entries.push(`  '${photonName}': {\n${fileEntries.join(',\n')}\n  }`);
+            }
+            assetTreeConst = `const EMBEDDED_ASSET_TREE: Record<string, Record<string, string>> = {\n${entries.join(',\n')}\n};`;
+          }
+
           const entrypointCode = `import { PhotonServer, PhotonLoader, EmbeddedRuntime, SchemaExtractor } from '${photonImportPath}';
 
 const EMBEDDED_SOURCE = \`${escapedSource}\`;
@@ -396,6 +501,7 @@ const PHOTON_NAME = '${path.basename(outfile)}';
 ${beamBundleConst}
 ${beamIndexHtmlConst}
 ${uiTemplatesConst}
+${assetTreeConst}
 
 // Lazy module loading — avoids top-level side effects that block startup
 let _mainModule: any;
@@ -980,6 +1086,7 @@ async function main() {
       embeddedSource: activeSource,${depMapArg}
       embeddedAssets: BEAM_BUNDLE !== '' ? { indexHtml: BEAM_INDEX_HTML, bundleJs: BEAM_BUNDLE } : undefined,
       embeddedUITemplates: Object.keys(UI_TEMPLATES).length > 0 ? UI_TEMPLATES : undefined,
+      embeddedAssetTree: Object.keys(EMBEDDED_ASSET_TREE).length > 0 ? EMBEDDED_ASSET_TREE : undefined,
     });
 
     await server.start();

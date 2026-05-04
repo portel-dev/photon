@@ -118,6 +118,14 @@ export interface PhotonServerOptions {
   embeddedAssets?: { indexHtml: string; bundleJs: string };
   /** Embedded @ui HTML templates: photonName → { assetId → html content } */
   embeddedUITemplates?: Record<string, Record<string, string>>;
+  /**
+   * Embedded asset tree for `<photon>/<name>/assets/**` (v1.29 Track E).
+   * Shape: photonName → { relativePath → utf-8 content }. Consumed by the
+   * directory-style serving path so SPA chunks (sibling JS/CSS next to a
+   * declared @ui index.html) resolve in standalone binaries without a
+   * filesystem lookup.
+   */
+  embeddedAssetTree?: Record<string, Record<string, string>>;
   /** Channel mode — declares channel capabilities for target clients */
   channelMode?: boolean;
   /** Channel name — becomes the MCP server name and <channel source="name"> */
@@ -601,6 +609,7 @@ export class PhotonServer {
         filePath: options.filePath,
         embeddedAssets: options.embeddedAssets,
         embeddedUITemplates: options.embeddedUITemplates,
+        embeddedAssetTree: options.embeddedAssetTree,
       }
     );
 
