@@ -89,6 +89,53 @@ export type TransportType = 'stdio' | 'sse';
  */
 export type UIFormat = 'sep-1865' | 'none';
 
+/**
+ * MIME for SPA sibling files served under /api/ui/<id>/<rest>. Conservative
+ * map covering the file types a typical bundler emits next to index.html;
+ * unknown extensions fall back to application/octet-stream so binary blobs
+ * still transit cleanly.
+ */
+function uiSiblingMime(ext: string): string {
+  switch (ext) {
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.js':
+    case '.mjs':
+      return 'text/javascript; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.gif':
+      return 'image/gif';
+    case '.webp':
+      return 'image/webp';
+    case '.ico':
+      return 'image/x-icon';
+    case '.woff':
+      return 'font/woff';
+    case '.woff2':
+      return 'font/woff2';
+    case '.ttf':
+      return 'font/ttf';
+    case '.map':
+      return 'application/json; charset=utf-8';
+    case '.txt':
+      return 'text/plain; charset=utf-8';
+    case '.wasm':
+      return 'application/wasm';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
 export interface UnresolvedPhoton {
   name: string;
   workingDir: string;
@@ -2545,24 +2592,99 @@ export class PhotonServer {
           return;
         }
 
-        // API: Get UI template
-        if (req.method === 'GET' && url.pathname.startsWith('/api/ui/')) {
-          const uiId = url.pathname.replace('/api/ui/', '');
+        // API: Get UI template (and directory-style siblings for SPA bundles).
+        //
+        // Two shapes:
+        //   GET /api/ui/<id>           → the @ui-declared file itself
+        //   GET /api/ui/<id>/<rest>    → sibling under the @ui file's directory
+        //
+        // Sibling resolution lets a `@ui dashboard ./dashboard/dist/index.html`
+        // also serve `dashboard/dist/chunks/main.js` (which the index.html
+        // references as `./chunks/main.js`) without per-file @ui declarations.
+        // Path-traversal is rejected by resolving the candidate and confirming
+        // it stays under the @ui's directory root.
+        const uiMatch =
+          req.method === 'GET' && url.pathname.match(/^\/api\/ui\/([^/]+)(?:\/(.+))?$/);
+        if (uiMatch) {
+          const uiId = uiMatch[1];
+          const restPath = uiMatch[2] ?? '';
           const ui = this.mcp?.assets?.ui.find((u) => u.id === uiId);
+          const photonName = this.mcp?.name || '';
 
+          // Top-level fetch (no sub-path): existing single-file behaviour.
+          if (!restPath) {
+            if (ui?.resolvedPath) {
+              try {
+                const content = await readText(ui.resolvedPath);
+                const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+                if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                res.writeHead(200, uiHeaders);
+                res.end(content);
+                return;
+              } catch {
+                // Fall through to 404
+              }
+            }
+            res.writeHead(404).end('UI not found');
+            return;
+          }
+
+          // Sub-path: directory-style sibling resolution. Try the filesystem
+          // first (dev mode), then the embedded asset tree (compiled binary).
           if (ui?.resolvedPath) {
+            const path = await import('path');
+            const fs = await import('fs/promises');
+            const baseDir = path.dirname(ui.resolvedPath);
+            const candidate = path.resolve(baseDir, restPath);
+            const baseWithSep = baseDir.endsWith(path.sep) ? baseDir : baseDir + path.sep;
+            if (!candidate.startsWith(baseWithSep)) {
+              res.writeHead(403).end('Forbidden');
+              return;
+            }
             try {
-              const content = await readText(ui.resolvedPath);
-              const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
-              if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-              res.writeHead(200, uiHeaders);
+              const content = await fs.readFile(candidate);
+              const ext = path.extname(candidate).toLowerCase();
+              const mime = uiSiblingMime(ext);
+              const sibHeaders: Record<string, string> = { 'Content-Type': mime };
+              if (corsOrigin) sibHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+              res.writeHead(200, sibHeaders);
               res.end(content);
               return;
             } catch {
-              // Fall through to 404
+              // Fall through to embedded tree / 404
             }
           }
-          res.writeHead(404).end('UI not found');
+
+          if (ui && this.options.embeddedAssetTree && photonName) {
+            const tree = this.options.embeddedAssetTree[photonName];
+            if (tree) {
+              // The @ui declaration is relative to <photon>/assets/. Strip the
+              // declared filename to get the sibling base, then append rest.
+              const declared = ui.path.replace(/^\.\//, '');
+              const lastSlash = declared.lastIndexOf('/');
+              const baseRel = lastSlash >= 0 ? declared.slice(0, lastSlash + 1) : '';
+              const cleanRest = restPath.replace(/^\/+/, '');
+              if (cleanRest.includes('..')) {
+                res.writeHead(403).end('Forbidden');
+                return;
+              }
+              const siblingKey = baseRel + cleanRest;
+              const content = tree[siblingKey];
+              if (typeof content === 'string') {
+                const path = await import('path');
+                const ext = path.extname(siblingKey).toLowerCase();
+                const treeHeaders: Record<string, string> = {
+                  'Content-Type': uiSiblingMime(ext),
+                };
+                if (corsOrigin) treeHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                res.writeHead(200, treeHeaders);
+                res.end(content);
+                return;
+              }
+            }
+          }
+
+          res.writeHead(404).end('UI sibling not found');
           return;
         }
 

@@ -1417,55 +1417,85 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           res.end('Photon not found');
           return;
         }
-        // Resolve asset path using the same convention as Photon.assets():
-        // preferred {photonDir}/{photonBaseName}/{assetPath}, legacy fallback
-        // {photonDir}/{photonBaseName}/assets/{assetPath}.
+        // Dual-layout asset resolution (v1.29 Track E):
+        //   1. {photonDir}/{photonBaseName}/assets/{assetPath}  — canonical
+        //   2. {photonDir}/{photonBaseName}/{assetPath}         — legacy
+        // The new convention wins; legacy only fires when nothing matches
+        // under assets/ (preserves byte-compat for fixtures without an
+        // assets/ wrapper).
         const realPath = realpathSync(photon.path);
         const photonDir = path.dirname(realPath);
         const baseName = path.basename(realPath).replace(/\.photon\.(ts|js)$/, '');
-        const assetsRoot = path.join(photonDir, baseName);
-        const legacyAssetsRoot = path.join(assetsRoot, 'assets');
-        const activeRoot = existsSync(assetsRoot) ? assetsRoot : legacyAssetsRoot;
-        const fullPath = path.join(activeRoot, assetPath);
+        const legacyRoot = path.join(photonDir, baseName);
+        const canonicalRoot = path.join(legacyRoot, 'assets');
+        const candidateRoots = [canonicalRoot, legacyRoot];
 
-        // Security: ensure resolved path is within the assets directory
-        if (!fullPath.startsWith(activeRoot)) {
-          res.writeHead(403);
-          res.end('Forbidden');
+        const tryRoots = async (
+          subPath: string
+        ): Promise<{ data: Buffer; resolved: string } | null> => {
+          for (const root of candidateRoots) {
+            const candidate = path.join(root, subPath);
+            const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+            if (!candidate.startsWith(rootWithSep) && candidate !== root) {
+              continue;
+            }
+            try {
+              const stat = await fs.stat(candidate);
+              if (stat.isDirectory()) {
+                // Directory-style serve: if the dir contains index.html,
+                // serve it. Otherwise fall through to the next root.
+                const indexCandidate = path.join(candidate, 'index.html');
+                try {
+                  const data = await fs.readFile(indexCandidate);
+                  return { data, resolved: indexCandidate };
+                } catch {
+                  continue;
+                }
+              }
+              const data = await fs.readFile(candidate);
+              return { data, resolved: candidate };
+            } catch {
+              continue;
+            }
+          }
+          return null;
+        };
+
+        const found = await tryRoots(assetPath);
+        if (!found) {
+          res.writeHead(404);
+          res.end('Asset not found');
           return;
         }
 
-        try {
-          const data = await fs.readFile(fullPath);
-          const ext = path.extname(fullPath).toLowerCase();
-          const mimeTypes: Record<string, string> = {
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.gif': 'image/gif',
-            '.svg': 'image/svg+xml',
-            '.webp': 'image/webp',
-            '.ico': 'image/x-icon',
-            '.mp4': 'video/mp4',
-            '.webm': 'video/webm',
-            '.pdf': 'application/pdf',
-            '.woff2': 'font/woff2',
-            '.woff': 'font/woff',
-            '.ttf': 'font/ttf',
-            '.css': 'text/css',
-            '.js': 'text/javascript',
-            '.json': 'application/json',
-            '.txt': 'text/plain',
-          };
-          res.writeHead(200, {
-            'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-            'Cache-Control': 'public, max-age=3600',
-          });
-          res.end(data);
-        } catch {
-          res.writeHead(404);
-          res.end('Asset not found');
-        }
+        const ext = path.extname(found.resolved).toLowerCase();
+        const mimeTypes: Record<string, string> = {
+          '.html': 'text/html; charset=utf-8',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.webp': 'image/webp',
+          '.ico': 'image/x-icon',
+          '.mp4': 'video/mp4',
+          '.webm': 'video/webm',
+          '.pdf': 'application/pdf',
+          '.woff2': 'font/woff2',
+          '.woff': 'font/woff',
+          '.ttf': 'font/ttf',
+          '.css': 'text/css',
+          '.js': 'text/javascript',
+          '.mjs': 'text/javascript',
+          '.json': 'application/json',
+          '.txt': 'text/plain',
+          '.wasm': 'application/wasm',
+        };
+        res.writeHead(200, {
+          'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+          'Cache-Control': 'public, max-age=3600',
+        });
+        res.end(found.data);
         return;
       }
 
