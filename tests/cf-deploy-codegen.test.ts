@@ -328,3 +328,87 @@ export default class RouteOnlyPhoton {
     expect(tools.length).toBe(0);
   });
 });
+
+describe('cf deploy code-gen — [assets] binding', () => {
+  // Track E: when a photon ships an `assets/` companion folder, the deploy
+  // bundles it under public/<photon-name>/ and emits the wrangler [assets]
+  // block. Photons without assets must NOT get the block (would force an
+  // empty public/ to exist and break minimal deploys).
+
+  it('photon without assets/ folder emits NO [assets] block', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-cf-noassets-'));
+    const photonPath = path.join(dir, 'plain.photon.ts');
+    await fsp.writeFile(
+      photonPath,
+      `export default class Plain {
+  /** @get / */
+  async home() { return { ok: true }; }
+}`
+    );
+    await deployToCloudflare({
+      photonPath,
+      outputDir: path.join(dir, 'out'),
+      dryRun: true,
+    });
+    const wrangler = await fsp.readFile(path.join(dir, 'out', 'wrangler.toml'), 'utf-8');
+    expect(wrangler.includes('[assets]')).toBe(false);
+    expect(wrangler.includes('binding = "ASSETS"')).toBe(false);
+    // public/ must not exist either — `wrangler deploy` would refuse on a
+    // missing directory if [assets] were declared without bundled files.
+    expect(fs.existsSync(path.join(dir, 'out', 'public'))).toBe(false);
+  });
+
+  it('photon with assets/ folder emits [assets] block and copies tree', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-cf-assets-'));
+    const photonPath = path.join(dir, 'with-assets.photon.ts');
+    await fsp.writeFile(
+      photonPath,
+      `/**
+ * @ui dashboard ./dashboard/dist/index.html
+ */
+export default class WithAssets {
+  /** @get / */
+  async home() { return { ok: true }; }
+}`
+    );
+
+    // Build the assets/ companion folder mirroring the v1.29 convention.
+    const assetsDir = path.join(dir, 'with-assets', 'assets');
+    await fsp.mkdir(path.join(assetsDir, 'dashboard', 'dist', 'chunks'), { recursive: true });
+    await fsp.writeFile(
+      path.join(assetsDir, 'dashboard', 'dist', 'index.html'),
+      '<!doctype html><meta charset="utf-8"><script src="./chunks/main.js"></script>'
+    );
+    await fsp.writeFile(
+      path.join(assetsDir, 'dashboard', 'dist', 'chunks', 'main.js'),
+      'console.log("chunk");'
+    );
+
+    await deployToCloudflare({
+      photonPath,
+      outputDir: path.join(dir, 'out'),
+      dryRun: true,
+    });
+
+    // wrangler.toml carries the [assets] block, pointing at ./public.
+    const wrangler = await fsp.readFile(path.join(dir, 'out', 'wrangler.toml'), 'utf-8');
+    expect(wrangler).toContain('[assets]');
+    expect(wrangler).toContain('directory = "./public"');
+    expect(wrangler).toContain('binding = "ASSETS"');
+
+    // The tree was copied into public/<photon-name>/ verbatim — index.html
+    // and the deeply-nested SPA chunk both land at the expected paths.
+    const publicRoot = path.join(dir, 'out', 'public', 'with-assets');
+    expect(fs.existsSync(path.join(publicRoot, 'dashboard', 'dist', 'index.html'))).toBe(true);
+    expect(fs.existsSync(path.join(publicRoot, 'dashboard', 'dist', 'chunks', 'main.js'))).toBe(
+      true
+    );
+
+    // Generated worker carries the env.ASSETS fallthrough so unmatched
+    // GETs hit the binding before returning 404.
+    const worker = await fsp.readFile(path.join(dir, 'out', 'src', 'worker.ts'), 'utf-8');
+    expect(worker).toContain('this.env');
+    expect(worker.toLowerCase()).toContain('assets');
+    expect(worker).toContain('assets.fetch(request)');
+  });
+});

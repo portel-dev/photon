@@ -856,6 +856,16 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       }
     }
 
+    // Fall through to the [assets] binding (Track E). The wrangler.toml
+    // emits this binding only when the host photon has an `assets/`
+    // companion folder, so the typeof guard keeps non-asset deploys
+    // quiet (no extra fetch round-trip when the binding is absent).
+    const assets = (this.env as any).ASSETS as { fetch: (req: Request) => Promise<Response> } | undefined;
+    if (assets && request.method === 'GET') {
+      const assetResponse = await assets.fetch(request);
+      if (assetResponse.status !== 404) return assetResponse;
+    }
+
     return new Response('Not Found', { status: 404, headers: CORS_HEADERS });
   }
 

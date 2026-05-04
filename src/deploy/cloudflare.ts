@@ -256,6 +256,31 @@ function extractImportedPackages(source: string): string[] {
 }
 
 // Find package root (where templates folder is)
+/**
+ * Count regular files under a directory, recursively. Used by the [assets]
+ * deploy step to report how many files the wrangler upload will include.
+ * Symlinks and broken entries are skipped silently — the deploy never
+ * follows links out of the asset root.
+ */
+async function countFiles(root: string): Promise<number> {
+  let count = 0;
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries;
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) stack.push(path.join(current, entry.name));
+      else if (entry.isFile()) count += 1;
+    }
+  }
+  return count;
+}
+
 function getPackageRoot(): string {
   // When running from dist/, go up to package root
   let dir = __dirname;
@@ -589,6 +614,49 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     await fs.writeFile(path.join(outputDir, 'src', p.sourceFileBase), p.source);
   }
 
+  // Track E: bundle <photon>/<name>/assets/** into <outputDir>/public/<name>/
+  // for the wrangler [assets] binding. Walk every photon (host + siblings) so
+  // a sibling's SPA chunks ship alongside the host's. Skips photons without
+  // an `assets/` folder, leaving the [assets] block out of wrangler.toml so
+  // the deploy stays minimal for asset-less photons.
+  const assetSourceDirs: { photonName: string; assetsDir: string }[] = [];
+  const hostPhotonDir = path.dirname(absolutePath);
+  const candidateDirs: { photonName: string; sourcePhotonPath: string }[] = [
+    { photonName, sourcePhotonPath: absolutePath },
+  ];
+  for (const sibName of siblingNames) {
+    const sibPath = resolveSiblingPhoton(sibName, absolutePath);
+    if (sibPath) candidateDirs.push({ photonName: sibName, sourcePhotonPath: sibPath });
+  }
+  for (const { photonName: name, sourcePhotonPath } of candidateDirs) {
+    const photonBaseName = path.basename(sourcePhotonPath, '.photon.ts');
+    const assetsDir = path.join(path.dirname(sourcePhotonPath), photonBaseName, 'assets');
+    if (existsSync(assetsDir)) {
+      assetSourceDirs.push({ photonName: name, assetsDir });
+    }
+  }
+
+  let assetsBlock = '';
+  if (assetSourceDirs.length > 0) {
+    const publicDir = path.join(outputDir, 'public');
+    await fs.mkdir(publicDir, { recursive: true });
+    let totalCopied = 0;
+    for (const { photonName: name, assetsDir } of assetSourceDirs) {
+      const target = path.join(publicDir, name);
+      await fs.cp(assetsDir, target, { recursive: true });
+      totalCopied += await countFiles(target);
+    }
+    logger.info(`Bundling ${totalCopied} static asset(s) under public/ for the [assets] binding`);
+    // The [assets] block guards against unintended file-system scans by
+    // pinning the directory to the deploy-local public/. Binding name is
+    // fixed at ASSETS so the worker template's typeof guard resolves
+    // without any per-deploy substitution.
+    assetsBlock = `\n[assets]\ndirectory = "./public"\nbinding = "ASSETS"\n`;
+  }
+  // Reference for clarity in the wrangler.toml: hostPhotonDir is unused for
+  // path generation but kept above for symmetry with sibling resolution.
+  void hostPhotonDir;
+
   // Create wrangler.toml — one binding per photon, all classes in one migration
   const wranglerTemplatePath = path.join(
     packageRoot,
@@ -614,7 +682,8 @@ class_name = "${p.doClass}"`
     .replace(/__PHOTON_NAME__/g, photonName)
     .replace(/__DURABLE_OBJECT_BINDINGS__/g, doBindingsToml)
     .replace(/__SQLITE_CLASSES__/g, sqliteClassesToml)
-    .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement);
+    .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement)
+    .replace(/__ASSETS_BLOCK__\n?/g, assetsBlock);
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);
 
   // Create package.json. Photon-declared dependencies land in `dependencies`

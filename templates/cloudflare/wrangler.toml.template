@@ -27,7 +27,7 @@ __DURABLE_OBJECT_BINDINGS__
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = __SQLITE_CLASSES__
-
+__ASSETS_BLOCK__
 # Uncomment to add environment variables
 # [vars]
 # API_KEY = "your-api-key"
