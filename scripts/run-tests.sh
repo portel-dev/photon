@@ -125,6 +125,7 @@ SUITES=(
   "transport-parity-resources:$VITEST tests/transport-parity-resources.test.ts"
   "dynamic-resources-subscribe:$VITEST tests/dynamic-resources-subscribe.test.ts"
   "roots:$VITEST tests/roots.test.ts"
+  "subscribe-sse-e2e:$VITEST tests/dynamic-resources-subscribe-sse.e2e.test.ts"
 )
 
 TOTAL=0
