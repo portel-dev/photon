@@ -132,6 +132,7 @@ import {
   broadcastNotification,
   broadcastToBeam,
   stopSessionCleanup,
+  attachLoaderForResourceUpdates,
 } from './streamable-http-transport.js';
 // MCPServer type removed - no longer needed for WebSocket transport
 import type {
@@ -695,6 +696,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Beam handles config errors gracefully via UI forms, but we still want to see actual errors
   const errorOnlyLogger = createLogger({ level: 'error' });
   const loader = new PhotonLoader(false, errorOnlyLogger, workingDir);
+  // Bridge `this.notifyResourceUpdated(uri)` from photon authors into the
+  // streamable-HTTP subscription registry so SSE clients get fanout.
+  attachLoaderForResourceUpdates(loader);
 
   // Check for placeholder defaults or localhost URLs (which need local services running)
   const isPlaceholderOrLocalDefault = (value: string): boolean => {

@@ -123,6 +123,7 @@ SUITES=(
   "daemon-health-probe:$RUN tests/daemon-health-probe.test.ts"
   "progress-token-echo:$VITEST tests/progress-token-echo.test.ts"
   "transport-parity-resources:$VITEST tests/transport-parity-resources.test.ts"
+  "dynamic-resources-subscribe:$VITEST tests/dynamic-resources-subscribe.test.ts"
 )
 
 TOTAL=0

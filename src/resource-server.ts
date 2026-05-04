@@ -72,6 +72,91 @@ export function parseUriTemplateParams(pattern: string, uri: string): Record<str
   return params;
 }
 
+/**
+ * Sink that delivers a `notifications/resources/updated` event to a single
+ * client (one MCP server connection — STDIO or one SSE session).
+ */
+export type ResourceUpdateSink = (uri: string) => void | Promise<void>;
+
+/**
+ * Server-wide registry of `resources/subscribe` state. One instance lives on
+ * `PhotonServer`; both the STDIO server and every SSE session register their
+ * sinks with it.
+ *
+ * - Subscriptions are keyed by *exact* URI (per MCP spec — clients subscribe
+ *   to `person://alice`, never to the template `person://{slug}`).
+ * - On session disconnect, call `disconnect(sink)` to purge all that session's
+ *   subscriptions in one go.
+ * - `notify(uri)` fans out to every subscribed sink, isolating delivery
+ *   failures so one dead transport does not block others.
+ */
+export class SubscriptionRegistry {
+  private bySink = new Map<ResourceUpdateSink, Set<string>>();
+  private byUri = new Map<string, Set<ResourceUpdateSink>>();
+
+  subscribe(sink: ResourceUpdateSink, uri: string): void {
+    let uris = this.bySink.get(sink);
+    if (!uris) {
+      uris = new Set();
+      this.bySink.set(sink, uris);
+    }
+    uris.add(uri);
+
+    let sinks = this.byUri.get(uri);
+    if (!sinks) {
+      sinks = new Set();
+      this.byUri.set(uri, sinks);
+    }
+    sinks.add(sink);
+  }
+
+  unsubscribe(sink: ResourceUpdateSink, uri: string): void {
+    const uris = this.bySink.get(sink);
+    if (uris) {
+      uris.delete(uri);
+      if (uris.size === 0) this.bySink.delete(sink);
+    }
+    const sinks = this.byUri.get(uri);
+    if (sinks) {
+      sinks.delete(sink);
+      if (sinks.size === 0) this.byUri.delete(uri);
+    }
+  }
+
+  disconnect(sink: ResourceUpdateSink): void {
+    const uris = this.bySink.get(sink);
+    if (!uris) return;
+    for (const uri of uris) {
+      const sinks = this.byUri.get(uri);
+      if (sinks) {
+        sinks.delete(sink);
+        if (sinks.size === 0) this.byUri.delete(uri);
+      }
+    }
+    this.bySink.delete(sink);
+  }
+
+  async notify(uri: string): Promise<void> {
+    const sinks = this.byUri.get(uri);
+    if (!sinks || sinks.size === 0) return;
+    await Promise.all(
+      Array.from(sinks).map(async (sink) => {
+        try {
+          await sink(uri);
+        } catch {
+          // Failed delivery on one transport must not block others.
+        }
+      })
+    );
+  }
+
+  /** True if any sink is subscribed to `uri`. Used by tests. */
+  hasSubscribers(uri: string): boolean {
+    const sinks = this.byUri.get(uri);
+    return !!sinks && sinks.size > 0;
+  }
+}
+
 export class ResourceServer {
   private static readonly ICON_MIME_TYPES: Record<string, string> = {
     '.png': 'image/png',

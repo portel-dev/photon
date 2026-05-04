@@ -50,15 +50,19 @@ export default class DynamicResources {
   }
 
   /**
-   * Add or update a person record. Used to demonstrate that resource
-   * URIs can change over time; once subscriptions land, this method
-   * will trigger `notifications/resources/updated`.
+   * Add or update a person record. Calls `this.notifyResourceUpdated`
+   * so any client subscribed to `person://<slug>` receives
+   * `notifications/resources/updated` and re-reads.
    * @param slug Slug to assign
    * @param name Full name
    * @param role Role/title
    */
   async upsertPerson(params: { slug: string; name: string; role: string }) {
     this.people[params.slug] = { name: params.name, role: params.role };
-    return { ok: true, uri: `person://${params.slug}` };
+    const uri = `person://${params.slug}`;
+    // Runtime injects this on every instance (plain class or extends Photon).
+    // The cast keeps the example zero-dependency on @portel/photon-core types.
+    (this as { notifyResourceUpdated?: (uri: string) => void }).notifyResourceUpdated?.(uri);
+    return { ok: true, uri };
   }
 }

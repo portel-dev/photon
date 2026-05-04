@@ -53,7 +53,13 @@ import { buildToolMetadataExtensions } from './types.js';
 import { generateServerCard } from '../server-card.js';
 import { audit } from '../shared/audit.js';
 import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
-import { isUriTemplate, matchUriTemplate, parseUriTemplateParams } from '../resource-server.js';
+import {
+  isUriTemplate,
+  matchUriTemplate,
+  parseUriTemplateParams,
+  SubscriptionRegistry,
+  type ResourceUpdateSink,
+} from '../resource-server.js';
 import {
   createTask,
   getTask,
@@ -173,6 +179,44 @@ interface PendingServerRequest {
 }
 const pendingServerRequests = new Map<string | number, PendingServerRequest>();
 let nextServerRequestId = 1;
+
+/**
+ * Registry of `resources/subscribe` state for the streamable-HTTP transport.
+ * Sinks are keyed by sessionId so per-session disconnect can purge in O(1).
+ *
+ * `attachLoaderForResourceUpdates(loader)` (exported) bridges photon-author
+ * `this.notifyResourceUpdated(uri)` calls into `streamableSubscriptions.notify(uri)`
+ * so subscribers get `notifications/resources/updated` over the SSE stream.
+ */
+const streamableSubscriptions = new SubscriptionRegistry();
+const sessionSubscriptionSinks = new Map<string, ResourceUpdateSink>();
+
+function getOrCreateSessionSink(sessionId: string): ResourceUpdateSink {
+  const existing = sessionSubscriptionSinks.get(sessionId);
+  if (existing) return existing;
+  const sink: ResourceUpdateSink = (uri: string) => {
+    sendToSession(sessionId, 'notifications/resources/updated', { uri });
+  };
+  sessionSubscriptionSinks.set(sessionId, sink);
+  return sink;
+}
+
+function disconnectSessionSubscriptions(sessionId: string): void {
+  const sink = sessionSubscriptionSinks.get(sessionId);
+  if (!sink) return;
+  streamableSubscriptions.disconnect(sink);
+  sessionSubscriptionSinks.delete(sessionId);
+}
+
+/**
+ * Wire a PhotonLoader's `notifyResourceUpdated` channel into the streamable-HTTP
+ * subscription registry. Call once at server start.
+ */
+export function attachLoaderForResourceUpdates(loader: {
+  setResourceUpdateNotifier: (fn: (uri: string) => void | Promise<void>) => void;
+}): void {
+  loader.setResourceUpdateNotifier((uri: string) => streamableSubscriptions.notify(uri));
+}
 
 /**
  * Send a JSON-RPC request to a Beam session over its SSE stream and
@@ -490,6 +534,7 @@ function startSessionCleanup(): void {
     for (const [id, session] of sessions) {
       if (now - session.lastActivity.getTime() > SESSION_TIMEOUT_MS) {
         sessions.delete(id);
+        disconnectSessionSubscriptions(id);
       }
     }
   }, 60 * 1000);
@@ -800,7 +845,7 @@ const handlers: Record<string, RequestHandler> = {
         capabilities: {
           tools: { listChanged: true },
           prompts: { listChanged: true },
-          resources: { listChanged: true },
+          resources: { listChanged: true, subscribe: true },
           tasks: {
             list: {},
             cancel: {},
@@ -2710,6 +2755,37 @@ const handlers: Record<string, RequestHandler> = {
       id: req.id,
       error: { code: -32602, message: `Resource not found: ${uri}` },
     };
+  },
+
+  // resources/subscribe and resources/unsubscribe — exact-URI keyed.
+  // The session's sink is keyed off session.id so disconnect logic in the
+  // session-cleanup path can purge subscriptions in O(1).
+  'resources/subscribe': async (req, session) => {
+    const { uri } = req.params as { uri: string };
+    if (typeof uri !== 'string' || !uri) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'resources/subscribe requires `uri`' },
+      };
+    }
+    const sink = getOrCreateSessionSink(session.id);
+    streamableSubscriptions.subscribe(sink, uri);
+    return { jsonrpc: '2.0', id: req.id, result: {} };
+  },
+
+  'resources/unsubscribe': async (req, session) => {
+    const { uri } = req.params as { uri: string };
+    if (typeof uri !== 'string' || !uri) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'resources/unsubscribe requires `uri`' },
+      };
+    }
+    const sink = sessionSubscriptionSinks.get(session.id);
+    if (sink) streamableSubscriptions.unsubscribe(sink, uri);
+    return { jsonrpc: '2.0', id: req.id, result: {} };
   },
 
   'prompts/list': async (req, _session, ctx) => {

@@ -17,6 +17,8 @@ import {
   ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
+  SubscribeRequestSchema,
+  UnsubscribeRequestSchema,
   GetTaskRequestSchema,
   ListTasksRequestSchema,
   CancelTaskRequestSchema,
@@ -57,7 +59,11 @@ import { isLocalRequest, readBody, setSecurityHeaders, getCorsOrigin } from './s
 import { audit } from './shared/audit.js';
 import { TaskExecutor } from './task-executor.js';
 import { CapabilityNegotiator } from './capability-negotiator.js';
-import { ResourceServer } from './resource-server.js';
+import {
+  ResourceServer,
+  SubscriptionRegistry,
+  type ResourceUpdateSink,
+} from './resource-server.js';
 import type {
   PhotonClassWithMeta,
   MCPToolDefinition,
@@ -429,6 +435,14 @@ export class PhotonServer {
   ).rawClientCapabilities;
   /** Resource listing, reading, and asset serving */
   private resourceServer: ResourceServer;
+  /**
+   * Server-wide registry of `resources/subscribe` state. The STDIO server
+   * registers one persistent sink; each SSE session registers a per-session
+   * sink at connect and clears its subscriptions at close.
+   */
+  private subscriptions = new SubscriptionRegistry();
+  /** Stable sink for the STDIO server, registered once on first subscribe. */
+  private stdioSink?: ResourceUpdateSink;
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -493,6 +507,9 @@ export class PhotonServer {
       this.logger.child({ component: 'photon-loader', scope: 'loader' }),
       options.workingDir
     );
+    // Bridge `this.notifyResourceUpdated(uri)` from photon authors into the
+    // server's SubscriptionRegistry so all subscribed clients get fanout.
+    this.loader.setResourceUpdateNotifier((uri: string) => this.subscriptions.notify(uri));
 
     // Initialize ChannelManager — owns all channel/pub-sub logic
     // The sink is wired up lazily because `this.server` doesn't exist yet
@@ -535,6 +552,7 @@ export class PhotonServer {
           },
           resources: {
             listChanged: true, // We support hot reload notifications
+            subscribe: true, // resources/subscribe + notifications/resources/updated
           },
           logging: {}, // Required for notifications/message (used by render, log, etc.)
           tasks: {
@@ -1572,6 +1590,32 @@ export class PhotonServer {
 
     this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       return this.resourceServer.handleReadResource(request, this.mcp);
+    });
+
+    // ── resources/subscribe + resources/unsubscribe (STDIO) ──
+    // Sink is created lazily on first subscribe so we never register an idle
+    // sink for clients that don't use the capability.
+    const ensureStdioSink = (): ResourceUpdateSink => {
+      if (!this.stdioSink) {
+        this.stdioSink = (uri: string) =>
+          this.server.notification({
+            method: 'notifications/resources/updated',
+            params: { uri },
+          });
+      }
+      return this.stdioSink;
+    };
+    this.server.setRequestHandler(SubscribeRequestSchema, async (request) => {
+      const uri = request.params.uri;
+      this.subscriptions.subscribe(ensureStdioSink(), uri);
+      return {};
+    });
+    this.server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
+      const uri = request.params.uri;
+      if (this.stdioSink) {
+        this.subscriptions.unsubscribe(this.stdioSink, uri);
+      }
+      return {};
     });
 
     // ── MCP Tasks handlers (2025-11-25 spec) — delegated to TaskExecutor ──
@@ -2691,7 +2735,7 @@ export class PhotonServer {
         capabilities: {
           tools: { listChanged: true },
           prompts: { listChanged: true },
-          resources: { listChanged: true },
+          resources: { listChanged: true, subscribe: true },
           logging: {},
           experimental: {
             sampling: {}, // Support elicitation via MCP sampling protocol
@@ -2700,8 +2744,17 @@ export class PhotonServer {
       }
     );
 
+    // Per-session sink for `notifications/resources/updated`. Identity is
+    // stable across this session so SubscriptionRegistry can index by it and
+    // the disconnect handler can purge subscriptions in one call.
+    const sessionSink: ResourceUpdateSink = (uri: string) =>
+      sessionServer.notification({
+        method: 'notifications/resources/updated',
+        params: { uri },
+      });
+
     // Copy handlers to the session server
-    this.setupSessionHandlers(sessionServer);
+    this.setupSessionHandlers(sessionServer, sessionSink);
 
     // Create SSE transport
     const transport = new SSEServerTransport(messagesPath, res);
@@ -2722,6 +2775,7 @@ export class PhotonServer {
       if (closing) return;
       closing = true;
       this.sseSessions.delete(sessionId);
+      this.subscriptions.disconnect(sessionSink);
       this.log('info', 'SSE client disconnected', { sessionId });
       void (async () => {
         try {
@@ -2793,7 +2847,7 @@ export class PhotonServer {
    * Set up handlers for a session-specific MCP server
    * This duplicates handlers from the main server to each session
    */
-  private setupSessionHandlers(sessionServer: Server) {
+  private setupSessionHandlers(sessionServer: Server, sessionSink?: ResourceUpdateSink) {
     this.logClientCapabilities(sessionServer);
 
     const sseSessionKey = `sse-${this.daemonName}`;
@@ -2838,6 +2892,17 @@ export class PhotonServer {
     sessionServer.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       return this.resourceServer.handleReadResource(request, this.mcp);
     });
+
+    if (sessionSink) {
+      sessionServer.setRequestHandler(SubscribeRequestSchema, async (request) => {
+        this.subscriptions.subscribe(sessionSink, request.params.uri);
+        return {};
+      });
+      sessionServer.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
+        this.subscriptions.unsubscribe(sessionSink, request.params.uri);
+        return {};
+      });
+    }
   }
 
   /**

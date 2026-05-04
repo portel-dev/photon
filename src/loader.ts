@@ -374,6 +374,38 @@ function injectSamplingAndElicitation(instance: any): void {
 }
 
 /**
+ * Inject `this.notifyResourceUpdated(uri)` so `@resource` photon authors can
+ * fan out `notifications/resources/updated` to subscribed clients.
+ *
+ * Unlike sample/elicit/confirm — which fire only inside a tool call and so can
+ * read their provider from `executionContext.getStore()` — resource updates
+ * commonly fire from setInterval, event handlers, or async paths that resolved
+ * after the triggering tool returned. We close over a notifier passed in by
+ * the loader (sourced from PhotonServer's SubscriptionRegistry) so the helper
+ * keeps working outside the ALS context.
+ *
+ * No-op if the runtime has no notifier wired (e.g. CLI execution outside an
+ * MCP server). User-defined methods on the class win.
+ */
+function injectResourceNotifier(
+  instance: any,
+  notifier: ((uri: string) => void | Promise<void>) | undefined
+): void {
+  // Only skip if the instance itself (own property, not via prototype/base
+  // class) has a user-defined override. Otherwise install the wired version
+  // on the instance, shadowing any base-class default.
+  if (Object.prototype.hasOwnProperty.call(instance, 'notifyResourceUpdated')) return;
+  instance.notifyResourceUpdated = (uri: string) => {
+    if (!notifier) return;
+    try {
+      void notifier(uri);
+    } catch {
+      // Notifier failures must never propagate into photon code.
+    }
+  };
+}
+
+/**
  * Render a formatted value in the CLI using @portel/cli's formatOutput.
  * Uses clear-and-replace semantics — each call overwrites the previous render.
  * Synchronous to ensure proper line counting in CLIRenderZone.
@@ -574,6 +606,18 @@ export class PhotonLoader {
    */
   setMCPClientFactory(factory: MCPClientFactory): void {
     this.mcpClientFactory = factory;
+  }
+
+  /**
+   * Notifier wired by PhotonServer so `this.notifyResourceUpdated(uri)`
+   * fans out to all subscribed MCP clients (STDIO + SSE sessions).
+   * `undefined` outside the MCP-server runtime, in which case the helper is
+   * a no-op.
+   */
+  private resourceUpdateNotifier?: (uri: string) => void | Promise<void>;
+
+  setResourceUpdateNotifier(notifier: (uri: string) => void | Promise<void>): void {
+    this.resourceUpdateNotifier = notifier;
   }
 
   /**
@@ -1380,6 +1424,7 @@ export class PhotonLoader {
         // philosophy: detection-gate misses mean silent breakage, so don't
         // gate cheap capabilities. User-defined methods win.
         injectSamplingAndElicitation(instance);
+        injectResourceNotifier(instance, this.resourceUpdateNotifier);
 
         // Always-inject caller getter. The prototype check preserves any
         // user-defined getter on the class (e.g. Photon base class has its
@@ -2018,6 +2063,7 @@ export class PhotonLoader {
 
       // Always-inject sample/confirm/elicit (see primary load path).
       injectSamplingAndElicitation(instance);
+      injectResourceNotifier(instance, this.resourceUpdateNotifier);
     }
 
     // Channel event capability: inject on()/off()/_dispatch()/_matchesFilter()
