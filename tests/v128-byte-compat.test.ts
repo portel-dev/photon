@@ -163,16 +163,17 @@ describe.skipIf(SKIP)('v1.28 byte-compat regression', () => {
     expect(await res.text()).toBe('echo me');
   });
 
-  it('@ui standalone HTML served without COOP/COEP unless opted in (D2 sentinel)', async () => {
-    const res = await fetch(`${BASE}/api/ui/form`);
+  it('@ui HTML embedded as iframe stays free of COOP/COEP (D2 sentinel)', async () => {
+    // Sentinel guarding the D2 contract: cross-origin isolation only fires
+    // for top-level standalone navigation. Iframe embeds (Sec-Fetch-Dest:
+    // iframe — what Claude Desktop / Cursor / Beam send when loading a
+    // photon's UI) must continue without COOP/COEP, otherwise an iframe
+    // hosted on a different origin can't render us.
+    const res = await fetch(`${BASE}/api/ui/form`, {
+      headers: { 'Sec-Fetch-Dest': 'iframe' },
+    });
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/html');
-
-    // Sentinel: track D2 must keep these headers OFF on the default path.
-    // Track D2 introduces COOP/COEP only on the opt-in standalone path
-    // (top-level navigation without ?embed=1). The @ui path tested here
-    // is the embedded-iframe path Claude Desktop / Cursor consume —
-    // adding COOP/COEP here would break iframe embedding.
     expect(res.headers.get('cross-origin-opener-policy')).toBeNull();
     expect(res.headers.get('cross-origin-embedder-policy')).toBeNull();
   });

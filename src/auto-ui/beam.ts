@@ -1494,6 +1494,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         res.writeHead(200, {
           'Content-Type': mimeTypes[ext] || 'application/octet-stream',
           'Cache-Control': 'public, max-age=3600',
+          // Track D2: CORP same-origin keeps assets fetchable from a
+          // standalone parent page that asserts COEP `require-corp`.
+          'Cross-Origin-Resource-Policy': 'same-origin',
         });
         res.end(found.data);
         return;

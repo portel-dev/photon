@@ -27,6 +27,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { ServerNotification } from '@modelcontextprotocol/sdk/types.js';
 import { readText } from './shared/io.js';
+import { detectIsolationMode } from './shared/cross-origin-headers.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -2618,6 +2619,15 @@ export class PhotonServer {
                 const content = await readText(ui.resolvedPath);
                 const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
                 if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                // Track D2: cross-origin isolation for standalone tabs so
+                // SharedArrayBuffer / WebGPU / persistent OPFS / Service
+                // Workers light up. Iframe embeds keep working because
+                // detectIsolationMode returns 'embedded' on Sec-Fetch-Dest:
+                // iframe (and the manual ?embed=1 escape hatch).
+                if (detectIsolationMode(req) === 'standalone') {
+                  uiHeaders['Cross-Origin-Opener-Policy'] = 'same-origin';
+                  uiHeaders['Cross-Origin-Embedder-Policy'] = 'require-corp';
+                }
                 res.writeHead(200, uiHeaders);
                 res.end(content);
                 return;
@@ -2647,6 +2657,9 @@ export class PhotonServer {
               const mime = uiSiblingMime(ext);
               const sibHeaders: Record<string, string> = { 'Content-Type': mime };
               if (corsOrigin) sibHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+              // Track D2: CORP same-origin so a standalone parent page with
+              // COEP `require-corp` can fetch its own SPA chunks.
+              sibHeaders['Cross-Origin-Resource-Policy'] = 'same-origin';
               res.writeHead(200, sibHeaders);
               res.end(content);
               return;
@@ -2677,6 +2690,9 @@ export class PhotonServer {
                   'Content-Type': uiSiblingMime(ext),
                 };
                 if (corsOrigin) treeHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                // Track D2: CORP same-origin so embedded-binary servers stay
+                // satisfiable for COEP-isolated parent pages.
+                treeHeaders['Cross-Origin-Resource-Policy'] = 'same-origin';
                 res.writeHead(200, treeHeaders);
                 res.end(content);
                 return;
