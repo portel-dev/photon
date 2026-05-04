@@ -20,6 +20,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
 import { readdir, stat, readFile, writeFile } from 'fs/promises';
+import { readText } from '../shared/io.js';
 import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
@@ -52,6 +53,7 @@ import { buildToolMetadataExtensions } from './types.js';
 import { generateServerCard } from '../server-card.js';
 import { audit } from '../shared/audit.js';
 import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
+import { isUriTemplate, matchUriTemplate, parseUriTemplateParams } from '../resource-server.js';
 import {
   createTask,
   getTask,
@@ -2475,24 +2477,75 @@ const handlers: Record<string, RequestHandler> = {
   },
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Resources (MCP Apps ui:// scheme)
+  // Resources
+  //
+  // Mirrors what STDIO surfaces via ResourceServer (src/resource-server.ts):
+  // - ui://<photon>/<id>            UI Apps templates (assets.ui)
+  // - approval://<photon>/<id>      pending approval requests
+  // - photon://<photon>/prompts/<id>  class-level @prompt static-file
+  // - photon://<photon>/resources/<id>  class-level @resource static-file
+  // - <author-defined-uri>          method-level @resource / @Static
+  //                                 (non-templated entries from mcp.statics)
+  //
+  // Templated method-level URIs (`person://{slug}`) belong on
+  // resources/templates/list and resolve via resources/read.
   // ─────────────────────────────────────────────────────────────────────────────
   'resources/list': async (req, session, ctx) => {
     const resources: MCPResource[] = [];
 
     for (const photon of ctx.photons) {
-      if (!photon.configured || !photon.assets?.ui) continue;
+      if (!photon.configured) continue;
+      const mcp = ctx.photonMCPs.get(photon.name);
 
-      for (const uiAsset of photon.assets.ui) {
-        const uri = uiAsset.uri || `ui://${photon.name}/${uiAsset.id}`;
-        resources.push({
-          uri,
-          name: uiAsset.id,
-          mimeType: uiAsset.mimeType || 'text/html;profile=mcp-app',
-          description: uiAsset.linkedTool
-            ? `UI template for ${photon.name}/${uiAsset.linkedTool}`
-            : `UI template: ${uiAsset.id}`,
-        });
+      if (photon.assets?.ui) {
+        for (const uiAsset of photon.assets.ui) {
+          const uri = uiAsset.uri || `ui://${photon.name}/${uiAsset.id}`;
+          resources.push({
+            uri,
+            name: uiAsset.id,
+            mimeType: uiAsset.mimeType || 'text/html;profile=mcp-app',
+            description: uiAsset.linkedTool
+              ? `UI template for ${photon.name}/${uiAsset.linkedTool}`
+              : `UI template: ${uiAsset.id}`,
+          });
+        }
+      }
+
+      // Class-level @prompt <id> <path> static-file prompts
+      if (mcp?.assets?.prompts) {
+        for (const prompt of mcp.assets.prompts) {
+          resources.push({
+            uri: `photon://${photon.name}/prompts/${prompt.id}`,
+            name: `prompt:${prompt.id}`,
+            mimeType: 'text/markdown',
+            description: `Prompt template: ${prompt.id}`,
+          });
+        }
+      }
+
+      // Class-level @resource <id> <path> static-file resources
+      if (mcp?.assets?.resources) {
+        for (const resource of mcp.assets.resources) {
+          resources.push({
+            uri: `photon://${photon.name}/resources/${resource.id}`,
+            name: `resource:${resource.id}`,
+            mimeType: resource.mimeType || 'application/octet-stream',
+            description: `Static resource: ${resource.id}`,
+          });
+        }
+      }
+
+      // Method-level @resource / @Static — non-templated URIs only.
+      if (mcp?.statics) {
+        for (const stat of mcp.statics) {
+          if (isUriTemplate(stat.uri)) continue;
+          resources.push({
+            uri: stat.uri,
+            name: stat.name,
+            mimeType: stat.mimeType || 'text/plain',
+            description: stat.description || `Resource: ${stat.name}`,
+          });
+        }
       }
     }
 
@@ -2511,10 +2564,36 @@ const handlers: Record<string, RequestHandler> = {
     return { jsonrpc: '2.0', id: req.id, result: { resources } };
   },
 
+  'resources/templates/list': async (req, _session, ctx) => {
+    const resourceTemplates: Array<{
+      uriTemplate: string;
+      name: string;
+      mimeType?: string;
+      description?: string;
+    }> = [];
+
+    for (const photon of ctx.photons) {
+      if (!photon.configured) continue;
+      const mcp = ctx.photonMCPs.get(photon.name);
+      if (!mcp?.statics) continue;
+      for (const stat of mcp.statics) {
+        if (!isUriTemplate(stat.uri)) continue;
+        resourceTemplates.push({
+          uriTemplate: stat.uri,
+          name: stat.name,
+          mimeType: stat.mimeType || 'text/plain',
+          description: stat.description || `Resource template: ${stat.name}`,
+        });
+      }
+    }
+
+    return { jsonrpc: '2.0', id: req.id, result: { resourceTemplates } };
+  },
+
   'resources/read': async (req, session, ctx) => {
     const { uri } = req.params as { uri: string };
 
-    // Parse approval:// URI
+    // approval://<photon>/<id>
     const approvalMatch = uri.match(/^approval:\/\/([^/]+)\/(.+)$/);
     if (approvalMatch) {
       const [, photonName, approvalId] = approvalMatch;
@@ -2538,38 +2617,98 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
-    // Parse ui:// URI
-    const match = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
-    if (!match) {
+    // ui://<photon>/<id>
+    const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
+    if (uiMatch) {
+      const [, photonName, uiId] = uiMatch;
+      const result = await ctx.loadUIAsset(photonName, uiId);
+      if (!result) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Resource not found: ${uri}` },
+        };
+      }
+      const mimeType = result.isPhotonTemplate
+        ? 'text/html;profile=mcp-app;photon-template=true'
+        : 'text/html;profile=mcp-app';
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: `Invalid URI: ${uri}` },
+        result: { contents: [{ uri, mimeType, text: result.content }] },
       };
     }
 
-    const [, photonName, uiId] = match;
-    const result = await ctx.loadUIAsset(photonName, uiId);
-
-    if (!result) {
+    // photon://<photon>/(prompts|resources)/<id> — class-level static-file assets
+    const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(prompts|resources)\/(.+)$/);
+    if (assetMatch) {
+      const [, photonName, kind, assetId] = assetMatch;
+      const mcp = ctx.photonMCPs.get(photonName);
+      if (!mcp?.assets) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Photon assets not found: ${uri}` },
+        };
+      }
+      const list = kind === 'prompts' ? mcp.assets.prompts : mcp.assets.resources;
+      const asset = list?.find((a: any) => a.id === assetId);
+      const resolvedPath = asset?.resolvedPath;
+      if (!resolvedPath) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Asset not found: ${uri}` },
+        };
+      }
+      const text = await readText(resolvedPath);
+      const mimeType =
+        kind === 'prompts'
+          ? 'text/markdown'
+          : (asset as { mimeType?: string })?.mimeType || 'application/octet-stream';
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: `Resource not found: ${uri}` },
+        result: { contents: [{ uri, mimeType, text }] },
       };
     }
 
-    // Signal declarative mode (.photon.html) via mimeType parameter
-    const mimeType = result.isPhotonTemplate
-      ? 'text/html;profile=mcp-app;photon-template=true'
-      : 'text/html;profile=mcp-app';
+    // Method-level @resource / @Static — match against any photon's statics.
+    // The URI may be exact or match a registered template; on match, dispatch
+    // through the loader so middleware (auth, logging, audit) applies.
+    for (const photon of ctx.photons) {
+      const mcp = ctx.photonMCPs.get(photon.name);
+      if (!mcp?.statics) continue;
+      for (const stat of mcp.statics) {
+        const matched = stat.uri === uri || matchUriTemplate(stat.uri, uri);
+        if (!matched) continue;
+        const params = isUriTemplate(stat.uri) ? parseUriTemplateParams(stat.uri, uri) : {};
+        if (!ctx.loader) {
+          return {
+            jsonrpc: '2.0',
+            id: req.id,
+            error: {
+              code: -32603,
+              message: 'Loader not available for static resource resolution',
+            },
+          };
+        }
+        const result = await ctx.loader.executeTool(mcp, stat.name, params);
+        const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            contents: [{ uri, mimeType: stat.mimeType || 'text/plain', text }],
+          },
+        };
+      }
+    }
 
     return {
       jsonrpc: '2.0',
       id: req.id,
-      result: {
-        contents: [{ uri, mimeType, text: result.content }],
-      },
+      error: { code: -32602, message: `Resource not found: ${uri}` },
     };
   },
 

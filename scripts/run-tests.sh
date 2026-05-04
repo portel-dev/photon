@@ -122,6 +122,7 @@ SUITES=(
   "daemon-parent-watchdog:$RUN tests/daemon-parent-watchdog.test.ts"
   "daemon-health-probe:$RUN tests/daemon-health-probe.test.ts"
   "progress-token-echo:$VITEST tests/progress-token-echo.test.ts"
+  "transport-parity-resources:$VITEST tests/transport-parity-resources.test.ts"
 )
 
 TOTAL=0

@@ -32,6 +32,46 @@ export interface ResourceServerOptions {
   embeddedUITemplates?: Record<string, Record<string, string>>;
 }
 
+/**
+ * Check if a URI contains template parameters, e.g. `person://{slug}`.
+ * Exported so both STDIO (ResourceServer) and the streamable-HTTP
+ * transport can split static vs templated URIs the same way.
+ */
+export function isUriTemplate(uri: string): boolean {
+  return /\{[^}]+\}/.test(uri);
+}
+
+/**
+ * Test whether `uri` matches the template `pattern`.
+ * Example: `matchUriTemplate('person://{slug}', 'person://alice')` → true.
+ */
+export function matchUriTemplate(pattern: string, uri: string): boolean {
+  const regexPattern = pattern.replace(/\{[^}]+\}/g, '([^/]+)');
+  return new RegExp(`^${regexPattern}$`).test(uri);
+}
+
+/**
+ * Extract template parameter values from a URI given its template pattern.
+ * Example: `parseUriTemplateParams('person://{slug}', 'person://alice')`
+ * → `{ slug: 'alice' }`. Returns an empty object on mismatch.
+ */
+export function parseUriTemplateParams(pattern: string, uri: string): Record<string, string> {
+  const paramNames: string[] = [];
+  const paramRegex = /\{([^}]+)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = paramRegex.exec(pattern)) !== null) {
+    paramNames.push(match[1]);
+  }
+  const regexPattern = pattern.replace(/\{[^}]+\}/g, '([^/]+)');
+  const values = uri.match(new RegExp(`^${regexPattern}$`));
+  if (!values) return {};
+  const params: Record<string, string> = {};
+  for (let i = 0; i < paramNames.length; i++) {
+    params[paramNames[i]] = values[i + 1];
+  }
+  return params;
+}
+
 export class ResourceServer {
   private static readonly ICON_MIME_TYPES: Record<string, string> = {
     '.png': 'image/png',
@@ -120,51 +160,18 @@ export class ResourceServer {
     return icons;
   }
 
-  // ─── URI template helpers ───────────────────────────────────────────
+  // ─── URI template helpers (delegate to module-level functions) ──────
 
-  /**
-   * Check if a URI is a template (contains {parameters})
-   */
   isUriTemplate(uri: string): boolean {
-    return /\{[^}]+\}/.test(uri);
+    return isUriTemplate(uri);
   }
 
-  /**
-   * Match URI pattern with actual URI
-   * Example: github://repos/{owner}/{repo} matches github://repos/foo/bar
-   */
   private matchUriPattern(pattern: string, uri: string): boolean {
-    const regexPattern = pattern.replace(/\{[^}]+\}/g, '([^/]+)');
-    const regex = new RegExp(`^${regexPattern}$`);
-    return regex.test(uri);
+    return matchUriTemplate(pattern, uri);
   }
 
-  /**
-   * Parse parameters from URI based on pattern
-   * Example: pattern="github://repos/{owner}/{repo}", uri="github://repos/foo/bar"
-   * Returns: { owner: "foo", repo: "bar" }
-   */
   private parseUriParams(pattern: string, uri: string): Record<string, string> {
-    const params: Record<string, string> = {};
-
-    const paramNames: string[] = [];
-    const paramRegex = /\{([^}]+)\}/g;
-    let match;
-    while ((match = paramRegex.exec(pattern)) !== null) {
-      paramNames.push(match[1]);
-    }
-
-    const regexPattern = pattern.replace(/\{[^}]+\}/g, '([^/]+)');
-    const regex = new RegExp(`^${regexPattern}$`);
-
-    const values = uri.match(regex);
-    if (values) {
-      for (let i = 0; i < paramNames.length; i++) {
-        params[paramNames[i]] = values[i + 1];
-      }
-    }
-
-    return params;
+    return parseUriTemplateParams(pattern, uri);
   }
 
   // ─── MCP request handlers ──────────────────────────────────────────

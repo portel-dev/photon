@@ -310,8 +310,16 @@ export interface PhotonInstance {
   schemas?: any[];
   /** Photon assets */
   assets?: PhotonAssets;
-  /** Prompt templates extracted from photon */
+  /** Prompt templates extracted from photon (method-level @prompt / @Template) */
   templates?: any[];
+  /** Static resource resolvers extracted from photon (method-level @resource / @Static) */
+  statics?: Array<{
+    name: string;
+    uri: string;
+    description?: string;
+    mimeType?: string;
+    inputSchema?: Record<string, any>;
+  }>;
 }
 
 /**
