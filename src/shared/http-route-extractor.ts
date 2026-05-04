@@ -18,16 +18,43 @@ export interface HttpRouteDef {
   method: string;
   path: string;
   handler: string;
+  /**
+   * Optional `@format <name>` declared on the same JSDoc block. Used by the
+   * HTTP dispatcher's content-negotiation path (Track A) when the handler
+   * returns a plain value rather than a Response.
+   */
+  format?: string;
 }
 
-const ROUTE_RE = /\/\*\*[\s\S]*?@(get|post)\s+(\/[^\s*]*)[\s\S]*?\*\/\s*(?:async\s+)?(\w+)\s*\(/gi;
+// Find each JSDoc close `*/` and the method declaration that follows.
+// Crucially we use the JSDoc body BETWEEN the opener and THIS specific close —
+// not greedy back to a far-earlier `/**`. That keeps tag scans (@format, ...)
+// scoped to the SAME block as the route directive, rather than leaking from
+// a class-level docblock that happens to mention `@format` in prose.
+const JSDOC_BLOCK_RE = /\/\*\*([\s\S]*?)\*\//g;
+const METHOD_RE = /^\s*(?:public\s+|private\s+|protected\s+)?(?:async\s+)?(\w+)\s*\(/;
+const ROUTE_TAG_RE = /@(get|post)\s+(\/[^\s*]*)/i;
+const FORMAT_RE = /@format\s+([\w:-]+)/i;
 
 export function extractHttpRoutesFromSource(source: string): HttpRouteDef[] {
   const routes: HttpRouteDef[] = [];
-  ROUTE_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = ROUTE_RE.exec(source)) !== null) {
-    routes.push({ method: m[1].toUpperCase(), path: m[2], handler: m[3] });
+  JSDOC_BLOCK_RE.lastIndex = 0;
+  let block: RegExpExecArray | null;
+  while ((block = JSDOC_BLOCK_RE.exec(source)) !== null) {
+    const jsdocBody = block[1];
+    const routeMatch = jsdocBody.match(ROUTE_TAG_RE);
+    if (!routeMatch) continue;
+    const after = source.slice(block.index + block[0].length);
+    const methodMatch = after.match(METHOD_RE);
+    if (!methodMatch) continue;
+    const route: HttpRouteDef = {
+      method: routeMatch[1].toUpperCase(),
+      path: routeMatch[2],
+      handler: methodMatch[1],
+    };
+    const formatMatch = jsdocBody.match(FORMAT_RE);
+    if (formatMatch) route.format = formatMatch[1];
+    routes.push(route);
   }
   return routes;
 }

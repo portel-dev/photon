@@ -2663,7 +2663,7 @@ export class PhotonServer {
 
         // @get / @post HTTP routes — dispatch to photon method, public (no auth)
         const httpRoutes = (this.mcp as any)?._httpRoutes as
-          | Array<{ method: string; path: string; handler: string }>
+          | Array<{ method: string; path: string; handler: string; format?: string }>
           | undefined;
         if (httpRoutes?.length && req.method) {
           const route = httpRoutes.find((r) => r.method === req.method && r.path === url.pathname);
@@ -2686,14 +2686,42 @@ export class PhotonServer {
                   headers: req.headers as Record<string, string>,
                   ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
                 });
-                const webRes: Response = await fn.call(photonInstance, webReq);
-                const responseHeaders: Record<string, string> = {};
-                webRes.headers.forEach((value, key) => {
-                  responseHeaders[key] = value;
+                const result: unknown = await fn.call(photonInstance, webReq);
+
+                // Pass-through: if the handler already returned a Response, do
+                // NOT touch its bytes. This is the v1.28 contract and is
+                // locked by tests/v128-byte-compat.test.ts.
+                if (result instanceof Response) {
+                  const responseHeaders: Record<string, string> = {};
+                  result.headers.forEach((value, key) => {
+                    responseHeaders[key] = value;
+                  });
+                  if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                  res.writeHead(result.status, responseHeaders);
+                  res.end(Buffer.from(await result.arrayBuffer()));
+                  return;
+                }
+
+                // Track A: handler returned a plain value. Negotiate Accept
+                // against the registry, taking the @format JSDoc declaration
+                // into account, and write the rendered body.
+                const { negotiateAccept } = await import('./format/registry.js');
+                const { getDefaultRegistry } = await import('./format/seed.js');
+                const acceptHeader = req.headers['accept'];
+                const rendered = negotiateAccept({
+                  accept: typeof acceptHeader === 'string' ? acceptHeader : undefined,
+                  declaredFormat: route.format,
+                  value: result,
+                  registry: getDefaultRegistry(),
                 });
-                if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-                res.writeHead(webRes.status, responseHeaders);
-                res.end(Buffer.from(await webRes.arrayBuffer()));
+                const negotiatedHeaders: Record<string, string> = {
+                  'Content-Type': rendered.mime,
+                };
+                if (corsOrigin) negotiatedHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                res.writeHead(200, negotiatedHeaders);
+                res.end(
+                  typeof rendered.body === 'string' ? rendered.body : Buffer.from(rendered.body)
+                );
               } catch (err: any) {
                 res.writeHead(500).end(err?.message ?? 'Internal Server Error');
               }
