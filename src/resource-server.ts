@@ -564,18 +564,69 @@ export class ResourceServer {
   var currentTheme = 'dark';
   var injectedPhotons = ${JSON.stringify(injectedPhotons)};
 
+  // Transport discriminator (Track D1). The bridge runs in three contexts:
+  //   1. Inside a host iframe that speaks postMessage (Beam, Claude Apps).
+  //   2. Standalone browser tab (no host) — needs to use fetch.
+  //   3. Iframe inside a host that ignores us — also fetch.
+  // window.parent === window only catches the second case; (1) and (3) both
+  // have a parent, so we ping it with a hello and wait 200ms for an ack
+  // before committing to fetch. Hosts that want postMessage must reply
+  // with { type: 'photon:ack', id } within that window.
+  var transport = 'pending';
+  var resolveTransport;
+  var transportReady = new Promise(function(resolve) { resolveTransport = resolve; });
+  function settleTransport(t) {
+    if (transport === 'pending') {
+      transport = t;
+      resolveTransport(t);
+    }
+  }
+
   function generateCallId() {
     return 'call_' + (++callIdCounter) + '_' + Math.random().toString(36).slice(2);
   }
 
   function postToHost(msg) {
-    window.parent.postMessage(msg, '*');
+    try { window.parent.postMessage(msg, '*'); } catch (e) { /* hostless */ }
   }
+
+  function fetchToolCall(name, args, opts) {
+    var a = args || {};
+    if (opts && opts.instance !== undefined) {
+      a = Object.assign({}, a, { _targetInstance: opts.instance });
+    }
+    return fetch('/api/call', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool: name, args: a })
+    }).then(function(r) {
+      return r.json().then(function(d) {
+        if (!r.ok || !d || d.success === false) {
+          throw new Error((d && d.error) || ('HTTP ' + r.status));
+        }
+        return d.data;
+      });
+    });
+  }
+
+  // Hello handshake. Standalone tabs (no host) silently drop the message;
+  // the timeout below guarantees we still flip to fetch.
+  postToHost({ type: 'photon:hello', id: 'init-' + Math.random().toString(36).slice(2) });
+  setTimeout(function() { settleTransport('fetch'); }, 200);
 
   // Listen for messages from host
   window.addEventListener('message', function(e) {
     var m = e.data;
     if (!m || typeof m !== 'object') return;
+
+    // Track D1 ack — host confirms postMessage transport. Accept the
+    // signal at any time (even after the 200ms window) so a slow but
+    // present host still wins over fetch on subsequent calls.
+    if (m.type === 'photon:ack') {
+      settleTransport('postmessage');
+      return;
+    }
 
     // Handle JSON-RPC messages
     if (m.jsonrpc === '2.0') {
@@ -694,23 +745,31 @@ export class ResourceServer {
       };
     },
     callTool: function(name, args, opts) {
-      var callId = generateCallId();
-      return new Promise(function(resolve, reject) {
-        pendingCalls[callId] = { resolve: resolve, reject: reject };
-        var a = args || {};
-        if (opts && opts.instance !== undefined) { a = Object.assign({}, a, { _targetInstance: opts.instance }); }
-        postToHost({
-          jsonrpc: '2.0',
-          id: callId,
-          method: 'tools/call',
-          params: { name: name, arguments: a }
-        });
-        setTimeout(function() {
-          if (pendingCalls[callId]) {
-            delete pendingCalls[callId];
-            reject(new Error('Tool call timeout'));
+      // Wait for the handshake to settle so the very first call routes
+      // correctly. Subsequent calls hit the resolved transport without
+      // an extra microtask.
+      return transportReady.then(function(t) {
+        if (t === 'fetch') return fetchToolCall(name, args, opts);
+        var callId = generateCallId();
+        return new Promise(function(resolve, reject) {
+          pendingCalls[callId] = { resolve: resolve, reject: reject };
+          var a = args || {};
+          if (opts && opts.instance !== undefined) {
+            a = Object.assign({}, a, { _targetInstance: opts.instance });
           }
-        }, 30000);
+          postToHost({
+            jsonrpc: '2.0',
+            id: callId,
+            method: 'tools/call',
+            params: { name: name, arguments: a }
+          });
+          setTimeout(function() {
+            if (pendingCalls[callId]) {
+              delete pendingCalls[callId];
+              reject(new Error('Tool call timeout'));
+            }
+          }, 30000);
+        });
       });
     },
     invoke: function(name, args, opts) { return window.photon.callTool(name, args, opts); },
