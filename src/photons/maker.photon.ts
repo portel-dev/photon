@@ -34,8 +34,8 @@
  *
  * - `@internal` - Bundled with runtime, special UI treatment
  * - `@wizard` - Renders as multi-step wizard instead of form
- * - `@template` - Returns a prompt string (for MCP prompts)
- * - `@resource` - Exposes as MCP resource with URI
+ * - `@prompt` - Method-level: registers as MCP prompt template (legacy: @template)
+ * - `@resource <uri>` - Method-level: registers as MCP resource resolver (legacy: @Static)
  */
 
 import * as fs from 'fs/promises';
@@ -659,7 +659,7 @@ ${allStubs.join('\n\n')}
     if (type === 'prompt' || type === 'prompts') {
       return `${indent}/**
 ${indent} * ${name}
-${indent} * @template
+${indent} * @prompt
 ${indent} */
 ${indent}async ${name}({
 ${indent}  topic
@@ -674,9 +674,8 @@ ${indent}}`;
     if (type === 'resource') {
       return `${indent}/**
 ${indent} * ${name}
-${indent} * @resource
-${indent} * @uri ${name}://default
-${indent} * @mimetype text/plain
+${indent} * @resource ${name}://default
+${indent} * @mimeType text/plain
 ${indent} */
 ${indent}async ${name}(): Promise<string> {
 ${indent}  // Replace with your resource content

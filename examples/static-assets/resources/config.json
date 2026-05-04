@@ -1,0 +1,8 @@
+{
+  "owner": "platform-team",
+  "environment": "demo",
+  "features": {
+    "experimental_subscriptions": false,
+    "roots_capability": false
+  }
+}
