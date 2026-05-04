@@ -97,7 +97,7 @@ describe.skipIf(SKIP)('HTTP content negotiation', () => {
   });
 
   it('Accept: text/csv on non-tabular value → JSON fallback', async () => {
-    const res = await fetch(`${BASE}/health`, { headers: { Accept: 'text/csv' } });
+    const res = await fetch(`${BASE}/status`, { headers: { Accept: 'text/csv' } });
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
     const body = (await res.json()) as { ok: boolean };

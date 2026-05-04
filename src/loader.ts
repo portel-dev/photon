@@ -238,38 +238,58 @@ export function clearRenderZone(): void {
  */
 function injectEmitHelpers(instance: any): void {
   const emit = (data: any) => (instance.emit as (d: any) => void)(data);
-  // Mirrors photon-core base-class render(): UI-feedback formats route to their
-  // dedicated emit events; all other formats go through the render channel.
-  instance.render = (format?: string, value?: any) => {
-    if (format === undefined) return emit({ emit: 'render:clear' });
-    if (format === 'status')
-      return emit(
-        typeof value === 'string'
-          ? { emit: 'status', message: value }
-          : { emit: 'status', ...value }
-      );
-    if (format === 'progress')
-      return emit(
-        typeof value === 'number' ? { emit: 'progress', value } : { emit: 'progress', ...value }
-      );
-    if (format === 'toast')
-      return emit(
-        typeof value === 'string' ? { emit: 'toast', message: value } : { emit: 'toast', ...value }
-      );
-    emit({ emit: 'render', format, value });
-  };
-  instance.toast = (
-    message: string,
-    opts: { type?: 'info' | 'success' | 'warning' | 'error'; duration?: number } = {}
-  ) => emit({ emit: 'toast', message, ...opts });
-  instance.log = (
-    message: string,
-    opts: { level?: 'debug' | 'info' | 'warn' | 'error'; data?: unknown } = {}
-  ) => emit({ emit: 'log', message, level: opts.level ?? 'info', data: opts.data });
-  instance.status = (message: string) => emit({ emit: 'status', message });
-  instance.progress = (value: number, message?: string) =>
-    emit({ emit: 'progress', value, message });
-  instance.thinking = (active = true) => emit({ emit: 'thinking', active });
+  // User-declared methods always win — these helpers only fill in when absent.
+  // `in` walks the prototype chain so user methods on the class aren't shadowed
+  // by injected closures. Without the guards, a photon that declares `@get
+  // /status` (or any method named `render`/`toast`/`log`/`progress`/`thinking`)
+  // sees its handler clobbered and the dispatcher invokes the emit closure
+  // instead, which returns undefined and produces a hung response.
+  if (!('render' in instance)) {
+    // Mirrors photon-core base-class render(): UI-feedback formats route to
+    // their dedicated emit events; all other formats go through the render channel.
+    instance.render = (format?: string, value?: any) => {
+      if (format === undefined) return emit({ emit: 'render:clear' });
+      if (format === 'status')
+        return emit(
+          typeof value === 'string'
+            ? { emit: 'status', message: value }
+            : { emit: 'status', ...value }
+        );
+      if (format === 'progress')
+        return emit(
+          typeof value === 'number' ? { emit: 'progress', value } : { emit: 'progress', ...value }
+        );
+      if (format === 'toast')
+        return emit(
+          typeof value === 'string'
+            ? { emit: 'toast', message: value }
+            : { emit: 'toast', ...value }
+        );
+      emit({ emit: 'render', format, value });
+    };
+  }
+  if (!('toast' in instance)) {
+    instance.toast = (
+      message: string,
+      opts: { type?: 'info' | 'success' | 'warning' | 'error'; duration?: number } = {}
+    ) => emit({ emit: 'toast', message, ...opts });
+  }
+  if (!('log' in instance)) {
+    instance.log = (
+      message: string,
+      opts: { level?: 'debug' | 'info' | 'warn' | 'error'; data?: unknown } = {}
+    ) => emit({ emit: 'log', message, level: opts.level ?? 'info', data: opts.data });
+  }
+  if (!('status' in instance)) {
+    instance.status = (message: string) => emit({ emit: 'status', message });
+  }
+  if (!('progress' in instance)) {
+    instance.progress = (value: number, message?: string) =>
+      emit({ emit: 'progress', value, message });
+  }
+  if (!('thinking' in instance)) {
+    instance.thinking = (active = true) => emit({ emit: 'thinking', active });
+  }
 }
 
 /** Extra regex checks that force 'emit' capability when helper methods are used. */

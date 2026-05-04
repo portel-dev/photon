@@ -26,12 +26,13 @@ export default class ContentNegotiation {
 
   /**
    * A handler that returns a non-tabular object — exercises CSV fallback.
-   * Path is /health (not /status) because /status collides with the runtime's
-   * embedded-assets diagnostic route in some build modes.
-   * @get /health
+   * Method is named `status` to lock in the loader fix that previously had
+   * injectEmitHelpers clobbering user-declared methods named status/render/
+   * toast/log/progress/thinking with no-arg emit closures.
+   * @get /status
    * @format json
    */
-  async health(_request: Request) {
+  async status(_request: Request) {
     return { ok: true, version: '1.29-test' };
   }
 
