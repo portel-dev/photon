@@ -1057,6 +1057,13 @@ export class PhotonServer {
     }
 
     const { name: toolName, arguments: args } = request.params;
+    // Per MCP spec, the server must echo the client-supplied progressToken
+    // from request _meta back in notifications/progress so clients can match
+    // streamed progress to their original request. Fall back to a synthetic
+    // token only when the client didn't supply one.
+    const clientProgressToken = (request.params as { _meta?: { progressToken?: string | number } })
+      ?._meta?.progressToken;
+    const progressToken = clientProgressToken ?? `progress_${toolName}`;
 
     // Route _use, _instances, _undo, _redo through daemon for stateful photons
     if (
@@ -1183,7 +1190,7 @@ export class PhotonServer {
         this.queueNotification({
           method: 'notifications/progress',
           params: {
-            progressToken: `progress_${toolName}`,
+            progressToken,
             progress,
             total: 100,
             ...(emit.message ? { message: emit.message } : {}),
@@ -1193,7 +1200,7 @@ export class PhotonServer {
         this.queueNotification({
           method: 'notifications/progress',
           params: {
-            progressToken: `progress_${toolName}`,
+            progressToken,
             progress: 0,
             total: 100,
             message: emit.message || '',
@@ -1408,6 +1415,10 @@ export class PhotonServer {
           const executionId = traceId;
           const inputProvider = this.createMCPInputProvider();
           const samplingProvider = this.createMCPSamplingProvider();
+          const clientProgressToken = (
+            request.params as { _meta?: { progressToken?: string | number } }
+          )?._meta?.progressToken;
+          const progressToken = clientProgressToken ?? `progress_${toolName}`;
           const outputHandler = (emit: any) => {
             this.channelManager.publishIfChannel(emit);
             // Forward emit yields as MCP notifications for async tools
@@ -1418,7 +1429,7 @@ export class PhotonServer {
               void this.server?.notification({
                 method: 'notifications/progress',
                 params: {
-                  progressToken: `progress_${toolName}`,
+                  progressToken,
                   progress,
                   total: 100,
                   message: emit.message || '',

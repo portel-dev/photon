@@ -121,6 +121,7 @@ SUITES=(
   "daemon-rpc-contract:$RUN tests/daemon-rpc-contract.test.ts"
   "daemon-parent-watchdog:$RUN tests/daemon-parent-watchdog.test.ts"
   "daemon-health-probe:$RUN tests/daemon-health-probe.test.ts"
+  "progress-token-echo:$VITEST tests/progress-token-echo.test.ts"
 )
 
 TOTAL=0
