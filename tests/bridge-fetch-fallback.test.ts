@@ -92,7 +92,12 @@ function buildSandbox(state: SandboxState): vm.Context {
       return Promise.resolve({
         ok: r.ok,
         status: r.status,
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === 'content-type' ? 'application/json' : null,
+        },
         json: () => Promise.resolve(r.body),
+        text: () => Promise.resolve(typeof r.body === 'string' ? r.body : JSON.stringify(r.body)),
       });
     },
   };
@@ -114,7 +119,10 @@ describe('bridge fetch fallback', () => {
     const state: SandboxState = {
       postMessages: [],
       fetchCalls: [],
-      fetchResponse: { ok: true, status: 200, body: { success: true, data: { greeting: 'hi' } } },
+      // The /api/<kebab> dispatcher returns the method's raw value
+      // (negotiated by Accept). The bridge resolves with that value
+      // directly — no `{success, data}` envelope unwrapping required.
+      fetchResponse: { ok: true, status: 200, body: { greeting: 'hi' } },
       messageListener: null,
       windowProxy: {},
     };
@@ -133,15 +141,13 @@ describe('bridge fetch fallback', () => {
     const photon = state.windowProxy.photon as {
       callTool: (name: string, args?: unknown) => Promise<unknown>;
     };
-    const result = await photon.callTool('greet', { name: 'world' });
+    const result = await photon.callTool('helloWorld', { name: 'world' });
 
     expect(state.fetchCalls.length).toBe(1);
-    expect(state.fetchCalls[0].url).toBe('/api/call');
+    // Auto-RPC routes to /api/<kebab-method-name>; helloWorld → hello-world.
+    expect(state.fetchCalls[0].url).toBe('/api/hello-world');
     expect(state.fetchCalls[0].init?.method).toBe('POST');
-    expect(JSON.parse(String(state.fetchCalls[0].init?.body))).toEqual({
-      tool: 'greet',
-      args: { name: 'world' },
-    });
+    expect(JSON.parse(String(state.fetchCalls[0].init?.body))).toEqual({ name: 'world' });
     expect(result).toEqual({ greeting: 'hi' });
   });
 
@@ -192,7 +198,9 @@ describe('bridge fetch fallback', () => {
     const state: SandboxState = {
       postMessages: [],
       fetchCalls: [],
-      fetchResponse: { ok: false, status: 500, body: { success: false, error: 'boom' } },
+      // Non-2xx response carries an error string body — dispatcher writes
+      // the human-readable message via res.end(message).
+      fetchResponse: { ok: false, status: 500, body: 'boom' },
       messageListener: null,
       windowProxy: {},
     };

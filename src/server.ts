@@ -2808,72 +2808,132 @@ export class PhotonServer {
           return;
         }
 
-        // @get / @post HTTP routes — dispatch to photon method, public (no auth)
+        // @get / @post HTTP routes — dispatch to photon method, public (no auth).
+        // Track C: when none match, fall through to the auto-RPC table built
+        // from @expose tags below.
         const httpRoutes = (this.mcp as any)?._httpRoutes as
           | Array<{ method: string; path: string; handler: string; format?: string }>
           | undefined;
+        let matchedRoute: {
+          handler: string;
+          format?: string;
+          expose?: 'private' | 'public';
+        } | null = null;
         if (httpRoutes?.length && req.method) {
           const route = httpRoutes.find((r) => r.method === req.method && r.path === url.pathname);
-          if (route) {
-            const photonInstance = (this.mcp as any)?.instance;
-            const fn = photonInstance?.[route.handler];
-            if (typeof fn === 'function') {
-              try {
-                // Collect body for POST routes
-                let bodyBuffer = Buffer.alloc(0);
-                await new Promise<void>((resolve) => {
-                  req.on('data', (chunk: Buffer) => {
-                    bodyBuffer = Buffer.concat([bodyBuffer, chunk]);
-                  });
-                  req.on('end', resolve);
-                });
-                // Build Web-standard Request
-                const webReq = new Request(url.toString(), {
-                  method: req.method,
-                  headers: req.headers as Record<string, string>,
-                  ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
-                });
-                const result: unknown = await fn.call(photonInstance, webReq);
+          if (route) matchedRoute = { handler: route.handler, format: route.format };
+        }
 
-                // Pass-through: if the handler already returned a Response, do
-                // NOT touch its bytes. This is the v1.28 contract and is
-                // locked by tests/v128-byte-compat.test.ts.
-                if (result instanceof Response) {
-                  const responseHeaders: Record<string, string> = {};
-                  result.headers.forEach((value, key) => {
-                    responseHeaders[key] = value;
-                  });
-                  if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-                  res.writeHead(result.status, responseHeaders);
-                  res.end(Buffer.from(await result.arrayBuffer()));
+        // Track C: auto-RPC. POST /api/<kebab-method> dispatches to @expose'd
+        // methods. Explicit @get/@post takes precedence (matchedRoute already
+        // set above) so a user can override path/verb for any @expose'd
+        // method without surrendering the auto-RPC slot for the rest. The
+        // visibility check below decides whether to allow the call.
+        const exposes = (this.mcp as any)?._exposes as
+          | Array<{ handler: string; visibility: 'private' | 'public' }>
+          | undefined;
+        if (
+          !matchedRoute &&
+          exposes?.length &&
+          req.method === 'POST' &&
+          url.pathname.startsWith('/api/')
+        ) {
+          const { methodToKebab } = await import('./shared/expose-route-extractor.js');
+          const segment = url.pathname.slice('/api/'.length);
+          // Reject calls that try to reach reserved endpoints ('call', 'ui',
+          // 'diagnostics', etc.) by checking against the @expose table only —
+          // a user method named `call` would still bind correctly here.
+          const exposed = exposes.find((e) => methodToKebab(e.handler) === segment);
+          if (exposed) {
+            // Visibility gate. `private` requires Sec-Fetch-Site: same-origin
+            // (browser-set, can't be forged from a cross-origin caller) so a
+            // SameSite-style guard works without per-photon session cookies.
+            // `public` skips the check entirely.
+            if (exposed.visibility === 'private') {
+              const sfs = req.headers['sec-fetch-site'];
+              if (typeof sfs === 'string') {
+                // Browser-set header — honour it verbatim. Same-origin and
+                // same-site count as SameSite-equivalent; anything else
+                // ('cross-site', 'none', etc.) is rejected even on
+                // localhost so a malicious page from another origin can't
+                // exploit a dev tool's loopback access.
+                const value = sfs.toLowerCase();
+                const ok = value === 'same-origin' || value === 'same-site';
+                if (!ok) {
+                  res.writeHead(403).end('Forbidden: cross-site @expose call');
                   return;
                 }
-
-                // Track A: handler returned a plain value. Negotiate Accept
-                // against the registry, taking the @format JSDoc declaration
-                // into account, and write the rendered body.
-                const { negotiateAccept } = await import('./format/registry.js');
-                const { getDefaultRegistry } = await import('./format/seed.js');
-                const acceptHeader = req.headers['accept'];
-                const rendered = negotiateAccept({
-                  accept: typeof acceptHeader === 'string' ? acceptHeader : undefined,
-                  declaredFormat: route.format,
-                  value: result,
-                  registry: getDefaultRegistry(),
-                });
-                const negotiatedHeaders: Record<string, string> = {
-                  'Content-Type': rendered.mime,
-                };
-                if (corsOrigin) negotiatedHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-                res.writeHead(200, negotiatedHeaders);
-                res.end(
-                  typeof rendered.body === 'string' ? rendered.body : Buffer.from(rendered.body)
-                );
-              } catch (err: any) {
-                res.writeHead(500).end(err?.message ?? 'Internal Server Error');
+              } else if (!isLocalRequest(req)) {
+                // Non-browser callers (curl, node fetch) often omit the
+                // header. Allow them only on the loopback interface so a
+                // public deploy still requires browser-asserted same-origin.
+                res.writeHead(403).end('Forbidden: missing same-origin signal');
+                return;
               }
-              return;
             }
+            matchedRoute = { handler: exposed.handler, expose: exposed.visibility };
+          }
+        }
+
+        if (matchedRoute) {
+          const photonInstance = (this.mcp as any)?.instance;
+          const fn = photonInstance?.[matchedRoute.handler];
+          if (typeof fn === 'function') {
+            try {
+              // Collect body for POST routes
+              let bodyBuffer = Buffer.alloc(0);
+              await new Promise<void>((resolve) => {
+                req.on('data', (chunk: Buffer) => {
+                  bodyBuffer = Buffer.concat([bodyBuffer, chunk]);
+                });
+                req.on('end', resolve);
+              });
+              // Build Web-standard Request
+              const webReq = new Request(url.toString(), {
+                method: req.method,
+                headers: req.headers as Record<string, string>,
+                ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
+              });
+              const result: unknown = await fn.call(photonInstance, webReq);
+
+              // Pass-through: if the handler already returned a Response, do
+              // NOT touch its bytes. This is the v1.28 contract and is
+              // locked by tests/v128-byte-compat.test.ts.
+              if (result instanceof Response) {
+                const responseHeaders: Record<string, string> = {};
+                result.headers.forEach((value, key) => {
+                  responseHeaders[key] = value;
+                });
+                if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                res.writeHead(result.status, responseHeaders);
+                res.end(Buffer.from(await result.arrayBuffer()));
+                return;
+              }
+
+              // Track A: handler returned a plain value. Negotiate Accept
+              // against the registry, taking the @format JSDoc declaration
+              // into account, and write the rendered body.
+              const { negotiateAccept } = await import('./format/registry.js');
+              const { getDefaultRegistry } = await import('./format/seed.js');
+              const acceptHeader = req.headers['accept'];
+              const rendered = negotiateAccept({
+                accept: typeof acceptHeader === 'string' ? acceptHeader : undefined,
+                declaredFormat: matchedRoute.format,
+                value: result,
+                registry: getDefaultRegistry(),
+              });
+              const negotiatedHeaders: Record<string, string> = {
+                'Content-Type': rendered.mime,
+              };
+              if (corsOrigin) negotiatedHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+              res.writeHead(200, negotiatedHeaders);
+              res.end(
+                typeof rendered.body === 'string' ? rendered.body : Buffer.from(rendered.body)
+              );
+            } catch (err: any) {
+              res.writeHead(500).end(err?.message ?? 'Internal Server Error');
+            }
+            return;
           }
         }
 

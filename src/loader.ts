@@ -16,6 +16,7 @@ import {
 } from 'fs';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
 import { extractHttpRoutesFromSource } from './shared/http-route-extractor.js';
+import { extractExposesFromSource, type ExposeDef } from './shared/expose-route-extractor.js';
 import type {
   PhotonInstance,
   EventListenerEntry,
@@ -1723,6 +1724,7 @@ export class PhotonLoader {
         settingsSchema,
         auth: extractedAuth,
         httpRoutes: extractedHttpRoutes,
+        exposes: extractedExposes,
       } = await this.extractTools(MCPClass, absolutePath);
 
       // ═══ SETTINGS INJECTION ═══
@@ -1793,6 +1795,7 @@ export class PhotonLoader {
       if (isStateful) result.stateful = true;
       if (extractedAuth) result.auth = extractedAuth;
       if (extractedHttpRoutes?.length) (result as any)._httpRoutes = extractedHttpRoutes;
+      if (extractedExposes?.length) (result as any)._exposes = extractedExposes;
       // Store class constructor for static method access
       result.classConstructor = MCPClass as unknown as Record<
         string,
@@ -2178,6 +2181,7 @@ export class PhotonLoader {
       settingsSchema,
       auth: extractedAuth,
       httpRoutes: extractedHttpRoutes,
+      exposes: extractedExposes,
     } = await this.extractTools(MCPClass, absolutePath, tsContent);
 
     // Settings injection
@@ -2219,6 +2223,7 @@ export class PhotonLoader {
     if (isStateful) result.stateful = true;
     if (extractedAuth) result.auth = extractedAuth;
     if (extractedHttpRoutes?.length) (result as any)._httpRoutes = extractedHttpRoutes;
+    if (extractedExposes?.length) (result as any)._exposes = extractedExposes;
     result.classConstructor = MCPClass as unknown as Record<
       string,
       (...args: unknown[]) => unknown
@@ -2427,6 +2432,8 @@ export class PhotonLoader {
     settingsSchema?: SettingsSchema;
     auth?: string;
     httpRoutes?: Array<{ method: string; path: string; handler: string }>;
+    /** Track C: methods tagged `@expose` for auto-RPC at /api/<kebab>. */
+    exposes?: ExposeDef[];
   }> {
     const methodNames = this.getToolMethods(mcpClass);
     let tools: PhotonTool[] = [];
@@ -2537,6 +2544,18 @@ export class PhotonLoader {
               }
             });
           }
+          // Track C: capture @expose'd methods so the runtime dispatcher
+          // can auto-bind them at /api/<kebab>. We only honour declarations
+          // for methods the class actually defines (mirrors the tool/route
+          // filter above) so a stray comment never opens a phantom
+          // endpoint. Methods that already carry an explicit @get/@post are
+          // excluded so the user's path/verb wins — the auto-RPC slot only
+          // fills *unclaimed* spots.
+          const httpRouteHandlers = new Set(httpRoutesFromSource.map((r) => r.handler));
+          const exposesFromSource = extractExposesFromSource(source).filter(
+            (e) => methodNames.includes(e.handler) && !httpRouteHandlers.has(e.handler)
+          );
+
           return {
             tools,
             templates,
@@ -2544,6 +2563,7 @@ export class PhotonLoader {
             settingsSchema: metadata.settingsSchema,
             auth: this.extractAuthTag(source),
             httpRoutes: httpRoutesFromSource.length ? httpRoutesFromSource : undefined,
+            exposes: exposesFromSource.length ? exposesFromSource : undefined,
           };
         }
         throw jsonError;

@@ -590,23 +590,34 @@ export class ResourceServer {
     try { window.parent.postMessage(msg, '*'); } catch (e) { /* hostless */ }
   }
 
+  function methodToKebab(s) {
+    return s
+      .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+      .toLowerCase();
+  }
+
   function fetchToolCall(name, args, opts) {
     var a = args || {};
     if (opts && opts.instance !== undefined) {
       a = Object.assign({}, a, { _targetInstance: opts.instance });
     }
-    return fetch('/api/call', {
+    return fetch('/api/' + methodToKebab(name), {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tool: name, args: a })
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(a)
     }).then(function(r) {
-      return r.json().then(function(d) {
-        if (!r.ok || !d || d.success === false) {
-          throw new Error((d && d.error) || ('HTTP ' + r.status));
-        }
-        return d.data;
-      });
+      if (!r.ok) {
+        return r.text().then(function(text) {
+          throw new Error(text || ('HTTP ' + r.status));
+        });
+      }
+      var ct = r.headers.get('content-type') || '';
+      return ct.indexOf('application/json') >= 0 ? r.json() : r.text();
     });
   }
 
