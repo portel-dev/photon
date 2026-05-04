@@ -336,6 +336,17 @@ function injectSamplingAndElicitation(instance: any): void {
       return await store.inputProvider(params);
     };
   }
+  if (!Object.getOwnPropertyDescriptor(Object.getPrototypeOf(instance), 'roots')) {
+    Object.defineProperty(instance, 'roots', {
+      get(): Array<{ uri: string; name?: string }> {
+        const store = executionContext.getStore() as
+          | { roots?: Array<{ uri: string; name?: string }> }
+          | undefined;
+        return store?.roots ?? [];
+      },
+      configurable: true,
+    });
+  }
   if (!instance.sample) {
     instance.sample = async (params: SampleParams): Promise<string> => {
       const store = executionContext.getStore() as
@@ -3934,6 +3945,13 @@ Run: photon mcp ${mcpName} --config
        * context via `this.sample()`.
        */
       samplingProvider?: SamplingProvider;
+      /**
+       * MCP roots reported by the connected client. The runtime caches
+       * the result of `roots/list` per server and threads the snapshot
+       * here so `this.roots` resolves synchronously inside photon code.
+       * Refreshed on `notifications/roots/list_changed`.
+       */
+      roots?: Array<{ uri: string; name?: string }>;
       caller?: CallerInfo;
       traceId?: string;
       parentTraceparent?: string;
@@ -4014,6 +4032,7 @@ Run: photon mcp ${mcpName} --config
       outputHandler?: OutputHandler;
       inputProvider?: InputProvider;
       samplingProvider?: SamplingProvider;
+      roots?: Array<{ uri: string; name?: string }>;
       caller?: CallerInfo;
       traceId?: string;
       parentTraceparent?: string;
@@ -4382,6 +4401,7 @@ Run: photon mcp ${mcpName} --config
                 caller: options?.caller,
                 inputProvider,
                 samplingProvider: options?.samplingProvider,
+                roots: options?.roots,
               } as unknown as Parameters<typeof executionContext.run>[0],
               () => {
                 return method.call(mcp.instance, ...args) as unknown;

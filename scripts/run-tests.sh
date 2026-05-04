@@ -124,6 +124,7 @@ SUITES=(
   "progress-token-echo:$VITEST tests/progress-token-echo.test.ts"
   "transport-parity-resources:$VITEST tests/transport-parity-resources.test.ts"
   "dynamic-resources-subscribe:$VITEST tests/dynamic-resources-subscribe.test.ts"
+  "roots:$VITEST tests/roots.test.ts"
 )
 
 TOTAL=0

@@ -19,6 +19,7 @@ import {
   ReadResourceRequestSchema,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
+  RootsListChangedNotificationSchema,
   GetTaskRequestSchema,
   ListTasksRequestSchema,
   CancelTaskRequestSchema,
@@ -443,6 +444,16 @@ export class PhotonServer {
   private subscriptions = new SubscriptionRegistry();
   /** Stable sink for the STDIO server, registered once on first subscribe. */
   private stdioSink?: ResourceUpdateSink;
+  /**
+   * Per-server roots cache. Populated on `oninitialized` if the client
+   * declared the `roots` capability, refreshed on
+   * `notifications/roots/list_changed`. Read at tool-call time and threaded
+   * into ALS so `this.roots` resolves synchronously inside photon code.
+   *
+   * WeakMap-keyed so dead session servers stop holding cache entries
+   * automatically when SSE sessions disconnect.
+   */
+  private rootsByServer = new WeakMap<Server, Array<{ uri: string; name?: string }>>();
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -1263,6 +1274,7 @@ export class PhotonServer {
       inputProvider,
       outputHandler,
       samplingProvider,
+      roots: this.rootsByServer.get(ctx.server),
     });
     const durationMs = Date.now() - startTime;
     const transport = this.options.transport || 'stdio';
@@ -1498,6 +1510,7 @@ export class PhotonServer {
               outputHandler,
               samplingProvider,
               traceId,
+              roots: this.rootsByServer.get(ctx.server),
             })
             .catch((error) => {
               this.log('error', `Async tool ${toolName} failed`, {
@@ -1637,6 +1650,42 @@ export class PhotonServer {
     this.server.setRequestHandler(GetTaskPayloadRequestSchema, async (request) => {
       return this.taskExecutor.handleGetTaskPayload(request.params.taskId, this.server);
     });
+
+    this.setupRootsForServer(this.server);
+  }
+
+  /**
+   * Wire up `roots/list` discovery + `notifications/roots/list_changed`
+   * refresh for one Server instance. Called once for the STDIO server and
+   * once per SSE session.
+   *
+   * Eager fetch on initialize keeps `this.roots` synchronous inside photon
+   * code — clients that don't declare the capability skip the fetch
+   * entirely. The cache is server-scoped (per-session for SSE) so two
+   * clients with different working directories don't see each other's
+   * roots.
+   */
+  private setupRootsForServer(server: Server): void {
+    server.oninitialized = () => {
+      const caps = server.getClientCapabilities();
+      if (!caps?.roots) return;
+      void this.refreshRootsCache(server);
+    };
+    server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
+      await this.refreshRootsCache(server);
+    });
+  }
+
+  private async refreshRootsCache(server: Server): Promise<void> {
+    try {
+      const result = await server.listRoots();
+      const roots = (result?.roots ?? []).map((r) => ({ uri: r.uri, name: r.name }));
+      this.rootsByServer.set(server, roots);
+    } catch (err) {
+      this.log('warn', 'roots/list refresh failed', {
+        error: err instanceof Error ? getErrorMessage(err) : String(err),
+      });
+    }
   }
 
   /**
@@ -2903,6 +2952,8 @@ export class PhotonServer {
         return {};
       });
     }
+
+    this.setupRootsForServer(sessionServer);
   }
 
   /**
