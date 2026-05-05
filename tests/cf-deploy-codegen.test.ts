@@ -181,6 +181,35 @@ function extractSubclassRoutes(workerCode: string, doClass: string): Route[] {
   return JSON.parse(literal) as Route[];
 }
 
+function extractSubclassExposes(
+  workerCode: string,
+  doClass: string
+): Array<{ handler: string; visibility: 'private' | 'public' }> {
+  const classMarker = `class ${doClass} extends BasePhotonDO`;
+  const classIdx = workerCode.indexOf(classMarker);
+  if (classIdx < 0) throw new Error(`Could not find ${classMarker}`);
+  const tail = workerCode.slice(classIdx);
+  const anchor = 'protected readonly exposes: any[] = ';
+  const literalIdx = tail.indexOf(anchor);
+  if (literalIdx < 0) throw new Error(`No exposes literal on ${doClass}`);
+  const literalStart = literalIdx + anchor.length;
+  let depth = 0;
+  let end = -1;
+  for (let i = literalStart; i < tail.length; i++) {
+    const ch = tail[i];
+    if (ch === '[') depth++;
+    else if (ch === ']') {
+      depth--;
+      if (depth === 0) {
+        end = i + 1;
+        break;
+      }
+    }
+  }
+  if (end < 0) throw new Error('Unterminated exposes literal');
+  return JSON.parse(tail.slice(literalStart, end));
+}
+
 function extractSubclassToolDefs(workerCode: string, doClass: string): Array<{ name: string }> {
   const classMarker = `class ${doClass} extends BasePhotonDO`;
   const classIdx = workerCode.indexOf(classMarker);
@@ -326,6 +355,72 @@ export default class RouteOnlyPhoton {
     const tools = extractSubclassToolDefs(workerCode, 'RouteOnlyPhotonDO');
     expect(routes.length).toBe(3);
     expect(tools.length).toBe(0);
+  });
+});
+
+describe('cf deploy code-gen — @expose dispatch', () => {
+  // Track C: methods tagged `@expose` (or `@expose public`) get bound to
+  // POST /api/<kebab> in the generated DO. Without this the deployed
+  // photon would 404 on every public auto-RPC route — a platform parity
+  // gap with the local server.
+  let workerCode: string;
+
+  beforeAll(async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-cf-expose-'));
+    const photonPath = path.join(dir, 'expose.photon.ts');
+    await fsp.writeFile(
+      photonPath,
+      `
+export default class ExposePhoton {
+  /** @expose public */
+  async addTask(input: { title: string }) { return { id: '1', title: input.title }; }
+
+  /** @expose */
+  async listTasks() { return []; }
+
+  /** Plain method — no @expose tag. */
+  async internalHelper() { return 'private'; }
+
+  /** @get /api/feed.rss */
+  async feed() { return new Response('<rss/>', { status: 200 }); }
+}
+`
+    );
+    await deployToCloudflare({
+      photonPath,
+      outputDir: path.join(dir, 'out'),
+      dryRun: true,
+    });
+    workerCode = await fsp.readFile(path.join(dir, 'out', 'src', 'worker.ts'), 'utf-8');
+  });
+
+  it('emits an exposes literal containing every @expose-tagged method', () => {
+    const exposes = extractSubclassExposes(workerCode, 'ExposePhotonDO');
+    expect(exposes).toEqual([
+      { handler: 'addTask', visibility: 'public' },
+      { handler: 'listTasks', visibility: 'private' },
+    ]);
+  });
+
+  it('does NOT include methods without @expose', () => {
+    const exposes = extractSubclassExposes(workerCode, 'ExposePhotonDO');
+    expect(exposes.find((e) => e.handler === 'internalHelper')).toBeUndefined();
+  });
+
+  it('@expose-tagged methods stay in the MCP tool catalog (parity with local server)', () => {
+    const tools = extractSubclassToolDefs(workerCode, 'ExposePhotonDO');
+    const names = new Set(tools.map((t) => t.name));
+    expect(names.has('addTask')).toBe(true);
+    expect(names.has('listTasks')).toBe(true);
+    // The @get handler still gets filtered out — HTTP-only.
+    expect(names.has('feed')).toBe(false);
+  });
+
+  it('worker template includes the @expose dispatch branch and kebab helper', () => {
+    expect(workerCode).toContain('this.exposes.length > 0');
+    expect(workerCode).toContain("url.pathname.startsWith('/api/')");
+    expect(workerCode).toContain('methodToKebab');
+    expect(workerCode).toContain('sec-fetch-site');
   });
 });
 

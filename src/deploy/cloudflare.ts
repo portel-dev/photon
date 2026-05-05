@@ -13,6 +13,7 @@ import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from '../version.js';
 import { logger } from '../shared/logger.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from '../shared/http-route-extractor.js';
+import { extractExposesFromSource, type ExposeDef } from '../shared/expose-route-extractor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -411,6 +412,13 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const routeDefs: HttpRouteDef[] = extractHttpRoutesFromSource(sourceCode);
   // Route handlers must not also surface as MCP tools — they're HTTP-only.
   const routeHandlerNames = new Set(routeDefs.map((r) => r.handler));
+  // Track C: `@expose` adds an HTTP route at `/api/<kebab>` but keeps the
+  // method in the MCP tool catalog (mirrors the local server). Drop any
+  // `@expose` that collides with an explicit `@get`/`@post` so the
+  // explicit declaration wins exactly as in `src/loader.ts`.
+  const exposeDefs: ExposeDef[] = extractExposesFromSource(sourceCode).filter(
+    (e) => !routeHandlerNames.has(e.handler)
+  );
   const toolDefs = metadata.tools
     .filter((tool: { name: string }) => !routeHandlerNames.has(tool.name))
     .map((tool: any) => ({
@@ -422,7 +430,9 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
 
   const cfAccessEnabled = metadata.auth === 'cf-access';
 
-  logger.info(`Found ${toolDefs.length} tools, ${routeDefs.length} HTTP routes`);
+  logger.info(
+    `Found ${toolDefs.length} tools, ${routeDefs.length} HTTP routes, ${exposeDefs.length} @expose'd methods`
+  );
 
   // Extract `@dependencies` from the photon source. These get bundled into
   // the Worker by wrangler, so they must land in package.json's dependencies
@@ -484,6 +494,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     toolDefs: any[];
     /** HTTP routes from @get/@post tags */
     routeDefs: any[];
+    /** @expose'd methods bound to /api/<kebab> with a SameSite check */
+    exposeDefs: ExposeDef[];
     /** Transformed source written to outputDir/src */
     source: string;
     /** Where the source lives in outputDir/src/ */
@@ -512,6 +524,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       binding: 'PHOTON',
       toolDefs,
       routeDefs,
+      exposeDefs,
       source: transformedHost,
       sourceFileBase: 'photon.ts',
       isHost: true,
@@ -531,6 +544,9 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     // Same source-extract rule as the host: don't trust photon-core for routes.
     const sibRoutes: HttpRouteDef[] = extractHttpRoutesFromSource(sibSource);
     const sibRouteHandlers = new Set(sibRoutes.map((r) => r.handler));
+    const sibExposes: ExposeDef[] = extractExposesFromSource(sibSource).filter(
+      (e) => !sibRouteHandlers.has(e.handler)
+    );
     const sibTools = sibMeta.tools
       .filter((tool: { name: string }) => !sibRouteHandlers.has(tool.name))
       .map((tool: any) => ({
@@ -562,6 +578,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       binding: photonNameToBinding(sibName),
       toolDefs: sibTools,
       routeDefs: sibRoutes,
+      exposeDefs: sibExposes,
       source: transformPhotonSource(sibSource),
       sourceFileBase: `dep-${sibName}.ts`,
       isHost: false,
@@ -594,6 +611,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   protected readonly photonName = ${JSON.stringify(p.name)};
   protected readonly toolDefinitions: any[] = ${JSON.stringify(p.toolDefs, null, 2)};
   protected readonly httpRoutes: any[] = ${JSON.stringify(p.routeDefs, null, 2)};
+  protected readonly exposes: any[] = ${JSON.stringify(p.exposeDefs, null, 2)};
   protected createPhoton() { return new ${p.importName}(); }
 }`
     )

@@ -570,6 +570,19 @@ function matchHttpRoute(
   return null;
 }
 
+/**
+ * camelCase → kebab-case for `/api/<kebab>` route segments.
+ * Mirrors `src/shared/expose-route-extractor.ts#methodToKebab`. Keep both
+ * implementations in lock-step so an `@expose`'d method binds to the
+ * same path on the local server and on Cloudflare.
+ */
+function methodToKebab(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .toLowerCase();
+}
+
 function matchPathPattern(
   pattern: string,
   pathname: string
@@ -698,6 +711,14 @@ abstract class BasePhotonDO extends DurableObject<Env> {
   protected abstract readonly photonName: string;
   protected abstract readonly toolDefinitions: any[];
   protected readonly httpRoutes: { method: string; path: string; handler: string }[] = [];
+  /**
+   * Methods declared with `@expose` (Track C). Bound to `POST /api/<kebab>`
+   * with a SameSite-style visibility check. `private` requires a browser-set
+   * `Sec-Fetch-Site: same-origin` (or `same-site`) header — anything else,
+   * or no header, is denied. `public` skips the check (anonymous third-party
+   * callers like RSS readers).
+   */
+  protected readonly exposes: { handler: string; visibility: 'private' | 'public' }[] = [];
   protected abstract createPhoton(): any;
 
   protected photon: any;
@@ -852,6 +873,57 @@ abstract class BasePhotonDO extends DurableObject<Env> {
           return Response.json(response, { headers: CORS_HEADERS });
         } catch (error: any) {
           return new Response(error?.message ?? 'Internal Server Error', { status: 500 });
+        }
+      }
+    }
+
+    // Track C: @expose auto-RPC. POST /api/<kebab> dispatches to an
+    // `@expose`'d method. `@get`/`@post` already won the matchedRoute
+    // check above, so this only fires when no explicit HTTP route
+    // matched. Visibility gate: `private` requires a browser-set
+    // `Sec-Fetch-Site: same-origin` (or `same-site`) header. The Worker
+    // is on the public internet — there is no localhost analog — so an
+    // absent header means deny.
+    if (
+      this.exposes.length > 0 &&
+      request.method === 'POST' &&
+      url.pathname.startsWith('/api/')
+    ) {
+      const segment = url.pathname.slice('/api/'.length);
+      const exposed = this.exposes.find((e) => methodToKebab(e.handler) === segment);
+      if (exposed) {
+        if (exposed.visibility === 'private') {
+          const sfs = request.headers.get('sec-fetch-site')?.toLowerCase() ?? '';
+          if (sfs !== 'same-origin' && sfs !== 'same-site') {
+            return new Response('Forbidden: cross-site @expose call', {
+              status: 403,
+              headers: CORS_HEADERS,
+            });
+          }
+        }
+        const fn = (this.photon as any)[exposed.handler];
+        if (typeof fn !== 'function') {
+          return new Response(`Unknown handler: ${exposed.handler}`, {
+            status: 500,
+            headers: CORS_HEADERS,
+          });
+        }
+        let parsed: unknown = {};
+        try {
+          const text = await request.text();
+          if (text.length > 0) parsed = JSON.parse(text);
+        } catch {
+          return new Response('Invalid JSON body', { status: 400, headers: CORS_HEADERS });
+        }
+        try {
+          const result = await fn.call(this.photon, parsed);
+          if (result instanceof Response) return result;
+          return Response.json(result, { headers: CORS_HEADERS });
+        } catch (error: any) {
+          return new Response(error?.message ?? 'Internal Server Error', {
+            status: 500,
+            headers: CORS_HEADERS,
+          });
         }
       }
     }
