@@ -8,6 +8,7 @@ import { printError } from '../../cli-formatter.js';
 import { fileURLToPath } from 'url';
 import { SchemaExtractor } from '@portel/photon-core';
 import { compileTsxSync } from '../../tsx-compiler.js';
+import { encodeAssetForEmbed } from '../../shared/asset-encoding.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -197,7 +198,12 @@ function discoverAssetTree(sourceFilePath: string): Map<string, string> {
           continue;
         }
         const rel = path.relative(assetsRoot, full).split(path.sep).join('/');
-        tree.set(rel, fs.readFileSync(full, 'utf-8'));
+        // Read as Buffer so binary siblings (.png, .woff2, .wasm, etc.)
+        // round-trip without UTF-8 corruption. The encoder picks UTF-8
+        // text or base64+sentinel based on extension; the runtime serve
+        // path decodes the sentinel back to a Buffer before writing.
+        const ext = path.extname(full).toLowerCase();
+        tree.set(rel, encodeAssetForEmbed(fs.readFileSync(full), ext));
       }
     }
   }
