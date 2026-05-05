@@ -325,14 +325,16 @@ async generate({ quarter }: { quarter: string }) {
 
 ## HTTP Route Tags
 
-These method-level tags expose a photon method as a public HTTP endpoint. The method is **not** registered as an MCP tool - it is HTTP-only and does not appear to LLM clients. Works on `photon sse` (local) and `photon deploy cloudflare`. Not available over stdio.
+These method-level tags expose a photon method as a public HTTP endpoint. `@get` and `@post` declare the method as HTTP-only — it is **not** registered as an MCP tool and does not appear to LLM clients. `@expose` is the third option: it auto-binds the method to a kebab-cased path under `/api/` AND keeps the method available as an MCP tool, so the same handler reaches both AI agents and a same-origin SPA. Works on `photon sse` (local) and `photon deploy cloudflare`. Not available over stdio.
 
 | Tag | Description | Example |
 |-----|-------------|---------|
 | `@get /path` | Expose method as an HTTP GET handler. | `@get /calendar.ics` |
 | `@post /path` | Expose method as an HTTP POST handler. | `@post /webhook/stripe` |
+| `@expose` | Auto-bind method to `POST /api/<kebab-method-name>`. Default visibility is `private` (requires browser-set `Sec-Fetch-Site: same-origin`/`same-site`). | `@expose` |
+| `@expose public` | Same as `@expose` but skips the SameSite check — anonymous third-party callers (RSS readers, mobile apps) can hit the endpoint. | `@expose public` |
 
-The method receives a Web-standard `Request` and must return a `Response`:
+`@get` and `@post` methods receive a Web-standard `Request` and must return a `Response`:
 
 ```typescript
 /**
@@ -347,7 +349,25 @@ async ical(request: Request): Promise<Response> {
 }
 ```
 
-On Cloudflare deployments with `@auth cf-access`, each authenticated user's email maps to their own DO instance automatically. The `@get` handler runs on the right instance without any extra routing code.
+`@expose`'d methods receive the parsed JSON body as their first argument (same shape as `tools/call`), so one method body works for both surfaces:
+
+```typescript
+/**
+ * Add a task. Reachable from Claude Desktop (tools/call), from
+ * the dashboard SPA (POST /api/add-task with same-origin cookie),
+ * and from a CLI (cross-site request, denied unless @expose public).
+ * @expose
+ */
+async addTask(input: { title: string }): Promise<{ id: string; title: string }> {
+  const id = 't_' + Math.random().toString(36).slice(2, 10);
+  this.tasks.push({ id, title: input.title });
+  return { id, title: input.title };
+}
+```
+
+When the method also returns a `Response`, the bytes pass through unchanged so RSS feeds, image responses, and similar pass-through handlers continue to work.
+
+On Cloudflare deployments with `@auth cf-access`, each authenticated user's email maps to their own DO instance automatically. The `@get` and `@expose` handlers run on the right instance without any extra routing code. The same per-claim routing applies on the local `photon sse` server when a photon declares both `@stateful` and `@auth`: each authenticated caller lazy-loads its own photon instance keyed on the bound claim (default `email` for `cf-access`, `sub` for `oauth`), so multi-tenant photons don't share `this.memory` across users.
 
 ---
 

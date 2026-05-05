@@ -522,6 +522,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | `@param ... {@format email}` | Param | Input validation and field type |
 | `@param ... {@min N} {@max N}` | Param | Numeric range constraints |
 | `@ui` | Class/Method | Link a custom HTML template |
+| `@expose` | Method | Auto-bind to `POST /api/<kebab>` for SPA fetch (`public` skips the SameSite gate) |
 | `@webhook` | Method | Expose as HTTP endpoint |
 | `@scheduled` | Method | Run on a cron schedule |
 | `@locked` | Method | Distributed lock across processes |
