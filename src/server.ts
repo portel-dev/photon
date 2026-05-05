@@ -2690,8 +2690,12 @@ export class PhotonServer {
         // references as `./chunks/main.js`) without per-file @ui declarations.
         // Path-traversal is rejected by resolving the candidate and confirming
         // it stays under the @ui's directory root.
+        // `.*` (not `.+`) so a trailing-slash form like `/api/ui/dashboard/`
+        // matches with restPath='' and routes to the top-level branch
+        // alongside the no-slash form. Without the trailing-slash match,
+        // the redirect target below would 404.
         const uiMatch =
-          req.method === 'GET' && url.pathname.match(/^\/api\/ui\/([^/]+)(?:\/(.+))?$/);
+          req.method === 'GET' && url.pathname.match(/^\/api\/ui\/([^/]+)(?:\/(.*))?$/);
         if (uiMatch) {
           const uiId = uiMatch[1];
           const restPath = uiMatch[2] ?? '';
@@ -2700,6 +2704,22 @@ export class PhotonServer {
 
           // Top-level fetch (no sub-path): existing single-file behaviour.
           if (!restPath) {
+            // Browsers resolve relative asset URLs against the document
+            // URL. With `/api/ui/<id>` (no trailing slash) the base is
+            // `/api/ui/`, so `./chunks/main.js` becomes `/api/ui/chunks/...`
+            // which would 404 on the sibling resolver below. Redirect to
+            // the trailing-slash form so the SPA's relative imports work.
+            // The regex matches both `/api/ui/<id>` and `/api/ui/<id>/`
+            // to the same restPath='', so we branch on the literal path.
+            if (ui?.resolvedPath && !url.pathname.endsWith('/')) {
+              const redirectHeaders: Record<string, string> = {
+                Location: url.pathname + '/' + (url.search || ''),
+              };
+              if (corsOrigin) redirectHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+              res.writeHead(308, redirectHeaders);
+              res.end();
+              return;
+            }
             if (ui?.resolvedPath) {
               try {
                 const content = await readText(ui.resolvedPath);
@@ -2779,8 +2799,14 @@ export class PhotonServer {
                 // Track D2: CORP same-origin so embedded-binary servers stay
                 // satisfiable for COEP-isolated parent pages.
                 treeHeaders['Cross-Origin-Resource-Policy'] = 'same-origin';
+                // Binary siblings (.png, .woff2, .wasm) ship as base64 in
+                // the embedded tree to survive round-trip through the
+                // bundled JS. Decode back to a Buffer so the bytes hit
+                // the wire unchanged; text entries keep the UTF-8 path.
+                const { decodeEmbeddedAsset } = await import('./shared/asset-encoding.js');
+                const decoded = decodeEmbeddedAsset(content);
                 res.writeHead(200, treeHeaders);
-                res.end(content);
+                res.end(decoded.buffer ?? decoded.text);
                 return;
               }
             }
@@ -2962,7 +2988,20 @@ export class PhotonServer {
         }
 
         if (matchedRoute) {
-          const photonInstance = (this.mcp as any)?.instance;
+          // Track C closure (extended): @get/@post and @expose dispatchers
+          // share the same per-claim instance pool that `handleCallTool`
+          // uses, so `@stateful` + `@auth` photons isolate state across
+          // callers regardless of which HTTP surface invokes the method.
+          // Without this, a `@stateful` + `@auth` photon's `@expose private`
+          // method (the natural multi-tenant SPA shape) would leak state
+          // across users — Alice's POST /api/<kebab> would see Bob's
+          // tasks even though their tools/call paths stay isolated.
+          const { extractClaimsFromHeaders } = await import('./shared/extract-claims.js');
+          const httpClaims = extractClaimsFromHeaders(req.headers);
+          const targetMcp = await this.resolveInstanceMcp(
+            httpClaims ? { authInfo: { extra: httpClaims } } : undefined
+          );
+          const photonInstance = (targetMcp as any)?.instance;
           const fn = photonInstance?.[matchedRoute.handler];
           if (typeof fn === 'function') {
             try {

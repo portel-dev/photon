@@ -154,6 +154,42 @@ describe.skipIf(SKIP)('standalone HTTP server — per-claim instance pool', () =
     expect(after[after.length - 1]).toBe('alice-3');
   });
 
+  it('@expose HTTP routes also isolate by claim (codex-flagged regression)', async () => {
+    // Same isolation contract via /api/<kebab>. Without the dispatcher's
+    // resolveInstanceMcp call, alice's POST /api/expose-add-task would
+    // share state with bob's. Use a fresh user pair so we don't pollute
+    // the alice/bob/carol instances above.
+    const aliceCount = (await fetch(`${BASE}/api/expose-add-task`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-access-authenticated-user-email': 'dave@example.com',
+      },
+      body: JSON.stringify({ title: 'dave-spa' }),
+    }).then((r) => r.json())) as { count: number };
+    expect(aliceCount.count).toBe(1);
+
+    const eveList = (await fetch(`${BASE}/api/expose-list-tasks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-access-authenticated-user-email': 'eve@example.com',
+      },
+      body: JSON.stringify({}),
+    }).then((r) => r.json())) as string[];
+    expect(eveList).toEqual([]);
+
+    const daveList = (await fetch(`${BASE}/api/expose-list-tasks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-access-authenticated-user-email': 'dave@example.com',
+      },
+      body: JSON.stringify({}),
+    }).then((r) => r.json())) as string[];
+    expect(daveList).toEqual(['dave-spa']);
+  });
+
   it('a request without auth headers falls back to the default instance', async () => {
     // Backward-compat: an anonymous request shouldn't 500 — it lands on
     // the shared default instance, the same way a v1.28 photon ran.
