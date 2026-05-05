@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.29.0](https://github.com/portel-dev/photon/compare/v1.28.2...v1.29.0) (2026-05-05)
+
+### Features
+
+* **bridge:** handshake-timeout + fetch fallback for standalone tabs ([e4b97c7](https://github.com/portel-dev/photon/commit/e4b97c7cbd2c7532e6f212aaa111a45897a93f37))
+* **build:** bundle <photon>/assets/ tree into standalone binaries ([3b8a480](https://github.com/portel-dev/photon/commit/3b8a48072bcb31ad369cccd878a75fb697119a28))
+* **deploy/cf:** [@expose](https://github.com/expose) auto-RPC dispatch on Cloudflare ([5c6ba5b](https://github.com/portel-dev/photon/commit/5c6ba5b2f95292c010b9edf7cf322b40c230061c))
+* **deploy/cf:** bundle <photon>/assets/ via wrangler [assets] binding ([fccfdf6](https://github.com/portel-dev/photon/commit/fccfdf6ab63eb27e8f73b5e00ccfd2fe0fa968ef))
+* **examples:** todo-app reference photon for three-context smoke ([5eedea7](https://github.com/portel-dev/photon/commit/5eedea74bae6da9c73279ffa3622cfc2acdcaa19))
+* **format:** registry + HTTP content negotiation (v1.29 Track A) ([b2c9ede](https://github.com/portel-dev/photon/commit/b2c9ede499f2da443c18229bc3ee2f59ce646ffc))
+* **http:** [@expose](https://github.com/expose) auto-RPC at /api/<kebab> with SameSite gate ([7afafb2](https://github.com/portel-dev/photon/commit/7afafb28d965df3fe6155e65451dd59b96bbf415))
+* **http:** COOP/COEP for standalone [@ui](https://github.com/ui) pages, CORP on assets ([4b79cb9](https://github.com/portel-dev/photon/commit/4b79cb9104431889935b68580d72bb50155cd8ad))
+* **http:** directory-style serving for [@ui](https://github.com/ui) SPA siblings ([7770d9c](https://github.com/portel-dev/photon/commit/7770d9ce658d26e25dbae5657994b23efef4a3e0))
+* **loader:** auth → instance binding for [@stateful](https://github.com/stateful) photons ([0b8fa4a](https://github.com/portel-dev/photon/commit/0b8fa4aadf4f5eac55a88a765876edb3ed18f915))
+* **resources:** resources/subscribe + notifications/resources/updated ([c9f7853](https://github.com/portel-dev/photon/commit/c9f7853448fec4e64562c89aabd2154d833a2b1a))
+* **server:** per-claim instance pool for [@stateful](https://github.com/stateful) + [@auth](https://github.com/auth) photons ([96dc04f](https://github.com/portel-dev/photon/commit/96dc04fbd4c54ba5536436c25738d7d4fb02fc6b))
+* **server:** roots/list capability and this.roots wiring ([2207e2c](https://github.com/portel-dev/photon/commit/2207e2caf75f665598a6d30e478c73ff086b8498))
+* **transport:** SSE parity for method-level resources and class-level assets ([8afa74d](https://github.com/portel-dev/photon/commit/8afa74d68f28e938d3315c96491b844b65f5687f))
+
+### Bug Fixes
+
+* **build:** preserve binary asset bytes in compiled-binary tree ([d449daf](https://github.com/portel-dev/photon/commit/d449daf3448c5e2c69f5fa87017e81b655331e09))
+* **cloudflare:** robust extractInstance for CF Access routing ([ffcc55e](https://github.com/portel-dev/photon/commit/ffcc55eea2732b1bdfb09e5cc301de79b5844525))
+* **daemon:** real ping in health probe + log warning when binary is stale ([0b733db](https://github.com/portel-dev/photon/commit/0b733db229c43ca81ab2370c85ee35ef08a459f8))
+* **loader:** guard emit-helper injection so user methods win ([2a86bf9](https://github.com/portel-dev/photon/commit/2a86bf978adce5d617ffd2d5ef5306e260e9953d))
+* **server:** [@expose](https://github.com/expose) HTTP routes also use the per-claim instance pool ([127e7cf](https://github.com/portel-dev/photon/commit/127e7cf6a62039e6771d0d04d8d0a6c021ffe569))
+* **server:** echo client progressToken in notifications/progress ([ee8b1be](https://github.com/portel-dev/photon/commit/ee8b1be0d406d56566ae019ea104b8a8aa46d0f9))
+
 ## [1.28.2](https://github.com/portel-dev/photon/compare/v1.28.1...v1.28.2) (2026-05-04)
 
 ### Bug Fixes
