@@ -744,7 +744,9 @@ export class PhotonServer {
   private queueNotification(notification: ServerNotification): void {
     this._notifyQueue = this._notifyQueue
       .then(() => this.server?.notification(notification))
-      .catch(() => {});
+      .catch((err) =>
+        this.logger.debug('Failed to send notification', { error: getErrorMessage(err) })
+      );
   }
 
   /**
@@ -2295,7 +2297,9 @@ export class PhotonServer {
     const originalSend = transport.send.bind(transport);
     let writeChain = Promise.resolve();
     transport.send = (message: any) => {
-      const p = writeChain.then(() => originalSend(message)).catch(() => {});
+      const p = writeChain
+        .then(() => originalSend(message))
+        .catch((err) => this.logger.debug('STDIO send failed', { error: getErrorMessage(err) }));
       writeChain = p;
       return p;
     };

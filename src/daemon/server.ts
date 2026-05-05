@@ -4878,7 +4878,14 @@ async function appendEventLog(
       const stat = await fsPromises.stat(logPath);
       if (stat.size >= EVENT_LOG_MAX_SIZE) {
         const rotatedPath = logPath + '.1';
-        await fsPromises.rename(logPath, rotatedPath).catch(() => {});
+        await fsPromises
+          .rename(logPath, rotatedPath)
+          .catch((err) =>
+            logger.debug('Event log rotation rename failed', {
+              photon: photonName,
+              error: String(err),
+            })
+          );
         logger.debug('Rotated event log', { photon: photonName, instance: instanceName });
       }
     } catch {
@@ -5908,7 +5915,7 @@ function startupWatchPhotons(): void {
         });
         return;
       }
-      eagerLoad().catch(() => {});
+      eagerLoad().catch((err) => logger.debug('Eager load failed', { error: String(err) }));
     }, 1000);
   }
 

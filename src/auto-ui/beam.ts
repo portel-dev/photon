@@ -3258,17 +3258,21 @@ export async function stopBeam(): Promise<void> {
   // Close all SDK clients gracefully
   const closePromises: Promise<void>[] = [];
 
-  for (const [, client] of ctx.externalMCPSDKClients) {
+  for (const [name, client] of ctx.externalMCPSDKClients) {
     closePromises.push(
-      client.close().catch(() => {
-        // Ignore close errors - process is exiting anyway
+      client.close().catch((err) => {
+        // Process is exiting; surface in debug only.
+        logger.debug(`External MCP close failed for ${name}: ${getErrorMessage(err)}`);
       })
     );
   }
 
   // Wait for all clients to close (with timeout)
   if (closePromises.length > 0) {
-    await withTimeout(Promise.all(closePromises), 1000, 'MCP client close timeout').catch(() => {}); // Timeout during shutdown is expected
+    await withTimeout(Promise.all(closePromises), 1000, 'MCP client close timeout').catch((err) => {
+      // Timeout during shutdown is expected.
+      logger.debug(`External MCP shutdown timeout: ${getErrorMessage(err)}`);
+    });
   }
 
   ctx.externalMCPSDKClients.clear();

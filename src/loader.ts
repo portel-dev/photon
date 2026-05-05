@@ -2282,7 +2282,14 @@ export class PhotonLoader {
       const files = await fs.readdir(buildDir).catch(() => [] as string[]);
       for (const f of files) {
         if (f.startsWith(fileName) && f.endsWith('.mjs')) {
-          await fs.unlink(path.join(buildDir, f)).catch(() => {});
+          await fs
+            .unlink(path.join(buildDir, f))
+            .catch((err) =>
+              this.logger.debug('Failed to remove stale cache file', {
+                file: f,
+                error: String(err),
+              })
+            );
         }
       }
     }
