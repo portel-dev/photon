@@ -71,6 +71,27 @@ describe.skipIf(SKIP)('directory-style asset serving', () => {
     expect(body).toContain('<script src="./chunks/main.js">');
   });
 
+  it('GET /api/ui/<id> (no trailing slash) redirects to /api/ui/<id>/', async () => {
+    // Browsers resolve relative asset URLs against the document URL.
+    // Without the trailing slash, `./chunks/main.js` would resolve to
+    // `/api/ui/chunks/main.js` (treating `chunks` as the UI id) and 404.
+    // The 308 redirect canonicalizes the URL so the SPA's relative
+    // imports survive a real browser round-trip.
+    const res = await fetch(`${BASE}/api/ui/dashboard`, { redirect: 'manual' });
+    expect(res.status).toBe(308);
+    expect(res.headers.get('location')).toBe('/api/ui/dashboard/');
+  });
+
+  it('GET /api/ui/<id>/ serves the declared @ui file (post-redirect)', async () => {
+    // The redirect target. Same file as the no-slash form, but the
+    // browser's document URL is now /api/ui/dashboard/ so relative
+    // assets resolve correctly.
+    const res = await fetch(`${BASE}/api/ui/dashboard/`);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('<script src="./chunks/main.js">');
+  });
+
   it('GET /api/ui/<id>/<rest> serves a sibling under the @ui directory', async () => {
     const res = await fetch(`${BASE}/api/ui/dashboard/chunks/main.js`);
     expect(res.status).toBe(200);
