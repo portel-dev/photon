@@ -4187,6 +4187,30 @@ Run: photon mcp ${mcpName} --config
         }
       }
 
+      // Track C: auth → instance binding. For `@stateful` photons with an
+      // `@auth` scheme, derive `_targetInstance` from the caller's claims
+      // so each authenticated user lands on a disjoint per-user instance.
+      // Existing `_targetInstance` on the call wins (explicit overrides
+      // implicit). Standalone `photon mcp` is single-tenant — this only
+      // takes effect via the daemon and streamable-HTTP transport, which
+      // both consume `_targetInstance` to route the call.
+      if (
+        photonAuth &&
+        isStateful &&
+        options?.caller?.claims &&
+        parameters &&
+        typeof parameters === 'object' &&
+        !('_targetInstance' in (parameters as Record<string, unknown>))
+      ) {
+        const { resolveInstanceFromClaims, parseAuthDirective } =
+          await import('./shared/instance-binding.js');
+        const { scheme, claim } = parseAuthDirective(photonAuth);
+        const bound = resolveInstanceFromClaims(scheme, options.caller.claims, claim);
+        if (bound) {
+          (parameters as Record<string, unknown>)._targetInstance = bound;
+        }
+      }
+
       // Intercept auto-generated settings tool
       if (toolName === 'settings' && mcp.instance._settingsBacking) {
         const result = await this.executeSettingsTool(mcp.instance, parameters, {
