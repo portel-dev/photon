@@ -410,9 +410,22 @@ class BeamCompatTransport implements Transport {
         }
       }
 
+      // Track C closure: surface CF Access (and equivalent) claims to the
+      // request handlers so the per-claim instance pool can route. The
+      // claims ride on the SDK's MessageExtraInfo.authInfo.extra, which
+      // the protocol layer propagates to setRequestHandler's `extra` arg.
+      const { extractClaimsFromHeaders } = await import('./shared/extract-claims.js');
+      const claims = extractClaimsFromHeaders(req.headers);
+      const messageExtra = claims
+        ? {
+            sessionId: this.sessionId,
+            authInfo: { token: '', clientId: '', scopes: [], extra: claims },
+          }
+        : { sessionId: this.sessionId };
+
       // Notifications have no id — fire-and-forget
       if (parsed.id === undefined) {
-        this.onmessage?.(parsed, { sessionId: this.sessionId });
+        this.onmessage?.(parsed, messageExtra);
         const notifHeaders: Record<string, string> = {
           'Mcp-Session-Id': this.sessionId,
         };
@@ -425,7 +438,7 @@ class BeamCompatTransport implements Transport {
       // Request — wait for the Server to call send() with the response
       const response = await new Promise<any>((resolve) => {
         this.pendingResponse = resolve;
-        this.onmessage?.(parsed, { sessionId: this.sessionId });
+        this.onmessage?.(parsed, messageExtra);
       });
 
       const resHeaders: Record<string, string> = {
@@ -479,6 +492,26 @@ export class PhotonServer {
   private daemonInstanceName?: string;
   /** Tracked instance names per SSE session for daemon drift recovery */
   private sseInstanceNames = new Map<string, string>();
+  /**
+   * Track C closure: per-claim instance pool. Populated lazily on first
+   * request from a new authenticated caller when the photon declares
+   * `@stateful` + `@auth`. Without this, every authenticated caller
+   * shares `this.mcp.instance` — meaning two users on the standalone
+   * HTTP server race on the same `this.tasks` / `this.memory`.
+   *
+   * Daemon path doesn't need this — it has its own per-instance loader
+   * (`session-manager.ts`). Cloudflare doesn't need it either — the
+   * outer Worker selects a DO per claim before the request arrives.
+   * This pool is the standalone HTTP server's equivalent.
+   */
+  private instancePool = new Map<string, Promise<PhotonClassExtended>>();
+  /**
+   * True iff the loaded photon declares both `@stateful` and `@auth` —
+   * the only shape that actually wants per-caller state isolation. For
+   * everything else, instance routing is a no-op and `this.mcp` is used
+   * directly.
+   */
+  private requiresInstanceRouting = false;
   /** Whether client capabilities have been logged (one-time on first tools/list) */
   private clientCapabilitiesLogged = false;
   /** Client capability detection and negotiation */
@@ -1137,10 +1170,51 @@ export class PhotonServer {
     return { tools };
   }
 
-  private async handleCallTool(ctx: HandlerContext, request: any): Promise<any> {
+  /**
+   * Resolve which photon instance handles this call. For `@stateful` +
+   * `@auth` photons we pull claims from the request's `authInfo.extra`
+   * (populated by `BeamCompatTransport` from the HTTP headers), look up
+   * the binding rule from the `@auth` directive, and lazy-load a fresh
+   * photon instance keyed by that claim value. Subsequent calls from
+   * the same caller reuse the cached instance so `this.memory` /
+   * `this.tasks` persist across requests within their per-user scope.
+   *
+   * Returns `this.mcp` (the shared singleton) when the photon doesn't
+   * declare per-caller routing, when claims are missing, or when the
+   * binding rule yields no instance name. The fallback is intentional:
+   * unauthenticated requests still execute, they just share the default
+   * instance — same as a v1.28 photon would.
+   */
+  private async resolveInstanceMcp(
+    extra: { authInfo?: { extra?: Record<string, unknown> } } | undefined
+  ): Promise<PhotonClassExtended> {
+    if (!this.requiresInstanceRouting || !this.mcp) return this.mcp!;
+    const claims = extra?.authInfo?.extra;
+    if (!claims) return this.mcp;
+    const { resolveInstanceFromClaims, parseAuthDirective } =
+      await import('./shared/instance-binding.js');
+    const photonAuth = (this.mcp as { auth?: string }).auth;
+    const { scheme, claim } = parseAuthDirective(photonAuth);
+    const bound = resolveInstanceFromClaims(scheme, claims, claim);
+    if (!bound) return this.mcp;
+    let pending = this.instancePool.get(bound);
+    if (!pending) {
+      this.log('info', `Lazy-loading instance for ${bound}`);
+      pending = this.loader.loadFile(this.options.filePath, { instanceName: bound });
+      this.instancePool.set(bound, pending);
+    }
+    return pending;
+  }
+
+  private async handleCallTool(
+    ctx: HandlerContext,
+    request: any,
+    extra?: { authInfo?: { extra?: Record<string, unknown> } }
+  ): Promise<any> {
     if (!this.mcp) {
       throw new Error('MCP not loaded');
     }
+    const targetMcp = await this.resolveInstanceMcp(extra);
 
     const { name: toolName, arguments: args } = request.params;
     // Per MCP spec, the server must echo the client-supplied progressToken
@@ -1323,11 +1397,11 @@ export class PhotonServer {
       }
     };
 
-    const tool = this.mcp.tools.find((t) => t.name === toolName);
+    const tool = targetMcp.tools.find((t) => t.name === toolName);
     const outputFormat = tool?.outputFormat;
 
     const startTime = Date.now();
-    const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
+    const result = await this.loader.executeTool(targetMcp, toolName, args || {}, {
       inputProvider,
       outputHandler,
       samplingProvider,
@@ -1486,7 +1560,7 @@ export class PhotonServer {
       return this.handleListTools(ctx);
     });
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       // STDIO-only: deferred conflict resolution
       if (!this.mcp && this.options.unresolvedPhoton) {
         await this.resolveUnresolvedPhoton();
@@ -1610,7 +1684,7 @@ export class PhotonServer {
       }
 
       try {
-        return await this.handleCallTool(ctx, request);
+        return await this.handleCallTool(ctx, request, extra);
       } catch (error) {
         // STDIO-only: config elicitation retry
         const { name: toolName, arguments: args } = request.params;
@@ -2169,6 +2243,18 @@ export class PhotonServer {
           this.log('info', `Loading ${this.options.filePath}...`);
           this.mcp = await this.loader.loadFile(this.options.filePath);
         }
+      }
+
+      // Track C closure: detect whether the loaded photon needs
+      // per-caller state isolation. Only `@stateful` + `@auth` photons
+      // do — everything else stays single-instance. The daemon path
+      // and the Cloudflare outer-Worker have their own routing; this
+      // flag drives the standalone HTTP server's per-claim pool.
+      const photonAuth = (this.mcp as { auth?: string } | null)?.auth;
+      const photonStateful = !!(this.mcp as PhotonClassWithMeta | null)?.stateful;
+      this.requiresInstanceRouting = Boolean(photonAuth && photonStateful);
+      if (this.requiresInstanceRouting) {
+        this.log('info', `Per-claim instance routing enabled (auth=${JSON.stringify(photonAuth)})`);
       }
 
       // Subscribe to daemon channels for cross-process notifications.
@@ -3166,9 +3252,9 @@ export class PhotonServer {
       return this.handleListTools(ctx);
     });
 
-    sessionServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+    sessionServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       try {
-        return await this.handleCallTool(ctx, request);
+        return await this.handleCallTool(ctx, request, extra);
       } catch (error) {
         const { name: toolName, arguments: args } = request.params;
         return this.formatError(error, toolName, args);
