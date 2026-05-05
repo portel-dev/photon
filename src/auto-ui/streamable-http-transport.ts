@@ -392,21 +392,25 @@ async function getAllPendingApprovals(photonNames: string[]): Promise<Persistent
   const all: PersistentApproval[] = [];
   const now = new Date().toISOString();
   for (const name of photonNames) {
-    const approvals = await loadApprovals(name);
-    for (const a of approvals) {
-      if (a.status === 'pending') {
-        // Auto-expire
-        if (a.expiresAt && a.expiresAt < now) {
-          a.status = 'expired';
-        } else {
-          all.push(a);
+    // Hold the mutex across read-mutate-save so concurrent addApproval /
+    // resolveApproval can't lose updates while we expire stale entries.
+    await approvalsMutex.acquire(async () => {
+      const approvals = await loadApprovals(name);
+      let mutated = false;
+      for (const a of approvals) {
+        if (a.status === 'pending') {
+          if (a.expiresAt && a.expiresAt < now) {
+            a.status = 'expired';
+            mutated = true;
+          } else {
+            all.push(a);
+          }
         }
       }
-    }
-    // Persist any expirations
-    if (approvals.some((a) => a.status === 'expired')) {
-      await saveApprovals(name, approvals);
-    }
+      if (mutated) {
+        await saveApprovals(name, approvals);
+      }
+    });
   }
   return all;
 }
