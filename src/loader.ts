@@ -46,8 +46,6 @@ import {
   PhotonTool,
   TemplateInfo,
   StaticInfo,
-  // Asset types (MCP Apps support)
-  type PhotonAssets,
   // Generator utilities (ask/emit pattern from 1.2.0)
   isAsyncGenerator,
   executeGenerator,
@@ -90,7 +88,6 @@ import {
   compilePhotonTS,
   parseRuntimeRequirement,
   checkRuntimeCompatibility,
-  discoverAssets as sharedDiscoverAssets,
   // Execution audit trail
   getAuditTrail,
   // Capability detection for auto-injection
@@ -135,6 +132,7 @@ import { PHOTON_VERSION, getResolvedPhotonCoreVersion } from './version.js';
 const FETCH_TIMEOUT_MS = 30 * 1000;
 import { generateConfigErrorMessage, summarizeConstructorParams } from './shared/config-docs.js';
 import { SettingsPersistence } from './settings-persistence.js';
+import { AssetResolver } from './asset-resolver.js';
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
@@ -509,6 +507,7 @@ export class PhotonLoader {
   private marketplaceManagerPromise?: Promise<MarketplaceManager>;
   private logger: Logger;
   private settingsPersistence: SettingsPersistence;
+  private assetResolver: AssetResolver;
 
   /**
    * Per-instance call queue. Two tool invocations targeting the same photon
@@ -600,6 +599,7 @@ export class PhotonLoader {
     this.settingsPersistence = new SettingsPersistence(this.baseDir, (msg, meta) =>
       this.log(msg, meta)
     );
+    this.assetResolver = new AssetResolver((msg, meta) => this.log(msg, meta));
   }
 
   /**
@@ -1758,8 +1758,8 @@ export class PhotonLoader {
       }
 
       // Extract assets from source and discover asset folder
-      const assets = await this.discoverAssets(absolutePath, tsContent || '');
-      this.attachAssetsToInstance(instance, assets);
+      const assets = await this.assetResolver.discover(absolutePath, tsContent || '');
+      this.assetResolver.attachToInstance(instance, assets);
 
       const counts = [
         tools.length > 0 ? `${tools.length} tools` : null,
@@ -2197,8 +2197,8 @@ export class PhotonLoader {
     }
 
     // Discover assets (for @ui)
-    const assets = await this.discoverAssets(absolutePath, tsContent);
-    this.attachAssetsToInstance(instance, assets);
+    const assets = await this.assetResolver.discover(absolutePath, tsContent);
+    this.assetResolver.attachToInstance(instance, assets);
 
     this.log(`✅ Loaded (preloaded): ${name} (${tools.length} tools)`);
 
@@ -4923,71 +4923,8 @@ Run: photon mcp ${mcpName} --config
     }
   }
 
-  /**
-   * Discover and extract assets from a Photon file
-   * Uses shared discoverAssets from photon-core for core logic,
-   * then applies photon-specific extensions (method UI links, URI generation).
-   */
-  private async discoverAssets(
-    photonPath: string,
-    source: string
-  ): Promise<PhotonAssets | undefined> {
-    const basename = path.basename(photonPath, '.photon.ts');
-
-    // Use shared discovery from photon-core
-    const assets = await sharedDiscoverAssets(photonPath, source);
-    if (!assets) {
-      return undefined;
-    }
-
-    // Apply method-level @ui links AFTER auto-discovery
-    this.applyMethodUILinks(source, assets);
-
-    // Generate ui:// URIs for MCP Apps Extension support (SEP-1865)
-    this.generateAssetURIs(basename, assets);
-
-    return assets;
-  }
-
-  /**
-   * Expose discovered asset metadata on the instance without breaking Photon.assets().
-   *
-   * Photon subclasses inherit an `assets(subpath)` method from photon-core. We bind that
-   * method and decorate the function object with discovered metadata so both of these work:
-   * - `this.assets('templates')`
-   * - `this.assets.ui`
-   *
-   * Plain classes don't have the inherited method, so they receive the metadata object directly.
-   */
-  private attachAssetsToInstance(
-    instance: Record<string, unknown>,
-    assets: PhotonAssets | undefined
-  ): void {
-    if (!assets) {
-      return;
-    }
-
-    const existingAssets = instance.assets;
-
-    if (typeof existingAssets === 'function') {
-      const boundAssets = existingAssets.bind(instance) as typeof existingAssets & PhotonAssets;
-      Object.assign(boundAssets, assets);
-      Object.defineProperty(instance, 'assets', {
-        value: boundAssets,
-        configurable: true,
-        enumerable: false,
-        writable: false,
-      });
-      return;
-    }
-
-    Object.defineProperty(instance, 'assets', {
-      value: assets,
-      configurable: true,
-      enumerable: false,
-      writable: false,
-    });
-  }
+  // Asset discovery + binding lives in `./asset-resolver.ts` and is reachable
+  // via `this.assetResolver`.
 
   /**
    * Inject Photon path helpers for plain classes that use them without extending Photon.
@@ -5056,50 +4993,6 @@ Run: photon mcp ${mcpName} --config
           .replace(/^-/, '');
         return `/api/assets/${encodeURIComponent(name)}/${subpath}`;
       };
-    }
-  }
-
-  /**
-   * Generate ui:// URIs for all UI assets (MCP Apps Extension support)
-   * URI format: ui://<photon-name>/<asset-id>
-   */
-  private generateAssetURIs(photonName: string, assets: PhotonAssets): void {
-    for (const ui of assets.ui) {
-      // Add uri field for MCP Apps compatibility
-      ui.uri = `ui://${photonName}/${ui.id}`;
-      this.log(`  🔗 URI: ${ui.uri}`);
-    }
-  }
-
-  /**
-   * Apply method-level @ui annotations to link UI assets to tools
-   * Called after auto-discovery so all UI assets are available
-   */
-  private applyMethodUILinks(source: string, assets: PhotonAssets): void {
-    // Match method JSDoc with @ui annotation: /** ... @ui <id> ... */ async methodName
-    const methodUiRegex = /\/\*\*[\s\S]*?@ui\s+(\w[\w-]*)[\s\S]*?\*\/\s*(?:async\s+)?\*?\s*(\w+)/g;
-
-    let match;
-    while ((match = methodUiRegex.exec(source)) !== null) {
-      const [, uiId, methodName] = match;
-      const asset = assets.ui.find((u) => u.id === uiId);
-      if (asset) {
-        // First method wins as primary (used for app detection)
-        if (!asset.linkedTool) {
-          asset.linkedTool = methodName;
-          this.log(`  🔗 UI ${uiId} → ${methodName}`);
-        }
-        // Track all methods that reference this UI
-        if (!asset.linkedTools) asset.linkedTools = [];
-        if (!asset.linkedTools.includes(methodName)) {
-          asset.linkedTools.push(methodName);
-          if (asset.linkedTools.length > 1) {
-            this.log(`  🔗 UI ${uiId} → ${methodName} (shared)`);
-          }
-        }
-      } else {
-        this.log(`  ⚠️ @ui ${uiId} on ${methodName}: asset not found (check file exists)`);
-      }
     }
   }
 }
