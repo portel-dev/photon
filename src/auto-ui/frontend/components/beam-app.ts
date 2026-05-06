@@ -5181,7 +5181,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
 
       // Check for Linked UI (Custom Interface)
-      if (this._selectedMethod.linkedUi) {
+      const hasParams =
+        !!this._selectedMethod.params?.properties &&
+        Object.keys(this._selectedMethod.params.properties).length > 0;
+
+      // Methods with parameters need to show the invoke form.
+      // App main methods are the exception — they handle their own UI fully.
+      if (this._selectedMethod.linkedUi && (isAppMain || !hasParams)) {
         const otherMethods = isAppMain
           ? this._getVisibleMethods().filter((m: any) => m.name !== 'main')
           : [];
@@ -6233,16 +6239,29 @@ ${photon.errorMessage || 'Unknown error'}</pre
             `
           : ''}
         ${opts.result !== null || this._canvasActive
-          ? this._customFormatUri
+          ? this._customFormatUri || opts.method?.linkedUi
             ? html`
-                <custom-ui-renderer
-                  .photon=${opts.photon?.name || ''}
-                  .method=${opts.method?.name || ''}
-                  .uiUri=${this._customFormatUri}
-                  .theme=${this._theme}
-                  .initialResult=${opts.result}
-                  .revision=${this._customUiRevision}
-                ></custom-ui-renderer>
+                ${opts.photon?.isExternalMCP
+                  ? html`
+                      <mcp-app-renderer
+                        .mcpName=${opts.photon?.name || ''}
+                        .appUri=${this._customFormatUri ||
+                        `ui://${opts.photon?.name}/${opts.method?.linkedUi}`}
+                        .linkedTool=${opts.method?.name || ''}
+                        .theme=${this._theme}
+                      ></mcp-app-renderer>
+                    `
+                  : html`
+                      <custom-ui-renderer
+                        .photon=${opts.photon?.name || ''}
+                        .method=${opts.method?.name || ''}
+                        .uiUri=${this._customFormatUri || ''}
+                        .uiId=${!this._customFormatUri ? opts.method?.linkedUi || '' : ''}
+                        .theme=${this._theme}
+                        .initialResult=${opts.result}
+                        .revision=${this._customUiRevision}
+                      ></custom-ui-renderer>
+                    `}
               `
             : html`
                 ${this._viewMode === 'full' &&
