@@ -225,8 +225,18 @@ async function runTests() {
     assert.equal(updated.maxItems, 25, 'Updated maxItems should be 25');
     assert.equal(updated.theme, 'dark', 'theme should remain dark');
 
-    // Verify persistence file exists
-    const settingsPath = path.join(stateDir, 'test-settings', 'default-settings.json');
+    // Verify persistence file exists.
+    // After data-consolidation, settings co-locate with state:
+    //   {baseDir}/.data/{photon}/state/{instance}/settings.json
+    // (the "local" namespace flattens to no namespace segment).
+    const settingsPath = path.join(
+      tmpDir,
+      '.data',
+      'test-settings',
+      'state',
+      'default',
+      'settings.json'
+    );
     const persisted = JSON.parse(await fs.readFile(settingsPath, 'utf-8'));
     assert.equal(persisted.maxItems, 25, 'Persisted maxItems should be 25');
 
