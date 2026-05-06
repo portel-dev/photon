@@ -106,7 +106,7 @@ export class Logger {
       segments.push(message);
       if (meta && Object.keys(meta).length > 0) {
         const metaClone = { ...meta };
-        if ('timestamp' in metaClone) delete (metaClone as any).timestamp;
+        if ('timestamp' in metaClone) delete metaClone.timestamp;
         segments.push(JSON.stringify(metaClone));
       }
       this.stream.write(segments.join(' ') + '\n');

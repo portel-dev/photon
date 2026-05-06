@@ -472,7 +472,9 @@ export class CustomUiRenderer extends LitElement {
    */
   private async _fetchTemplate(uri: string): Promise<{ html: string; isPhotonTemplate: boolean }> {
     // Try MCP resources/read first
-    const mcpClient = (window as any).__photonMCPClient;
+    const mcpClient = window.__photonMCPClient as
+      | { readResource: (uri: string) => Promise<{ text?: string } | null> }
+      | undefined;
     if (mcpClient) {
       try {
         const resource = await mcpClient.readResource(uri);
@@ -512,13 +514,13 @@ export class CustomUiRenderer extends LitElement {
 
   /** Convert .photon.md content to HTML using marked (already loaded via CDN) */
   private _markdownToHtml(markdown: string): string {
-    const marked = (window as any).marked;
+    const marked = window.marked;
     if (!marked) {
       return `<pre style="white-space:pre-wrap">${markdown}</pre>`;
     }
     // Parse markdown to HTML — HTML tags in markdown pass through untouched,
     // so <div data-method="..."> works as-is.
-    let html = marked.parse(markdown, { breaks: false, gfm: true }) as string;
+    let html = marked.parse(markdown, { breaks: false, gfm: true });
 
     // Auto-enhance: add fluid layout styles for .photon.md content.
     // Standalone data-method divs (not inside grids/cards) get float behavior

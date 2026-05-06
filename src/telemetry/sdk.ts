@@ -110,8 +110,7 @@ export async function initOtelSdk(options: OtelSdkOptions = {}): Promise<boolean
 export async function shutdownOtelSdk(): Promise<void> {
   if (!started) return;
   started = false;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sdk = sdkInstance as any;
+  const sdk = sdkInstance as { shutdown?: () => Promise<void> } | undefined;
   try {
     await sdk?.shutdown?.();
   } catch {

@@ -124,7 +124,7 @@ export class PhotonHost {
       context: this.context,
       toolInput: this.toolInput,
       themeTokens,
-    } as any);
+    });
 
     // 2. Send MCP Apps Extension ui/initialize (JSON-RPC)
     const mcpInit = createMcpAppsInitialize(this.platformContext, {
@@ -219,7 +219,7 @@ export class PhotonHost {
         type: 'photon:context',
         context,
         themeTokens,
-      } as any);
+      });
 
       // Send to all platforms
       const messages = createThemeChangeMessages(context.theme);

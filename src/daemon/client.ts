@@ -1564,7 +1564,17 @@ export async function queryDaemonStatus(): Promise<{
         if (response.id === requestId && response.type === 'result' && response.data) {
           clearTimeout(timeout);
           client.destroy();
-          resolve(response.data as any);
+          // Daemon health-status payload — its shape is the function's
+          // declared return type, but DaemonResponse.data is generic unknown.
+          resolve(
+            response.data as {
+              uptime: number;
+              memoryMB: number;
+              sessions: number;
+              subscriptions: number;
+              photonsLoaded: number;
+            }
+          );
         }
       } catch {
         // Ignore parse errors

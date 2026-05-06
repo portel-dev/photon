@@ -270,11 +270,15 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
 
       if (result.success) {
         // Refresh photon list since metadata changed
+        // installSource lives only on configured photons; clearing it +
+        // the frontend hasUpdate flag is a no-op for unconfigured ones.
         const idx = state.photons.findIndex((p) => p.name === name);
         if (idx !== -1) {
-          const p = state.photons[idx] as any;
-          p.installSource = undefined;
-          p.hasUpdate = false;
+          const p = state.photons[idx];
+          if (p.configured) {
+            p.installSource = undefined;
+            p.hasUpdate = false;
+          }
         }
         state.actions.broadcastPhotonChange();
       }

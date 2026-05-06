@@ -174,8 +174,7 @@ export class SqliteAuditBackend implements AuditBackend {
     const limit = q.limit ?? 1000;
     const sql = `SELECT * FROM audit ${where} ORDER BY ts ${order} LIMIT ?`;
     params.push(limit);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = this.db.prepare(sql).all(...params) as any[];
+    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
     return rows.map((r) => rowToEntry(r));
   }
 

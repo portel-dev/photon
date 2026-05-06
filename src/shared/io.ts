@@ -12,8 +12,11 @@
 import * as fs from 'fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 
-const IS_BUN = typeof (globalThis as any).Bun !== 'undefined';
-const Bun: any = IS_BUN ? (globalThis as any).Bun : null;
+// `Bun` is a Bun-runtime global with no @types/bun installed in this project.
+// Probe it through a structural cast on globalThis rather than `as any`.
+const globalWithBun = globalThis as { Bun?: typeof globalThis & Record<string, any> };
+const IS_BUN = typeof globalWithBun.Bun !== 'undefined';
+const Bun: any = IS_BUN ? globalWithBun.Bun : null;
 
 // ════════════════════════════════════════════════════════════════════════════════
 // ASYNC — hot path for loader, server, marketplace

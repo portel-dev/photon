@@ -132,8 +132,8 @@ function genId(): string {
 function createDepProxy(depName: string, remoteToolNames: string[]): any {
   const toolSet = new Set(remoteToolNames);
 
-  return new Proxy({} as any, {
-    get(_target: any, prop: string) {
+  return new Proxy({} as Record<string, unknown>, {
+    get(_target, prop) {
       if (typeof prop !== 'string') return undefined;
 
       // .on, .off, .emit — use broker-based events (channel: dep:${depName})

@@ -824,7 +824,7 @@ export class DaemonManager {
       newFsm.transition('running');
     }
     // Replace (can't directly set state, so we replace the instance)
-    (this as any).fsm = newFsm;
+    this.fsm = newFsm;
   }
 
   private hasExclusiveOwner(expectedPid?: number): boolean {

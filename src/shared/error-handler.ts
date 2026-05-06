@@ -257,7 +257,9 @@ export function formatToolError(
 
   const errorName = error instanceof Error ? error.name : '';
   const nodeCode =
-    error && typeof error === 'object' && 'code' in error ? String((error as any).code) : '';
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : '';
 
   // Photon authors can attach userMessage and hint for friendly display
   const userMessage =

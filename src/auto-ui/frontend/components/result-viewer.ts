@@ -2922,7 +2922,7 @@ export class ResultViewer extends LitElement {
     for (const timer of this._slidesRefreshTimers) clearInterval(timer);
     this._slidesRefreshTimers = [];
     this._slidesBoundElements.forEach((el) => {
-      const cleanup = (el as any)._renderCleanup;
+      const cleanup = (el as { _renderCleanup?: () => void })._renderCleanup;
       if (typeof cleanup === 'function') cleanup();
     });
     this._slidesBoundElements.clear();

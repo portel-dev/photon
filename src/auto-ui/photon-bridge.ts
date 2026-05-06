@@ -192,12 +192,23 @@ export interface PhotonBridge {
 // ════════════════════════════════════════════════════════════════════════════════
 
 export type HostToUIMessage =
-  | { type: 'photon:init'; context: PhotonContext; toolInput: Record<string, any> }
+  | {
+      type: 'photon:init';
+      context: PhotonContext;
+      toolInput: Record<string, any>;
+      /** Pre-computed theme CSS variables; iframe applies them so dark/light matches host. */
+      themeTokens?: Record<string, string>;
+    }
   | { type: 'photon:emit'; event: EmitEvent }
   | { type: 'photon:ask'; id: string; event: AskEvent }
   | { type: 'photon:result'; data: any }
   | { type: 'photon:error'; error: { message: string; code?: string } }
-  | { type: 'photon:context'; context: Partial<PhotonContext> };
+  | {
+      type: 'photon:context';
+      context: Partial<PhotonContext>;
+      /** Pre-computed theme CSS variables when the theme changes mid-session. */
+      themeTokens?: Record<string, string>;
+    };
 
 export type UIToHostMessage =
   | { type: 'photon:ready' }
@@ -236,7 +247,7 @@ export function createPhotonBridge(): PhotonBridge {
   };
 
   // Check if running in ChatGPT
-  const isChatGPT = typeof (window as any).openai !== 'undefined';
+  const isChatGPT = typeof window.openai !== 'undefined';
 
   // Message handler
   function handleMessage(event: any) {

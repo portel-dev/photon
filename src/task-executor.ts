@@ -205,8 +205,8 @@ export class TaskExecutor {
       };
     }
     // Completed
-    if (task.result && typeof task.result === 'object' && 'content' in (task.result as any)) {
-      return { ...(task.result as any), _meta: relatedTaskMeta(taskId) };
+    if (task.result && typeof task.result === 'object' && 'content' in task.result) {
+      return { ...(task.result as Record<string, unknown>), _meta: relatedTaskMeta(taskId) };
     }
     const text =
       typeof task.result === 'string' ? task.result : JSON.stringify(task.result ?? null);

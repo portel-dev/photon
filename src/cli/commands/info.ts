@@ -382,7 +382,7 @@ export function registerInfoCommand(program: Command): void {
           const count = counts.get(marketplace.name) || 0;
           if (count > 0) {
             // Get a few sample photons from this marketplace
-            const manifest = await (manager as any)['getCachedManifest'](marketplace.name);
+            const manifest = await manager.getCachedManifest(marketplace.name);
             if (manifest && manifest.photons) {
               const samples = manifest.photons.slice(0, 3);
               const photonList: Record<string, string> = {};

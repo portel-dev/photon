@@ -182,6 +182,14 @@ export interface PhotonInfo {
   auth?: string;
   /** True if photon has `protected settings = { ... }` */
   hasSettings?: boolean;
+  /**
+   * Frontend-only flag indicating an update is available from the photon's
+   * marketplace install source. Set by the update-check flow in beam-app;
+   * cleared on update or uninstall.
+   */
+  hasUpdate?: boolean;
+  /** Frontend-only: the latest available version when hasUpdate is true. */
+  updateVersion?: string;
 }
 
 /**

@@ -994,7 +994,7 @@ async function runCli(methodName: string, methodArgs: string[], source: string, 
   runtime.start();
 
   const loader = new PhotonLoader(false);
-  if (depMap) (loader as any).preloadedDependencies = depMap;
+  if (depMap) loader.preloadedDependencies = depMap;
   const photonInstance = await loader.loadFromModule(mod, filePath, source);
   const result = await loader.executeTool(photonInstance, methodName, parsedArgs);
 

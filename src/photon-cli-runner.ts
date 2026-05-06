@@ -244,8 +244,12 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
   const extractor = new SchemaExtractor();
   const metadata = extractor.extractAllFromSource(source);
 
-  // Clean JSDoc tags from all tool descriptions
-  const toolsToConvert = metadata.tools.map((t) => ({
+  // Clean JSDoc tags from all tool descriptions. The synthetic settings tool
+  // pushed below only sets a subset of ExtractedSchema, so widen the element
+  // type to a partial-friendly shape that still requires name/description/inputSchema.
+  type ToolForCli = Partial<(typeof metadata.tools)[number]> &
+    Pick<(typeof metadata.tools)[number], 'name' | 'description' | 'inputSchema'>;
+  const toolsToConvert: ToolForCli[] = metadata.tools.map((t) => ({
     ...t,
     description: stripJSDocTags(t.description),
   }));
@@ -263,7 +267,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       name: 'settings',
       description: 'View or update settings',
       inputSchema: { type: 'object', properties, required: [] },
-    } as any);
+    });
   }
 
   return toolsToConvert.map((tool) => {
@@ -299,8 +303,8 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       description: tool.description !== 'No description' ? tool.description : undefined,
       ...(tool.outputFormat ? { format: tool.outputFormat } : {}),
       ...(tool.buttonLabel ? { buttonLabel: tool.buttonLabel } : {}),
-      ...((tool as any).scheduled ? { scheduled: (tool as any).scheduled } : {}),
-      ...((tool as any).webhook !== undefined ? { webhook: true } : {}),
+      ...(tool.scheduled ? { scheduled: tool.scheduled } : {}),
+      ...(tool.webhook !== undefined ? { webhook: true } : {}),
     };
   });
 }

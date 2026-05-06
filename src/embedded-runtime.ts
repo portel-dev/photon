@@ -358,7 +358,7 @@ export class EmbeddedRuntime {
 
     for (const tool of mcp.tools) {
       // The schema extractor adds `scheduled` to tool objects (not in PhotonTool type)
-      const cronExpr = (tool as any).scheduled as string | undefined;
+      const cronExpr = (tool as { scheduled?: string }).scheduled;
       if (cronExpr) {
         this.scheduler.schedule({
           id: `auto-${tool.name}`,

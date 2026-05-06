@@ -52,7 +52,7 @@ export class StartupSequencer {
         return true; // Suppress logger output during startup
       }
       return this.originalStderrWrite(chunk, ...args);
-    }) as any;
+    }) as typeof process.stderr.write;
   }
 
   /** Show the URL status line (called when server starts listening). */
@@ -100,7 +100,7 @@ export class StartupSequencer {
     console.log = this.originalLog;
     console.warn = this.originalWarn;
     console.error = this.originalError;
-    process.stderr.write = this.originalStderrWrite as any;
+    process.stderr.write = this.originalStderrWrite;
   }
 
   /** Flush all queued messages to stderr. */

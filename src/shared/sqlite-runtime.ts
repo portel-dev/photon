@@ -26,8 +26,7 @@ let cachedRuntime: 'bun' | 'node' | null = null;
  * @returns 'bun' if running under Bun, else 'node'.
  */
 export function detectSqliteRuntime(): 'bun' | 'node' {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hasBun = typeof (globalThis as any).Bun !== 'undefined';
+  const hasBun = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
   return hasBun ? 'bun' : 'node';
 }
 
