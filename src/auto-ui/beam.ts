@@ -141,10 +141,8 @@ import type {
   AnyPhotonInfo,
   ConfigParam,
   MethodInfo,
-  ExternalMCPInfo,
 } from './types.js';
 import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
@@ -164,6 +162,7 @@ import {
 } from './beam/class-metadata.js';
 import { StartupSequencer } from './beam/startup.js';
 import { SubscriptionManager } from './beam/subscription.js';
+import { ExternalMCPManager } from './beam/external-mcp-manager.js';
 import { handleMarketplaceRoutes } from './beam/routes/api-marketplace.js';
 import { handleBrowseRoutes } from './beam/routes/api-browse.js';
 import { handleConfigRoutes } from './beam/routes/api-config.js';
@@ -194,12 +193,8 @@ type PhotonConfig = import('./beam/types.js').PhotonConfig;
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class BeamContext {
-  /** External MCP server metadata */
-  readonly externalMCPs: ExternalMCPInfo[] = [];
-  /** Transport-level clients for external MCPs */
-  readonly externalMCPClients = new Map<string, any>();
-  /** SDK Client instances for tool calls with structuredContent */
-  readonly externalMCPSDKClients = new Map<string, Client>();
+  /** External MCP lifecycle: list, transport clients, SDK clients, add/remove. */
+  readonly mcp = new ExternalMCPManager();
 
   /**
    * Notification subscriptions per photon.
@@ -214,12 +209,25 @@ class BeamContext {
    */
   readonly subscribedStateChannels = new Set<string>();
 
+  // Backward-compat field-name accessors. The 24 callsites that read
+  // ctx.externalMCPs / ctx.externalMCPClients / ctx.externalMCPSDKClients
+  // continue to work; they now flow through the manager.
+  get externalMCPs() {
+    return this.mcp.externalMCPs;
+  }
+  get externalMCPClients() {
+    return this.mcp.externalMCPClients;
+  }
+  get externalMCPSDKClients() {
+    return this.mcp.externalMCPSDKClients;
+  }
+
   /** Convenience accessor matching the shape expected by external-mcp module */
   get externalMCPState() {
     return {
-      externalMCPs: this.externalMCPs,
-      externalMCPClients: this.externalMCPClients,
-      externalMCPSDKClients: this.externalMCPSDKClients,
+      externalMCPs: this.mcp.externalMCPs,
+      externalMCPClients: this.mcp.externalMCPClients,
+      externalMCPSDKClients: this.mcp.externalMCPSDKClients,
     };
   }
 }
@@ -2829,7 +2837,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Load external MCPs from config
   const externalMCPList = await loadExternalMCPs(savedConfig);
-  ctx.externalMCPs.push(...externalMCPList);
+  ctx.mcp.addAll(externalMCPList);
 
   // Mark startup complete — flushes queued output and restores console
   startup.ready();
@@ -3161,14 +3169,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // Remove MCPs — do all synchronous Map mutations first, then close async
           const removedSdkClients: Array<{ name: string; client: any }> = [];
           for (const name of removed) {
-            const idx = ctx.externalMCPs.findIndex((m) => m.name === name);
-            if (idx !== -1) ctx.externalMCPs.splice(idx, 1);
-
-            const sdkClient = ctx.externalMCPSDKClients.get(name);
+            const { sdkClient } = ctx.mcp.removeByName(name);
             if (sdkClient) removedSdkClients.push({ name, client: sdkClient });
-            ctx.externalMCPSDKClients.delete(name);
-            ctx.externalMCPClients.delete(name);
-
             logger.info(`🔌 Removed external MCP: ${name}`);
           }
           // Close SDK clients after all Maps are consistent
@@ -3187,7 +3189,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               mcpServers: Object.fromEntries(added.map((k) => [k, newServers[k]])),
             };
             const newMCPs = await loadExternalMCPs(addConfig);
-            ctx.externalMCPs.push(...newMCPs);
+            ctx.mcp.addAll(newMCPs);
             for (const m of newMCPs) {
               logger.info(
                 `🔌 Added external MCP: ${m.name} (${m.connected ? m.methods.length + ' tools' : 'failed'})`
@@ -3198,13 +3200,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // Reconnect modified MCPs — synchronous cleanup first, then async reconnect
           const modifiedSdkClients: Array<{ name: string; client: any }> = [];
           for (const name of modified) {
-            const idx = ctx.externalMCPs.findIndex((m) => m.name === name);
-            if (idx !== -1) ctx.externalMCPs.splice(idx, 1);
-
-            const sdkClient = ctx.externalMCPSDKClients.get(name);
+            const { sdkClient } = ctx.mcp.removeByName(name);
             if (sdkClient) modifiedSdkClients.push({ name, client: sdkClient });
-            ctx.externalMCPSDKClients.delete(name);
-            ctx.externalMCPClients.delete(name);
           }
           // Close old SDK clients
           for (const { client } of modifiedSdkClients) {
@@ -3221,7 +3218,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               mcpServers: { [name]: newServers[name] },
             };
             const reconnected = await loadExternalMCPs(modConfig);
-            ctx.externalMCPs.push(...reconnected);
+            ctx.mcp.addAll(reconnected);
             logger.info(`🔌 Reconnected external MCP: ${name}`);
           }
 
@@ -3255,26 +3252,6 @@ export async function stopBeam(): Promise<void> {
   // Stop session cleanup timer
   stopSessionCleanup();
 
-  // Close all SDK clients gracefully
-  const closePromises: Promise<void>[] = [];
-
-  for (const [name, client] of ctx.externalMCPSDKClients) {
-    closePromises.push(
-      client.close().catch((err) => {
-        // Process is exiting; surface in debug only.
-        logger.debug(`External MCP close failed for ${name}: ${getErrorMessage(err)}`);
-      })
-    );
-  }
-
-  // Wait for all clients to close (with timeout)
-  if (closePromises.length > 0) {
-    await withTimeout(Promise.all(closePromises), 1000, 'MCP client close timeout').catch((err) => {
-      // Timeout during shutdown is expected.
-      logger.debug(`External MCP shutdown timeout: ${getErrorMessage(err)}`);
-    });
-  }
-
-  ctx.externalMCPSDKClients.clear();
-  ctx.externalMCPClients.clear();
+  // Close every external MCP SDK client gracefully and clear the maps.
+  await ctx.mcp.closeAllSDKClients();
 }
