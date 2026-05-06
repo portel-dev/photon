@@ -1879,15 +1879,15 @@ export class PhotonServer {
   }
 
   public matchUriPattern(pattern: string, uri: string): boolean {
-    return (this.resourceServer as any).matchUriPattern(pattern, uri);
+    return this.resourceServer.matchUriPattern(pattern, uri);
   }
 
   public parseUriParams(pattern: string, uri: string): Record<string, string> {
-    return (this.resourceServer as any).parseUriParams(pattern, uri);
+    return this.resourceServer.parseUriParams(pattern, uri);
   }
 
   public formatStaticResult(result: any, mimeType?: string): any {
-    return (this.resourceServer as any).formatStaticResult(result, mimeType);
+    return this.resourceServer.formatStaticResult(result, mimeType);
   }
 
   public clientSupportsUI(server: Server): boolean {

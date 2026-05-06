@@ -259,11 +259,11 @@ export class ResourceServer {
     return isUriTemplate(uri);
   }
 
-  private matchUriPattern(pattern: string, uri: string): boolean {
+  matchUriPattern(pattern: string, uri: string): boolean {
     return matchUriTemplate(pattern, uri);
   }
 
-  private parseUriParams(pattern: string, uri: string): Record<string, string> {
+  parseUriParams(pattern: string, uri: string): Record<string, string> {
     return parseUriTemplateParams(pattern, uri);
   }
 
@@ -527,7 +527,7 @@ export class ResourceServer {
   /**
    * Format static result to MCP resource response
    */
-  private formatStaticResult(result: any, mimeType?: string): any {
+  formatStaticResult(result: any, mimeType?: string): any {
     const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
     return {
       contents: [
