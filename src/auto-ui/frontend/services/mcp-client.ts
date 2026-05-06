@@ -15,6 +15,7 @@ interface MCPTool {
   name: string;
   description?: string;
   inputSchema: Record<string, unknown>;
+  // Method-level extensions (set on every tool)
   'x-photon-id'?: string;
   'x-icon'?: string;
   'x-autorun'?: boolean;
@@ -25,6 +26,29 @@ interface MCPTool {
   'x-scheduled'?: string;
   'x-locked'?: string | boolean;
   'x-is-template'?: boolean;
+  // Photon-server extensions (set on the per-server marker tool emitted by
+  // streamable-http-transport.ts when listing aggregated tools).
+  'x-photon-short-name'?: string;
+  'x-photon-namespace'?: string;
+  'x-photon-qualified-name'?: string;
+  'x-photon-path'?: string;
+  'x-photon-editable'?: boolean;
+  'x-photon-description'?: string;
+  'x-photon-icon'?: string;
+  'x-photon-internal'?: boolean;
+  'x-photon-stateful'?: boolean;
+  'x-photon-has-settings'?: boolean;
+  'x-photon-required-params'?: string[];
+  'x-photon-install-source'?: string;
+  'x-photon-prompt-count'?: number;
+  'x-photon-resource-count'?: number;
+  // External MCP markers (set when listing tools from external MCP servers)
+  'x-external-mcp'?: boolean;
+  'x-external-mcp-id'?: string;
+  // MCP Apps Extension (SEP-1865)
+  'x-has-mcp-app'?: boolean;
+  'x-mcp-app-uri'?: string;
+  'x-mcp-app-uris'?: string[];
   _meta?: { ui?: { resourceUri?: string; visibility?: string[] } };
 }
 
@@ -682,22 +706,22 @@ class MCPClientService {
 
       const serverName = tool.name.slice(0, slashIndex);
       const methodName = tool.name.slice(slashIndex + 1);
-      const isExternalMCP = !!(tool as any)['x-external-mcp'];
+      const isExternalMCP = !!tool['x-external-mcp'];
 
       if (isExternalMCP) {
         if (!externalMCPMap.has(serverName)) {
           externalMCPMap.set(serverName, {
-            id: (tool as any)['x-external-mcp-id'] || serverName,
+            id: tool['x-external-mcp-id'] || serverName,
             name: serverName,
-            description: (tool as any)['x-photon-description'],
-            icon: (tool as any)['x-photon-icon'] || '🔌',
-            promptCount: (tool as any)['x-photon-prompt-count'] || 0,
-            resourceCount: (tool as any)['x-photon-resource-count'] || 0,
+            description: tool['x-photon-description'],
+            icon: tool['x-photon-icon'] || '🔌',
+            promptCount: tool['x-photon-prompt-count'] || 0,
+            resourceCount: tool['x-photon-resource-count'] || 0,
             connected: true,
             isExternalMCP: true,
-            hasMcpApp: (tool as any)['x-has-mcp-app'] || false,
-            mcpAppUri: (tool as any)['x-mcp-app-uri'],
-            mcpAppUris: (tool as any)['x-mcp-app-uris'] || [],
+            hasMcpApp: tool['x-has-mcp-app'] || false,
+            mcpAppUri: tool['x-mcp-app-uri'],
+            mcpAppUris: tool['x-mcp-app-uris'] || [],
             methods: [],
           });
         }
@@ -714,20 +738,20 @@ class MCPClientService {
           photonMap.set(serverName, {
             id: tool['x-photon-id'] || serverName,
             name: serverName,
-            shortName: (tool as any)['x-photon-short-name'],
-            namespace: (tool as any)['x-photon-namespace'],
-            qualifiedName: (tool as any)['x-photon-qualified-name'],
-            path: (tool as any)['x-photon-path'],
-            editable: (tool as any)['x-photon-editable'] ?? false,
-            description: (tool as any)['x-photon-description'],
-            icon: (tool as any)['x-photon-icon'],
-            internal: (tool as any)['x-photon-internal'],
-            stateful: (tool as any)['x-photon-stateful'] || false,
-            hasSettings: (tool as any)['x-photon-has-settings'] || false,
-            requiredParams: (tool as any)['x-photon-required-params'] || [],
-            installSource: (tool as any)['x-photon-install-source'],
-            promptCount: (tool as any)['x-photon-prompt-count'] || 0,
-            resourceCount: (tool as any)['x-photon-resource-count'] || 0,
+            shortName: tool['x-photon-short-name'],
+            namespace: tool['x-photon-namespace'],
+            qualifiedName: tool['x-photon-qualified-name'],
+            path: tool['x-photon-path'],
+            editable: tool['x-photon-editable'] ?? false,
+            description: tool['x-photon-description'],
+            icon: tool['x-photon-icon'],
+            internal: tool['x-photon-internal'],
+            stateful: tool['x-photon-stateful'] || false,
+            hasSettings: tool['x-photon-has-settings'] || false,
+            requiredParams: tool['x-photon-required-params'] || [],
+            installSource: tool['x-photon-install-source'],
+            promptCount: tool['x-photon-prompt-count'] || 0,
+            resourceCount: tool['x-photon-resource-count'] || 0,
             configured: true,
             methods: [],
           });
