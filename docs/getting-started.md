@@ -16,6 +16,22 @@ npm install -g @portel/photon
 
 ---
 
+## Where things live
+
+Photon keeps a tight, predictable layout. Knowing it up front saves a lot of confusion later.
+
+| Location | What lives there |
+|---|---|
+| `./*.photon.ts` (anywhere) | Your photon source. Run `photon` from this directory and it picks up every `.photon.ts` file alongside. |
+| `~/.photon/` | Global photons. Anything dropped here is auto-discovered by the daemon, regardless of cwd. Created by `photon new --global`. |
+| `~/.photon/state/<photon>/<instance>-settings.json` | Persisted user settings (the runtime values that win over your in-source defaults). |
+| `~/.photon/.data/` | Daemon-wide runtime data: log, socket, base directory registry, compile cache. |
+| `<project>/.data/<photon>/` | Per-photon state, memory, scheduled jobs. Lives next to your source file when you run from a project dir. |
+
+The full layout, including marketplaces and caches, is documented in [How Photon Works](GUIDE.md#how-photon-works).
+
+---
+
 ## The three-command path
 
 If you just want an MCP server connected to Claude Desktop, these three commands are all you need:

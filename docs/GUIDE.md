@@ -8,26 +8,27 @@ Complete guide to creating `.photon.ts` files and understanding how Photon works
 
 1. [Quick Start](#quick-start)
 2. [Creating Your First MCP](#creating-your-first-mcp)
-3. [Constructor Configuration](#constructor-configuration)
-4. [Writing Tool Methods](#writing-tool-methods)
-5. [Docblock Tags](#docblock-tags)
-6. [Return Formatting](#return-formatting)
-7. [Dependency Injection](#dependency-injection)
-8. [Assets and UI](#assets-and-ui)
-9. [Advanced Workflows](#advanced-workflows)
-10. [Lifecycle Hooks](#lifecycle-hooks)
-11. [Configuration Convention](#configuration-convention)
-12. [Reactive Collections](#reactive-collections)
-13. [Real-Time Sync](#real-time-sync)
-14. [Sampling: `this.sample()`](#sampling-thissample)
-15. [Scheduling: `@scheduled`, `this.schedule`, `photon ps`](#scheduling-scheduled-thisschedule-photon-ps)
-16. [Common Patterns](#common-patterns)
-17. [CLI Command Reference](#cli-command-reference)
-18. [Testing and Development](#testing-and-development)
-19. [Deployment](#deployment)
-20. [How Photon Works](#how-photon-works)
-21. [Best Practices](#best-practices)
-22. [Troubleshooting](#troubleshooting)
+3. [Settings: User-Configurable Knobs](#settings-user-configurable-knobs)
+4. [Constructor Configuration (for secrets)](#constructor-configuration-for-secrets)
+5. [Writing Tool Methods](#writing-tool-methods)
+6. [Docblock Tags](#docblock-tags)
+7. [Return Formatting](#return-formatting)
+8. [Dependency Injection](#dependency-injection)
+9. [Assets and UI](#assets-and-ui)
+10. [Advanced Workflows](#advanced-workflows)
+11. [Lifecycle Hooks](#lifecycle-hooks)
+12. [Configuration Convention](#configuration-convention)
+13. [Reactive Collections](#reactive-collections)
+14. [Real-Time Sync](#real-time-sync)
+15. [Sampling: `this.sample()`](#sampling-thissample)
+16. [Scheduling: `@scheduled`, `this.schedule`, `photon ps`](#scheduling-scheduled-thisschedule-photon-ps)
+17. [Common Patterns](#common-patterns)
+18. [CLI Command Reference](#cli-command-reference)
+19. [Testing and Development](#testing-and-development)
+20. [Deployment](#deployment)
+21. [How Photon Works](#how-photon-works)
+22. [Best Practices](#best-practices)
+23. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -137,7 +138,69 @@ export default class Calculator {
 
 ---
 
-## Constructor Configuration
+## Settings: User-Configurable Knobs
+
+Whenever a value should be runtime-configurable, declare it on `protected settings`. Photon reads the property's JSDoc, generates an MCP `settings` tool with a typed input for each knob, and persists user changes to disk. Inside the photon, `this.settings` is a read-only Proxy.
+
+**This is the right pattern in almost every case.** Reach for it first. Use the constructor pattern (next section) only when the value is a primitive secret that belongs in `.env` and never changes at runtime.
+
+### Basic Pattern
+
+```typescript
+import { Photon } from '@portel/photon-core';
+
+export default class Poller extends Photon {
+  /** User-tunable knobs */
+  protected settings = {
+    /** Polling interval in seconds */
+    intervalSec: 60,
+    /** Endpoint to poll */
+    endpoint: 'https://api.example.com/status',
+    /** Pause polling without unloading the photon */
+    paused: false,
+  };
+
+  async tick() {
+    if (this.settings.paused) return { skipped: true };
+    return await fetch(this.settings.endpoint);
+  }
+}
+```
+
+What you get for free:
+- An MCP tool named `settings` that lists current values, accepts updates, and validates types from the property declarations.
+- JSDoc on each property becomes the tool's parameter description.
+- Persistence to `~/.photon/state/<photon>/<instance>-settings.json`. Persisted values win over the in-source defaults on the next load.
+- A read-only Proxy on `this.settings`. Direct assignment (`this.settings.endpoint = '...'`) throws — the only way to change a value is the `settings` tool.
+
+### Changing settings
+
+From the CLI:
+```bash
+photon cli poller settings --intervalSec 30 --paused true
+```
+
+From an MCP client (Claude, Cursor, Beam): call the auto-generated `settings` tool with a partial object:
+```json
+{ "intervalSec": 30, "paused": true }
+```
+
+### When to use settings vs constructor
+
+| Use `protected settings` for | Use the constructor for |
+|---|---|
+| Anything the user should change at runtime | Primitive secrets that belong in `.env` |
+| Polling intervals, thresholds, modes, paths | API keys, tokens, passwords |
+| Feature toggles, retry counts, defaults | Service URLs that never change between deploys |
+| Any value with a sensible default | Required boot-time configuration |
+
+If you find yourself writing `process.env.SOMETHING` in a method body, that is almost always a settings property in disguise — declare it on `protected settings` and Photon will surface it everywhere.
+
+---
+
+## Constructor Configuration (for secrets)
+
+Constructor parameters are the right tool when a value is a primitive secret that should be set once via `.env` and never exposed in the runtime UI. For everything else, prefer [Settings](#settings-user-configurable-knobs).
 
 ### Basic Pattern
 
@@ -903,6 +966,8 @@ export default class SqliteMCP {
 ---
 
 ## Configuration Convention
+
+> **Prefer [`protected settings`](#settings-user-configurable-knobs) for new photons.** It auto-generates a typed `settings` MCP tool, persists changes to disk, and exposes a read-only Proxy on `this.settings` — no `configure()` plumbing required. The `configure()` pattern below is kept for compatibility with photons written before the settings system existed.
 
 The `configure()` method is a by-convention pattern for photon configuration. Similar to how `main()` makes a photon a UI application, `configure()` makes it a configurable photon.
 

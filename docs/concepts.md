@@ -1,6 +1,6 @@
 # Core Concepts
 
-Five ideas that explain how Photon works. Each builds on the previous one.
+Six ideas that explain how Photon works. Each builds on the previous one.
 
 ---
 
@@ -125,7 +125,34 @@ No database setup. No serialization code. Just a tag.
 
 ---
 
-## 5. One File, Three Surfaces
+## 5. Settings Are Declared, Not Hard-Coded
+
+If your photon has a knob the user should be able to change, declare it on `protected settings`. Photon generates a `settings` MCP tool from the property and persists user changes to disk.
+
+```typescript
+export default class Poller extends Photon {
+  /** User-tunable knobs */
+  protected settings = {
+    /** Polling interval in seconds */
+    intervalSec: 60,
+    /** Endpoint to poll */
+    endpoint: 'https://api.example.com/status',
+  };
+
+  async tick() {
+    const url = this.settings.endpoint; // read-only Proxy
+    return await fetch(url);
+  }
+}
+```
+
+The settings tool surfaces in Beam, the CLI (`photon cli poller settings`), and any MCP client. JSDoc on each property becomes the tool's parameter description. Values persist to `~/.photon/state/<photon>/<instance>-settings.json` and survive restarts.
+
+Reach for `settings` first whenever a value should be runtime-configurable. Use a constructor parameter only for primitive secrets that should live in `.env` (API keys, tokens) and are not meant to be changed through the UI.
+
+---
+
+## 6. One File, Three Surfaces
 
 This is the core insight. You write intent once — what the tool does, what inputs it accepts, how results look, what rules apply — and Photon derives three interfaces from that single source of truth.
 
@@ -156,6 +183,8 @@ When you add a `@cached 5m` tag, all three surfaces cache. When you add `@thrott
 |-------------|-------|
 | See all format types | [Output Formats](formats.md) |
 | Build something real | [Getting Started](getting-started.md) |
+| Declare user-configurable knobs | [Settings](GUIDE.md#settings-user-configurable-knobs) |
+| Coordinate related photons | [Marketplace Configuration](guides/MARKETPLACE-CONFIG.md) |
 | Learn every tag | [Tag Reference](reference/DOCBLOCK-TAGS.md) |
 | Build custom HTML views | [Custom UI](guides/CUSTOM-UI.md) |
 | Read the full reference | [Developer Guide](GUIDE.md) |

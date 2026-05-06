@@ -91,6 +91,8 @@ npx @portel/photon mcp install my-tool
 ```
 
 > Requires [Node.js 20+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
+>
+> **Where do photon files live?** `./` (a project directory you cd into) or `~/.photon/` (global, auto-discovered). User settings persist under `~/.photon/state/<photon>/`. See [Where things live](docs/getting-started.md#where-things-live).
 
 <div align="center">
 
@@ -196,23 +198,36 @@ The class description becomes how AI clients introduce the tool to users. The `@
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-2.png" alt="Step 2" width="100%">
 </div>
 
-### Add a constructor: configuration appears
+### Declare configuration: a settings tool appears
 
 ```typescript
 export default class Weather {
-  constructor(
-    private apiKey: string,
-    private units: string = 'metric'
-  ) {}
+  /** User-tunable knobs. Photon auto-generates a `settings` tool from this. */
+  protected settings = {
+    /** Units for forecast values */
+    units: 'metric',
+    /** Polling interval in seconds */
+    pollIntervalSec: 300,
+  };
 
   async forecast(params: { city: string }) {
-    const res = await fetch(`...?appid=${this.apiKey}&units=${this.units}`);
+    const res = await fetch(`...?units=${this.settings.units}`);
     return await res.json();
   }
 }
 ```
 
-`apiKey` becomes a password field in the Beam settings panel and maps to the `WEATHER_API_KEY` environment variable. `units` gets a text input with `'metric'` pre-filled. You declared what you need. Photon built the configuration surface.
+`protected settings` is the canonical way to expose runtime knobs. Photon reads the JSDoc on each property, generates an MCP `settings` tool with typed inputs, and persists user changes to `~/.photon/state/<photon>/<instance>-settings.json`. Inside methods, `this.settings` is a read-only Proxy. To change a value, the user (or AI) calls the auto-generated `settings` tool.
+
+For **secrets** that should never be persisted in a settings file (API keys, tokens), use a constructor parameter instead. Photon maps the parameter name to an env var:
+
+```typescript
+export default class Weather {
+  constructor(private apiKey: string) {}  // → WEATHER_API_KEY
+}
+```
+
+The constructor pattern is for primitives that come from `.env`. The `protected settings` pattern is for everything else, including any knob the user should be able to change at runtime without restarting. **When in doubt, reach for `settings`.**
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-3.png" alt="Step 3" width="100%">
@@ -541,8 +556,9 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | Guide | |
 |---|---|
 | [Getting Started](./docs/getting-started.md) | Install, build, and run your first photon in 5 minutes |
-| [Core Concepts](./docs/concepts.md) | The 5 ideas behind Photon |
+| [Core Concepts](./docs/concepts.md) | The 6 ideas behind Photon |
 | [Output Formats](./docs/formats.md) | Visual gallery of every `@format` type |
+| [Settings](./docs/GUIDE.md#settings-user-configurable-knobs) | Declare runtime knobs with `protected settings` (the canonical config pattern) |
 | [Troubleshooting](./docs/TROUBLESHOOTING.md) | Common issues and solutions |
 
 **Go deeper:**
@@ -558,6 +574,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | [Webhooks](./docs/reference/WEBHOOKS.md) | HTTP endpoints for external services |
 | [Locks](./docs/reference/LOCKS.md) | Distributed locks for exclusive access |
 | [Advanced Patterns](./docs/guides/ADVANCED.md) | Lifecycle hooks, dependency injection, interactive workflows |
+| [Marketplace Configuration](./docs/guides/MARKETPLACE-CONFIG.md) | Sharing settings across related photons in one marketplace |
 | [Deployment](./docs/guides/DEPLOYMENT.md) | Docker, Cloudflare Workers, AWS Lambda, Systemd |
 
 **Operate:**

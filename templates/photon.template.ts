@@ -7,6 +7,19 @@
  */
 
 export default class TemplateName {
+  // User-configurable knobs. Photon auto-generates a `settings` MCP tool
+  // from this object and persists changes to
+  // ~/.photon/state/<photon>/<instance>-settings.json.
+  //
+  // Reach for this whenever a value should be runtime-configurable. Use a
+  // constructor parameter only for primitive secrets (API keys, tokens)
+  // that should live in .env. Uncomment and edit:
+  //
+  //   protected settings = {
+  //     /** Friendly description shown in the settings tool */
+  //     greeting: 'Hello',
+  //   };
+
   /**
    * Optional initialization hook
    * Called once when the MCP is loaded
