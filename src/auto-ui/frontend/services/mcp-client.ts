@@ -515,7 +515,10 @@ class MCPClientService {
     try {
       const result = await this.callTool('beam/browse', { path, filter });
       if (result.isError) return null;
-      return this.parseToolResult(result) as any;
+      return this.parseToolResult(result) as {
+        parent: string;
+        items: Array<{ name: string; path: string; isDirectory: boolean }>;
+      } | null;
     } catch {
       return null;
     }
@@ -586,8 +589,10 @@ class MCPClientService {
   async fetchPendingApprovals(): Promise<any[]> {
     try {
       const sdk = this.requireSdk();
-      const result = await sdk.request('beam/approvals-list', {});
-      return (result as any)?.approvals || [];
+      // The daemon emits `{ approvals: [...] }` for this endpoint; pass the
+      // shape as the request generic so we don't need an inline cast.
+      const result = await sdk.request<{ approvals?: unknown[] }>('beam/approvals-list', {});
+      return result?.approvals ?? [];
     } catch {
       return [];
     }
