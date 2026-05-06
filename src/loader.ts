@@ -133,6 +133,7 @@ const FETCH_TIMEOUT_MS = 30 * 1000;
 import { generateConfigErrorMessage, summarizeConstructorParams } from './shared/config-docs.js';
 import { SettingsPersistence } from './settings-persistence.js';
 import { AssetResolver } from './asset-resolver.js';
+import type { PhotonClassWithMeta } from './types/server-types.js';
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
@@ -530,7 +531,17 @@ export class PhotonLoader {
   /** Shadow registry of circuit breaker states, keyed by `${photon}:${instance}:${tool}` */
   private circuitHealthTracker = new Map<
     string,
-    { state: 'closed' | 'open' | 'half-open'; failures: number; openedAt: number }
+    {
+      state: 'closed' | 'open' | 'half-open';
+      failures: number;
+      openedAt: number;
+      /**
+       * Half-open guard: true while a probe call is awaiting next(). Concurrent
+       * requests during half-open observe this and bounce with the open error
+       * so a single failure can't trigger a stampede across N awaiters.
+       */
+      probeInFlight?: boolean;
+    }
   >();
 
   /**
@@ -1280,7 +1291,7 @@ export class PhotonLoader {
             if (ctx.cwd) metaAdditions.callerCwd = ctx.cwd;
           }
           if (Object.keys(metaAdditions).length > 0) {
-            const existingMeta = (params as any)?._meta;
+            const existingMeta = params?._meta;
             forwardedParams = {
               ...(params || {}),
               _meta:
@@ -1987,7 +1998,7 @@ export class PhotonLoader {
           if (ctx.cwd) metaAdditions.callerCwd = ctx.cwd;
         }
         if (Object.keys(metaAdditions).length > 0) {
-          const existingMeta = (params as any)?._meta;
+          const existingMeta = params?._meta;
           forwardedParams = {
             ...(params || {}),
             _meta:
@@ -3565,16 +3576,23 @@ Run: photon mcp ${mcpName} --config
     instanceName?: string,
     outputHandler?: (data: unknown) => void
   ): () => Promise<any> {
-    // Build middleware context
+    // Build middleware context. The `caller` and `outputHandler` fields are
+    // runtime extensions that the loader adds on top of photon-core's
+    // read-only MiddlewareContext type — declare them via a local intersection
+    // so the cast doesn't have to be `as any`.
+    type MiddlewareContextExt = MiddlewareContext & {
+      caller?: unknown;
+      outputHandler?: (data: unknown) => void;
+    };
     const store = executionContext.getStore();
-    const ctx: MiddlewareContext = {
+    const ctx: MiddlewareContextExt = {
       photon: photonName,
       tool: toolName,
       instance: instanceName || 'default',
       params: parameters,
       caller: store?.caller,
       outputHandler,
-    } as any; // MiddlewareContext type is in photon-core (read-only); caller/outputHandler added via runtime extension
+    } as MiddlewareContextExt;
 
     // Get declarations from the new middleware[] field
     const declarations: MiddlewareDeclaration[] = toolMeta.middleware || [];
@@ -3651,7 +3669,7 @@ Run: photon mcp ${mcpName} --config
             const error = new Error(
               `Circuit open: ${ctx.photon}.${ctx.tool} has failed ${config.threshold} consecutive times. Resets in ${Math.ceil((config.resetAfterMs - (Date.now() - circuit.openedAt)) / 1000)}s`
             );
-            (error as any).name = 'PhotonCircuitOpenError';
+            error.name = 'PhotonCircuitOpenError';
             return error;
           };
 
@@ -3667,7 +3685,7 @@ Run: photon mcp ${mcpName} --config
             // Broadcast state-change as a domain event so AG-UI clients
             // (via createAGUIOutputHandler) receive a STATE_DELTA in real
             // time instead of polling /api/health/circuits.
-            const handler = (ctx as any).outputHandler as ((data: unknown) => void) | undefined;
+            const handler = (ctx as MiddlewareContextExt).outputHandler;
             if (handler) {
               try {
                 handler({
@@ -3691,16 +3709,16 @@ Run: photon mcp ${mcpName} --config
               // Transition to half-open and allow exactly one probe through.
               emitTransition('open', 'half-open');
               circuit.state = 'half-open';
-              (circuit as any).probeInFlight = true;
+              circuit.probeInFlight = true;
             } else {
               throw openError();
             }
           } else if (circuit.state === 'half-open') {
             // Probe already in flight — reject concurrent requests to avoid stampede.
-            if ((circuit as any).probeInFlight) {
+            if (circuit.probeInFlight) {
               throw openError();
             }
-            (circuit as any).probeInFlight = true;
+            circuit.probeInFlight = true;
           }
 
           const stateBefore = circuit.state;
@@ -3709,11 +3727,11 @@ Run: photon mcp ${mcpName} --config
             circuit.failures = 0;
             if (stateBefore !== 'closed') emitTransition(stateBefore, 'closed');
             circuit.state = 'closed';
-            (circuit as any).probeInFlight = false;
+            circuit.probeInFlight = false;
             return result;
           } catch (error) {
             circuit.failures++;
-            (circuit as any).probeInFlight = false;
+            circuit.probeInFlight = false;
             // A failed probe in half-open immediately reopens the circuit.
             if (stateBefore === 'half-open' || circuit.failures >= config.threshold) {
               emitTransition(circuit.state, 'open');
@@ -3882,9 +3900,15 @@ Run: photon mcp ${mcpName} --config
       }
     }
 
-    // Start OTel span for tool execution (no-op if SDK not installed)
-    const toolMetaForSpan = (mcp as any)?.meta?.tools?.[toolName];
-    const isStateful = Boolean(toolMetaForSpan?.stateful ?? (mcp as any)?.meta?.stateful);
+    // Start OTel span for tool execution (no-op if SDK not installed).
+    // The `mcp.meta` shape is an internal extension some callers stamp on the
+    // loaded photon — it isn't on PhotonClass so we type the lookup as a
+    // narrow structural shape rather than reach for `as any`.
+    const mcpMeta = (
+      mcp as { meta?: { tools?: Record<string, { stateful?: boolean }>; stateful?: boolean } }
+    ).meta;
+    const toolMetaForSpan = mcpMeta?.tools?.[toolName];
+    const isStateful = Boolean(toolMetaForSpan?.stateful ?? mcpMeta?.stateful);
     const span = startToolSpan(
       mcp.name,
       toolName,
@@ -3930,8 +3954,10 @@ Run: photon mcp ${mcpName} --config
         throw new Error(mcp.instance._photonConfigError);
       }
 
-      // Enforce @auth at method level — works across ALL transports (CLI, STDIO, HTTP, daemon)
-      const photonAuth = (mcp as any).auth as string | undefined;
+      // Enforce @auth at method level — works across ALL transports (CLI, STDIO, HTTP, daemon).
+      // `auth` is a runtime extension stamped by the loader on top of the published
+      // PhotonClass type; reach via the narrower PhotonClassWithMeta interface.
+      const photonAuth = (mcp as PhotonClassWithMeta).auth;
       if (photonAuth === 'required') {
         const caller = options?.caller;
         if (!caller || caller.anonymous) {
