@@ -26,7 +26,12 @@ export class CapabilityNegotiator {
    *
    * Key: Server instance → Value: raw capabilities object from initialize request
    */
-  private rawClientCapabilities = new WeakMap<Server, Record<string, any>>();
+  /**
+   * Public so PhotonServer can expose a back-compat alias for tests that
+   * seed raw capabilities directly. Prefer `setRawCapabilities()` in
+   * non-test code paths.
+   */
+  rawClientCapabilities = new WeakMap<Server, Record<string, any>>();
 
   /**
    * Store raw capabilities for a server instance.

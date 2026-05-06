@@ -520,9 +520,7 @@ export class PhotonServer {
   private _notifyQueue: Promise<void> = Promise.resolve();
 
   /** Compatibility alias for tests that seed raw capabilities directly on PhotonServer */
-  public rawClientCapabilities: WeakMap<Server, Record<string, any>> = (
-    this.capabilityNegotiator as any
-  ).rawClientCapabilities;
+  public rawClientCapabilities = this.capabilityNegotiator.rawClientCapabilities;
   /** Resource listing, reading, and asset serving */
   private resourceServer: ResourceServer;
   /**
@@ -3002,7 +3000,7 @@ export class PhotonServer {
           const targetMcp = await this.resolveInstanceMcp(
             httpClaims ? { authInfo: { extra: httpClaims } } : undefined
           );
-          const photonInstance = (targetMcp as any)?.instance;
+          const photonInstance = targetMcp?.instance;
           const fn = photonInstance?.[matchedRoute.handler];
           if (typeof fn === 'function') {
             try {
