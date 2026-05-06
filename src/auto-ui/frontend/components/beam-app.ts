@@ -2642,7 +2642,12 @@ export class BeamApp extends LitElement {
       // sampling-capable client by routing to the human.
       mcpClient.setRequestHandler('sampling/createMessage', async (params) => {
         const { openSamplingModal } = await import('./sampling-modal.js');
-        const text = await openSamplingModal(params as any);
+        // setRequestHandler delivers the JSON-RPC params as Record<string, unknown>;
+        // the daemon validates the wire shape upstream so this cast is the trust
+        // boundary between the transport envelope and the typed modal API.
+        const text = await openSamplingModal(
+          params as unknown as import('./sampling-modal.js').SamplingRequestParams
+        );
         return {
           role: 'assistant' as const,
           content: { type: 'text' as const, text },
@@ -6381,7 +6386,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       id: `panel-${++this._nextPanelId}`,
       type,
       method,
-      result: null as any,
+      result: null,
       executing: false,
       progress: null as { value: number; message: string } | null,
       formParams: {} as Record<string, any>,
@@ -6578,7 +6583,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
         <photon-studio
           .photonName=${this._selectedPhoton?.name}
           .theme=${this._theme}
-          @studio-saved=${() => (this as any)._handleStudioSaved?.()}
+          @studio-saved=${() =>
+            (this as { _handleStudioSaved?: () => void })._handleStudioSaved?.()}
           @studio-close=${() => this._removePanel(panelId)}
         ></photon-studio>
       </div>

@@ -76,7 +76,7 @@ interface SamplingMessage {
 }
 
 /** MCP `sampling/createMessage` params passed to the handler. */
-interface SamplingRequestParams {
+export interface SamplingRequestParams {
   messages: SamplingMessage[];
   systemPrompt?: string;
   maxTokens?: number;
