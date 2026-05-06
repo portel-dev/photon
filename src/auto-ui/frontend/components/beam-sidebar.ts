@@ -1987,3 +1987,9 @@ export class BeamSidebar extends LitElement {
     return true;
   }
 }
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'beam-sidebar': BeamSidebar;
+  }
+}

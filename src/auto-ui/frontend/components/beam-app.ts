@@ -46,6 +46,30 @@ import { ViewportManager, getPageSizeForClient } from '../services/viewport-mana
 import { buildBeamRoutePath, parseBeamRoutePath } from '../utils/beam-route.js';
 import { formatLabel } from '../utils/format-label.js';
 
+// Browser-side libraries loaded from script tags (vendored / CDN). Declared
+// here so beam-app can call them without `as any`. Signatures match
+// result-viewer's declarations so the TS interface-merge stays consistent.
+declare global {
+  interface Window {
+    marked?: { parse: (src: string, options?: Record<string, unknown>) => string };
+    mermaid?: {
+      initialize: (config: Record<string, unknown>) => void;
+      render: (id: string, code: string) => Promise<{ svg: string }>;
+      run: (config: Record<string, unknown>) => Promise<void>;
+    };
+    Prism?: {
+      highlight: (code: string, grammar: unknown, language: string) => string;
+      languages: Record<string, unknown>;
+    };
+    /** Set when Beam is embedded in the photon CLI shell so per-command "photon cli" prefix is dropped. */
+    __PHOTON_SHELL_INIT?: boolean;
+  }
+  interface Navigator {
+    /** iOS Safari proprietary "installed-as-PWA" flag. */
+    standalone?: boolean;
+  }
+}
+
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
 const FETCH_TIMEOUT_MS = 10_000;
@@ -2478,7 +2502,7 @@ export class BeamApp extends LitElement {
     // Detect if already running as an installed PWA
     this._pwaIsStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true;
+      window.navigator.standalone === true;
 
     // Register the service worker (provides offline boot page & health checks)
     if ('serviceWorker' in navigator) {
@@ -2918,7 +2942,7 @@ export class BeamApp extends LitElement {
 
         // Forward to canvas-renderer iframe after render
         void this.updateComplete.then(() => {
-          const canvas = this.shadowRoot?.querySelector('canvas-renderer') as any;
+          const canvas = this.shadowRoot?.querySelector('canvas-renderer');
           if (!canvas) return;
           if (data.type === 'ui') {
             canvas.pushUI(data.html);
@@ -2952,7 +2976,7 @@ export class BeamApp extends LitElement {
                 const tpl = this._pendingTemplateSource;
                 this._pendingTemplateSource = undefined;
                 requestAnimationFrame(() => {
-                  const studio = this.shadowRoot?.querySelector('photon-studio') as any;
+                  const studio = this.shadowRoot?.querySelector('photon-studio');
                   if (studio?.applyTemplate) {
                     studio.applyTemplate({
                       source: tpl,
@@ -3075,10 +3099,7 @@ export class BeamApp extends LitElement {
       mcpClient.on('elicitation-deferred', (data: any) => {
         if (data) {
           // Close modal if this elicitation was being shown
-          if (
-            this._elicitationData &&
-            (this._elicitationData as any).elicitationId === data.elicitationId
-          ) {
+          if (this._elicitationData && this._elicitationData.elicitationId === data.elicitationId) {
             this._showElicitation = false;
             this._elicitationData = null;
           }
@@ -3162,7 +3183,7 @@ export class BeamApp extends LitElement {
         // would duplicate side-effects. Only parameterless methods (get, list, stats) are safe.
         // Show warmth indicator on sidebar for the changed photon
         const sidebarEl = this.renderRoot?.querySelector?.('beam-sidebar');
-        (sidebarEl as any)?.updatePhotonWarmth?.(data.photon);
+        sidebarEl?.updatePhotonWarmth?.(data.photon);
 
         const methodParams = this._selectedMethod?.params;
         const hasRequiredParams = methodParams?.required?.length > 0;
@@ -5849,9 +5870,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
       .replace(/ (\d+\. )/g, '\n$1')
       .trim();
     if (!cleaned) return html``;
-    const marked = (window as any).marked;
+    const marked = window.marked;
     if (marked) {
-      const htmlContent = marked.parse(cleaned) as string;
+      const htmlContent = marked.parse(cleaned);
       return html`<div class="method-description">${unsafeHTML(htmlContent)}</div>`;
     }
     return html`<p>${cleaned}</p>`;
@@ -8128,7 +8149,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   private _handleElicitationSubmit = async (e: CustomEvent) => {
     const { value } = e.detail;
-    const elicitationId = (this._elicitationData as any)?.elicitationId;
+    const elicitationId = this._elicitationData?.elicitationId;
 
     this._showElicitation = false;
     this._elicitationData = null;
@@ -8165,7 +8186,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   };
 
   private _handleElicitationCancel = async () => {
-    const elicitationId = (this._elicitationData as any)?.elicitationId;
+    const elicitationId = this._elicitationData?.elicitationId;
 
     this._showElicitation = false;
     this._elicitationData = null;
@@ -8291,7 +8312,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Find custom-ui-renderer components and notify their iframes
     const renderers = this.shadowRoot?.querySelectorAll('custom-ui-renderer');
     renderers?.forEach((renderer) => {
-      const shadowRoot = (renderer as any).shadowRoot;
+      const shadowRoot = renderer.shadowRoot;
       const iframe = shadowRoot?.querySelector('iframe');
       if (iframe?.contentWindow) {
         iframe.contentWindow.postMessage(
@@ -8359,7 +8380,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           break;
         }
         // Traverse into shadow DOM if present
-        activeEl = (activeEl as any).shadowRoot?.activeElement || null;
+        activeEl = activeEl.shadowRoot?.activeElement || null;
       }
     }
 
@@ -8593,7 +8614,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       : this._photonHelpMarkdown || this._generatePhotonHelpMarkdown();
     let htmlContent = markdown;
 
-    if ((window as any).marked) {
+    if (window.marked) {
       const mermaidBlocks: { id: string; code: string }[] = [];
       let processed = markdown.replace(
         /```mermaid\s*\n([\s\S]*?)```/g,
@@ -8603,10 +8624,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
           return `<div data-mermaid-id="${id}" style="min-height: 80px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
         }
       );
-      htmlContent = (window as any).marked.parse(processed);
+      htmlContent = window.marked.parse(processed);
 
-      if (mermaidBlocks.length > 0 && (window as any).mermaid) {
-        const mermaid = (window as any).mermaid;
+      if (mermaidBlocks.length > 0 && window.mermaid) {
+        const mermaid = window.mermaid;
         const isDark = this.getAttribute('data-theme') !== 'light';
         mermaid.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'default' });
         requestAnimationFrame(() => {
@@ -8647,7 +8668,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               : ''}
           </h2>
           <div class="markdown-body" style="color: var(--t-default);">
-            ${(window as any).marked
+            ${window.marked
               ? html`${unsafeHTML(htmlContent)}`
               : html`<pre style="white-space: pre-wrap;">${markdown}</pre>`}
           </div>
@@ -8764,7 +8785,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .filter((p: any) => p.required)
             .map((p: any) => `--${p.name} <${p.type || 'value'}>`)
             .join(' ');
-          const cliPfx = (window as any).__PHOTON_SHELL_INIT ? name : `photon cli ${name}`;
+          const cliPfx = window.__PHOTON_SHELL_INIT ? name : `photon cli ${name}`;
           lines.push(`CLI: \`${cliPfx} ${method.name}${paramHints ? ' ' + paramHints : ''}\``);
           lines.push('');
         }
@@ -9894,7 +9915,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     let htmlContent = markdown;
 
     // Parse markdown if marked is available
-    if ((window as any).marked) {
+    if (window.marked) {
       // Extract mermaid blocks before parsing
       const mermaidBlocks: { id: string; code: string }[] = [];
       let processed = markdown.replace(
@@ -9905,11 +9926,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
           return `<div data-mermaid-id="${id}" style="min-height: 80px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
         }
       );
-      htmlContent = (window as any).marked.parse(processed);
+      htmlContent = window.marked.parse(processed);
 
       // Render mermaid blocks after DOM update
-      if (mermaidBlocks.length > 0 && (window as any).mermaid) {
-        const mermaid = (window as any).mermaid;
+      if (mermaidBlocks.length > 0 && window.mermaid) {
+        const mermaid = window.mermaid;
         const isDark = this.getAttribute('data-theme') !== 'light';
         mermaid.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'default' });
         requestAnimationFrame(() => {
@@ -9971,7 +9992,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             </button>
           </div>
           <div class="markdown-body" style="color: var(--t-default);">
-            ${(window as any).marked
+            ${window.marked
               ? html`${unsafeHTML(htmlContent)}`
               : html`<pre style="white-space: pre-wrap;">${markdown}</pre>`}
           </div>
@@ -10219,7 +10240,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const language = langMap[ext] || 'typescript';
 
     let highlightedCode = this._sourceData.code;
-    const Prism = (window as any).Prism;
+    const Prism = window.Prism;
     if (Prism && Prism.languages[language]) {
       highlightedCode = Prism.highlight(this._sourceData.code, Prism.languages[language], language);
     }
@@ -10329,7 +10350,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     // Apply syntax highlighting if Prism is available
     let highlightedCode = this._sourceData.code;
-    const Prism = (window as any).Prism;
+    const Prism = window.Prism;
     if (Prism && Prism.languages[language]) {
       highlightedCode = Prism.highlight(this._sourceData.code, Prism.languages[language], language);
     }
