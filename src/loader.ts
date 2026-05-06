@@ -134,6 +134,7 @@ import { PHOTON_VERSION, getResolvedPhotonCoreVersion } from './version.js';
 // Timeout for external fetch requests (marketplace, GitHub)
 const FETCH_TIMEOUT_MS = 30 * 1000;
 import { generateConfigErrorMessage, summarizeConstructorParams } from './shared/config-docs.js';
+import { SettingsPersistence } from './settings-persistence.js';
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
@@ -507,6 +508,7 @@ export class PhotonLoader {
   private marketplaceManager?: MarketplaceManager;
   private marketplaceManagerPromise?: Promise<MarketplaceManager>;
   private logger: Logger;
+  private settingsPersistence: SettingsPersistence;
 
   /**
    * Per-instance call queue. Two tool invocations targeting the same photon
@@ -595,6 +597,9 @@ export class PhotonLoader {
     this.verbose = verbose;
     this.logger = logger ?? createLogger({ component: 'photon-loader', minimal: true });
     this.baseDir = baseDir || getDefaultContext().baseDir;
+    this.settingsPersistence = new SettingsPersistence(this.baseDir, (msg, meta) =>
+      this.log(msg, meta)
+    );
   }
 
   /**
@@ -1735,10 +1740,10 @@ export class PhotonLoader {
         typeof instance.settings === 'object'
       ) {
         const instanceName = options?.instanceName || 'default';
-        await this.injectSettings(instance, name, instanceName, settingsSchema);
+        await this.settingsPersistence.inject(instance, name, instanceName, settingsSchema);
 
         // Auto-generate the `settings` MCP tool from the schema
-        const settingsTool = this.generateSettingsTool(settingsSchema);
+        const settingsTool = this.settingsPersistence.generateTool(settingsSchema);
         tools.push(settingsTool);
         this.log(
           `⚙️  Settings tool auto-generated for ${name} (${settingsSchema.properties.length} props)`
@@ -2187,8 +2192,8 @@ export class PhotonLoader {
     // Settings injection
     if (settingsSchema?.hasSettings && instance.settings && typeof instance.settings === 'object') {
       const instanceName = options?.instanceName || 'default';
-      await this.injectSettings(instance, name, instanceName, settingsSchema);
-      tools.push(this.generateSettingsTool(settingsSchema));
+      await this.settingsPersistence.inject(instance, name, instanceName, settingsSchema);
+      tools.push(this.settingsPersistence.generateTool(settingsSchema));
     }
 
     // Discover assets (for @ui)
@@ -2282,14 +2287,12 @@ export class PhotonLoader {
       const files = await fs.readdir(buildDir).catch(() => [] as string[]);
       for (const f of files) {
         if (f.startsWith(fileName) && f.endsWith('.mjs')) {
-          await fs
-            .unlink(path.join(buildDir, f))
-            .catch((err) =>
-              this.logger.debug('Failed to remove stale cache file', {
-                file: f,
-                error: String(err),
-              })
-            );
+          await fs.unlink(path.join(buildDir, f)).catch((err) =>
+            this.logger.debug('Failed to remove stale cache file', {
+              file: f,
+              error: String(err),
+            })
+          );
         }
       }
     }
@@ -2600,245 +2603,9 @@ export class PhotonLoader {
     return { tools, templates, statics };
   }
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // SETTINGS — property-driven configuration with auto-persistence
-  // ════════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Get the settings persistence path for a photon instance.
-   * Co-located with state under Option B: the settings JSON lives next to
-   * state.json inside the per-instance directory.
-   */
-  private getSettingsPath(photonName: string, instanceName: string): string {
-    // getInstanceStatePath returns `.../state/{instance}/state.json`; swap
-    // the filename so settings land at `.../state/{instance}/settings.json`.
-    // Keeps the source of truth for the layout in context-store.
-    const statePath = getInstanceStatePath(photonName, instanceName, this.baseDir);
-    return path.join(path.dirname(statePath), 'settings.json');
-  }
-
-  /**
-   * Load persisted settings from disk
-   */
-  private async loadSettings(
-    photonName: string,
-    instanceName: string
-  ): Promise<Record<string, any>> {
-    const settingsPath = this.getSettingsPath(photonName, instanceName);
-    try {
-      return await readJSON(settingsPath);
-    } catch {
-      return {};
-    }
-  }
-
-  /**
-   * Persist settings to disk
-   */
-  private async persistSettings(
-    photonName: string,
-    instanceName: string,
-    values: Record<string, any>
-  ): Promise<void> {
-    const settingsPath = this.getSettingsPath(photonName, instanceName);
-    const dir = path.dirname(settingsPath);
-    await fs.mkdir(dir, { recursive: true });
-    await writeJSON(settingsPath, values);
-  }
-
-  /**
-   * Inject settings into a photon instance:
-   * - Load persisted values (persisted wins over defaults)
-   * - Replace instance.settings with a read-only Proxy
-   * - Store writable backing object for the settings tool
-   */
-  private async injectSettings(
-    instance: Record<string, unknown>,
-    photonName: string,
-    instanceName: string,
-    schema: SettingsSchema
-  ): Promise<void> {
-    const defaults = instance.settings as Record<string, any>;
-    const persisted = await this.loadSettings(photonName, instanceName);
-
-    // Merge: persisted values over defaults
-    const backing: Record<string, any> = { ...defaults };
-    for (const key of Object.keys(persisted)) {
-      if (persisted[key] !== undefined) {
-        backing[key] = persisted[key];
-      }
-    }
-
-    // Store the writable backing object for the settings tool to update
-    instance._settingsBacking = backing;
-    instance._settingsPhotonName = photonName;
-    instance._settingsInstanceName = instanceName;
-    instance._settingsSchema = schema;
-
-    // Replace with read-only Proxy
-    instance.settings = new Proxy(backing, {
-      get(target, prop) {
-        if (typeof prop === 'string') {
-          return target[prop];
-        }
-        return undefined;
-      },
-      set(_target, prop, _value) {
-        throw new Error(
-          `Cannot directly set settings.${String(prop)}. ` +
-            `Use the 'settings' tool to change settings (e.g., settings({ ${String(prop)}: newValue })).`
-        );
-      },
-      deleteProperty(_target, prop) {
-        throw new Error(`Cannot delete settings.${String(prop)}. Use the 'settings' tool instead.`);
-      },
-    });
-  }
-
-  /**
-   * Generate an MCP tool definition from a SettingsSchema
-   */
-  private generateSettingsTool(schema: SettingsSchema): PhotonTool {
-    const properties: Record<string, any> = {};
-
-    for (const prop of schema.properties) {
-      const propSchema: Record<string, any> = { type: prop.type };
-      if (prop.description) {
-        propSchema.description = prop.description;
-      }
-      if (prop.default !== undefined) {
-        propSchema.default = prop.default;
-      }
-      properties[prop.name] = propSchema;
-    }
-
-    return {
-      name: 'settings',
-      description:
-        'View or update photon settings. Call with no arguments to view current settings. Pass parameters to update specific settings.',
-      inputSchema: {
-        type: 'object',
-        properties,
-        // No required params — all settings are optional when calling the tool
-      },
-    };
-  }
-
-  /**
-   * Execute the auto-generated settings tool:
-   * - No params → return current settings
-   * - Params with values → update those settings, persist, emit change
-   * - Params with undefined + no default → trigger elicitation
-   */
-  async executeSettingsTool(
-    instance: Record<string, unknown>,
-    parameters: Record<string, any> | undefined,
-    options?: { outputHandler?: OutputHandler; inputProvider?: InputProvider }
-  ): Promise<Record<string, any>> {
-    const backing = instance._settingsBacking as Record<string, any>;
-    const photonName = instance._settingsPhotonName as string;
-    const instanceName = instance._settingsInstanceName as string;
-    const schema = instance._settingsSchema as SettingsSchema;
-
-    if (!backing || !photonName || !schema) {
-      throw new Error('Settings not initialized for this photon');
-    }
-
-    // No params or empty params → return current settings
-    if (!parameters || Object.keys(parameters).length === 0) {
-      // Check if any required settings (undefined defaults) need elicitation
-      const needsElicitation = schema.properties.filter(
-        (p) => p.required && backing[p.name] === undefined
-      );
-
-      if (needsElicitation.length > 0 && options?.inputProvider) {
-        for (const prop of needsElicitation) {
-          const result = await options.inputProvider({
-            ask: prop.type === 'number' ? 'number' : 'text',
-            message: prop.description || `Enter value for ${prop.name}:`,
-          } as AskYield);
-          if (result !== undefined && result !== null) {
-            const oldValue = backing[prop.name];
-            backing[prop.name] = result;
-            this.log(`⚙️  Settings: ${prop.name} = ${JSON.stringify(result)} (elicited)`);
-            this.emitSettingsChange(instance, prop.name, oldValue, result);
-          }
-        }
-        await this.persistSettings(photonName, instanceName, backing);
-      }
-
-      return { ...backing };
-    }
-
-    // Update specified settings
-    const changes: Array<{ property: string; oldValue: any; newValue: any }> = [];
-
-    for (const [key, value] of Object.entries(parameters)) {
-      // Verify this is a valid setting
-      const prop = schema.properties.find((p) => p.name === key);
-      if (!prop) continue;
-
-      if (value === undefined && prop.required) {
-        // Elicit value from user
-        if (options?.inputProvider) {
-          const result = await options.inputProvider({
-            ask: prop.type === 'number' ? 'number' : 'text',
-            message: prop.description || `Enter value for ${key}:`,
-          } as AskYield);
-          if (result !== undefined && result !== null) {
-            const oldValue = backing[key];
-            backing[key] = result;
-            changes.push({ property: key, oldValue, newValue: result });
-          }
-        }
-      } else {
-        const oldValue = backing[key];
-        backing[key] = value;
-        changes.push({ property: key, oldValue, newValue: value });
-      }
-    }
-
-    // Persist if anything changed
-    if (changes.length > 0) {
-      await this.persistSettings(photonName, instanceName, backing);
-
-      for (const change of changes) {
-        this.log(
-          `⚙️  Settings: ${change.property}: ${JSON.stringify(change.oldValue)} → ${JSON.stringify(change.newValue)}`
-        );
-        this.emitSettingsChange(instance, change.property, change.oldValue, change.newValue);
-      }
-    }
-
-    // Re-apply proxy (backing object is already updated in place, proxy still references it)
-    return { ...backing };
-  }
-
-  /**
-   * Emit a settings:changed event through the photon's emit system
-   */
-  private emitSettingsChange(
-    instance: Record<string, unknown>,
-    property: string,
-    oldValue: any,
-    newValue: any
-  ): void {
-    if (typeof instance.emit === 'function') {
-      try {
-        (instance.emit as (...args: unknown[]) => void)({
-          event: 'settings:changed',
-          data: {
-            property,
-            oldValue,
-            newValue,
-            timestamp: Date.now(),
-          },
-        });
-      } catch {
-        // Best-effort emit
-      }
-    }
-  }
+  // Settings persistence (load, persist, inject Proxy, generate tool, execute
+  // updates) lives in `./settings-persistence.ts` and is reachable via
+  // `this.settingsPersistence`.
 
   /**
    * Extract constructor parameters from source file
@@ -4220,7 +3987,7 @@ Run: photon mcp ${mcpName} --config
 
       // Intercept auto-generated settings tool
       if (toolName === 'settings' && mcp.instance._settingsBacking) {
-        const result = await this.executeSettingsTool(mcp.instance, parameters, {
+        const result = await this.settingsPersistence.execute(mcp.instance, parameters, {
           outputHandler: options?.outputHandler,
           inputProvider: options?.inputProvider,
         });
