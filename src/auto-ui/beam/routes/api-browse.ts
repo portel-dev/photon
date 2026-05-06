@@ -214,8 +214,9 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     const photonDir = path.dirname(resolvedPhotonPath);
     const photonBaseName = path.basename(resolvedPhotonPath, '.photon.ts');
 
-    // Try to use resolved path from assets if available (respects JSDoc)
-    const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
+    // Try to use resolved path from assets if available (respects JSDoc).
+    // assets only live on configured photons.
+    const asset = photon.configured ? photon.assets?.ui?.find((u) => u.id === uiId) : undefined;
 
     // Resolve UI template path. Prefer .photon.html (declarative mode) over .html.
     // Verify resolvedPath actually exists before trusting it.
@@ -382,11 +383,12 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     // Use label (from @label tag) for display name, fallback to capitalized name, or "Photon Beam"
     const rawName = photon?.name || photonName || '';
     const displayName =
-      (photon as any)?.label ||
+      photon?.label ||
       (rawName
         ? rawName.charAt(0).toUpperCase() + rawName.slice(1).replace(/-/g, ' ')
         : 'Photon Beam');
-    const description = (photon as any)?.description || `${displayName} - Photon App`;
+    // description only on configured photons
+    const description = (photon?.configured && photon.description) || `${displayName} - Photon App`;
     const startUrl = photonName ? `/app/${encodeURIComponent(photonName)}` : '/';
     const encodedIcon = photonName ? encodeURIComponent(photonName) : '';
 
@@ -447,7 +449,8 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   if (url.pathname === '/api/pwa/icon') {
     const photonName = url.searchParams.get('photon');
     const photon = state.photons.find((p) => p.name === photonName);
-    const iconValue = (photon as any)?.icon || '📦';
+    // icon only on configured photons
+    const iconValue = (photon?.configured && photon.icon) || '📦';
 
     // Check if icon is a file path (has a file extension)
     const isFilePath = /\.\w{2,4}$/.test(iconValue);

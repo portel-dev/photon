@@ -51,7 +51,10 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
   );
 
   sdkClient.setRequestHandler(ElicitRequestSchema, async (request) => {
-    const params = request.params as any;
+    // ElicitRequest has typed message + requestedSchema; mode/url/elicitationId
+    // are Photon-specific extension fields the schema doesn't enumerate.
+    // Read as a wider any-indexed shape so we don't have to narrow at every site.
+    const params = request.params as Record<string, any>;
     const result = await requestExternalElicitation(mcpName, {
       mode: params.mode as 'form' | 'url',
       message: params.message,
@@ -87,7 +90,10 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
   );
 
   sseClient.setRequestHandler(ElicitRequestSchema, async (request) => {
-    const params = request.params as any;
+    // ElicitRequest has typed message + requestedSchema; mode/url/elicitationId
+    // are Photon-specific extension fields the schema doesn't enumerate.
+    // Read as a wider any-indexed shape so we don't have to narrow at every site.
+    const params = request.params as Record<string, any>;
     const result = await requestExternalElicitation(mcpName, {
       mode: params.mode as 'form' | 'url',
       message: params.message,
@@ -218,7 +224,10 @@ export async function loadExternalMCPs(
           );
 
           sdkClient.setRequestHandler(ElicitRequestSchema, async (request) => {
-            const params = request.params as any;
+            // ElicitRequest has typed message + requestedSchema; mode/url/elicitationId
+            // are Photon-specific extension fields the schema doesn't enumerate.
+            // Read as a wider any-indexed shape so we don't have to narrow at every site.
+            const params = request.params as Record<string, any>;
             const result = await requestExternalElicitation(name, {
               mode: params.mode as 'form' | 'url',
               message: params.message,
@@ -344,14 +353,16 @@ export async function reconnectExternalMCP(
       const factory = new SDKMCPClientFactory(stdioConfig, false);
       const client = factory.create(name);
 
-      const tools = (await withTimeout(client.list(), 10000, 'Connection timeout (10s)')) as any[];
+      const tools = await withTimeout(client.list(), 10000, 'Connection timeout (10s)');
 
-      methods = (tools || []).map((tool: any) => ({
+      methods = (tools || []).map((tool) => ({
         name: tool.name,
         description: tool.description || '',
         params: tool.inputSchema || { type: 'object', properties: {} },
         returns: { type: 'object' },
-        icon: tool['x-icon'],
+        // x-icon is a Photon extension on MCPToolInfo (not part of @portel/mcp's
+        // public type) — cast structurally at the read site.
+        icon: (tool as { 'x-icon'?: string })['x-icon'],
       }));
 
       state.externalMCPClients.set(name, client);

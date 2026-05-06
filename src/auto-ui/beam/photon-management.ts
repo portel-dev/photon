@@ -23,6 +23,7 @@ import {
 import { saveConfig } from './config.js';
 import type { AnyPhotonInfo, PhotonInfo, MethodInfo, ConfigParam } from '../types.js';
 import type { PhotonConfig } from './types.js';
+import type { PhotonClassWithMeta } from '../../types/server-types.js';
 
 function generatePhotonId(photonPath: string): string {
   return createHash('sha256').update(photonPath).digest('hex').slice(0, 12);
@@ -135,9 +136,11 @@ export async function configurePhotonViaMCP(
   const isReconfigure = targetPhoton.configured === true;
 
   try {
-    const mcp = isReconfigure
-      ? await loader.reloadFile(targetPhoton.path)
-      : await loader.loadFile(targetPhoton.path);
+    const mcp = (
+      isReconfigure
+        ? await loader.reloadFile(targetPhoton.path)
+        : await loader.loadFile(targetPhoton.path)
+    ) as PhotonClassWithMeta;
     const instance = mcp.instance;
 
     if (!instance) {
@@ -150,7 +153,7 @@ export async function configurePhotonViaMCP(
     const extractor = new SchemaExtractor();
     const configSource = await fs.readFile(targetPhoton.path, 'utf-8');
     const { tools: schemas, templates } = extractor.extractAllFromSource(configSource);
-    (mcp as any).schemas = schemas;
+    mcp.schemas = schemas;
 
     const uiAssets = mcp.assets?.ui || [];
     const methods = buildMethodList(schemas, templates, configSource, uiAssets);
@@ -233,7 +236,7 @@ export async function reloadPhotonViaMCP(
   }
 
   try {
-    const mcp = await loader.reloadFile(photonPath);
+    const mcp = (await loader.reloadFile(photonPath)) as PhotonClassWithMeta;
     const instance = mcp.instance;
 
     if (!instance) {
@@ -246,7 +249,7 @@ export async function reloadPhotonViaMCP(
     const extractor = new SchemaExtractor();
     const reloadSrc = await fs.readFile(photonPath, 'utf-8');
     const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSrc);
-    (mcp as any).schemas = schemas;
+    mcp.schemas = schemas;
 
     const uiAssets = mcp.assets?.ui || [];
     const methods = buildMethodList(schemas, templates, reloadSrc, uiAssets);
@@ -384,11 +387,12 @@ export async function updateMetadataViaMCP(
 
     logger.info(`📝 Updated metadata for ${photonName}/${methodName}`);
   } else {
-    if (metadata.description !== undefined) {
-      (photons[photonIndex] as any).description = metadata.description;
-    }
-    if (metadata.icon !== undefined) {
-      (photons[photonIndex] as any).icon = metadata.icon;
+    // Photon-level metadata writes only apply when the photon is configured
+    // (description/icon don't exist on the unconfigured branch).
+    const photon = photons[photonIndex];
+    if (photon.configured) {
+      if (metadata.description !== undefined) photon.description = metadata.description;
+      if (metadata.icon !== undefined) photon.icon = metadata.icon;
     }
 
     logger.info(`📝 Updated metadata for ${photonName}`);

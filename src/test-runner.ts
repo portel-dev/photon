@@ -74,11 +74,12 @@ interface ExternalTestDescriptor {
 }
 
 /** Lifecycle hooks exported from a .test.ts file */
+type LifecycleHook = (photon: any) => Promise<any>;
 interface ExternalTestHooks {
-  beforeAll?: (photon: any) => Promise<any>;
-  afterAll?: (photon: any) => Promise<any>;
-  beforeEach?: (photon: any) => Promise<any>;
-  afterEach?: (photon: any) => Promise<any>;
+  beforeAll?: LifecycleHook;
+  afterAll?: LifecycleHook;
+  beforeEach?: LifecycleHook;
+  afterEach?: LifecycleHook;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -149,19 +150,19 @@ async function discoverExternalTests(
     for (const [key, value] of Object.entries(mod)) {
       // Lifecycle hooks
       if (key === 'beforeAll' && typeof value === 'function') {
-        hooks.beforeAll = value as any;
+        hooks.beforeAll = value as LifecycleHook;
         continue;
       }
       if (key === 'afterAll' && typeof value === 'function') {
-        hooks.afterAll = value as any;
+        hooks.afterAll = value as LifecycleHook;
         continue;
       }
       if (key === 'beforeEach' && typeof value === 'function') {
-        hooks.beforeEach = value as any;
+        hooks.beforeEach = value as LifecycleHook;
         continue;
       }
       if (key === 'afterEach' && typeof value === 'function') {
-        hooks.afterEach = value as any;
+        hooks.afterEach = value as LifecycleHook;
         continue;
       }
 
@@ -170,7 +171,7 @@ async function discoverExternalTests(
         const tagInfo = tags.get(key);
         tests.push({
           name: key,
-          fn: value as any,
+          fn: value as LifecycleHook,
           skip: tagInfo?.skip,
           only: tagInfo?.only,
         });
@@ -179,9 +180,9 @@ async function discoverExternalTests(
       // Sequence tests (exported arrays of functions)
       if (key.startsWith('test') && Array.isArray(value)) {
         const tagInfo = tags.get(key);
-        const steps = (value as any)
-          .filter((fn: any) => typeof fn === 'function')
-          .map((fn: any) => ({ name: fn.name || 'anonymous', fn }));
+        const steps = value
+          .filter((fn): fn is LifecycleHook => typeof fn === 'function')
+          .map((fn) => ({ name: fn.name || 'anonymous', fn }));
 
         if (steps.length > 0) {
           tests.push({

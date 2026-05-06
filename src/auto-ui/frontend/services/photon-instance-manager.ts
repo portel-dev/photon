@@ -380,7 +380,7 @@ export function getGlobalSessionManager(): GlobalSessionManager {
     globalSessionManager = new GlobalSessionManager();
     // Expose on window for debugging
     if (typeof window !== 'undefined') {
-      (window as any).__photonSessionManager = globalSessionManager;
+      (window as unknown as Record<string, unknown>).__photonSessionManager = globalSessionManager;
     }
   }
   return globalSessionManager;
@@ -400,13 +400,17 @@ export function initializeGlobalPhotonSession(
   // Inject into window with camelCase name
   // e.g., 'boards' → window.boards
   if (typeof window !== 'undefined') {
+    // Dynamic photon-name → window-property aliases for debugging.
+    // Cast through unknown to a string-indexed shape — photon names are
+    // user-supplied so we can't enumerate them in a typed declaration.
+    const w = window as unknown as Record<string, unknown>;
     const varName = photonName.charAt(0).toLocaleLowerCase() + photonName.slice(1);
-    (window as any)[varName] = session;
+    w[varName] = session;
 
     // Also expose via common aliases
     if (photonName === 'Boards') {
-      (window as any).boards = session;
-      (window as any).boardsSession = session;
+      w.boards = session;
+      w.boardsSession = session;
     }
   }
 

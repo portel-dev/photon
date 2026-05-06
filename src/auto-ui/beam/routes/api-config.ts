@@ -241,12 +241,14 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
         status: p.configured ? 'loaded' : 'unconfigured',
         methods: p.configured ? Math.max(0, p.methods.length - (p.promptCount || 0)) : 0,
         error: !p.configured ? p.errorMessage : undefined,
-        internal: (p as any).internal || undefined,
+        internal: p.internal || undefined,
         path: p.path || undefined,
-        isApp: (p as any).isApp || undefined,
-        appEntry: (p as any).appEntry
-          ? { name: (p as any).appEntry.name, linkedUi: (p as any).appEntry.linkedUi }
-          : undefined,
+        // isApp / appEntry only live on configured photons.
+        isApp: p.configured ? p.isApp || undefined : undefined,
+        appEntry:
+          p.configured && p.appEntry
+            ? { name: p.appEntry.name, linkedUi: p.appEntry.linkedUi }
+            : undefined,
       }));
 
       // Query daemon health (non-blocking, returns null if daemon unavailable)

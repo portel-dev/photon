@@ -139,19 +139,19 @@ export function generateOpenAPISpec(
 
       // Add extensions for UI features
       if (method.icon) {
-        (operation as any)['x-icon'] = method.icon;
+        operation['x-icon'] = method.icon;
       }
       if (method.autorun) {
-        (operation as any)['x-autorun'] = true;
+        operation['x-autorun'] = true;
       }
       if (method.outputFormat) {
-        (operation as any)['x-output-format'] = method.outputFormat;
+        operation['x-output-format'] = method.outputFormat;
       }
       if (method.layoutHints && Object.keys(method.layoutHints).length > 0) {
-        (operation as any)['x-layout-hints'] = method.layoutHints;
+        operation['x-layout-hints'] = method.layoutHints;
       }
       if (method.buttonLabel) {
-        (operation as any)['x-button-label'] = method.buttonLabel;
+        operation['x-button-label'] = method.buttonLabel;
       }
       paths[path] = {
         post: operation,
@@ -182,7 +182,7 @@ export function generateOpenAPISpec(
 
   // Add unconfigured photons info as extension
   if (unconfiguredPhotons.length > 0) {
-    (spec as any)['x-unconfigured-photons'] = unconfiguredPhotons.map((p) => ({
+    spec['x-unconfigured-photons'] = unconfiguredPhotons.map((p) => ({
       name: p.name,
       requiredParams: p.requiredParams,
       errorMessage: p.errorMessage,
@@ -263,10 +263,7 @@ function convertToOpenAPISchema(schema: any): Record<string, any> {
   // Recursively process nested properties
   if (result.properties) {
     result.properties = Object.fromEntries(
-      Object.entries(result.properties).map(([key, value]) => [
-        key,
-        convertToOpenAPISchema(value as any),
-      ])
+      Object.entries(result.properties).map(([key, value]) => [key, convertToOpenAPISchema(value)])
     );
   }
 
