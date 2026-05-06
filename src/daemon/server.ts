@@ -200,8 +200,10 @@ const workerManager = new WorkerManager(logger);
 
 // Wire worker manager pub/sub bridge to main broker
 workerManager.onPublish = (channel, message) => {
-  void inProcessBroker.publish(message as any);
-  // Also forward to other workers
+  // Worker pub/sub bridge: the worker emits a ChannelMessage-shaped envelope;
+  // unknown → ChannelMessage cast is the trust boundary between the worker
+  // protocol and the in-process broker.
+  void inProcessBroker.publish(message as ChannelMessage);
   workerManager.dispatchToWorkers(channel, message);
 };
 
@@ -1550,9 +1552,7 @@ async function scanOneForProactiveMetadata(
   workingDir: string | undefined
 ): Promise<boolean> {
   const core = await import('@portel/photon-core');
-  const SchemaExtractor = (core as any).SchemaExtractor as new () => {
-    extractAllFromSource(source: string): { tools: Array<Record<string, unknown>> };
-  };
+  const SchemaExtractor = core.SchemaExtractor;
   let source: string;
   try {
     const fsp = await import('fs/promises');
@@ -1571,7 +1571,9 @@ async function scanOneForProactiveMetadata(
 
   let changed = false;
 
-  let meta: { tools: Array<Record<string, unknown>> };
+  // ExtractedMetadata isn't part of photon-core's public surface; type the
+  // bits we read structurally so we get checking without re-exporting.
+  let meta: { tools: Array<{ name: string; scheduled?: string; webhook?: boolean | string }> };
   try {
     const extractor = new SchemaExtractor();
     meta = extractor.extractAllFromSource(source);
@@ -1592,8 +1594,7 @@ async function scanOneForProactiveMetadata(
   const nextSchedules = new Map<ScheduleKey, DeclaredSchedule>();
   const nextRoutes = new Map<string, string>(); // routePath → methodName
 
-  for (const rawTool of meta.tools) {
-    const tool = rawTool as { name: string; scheduled?: string; webhook?: string | boolean };
+  for (const tool of meta.tools) {
     if (tool.scheduled) {
       nextSchedules.set(declaredKey(photonName, tool.name, workingDir), {
         photon: photonName,
@@ -2591,8 +2592,8 @@ async function getOrCreateSessionManager(
           const toolNames = new Set((loaded.tools || []).map((t: any) => t.name));
 
           const depInstanceKey = callerInstanceName || undefined;
-          return new Proxy({} as any, {
-            get(_target: any, prop: string | symbol) {
+          return new Proxy({} as Record<string | symbol, unknown>, {
+            get(_target, prop) {
               // Resolve the current instance from the session manager (survives hot-reload)
               const current = depManager.getCurrentInstance(depInstanceKey) ?? loaded;
               const instance = current.instance ?? loaded.instance;
@@ -4199,7 +4200,8 @@ async function handleRequest(
       // Worker photons don't have a session manager — handle runtime tools directly
       if (workerManager.has(cmdKey) && runtimeTools.includes(request.method)) {
         if (request.method === '_use') {
-          const instanceName = String((request.args as any)?.name ?? '');
+          const rawName = request.args?.name;
+          const instanceName = typeof rawName === 'string' ? rawName : '';
           const label = instanceName || 'default';
           return {
             type: 'result',
@@ -4263,7 +4265,8 @@ async function handleRequest(
 
       // ── Runtime-injected instance tools ──────────────────────────
       if (request.method === '_use') {
-        const instanceName = String((request.args as any)?.name ?? '');
+        const rawName = request.args?.name;
+        const instanceName = typeof rawName === 'string' ? rawName : '';
         await sessionManager.switchInstance(session.id, instanceName);
         const label = instanceName || 'default';
 
@@ -4878,14 +4881,12 @@ async function appendEventLog(
       const stat = await fsPromises.stat(logPath);
       if (stat.size >= EVENT_LOG_MAX_SIZE) {
         const rotatedPath = logPath + '.1';
-        await fsPromises
-          .rename(logPath, rotatedPath)
-          .catch((err) =>
-            logger.debug('Event log rotation rename failed', {
-              photon: photonName,
-              error: String(err),
-            })
-          );
+        await fsPromises.rename(logPath, rotatedPath).catch((err) =>
+          logger.debug('Event log rotation rename failed', {
+            photon: photonName,
+            error: String(err),
+          })
+        );
         logger.debug('Rotated event log', { photon: photonName, instance: instanceName });
       }
     } catch {
@@ -5013,6 +5014,12 @@ const POLL_INTERVAL_MS = 2000; // 2s — good balance between latency and CPU
 
 interface SafeWatcher {
   close(): void;
+  /**
+   * Optional EventEmitter-style error subscription. Node's `fs.FSWatcher`
+   * exposes `on('error', ...)` so the watcher loops can swallow ENOSPC
+   * and EBADF; the Bun stat-polling fallback doesn't, hence the optional.
+   */
+  on?(event: 'error', listener: (err: Error) => void): void;
 }
 
 /** Track active poll timers so they can be cleaned up on shutdown */
@@ -5222,8 +5229,8 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
       watchDebounce.set(watchPath, timer);
     });
 
-    if ('on' in watcher && typeof (watcher as any).on === 'function') {
-      (watcher as any).on('error', (err: Error) => {
+    if (typeof watcher.on === 'function') {
+      watcher.on('error', (err: Error) => {
         logger.warn('File watcher error', { photonName, error: getErrorMessage(err) });
         unwatchPhotonFile(watchPath);
       });
@@ -5387,8 +5394,8 @@ function watchWorkingDir(workingDir: string): void {
       watchDebounce.set(debounceKey, timer);
     });
 
-    if ('on' in watcher && typeof (watcher as any).on === 'function') {
-      (watcher as any).on('error', (err: Error) => {
+    if (typeof watcher.on === 'function') {
+      watcher.on('error', (err: Error) => {
         logger.warn('workingDir parent watcher error', { parentDir, error: getErrorMessage(err) });
         parentDirWatchers.delete(parentDir);
       });
@@ -5453,8 +5460,8 @@ function watchStateDir(workingDir: string): void {
       watchDebounce.set(debounceKey, timer);
     });
 
-    if ('on' in watcher && typeof (watcher as any).on === 'function') {
-      (watcher as any).on('error', (err: Error) => {
+    if (typeof watcher.on === 'function') {
+      watcher.on('error', (err: Error) => {
         logger.warn('State dir watcher error', { stateDir, error: getErrorMessage(err) });
         stateDirWatchers.delete(workingDir);
       });
@@ -5949,8 +5956,8 @@ function startupWatchPhotons(): void {
         logger.info('Photon file removed', { photonName, path: filePath });
       }
     });
-    if ('on' in dirWatcher && typeof (dirWatcher as any).on === 'function') {
-      (dirWatcher as any).on('error', () => {}); // Non-fatal
+    if (typeof dirWatcher.on === 'function') {
+      dirWatcher.on('error', () => {}); // Non-fatal
     }
   } catch {
     logger.warn('Failed to watch photon directory for new files', { dir: photonDir });
