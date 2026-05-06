@@ -15,7 +15,7 @@ import {
   type Dirent,
 } from 'fs';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
-import { extractHttpRoutesFromSource } from './shared/http-route-extractor.js';
+import { extractHttpRoutesFromSource, type HttpRouteDef } from './shared/http-route-extractor.js';
 import { extractExposesFromSource, type ExposeDef } from './shared/expose-route-extractor.js';
 import type {
   PhotonInstance,
@@ -1786,6 +1786,8 @@ export class PhotonLoader {
         icon?: string;
         stateful?: boolean;
         auth?: string;
+        _httpRoutes?: HttpRouteDef[];
+        _exposes?: ExposeDef[];
       } = {
         name,
         description: classDesc || `${name} MCP`,
@@ -1799,8 +1801,8 @@ export class PhotonLoader {
       if (classIcon) result.icon = classIcon;
       if (isStateful) result.stateful = true;
       if (extractedAuth) result.auth = extractedAuth;
-      if (extractedHttpRoutes?.length) (result as any)._httpRoutes = extractedHttpRoutes;
-      if (extractedExposes?.length) (result as any)._exposes = extractedExposes;
+      if (extractedHttpRoutes?.length) result._httpRoutes = extractedHttpRoutes;
+      if (extractedExposes?.length) result._exposes = extractedExposes;
       // Store class constructor for static method access
       result.classConstructor = MCPClass as unknown as Record<
         string,
@@ -2214,6 +2216,8 @@ export class PhotonLoader {
       icon?: string;
       stateful?: boolean;
       auth?: string;
+      _httpRoutes?: HttpRouteDef[];
+      _exposes?: ExposeDef[];
     } = {
       name,
       description: classDesc || `${name} MCP`,
@@ -2227,8 +2231,8 @@ export class PhotonLoader {
     if (classIcon) result.icon = classIcon;
     if (isStateful) result.stateful = true;
     if (extractedAuth) result.auth = extractedAuth;
-    if (extractedHttpRoutes?.length) (result as any)._httpRoutes = extractedHttpRoutes;
-    if (extractedExposes?.length) (result as any)._exposes = extractedExposes;
+    if (extractedHttpRoutes?.length) result._httpRoutes = extractedHttpRoutes;
+    if (extractedExposes?.length) result._exposes = extractedExposes;
     result.classConstructor = MCPClass as unknown as Record<
       string,
       (...args: unknown[]) => unknown

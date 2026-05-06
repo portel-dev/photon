@@ -6,10 +6,13 @@
  */
 
 import type { PhotonClassExtended } from '@portel/photon-core';
+import type { HttpRouteDef } from '../shared/http-route-extractor.js';
+import type { ExposeDef } from '../shared/expose-route-extractor.js';
 
 /**
  * Extended photon class with runtime-only metadata properties.
- * These are set by the loader but not declared on PhotonClassExtended.
+ * These are stamped by the loader on the result of loadFile / loadCompiled
+ * but are not declared on PhotonClassExtended in photon-core.
  */
 export interface PhotonClassWithMeta extends PhotonClassExtended {
   /** Photon icon emoji or name (from @icon class-level tag) */
@@ -18,10 +21,14 @@ export interface PhotonClassWithMeta extends PhotonClassExtended {
   stateful?: boolean;
   /** Convenience flag: true when settingsSchema.hasSettings is true */
   hasSettings?: boolean;
+  /** Auth scheme directive from @auth class-level tag (e.g. "bearer:claim"). */
+  auth?: string;
   /** Internal tool schema map used for diagnostics */
   _toolSchemas?: Record<string, unknown>;
-  /** HTTP routes from @get/@post tags */
-  _httpRoutes?: Array<{ method: string; path: string; handler: string; format?: string }>;
+  /** HTTP routes from @get / @post method-level tags */
+  _httpRoutes?: HttpRouteDef[];
+  /** Auto-RPC exposes from @expose method-level tags */
+  _exposes?: ExposeDef[];
 }
 
 /**

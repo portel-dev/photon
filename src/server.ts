@@ -470,7 +470,7 @@ class BeamCompatTransport implements Transport {
 
 export class PhotonServer {
   private loader: PhotonLoader;
-  private mcp: PhotonClassExtended | null = null;
+  private mcp: PhotonClassWithMeta | null = null;
   private server: Server;
   private taskExecutor: TaskExecutor;
   private options: PhotonServerOptions;
@@ -2252,8 +2252,8 @@ export class PhotonServer {
       // do — everything else stays single-instance. The daemon path
       // and the Cloudflare outer-Worker have their own routing; this
       // flag drives the standalone HTTP server's per-claim pool.
-      const photonAuth = (this.mcp as { auth?: string } | null)?.auth;
-      const photonStateful = !!(this.mcp as PhotonClassWithMeta | null)?.stateful;
+      const photonAuth = this.mcp?.auth;
+      const photonStateful = !!this.mcp?.stateful;
       this.requiresInstanceRouting = Boolean(photonAuth && photonStateful);
       if (this.requiresInstanceRouting) {
         this.log('info', `Per-claim instance routing enabled (auth=${JSON.stringify(photonAuth)})`);
@@ -2332,9 +2332,9 @@ export class PhotonServer {
       const photonName = this.mcp?.name || 'photon';
       beamTransport = new BeamCompatTransport(photonName, {
         description: this.mcp?.description,
-        icon: (this.mcp as PhotonClassWithMeta | null)?.icon,
-        stateful: !!(this.mcp as PhotonClassWithMeta | null)?.stateful,
-        hasSettings: !!(this.mcp as PhotonClassWithMeta | null)?.hasSettings,
+        icon: this.mcp?.icon,
+        stateful: !!this.mcp?.stateful,
+        hasSettings: !!this.mcp?.hasSettings,
       });
       this.capabilityNegotiator.interceptTransportForRawCapabilities(
         beamTransport,
@@ -2350,6 +2350,9 @@ export class PhotonServer {
         if (loaded.name === mainName) continue;
         const icon = (loaded as PhotonClassWithMeta).icon || '⚡';
         const stateful = !!(loaded as PhotonClassWithMeta).stateful;
+        // ^^ getLoadedPhotons() returns the canonical PhotonClassExtended type;
+        // these two callsites still need the narrower runtime cast until
+        // the loader's return type widens to PhotonClassWithMeta.
         const hasSettings = !!loaded.settingsSchema?.hasSettings;
         // Convert PhotonTool[] to MCP tool format with UI linking
         const uiAssets = loaded.assets?.ui || [];
@@ -2828,9 +2831,7 @@ export class PhotonServer {
           if (req.method === 'GET' && url.pathname === '/api/diagnostics') {
             const { PHOTON_VERSION } = await import('./version.js');
             const photonName = this.mcp?.name || 'photon';
-            const tools = this.mcp
-              ? Object.keys((this.mcp as PhotonClassWithMeta)._toolSchemas || {}).length
-              : 0;
+            const tools = this.mcp ? Object.keys(this.mcp._toolSchemas || {}).length : 0;
             const diagHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
             if (corsOrigin) diagHeaders['Access-Control-Allow-Origin'] = corsOrigin;
             res.writeHead(200, diagHeaders);
@@ -2927,9 +2928,7 @@ export class PhotonServer {
         // @get / @post HTTP routes — dispatch to photon method, public (no auth).
         // Track C: when none match, fall through to the auto-RPC table built
         // from @expose tags below.
-        const httpRoutes = (this.mcp as any)?._httpRoutes as
-          | Array<{ method: string; path: string; handler: string; format?: string }>
-          | undefined;
+        const httpRoutes = this.mcp?._httpRoutes;
         let matchedRoute: {
           handler: string;
           format?: string;
@@ -2945,9 +2944,7 @@ export class PhotonServer {
         // set above) so a user can override path/verb for any @expose'd
         // method without surrendering the auto-RPC slot for the rest. The
         // visibility check below decides whether to allow the call.
-        const exposes = (this.mcp as any)?._exposes as
-          | Array<{ handler: string; visibility: 'private' | 'public' }>
-          | undefined;
+        const exposes = this.mcp?._exposes;
         if (
           !matchedRoute &&
           exposes?.length &&
