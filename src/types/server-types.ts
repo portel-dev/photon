@@ -29,6 +29,12 @@ export interface PhotonClassWithMeta extends PhotonClassExtended {
   _httpRoutes?: HttpRouteDef[];
   /** Auto-RPC exposes from @expose method-level tags */
   _exposes?: ExposeDef[];
+  /**
+   * Cached extracted-tool schemas. Stamped by beam.ts during the load-and-mount
+   * flow so subsequent result rendering can skip re-parsing the source. Shape
+   * is whatever SchemaExtractor.extractAllFromSource returns for `tools`.
+   */
+  schemas?: unknown[];
 }
 
 /**

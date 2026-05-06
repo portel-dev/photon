@@ -163,6 +163,7 @@ import {
 import { StartupSequencer } from './beam/startup.js';
 import { SubscriptionManager } from './beam/subscription.js';
 import { ExternalMCPManager } from './beam/external-mcp-manager.js';
+import type { PhotonClassWithMeta } from '../types/server-types.js';
 import { handleMarketplaceRoutes } from './beam/routes/api-marketplace.js';
 import { handleBrowseRoutes } from './beam/routes/api-browse.js';
 import { handleConfigRoutes } from './beam/routes/api-config.js';
@@ -862,7 +863,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         loader.loadFile(photonPath),
         10000,
         'Loading timeout (10s)'
-      )) as any;
+      )) as PhotonClassWithMeta;
       const instance = mcp.instance;
 
       if (!instance) {
@@ -897,7 +898,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // Class-level @ui tag with file path: @ui dashboard ./ui/dashboard.html
           const uiId = classUiMatch[1]; // e.g., "dashboard"
           // Add synthetic asset entry for all methods tagged with this @ui id
-          schemas.forEach((schema: any) => {
+          schemas.forEach((schema) => {
             // Check if method has @ui tag matching this id
             const methodSource = schemaSource.match(
               new RegExp(
@@ -906,7 +907,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               )
             );
             if (methodSource) {
-              uiAssets.push({ id: uiId, linkedTool: schema.name });
+              // Synthetic record for sidebar linking — `path` isn't available
+              // here (source-only inference), but downstream readers only
+              // touch id/linkedTool. Empty string keeps the UIAsset contract.
+              uiAssets.push({ id: uiId, path: '', linkedTool: schema.name });
             }
           });
         }
@@ -952,7 +956,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         });
 
       // Resolve icon images (file paths → data URIs) for methods that have them
-      for (const schema of schemas as any[]) {
+      for (const schema of schemas) {
         if (!schema.iconImages) continue;
         const method = methods.find((m) => m.name === schema.name);
         if (!method) continue;
@@ -996,10 +1000,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Extract class-level metadata — reuse source already read
       const classMetadata = extractClassMetadataFromSource(schemaSource);
 
-      // Extract class-level @csp metadata and apply to all UI assets
+      // Extract class-level @csp metadata and apply to all UI assets.
+      // `csp` is a runtime extension on UIAsset (consumed by custom-ui-renderer);
+      // photon-core's published UIAsset type doesn't declare it, so narrow
+      // via a structural intersection at the assignment site.
+      type UIAssetWithCsp = NonNullable<typeof mcp.assets>['ui'][number] & {
+        csp?: ReturnType<typeof extractCspFromSource>[string];
+      };
       const cspData = extractCspFromSource(schemaSource);
       if (cspData['__class__'] && mcp.assets?.ui) {
-        for (const uiAsset of mcp.assets.ui) {
+        for (const uiAsset of mcp.assets.ui as UIAssetWithCsp[]) {
           uiAsset.csp = cspData['__class__'];
         }
       }
@@ -1107,7 +1117,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
     const photonDir = path.dirname(photon.path);
     const photonBaseName = path.basename(photon.path, '.photon.ts');
-    const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
+    // assets only live on configured photons
+    const asset = photon.configured ? photon.assets?.ui?.find((u) => u.id === uiId) : undefined;
 
     let resolved;
     if (asset?.resolvedPath) {
@@ -1169,7 +1180,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const beamState: import('./beam/types.js').BeamState = {
     actions: beamActions,
     workingDir,
-    ctx: null as any, // Not yet used by route modules
+    ctx: null, // Not yet used by route modules
     loader,
     marketplace,
     savedConfig,
@@ -1619,10 +1630,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           return;
         }
         const label =
-          (photon as any)?.label ||
+          photon.label ||
           photonName.charAt(0).toUpperCase() + photonName.slice(1).replace(/-/g, ' ');
-        const description = (photon as any)?.description || `${label} - Photon App`;
-        const iconValue = (photon as any)?.icon || '📦';
+        // `description` and `icon` only live on configured photons; an unconfigured
+        // entry falls back to the auto-built defaults below.
+        const description = (photon.configured && photon.description) || `${label} - Photon App`;
+        const iconValue = (photon.configured && photon.icon) || '📦';
         const encodedName = encodeURIComponent(photonName);
 
         // Sanitize strings for safe embedding in HTML
@@ -2446,9 +2459,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
             try {
               // Load or reload the photon
-              const mcp = isNewPhoton
-                ? await loader.loadFile(photonPath)
-                : await loader.reloadFile(photonPath);
+              const mcp = (
+                isNewPhoton
+                  ? await loader.loadFile(photonPath)
+                  : await loader.reloadFile(photonPath)
+              ) as PhotonClassWithMeta;
               if (!mcp.instance) throw new Error('Failed to create instance');
 
               photonMCPs.set(photonName, mcp);
@@ -2462,7 +2477,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               const reloadMetadata = extractor.extractAllFromSource(reloadSource);
               const schemas = reloadMetadata.tools;
               const templates = reloadMetadata.templates;
-              (mcp as any).schemas = schemas; // Store schemas for result rendering
+              mcp.schemas = schemas; // Store schemas for result rendering
 
               // Update notification subscriptions for reloaded photon
               if (reloadMetadata.notificationSubscriptions?.watchFor) {
@@ -2511,7 +2526,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 });
 
               // Resolve icon images for hot-reloaded methods
-              for (const schema of schemas as any[]) {
+              for (const schema of schemas) {
                 if (!schema.iconImages) continue;
                 const method = methods.find((m: MethodInfo) => m.name === schema.name);
                 if (!method) continue;

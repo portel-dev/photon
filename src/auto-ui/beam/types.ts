@@ -69,8 +69,11 @@ export interface BeamState {
   actions: BeamActions;
   /** Resolved working directory */
   workingDir: string;
-  /** PhotonContext for path resolution */
-  ctx: PhotonContext;
+  /**
+   * PhotonContext for path resolution. Currently unused by route modules —
+   * field is kept for future plumbing but holds null today.
+   */
+  ctx: PhotonContext | null;
   /** Photon loader instance */
   loader: PhotonLoader;
   /** Marketplace manager */
