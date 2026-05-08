@@ -15,6 +15,8 @@ import {
   type Dirent,
 } from 'fs';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
+import { parseCfBindings } from './cf-bindings-parser.js';
+import { CFLocalRuntime } from './runtime/cf-local.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from './shared/http-route-extractor.js';
 import { extractExposesFromSource, type ExposeDef } from './shared/expose-route-extractor.js';
 import type {
@@ -65,6 +67,7 @@ import {
   // CLI formatting
   formatOutput as cliFormatOutput,
   // MCP Client types and SDK transport
+  notConfiguredCF,
   type MCPClientFactory,
   type MCPDependency,
   type PhotonDependency,
@@ -509,6 +512,13 @@ export class PhotonLoader {
   private logger: Logger;
   private settingsPersistence: SettingsPersistence;
   private assetResolver: AssetResolver;
+
+  /**
+   * One CFLocalRuntime per photon name. Boot is lazy inside the runtime
+   * itself; this cache just ensures every instance of a given photon
+   * shares a single miniflare sandbox.
+   */
+  private cfRuntimes = new Map<string, CFLocalRuntime>();
 
   /**
    * Per-instance call queue. Two tool invocations targeting the same photon
@@ -1401,6 +1411,23 @@ export class PhotonLoader {
           });
         }
 
+        // Always-inject lazy `this.cf` getter for plain classes. The
+        // `_cfRuntime` slot is populated by the CF runtime injection block
+        // above when `protected cfBindings` is declared; otherwise the
+        // accessor returns the not-configured stub from photon-core.
+        if (!('cf' in instance)) {
+          Object.defineProperty(instance, 'cf', {
+            get() {
+              if (this._cfRuntime) return this._cfRuntime;
+              if (!this._cfStub) {
+                this._cfStub = notConfiguredCF();
+              }
+              return this._cfStub;
+            },
+            configurable: true,
+          });
+        }
+
         // Always-inject `this.callerCwd`. Reads the originating CLI cwd from
         // the request context, falling back to `process.cwd()` when no context
         // is active (direct in-process load with no caller info). Inside a
@@ -1742,6 +1769,23 @@ export class PhotonLoader {
         httpRoutes: extractedHttpRoutes,
         exposes: extractedExposes,
       } = await this.extractTools(MCPClass, absolutePath);
+
+      // ═══ CF RUNTIME INJECTION ═══
+      // If the photon declared `protected cfBindings = { ... }`, attach a
+      // local miniflare-backed runtime to `_cfRuntime` so `this.cf.*`
+      // resolves to a real backend instead of the not-configured stub.
+      if (tsContent) {
+        const cfBindings = parseCfBindings(tsContent);
+        if (cfBindings) {
+          let runtime = this.cfRuntimes.get(name);
+          if (!runtime) {
+            runtime = new CFLocalRuntime(name, cfBindings, this.baseDir);
+            this.cfRuntimes.set(name, runtime);
+          }
+          (instance as { _cfRuntime?: unknown })._cfRuntime = runtime;
+          this.log(`☁️  CF runtime attached to ${name} (${Object.keys(cfBindings).join(', ')})`);
+        }
+      }
 
       // ═══ SETTINGS INJECTION ═══
       // If the photon declared `protected settings = { ... }`, inject persistence + proxy
@@ -2201,6 +2245,19 @@ export class PhotonLoader {
       httpRoutes: extractedHttpRoutes,
       exposes: extractedExposes,
     } = await this.extractTools(MCPClass, absolutePath, tsContent);
+
+    // CF runtime injection (mirrors the loadFile path above)
+    if (tsContent) {
+      const cfBindings = parseCfBindings(tsContent);
+      if (cfBindings) {
+        let runtime = this.cfRuntimes.get(name);
+        if (!runtime) {
+          runtime = new CFLocalRuntime(name, cfBindings, this.baseDir);
+          this.cfRuntimes.set(name, runtime);
+        }
+        (instance as { _cfRuntime?: unknown })._cfRuntime = runtime;
+      }
+    }
 
     // Settings injection
     if (settingsSchema?.hasSettings && instance.settings && typeof instance.settings === 'object') {

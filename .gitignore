@@ -82,3 +82,4 @@ tests/beam/fixtures/agent-router.photon.ts
 /.migrated
 /.context/
 /people/
+tests/fixtures/.wrangler/
