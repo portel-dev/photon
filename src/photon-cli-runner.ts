@@ -739,6 +739,18 @@ export function parseCliArgs(args: string[], params: MethodInfo['params']): Reco
   // Create a map of param names to types for quick lookup
   const paramTypes = new Map(params.map((p) => [p.name, p.type]));
 
+  // Map kebab-case flag back to the camelCase param name when applicable,
+  // so `--pair-code` resolves to a `pairCode` parameter. Unknown keys pass
+  // through unchanged (validation downstream surfaces the typo).
+  const resolveKey = (raw: string): string => {
+    if (paramTypes.has(raw)) return raw;
+    if (raw.includes('-')) {
+      const camel = raw.replace(/-([a-zA-Z0-9])/g, (_, c: string) => c.toUpperCase());
+      if (paramTypes.has(camel)) return camel;
+    }
+    return raw;
+  };
+
   // Handle both positional and --flag style arguments
   let positionalIndex = 0;
 
@@ -747,26 +759,21 @@ export function parseCliArgs(args: string[], params: MethodInfo['params']): Reco
 
     if (arg.startsWith('--no-') && !arg.includes('=')) {
       // --no-<param> negation syntax for boolean params (e.g., --no-enabled → enabled=false)
-      const key = arg.substring(5);
-      if (paramTypes.has(key)) {
-        result[key] = false;
-      } else {
-        // Unknown param, store as-is (will be caught by validation later)
-        result[key] = false;
-      }
+      const key = resolveKey(arg.substring(5));
+      result[key] = false;
     } else if (arg.startsWith('--')) {
       // Named argument: --key value or --key=value
       const eqIndex = arg.indexOf('=');
 
       if (eqIndex !== -1) {
         // --key=value format
-        const key = arg.substring(2, eqIndex);
+        const key = resolveKey(arg.substring(2, eqIndex));
         const value = arg.substring(eqIndex + 1);
         const expectedType = paramTypes.get(key) || 'any';
         result[key] = coerceValue(value, expectedType);
       } else {
         // --key value format (next arg is the value)
-        const key = arg.substring(2);
+        const key = resolveKey(arg.substring(2));
         const expectedType = paramTypes.get(key) || 'any';
 
         // For boolean params, treat bare --flag as true (no value consumed)

@@ -97,6 +97,28 @@ describe('parseCliArgs', () => {
     });
   });
 
+  it('maps kebab-case flags to camelCase params', () => {
+    const params = [
+      { name: 'pairCode', type: 'string', optional: false, description: 'Pair code' },
+      { name: 'portUrl', type: 'string', optional: false, description: 'Port URL' },
+      { name: 'requiresTrigger', type: 'boolean', optional: true, description: 'flag' },
+    ];
+    const result = parseCliArgs(
+      [
+        '--pair-code',
+        'Y4-726-QZ',
+        '--port-url=https://port.example.workers.dev',
+        '--no-requires-trigger',
+      ],
+      params
+    );
+    expect(result).toEqual({
+      pairCode: 'Y4-726-QZ',
+      portUrl: 'https://port.example.workers.dev',
+      requiresTrigger: false,
+    });
+  });
+
   it('does not match bare words that are not param names as named args', () => {
     // "hello" is not a param name, so it's positional
     const result = parseCliArgs(['hello', '~/Projects', '@bot'], registerParams);
