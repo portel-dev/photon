@@ -401,6 +401,21 @@ function withCfCapabilities(
     configurable: false,
   });
 
+  // `this.mcpAuthed` — true when the active /mcp request passed the
+  // PHOTON_MCP_BEARER check, false when no secret is configured or the
+  // request hit a path outside MCP dispatch (e.g. /api/* or /__call).
+  // User code can guard sensitive methods with:
+  //   if (!this.mcpAuthed) throw new Error('unauthorized');
+  // The flag is per-tool-call (AsyncLocalStorage scoped); it doesn't
+  // persist across awaits that escape the dispatch context.
+  Object.defineProperty(instance, 'mcpAuthed', {
+    get() {
+      return mcpAuthContext.getStore()?.authed === true;
+    },
+    enumerable: false,
+    configurable: false,
+  });
+
   // `this.cf.*` namespace — local development uses miniflare via
   // CFLocalRuntime; on a deployed Worker the bindings are real, so we
   // build a thin adapter that pulls the named binding off `env` and
@@ -465,6 +480,73 @@ interface RequestContext {
  * deep in its async tree still hits the right context.
  */
 const requestContext = new AsyncLocalStorage<RequestContext>();
+
+/**
+ * Per-tool-call MCP auth context. Set when the bearer check on `/mcp`
+ * has passed (or skipped because no `PHOTON_MCP_BEARER` secret is
+ * configured) so user code reading `this.mcpAuthed` sees the right
+ * value for the dispatched method. The flag is scoped to the single
+ * `tools/call` invocation, not the DO lifetime.
+ */
+const mcpAuthContext = new AsyncLocalStorage<{ authed: boolean }>();
+
+/**
+ * Constant-time string comparison to avoid leaking the bearer through
+ * timing differences. Falls back to a manual byte loop because Workers
+ * doesn't always expose `crypto.timingSafeEqual`.
+ */
+function timingSafeEqualString(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+/**
+ * Validate the Authorization header against `env.PHOTON_MCP_BEARER`.
+ * Returns:
+ *  - `{ enforced: false }` when no secret is configured (back-compat).
+ *  - `{ enforced: true, ok: true }` when the bearer matches.
+ *  - `{ enforced: true, ok: false, reason }` when missing or wrong.
+ *
+ * Methods that don't dispatch user code (`tools/list`, `initialize`,
+ * `notifications/*`, `ping`) bypass this check at the call site.
+ */
+function checkMcpBearer(
+  request: Request,
+  env: Env
+): { enforced: false } | { enforced: true; ok: boolean; reason?: string } {
+  const expected = (env as Record<string, unknown>).PHOTON_MCP_BEARER;
+  if (typeof expected !== 'string' || expected.length === 0) {
+    return { enforced: false };
+  }
+  const header = request.headers.get('Authorization') ?? '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return { enforced: true, ok: false, reason: 'Authorization: Bearer <token> header missing' };
+  }
+  const presented = match[1].trim();
+  if (!timingSafeEqualString(presented, expected)) {
+    return { enforced: true, ok: false, reason: 'bearer token does not match PHOTON_MCP_BEARER' };
+  }
+  return { enforced: true, ok: true };
+}
+
+/**
+ * Methods that may pass through `/mcp` without a bearer because they
+ * don't dispatch into user code. `tools/list` advertises the catalog,
+ * which is generally safe to expose; if a deployment wants to gate it
+ * the photon owner can set CF Access on the route.
+ */
+const MCP_METHODS_BYPASSING_BEARER = new Set([
+  'initialize',
+  'notifications/initialized',
+  'notifications/cancelled',
+  'ping',
+  'tools/list',
+]);
 
 function requireRequestContext(which: string): RequestContext {
   const ctx = requestContext.getStore();
@@ -1031,6 +1113,40 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
+    // Bearer auth gate. When `PHOTON_MCP_BEARER` is set on the deployed
+    // Worker (e.g. via `wrangler secret put PHOTON_MCP_BEARER`), every
+    // method that dispatches into user code requires a matching
+    // `Authorization: Bearer <token>` header. Discovery + handshake
+    // methods (tools/list, initialize, ping, notifications/*) pass
+    // through unauthed so MCP clients can complete capability
+    // negotiation before authenticating. When the secret is unset the
+    // gate is a no-op so existing deployments keep working.
+    const method = typeof body?.method === 'string' ? body.method : '';
+    const authResult = checkMcpBearer(request, (this as any).env);
+    const requiresAuth = method !== '' && !MCP_METHODS_BYPASSING_BEARER.has(method);
+    if (authResult.enforced && requiresAuth && !authResult.ok) {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: body?.id ?? null,
+          error: {
+            code: -32001,
+            message: 'Unauthorized',
+            data: { reason: (authResult as { reason: string }).reason },
+          },
+        }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'WWW-Authenticate': 'Bearer realm="photon"',
+            ...CORS_HEADERS,
+          },
+        }
+      );
+    }
+    const authed = authResult.enforced ? authResult.ok === true : false;
+
     // Tool calls from clients that signal SSE support get a streamed
     // response so this.sample / this.confirm / this.elicit can push
     // server-initiated requests inline. All other JSON-RPC methods (and
@@ -1038,10 +1154,12 @@ abstract class BasePhotonDO extends DurableObject<Env> {
     const accept = request.headers.get('Accept') ?? '';
     const wantsSse = accept.includes('text/event-stream');
     if (body?.method === 'tools/call' && wantsSse) {
-      return this._streamToolCall(body);
+      return mcpAuthContext.run({ authed }, () => this._streamToolCall(body));
     }
 
-    const result = await handleMCPRequest(body, this.photon, this.photonName, this.toolDefinitions);
+    const result = await mcpAuthContext.run({ authed }, () =>
+      handleMCPRequest(body, this.photon, this.photonName, this.toolDefinitions)
+    );
     return Response.json(result, { headers: CORS_HEADERS });
   }
 

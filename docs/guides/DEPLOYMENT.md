@@ -253,6 +253,37 @@ export default class Summarizer {
 }
 ```
 
+### MCP transport-level bearer auth (`/mcp`)
+
+By default, `/mcp` on a deployed photon is open — anyone who knows the URL can hit `tools/list` and `tools/call`. To require a bearer token, set the `PHOTON_MCP_BEARER` secret on the deployed Worker:
+
+```bash
+wrangler secret put PHOTON_MCP_BEARER
+# enter the secret value when prompted
+```
+
+When the secret is set:
+
+- `tools/call` (and any non-handshake JSON-RPC method) requires `Authorization: Bearer <secret>` and returns `401` with `WWW-Authenticate: Bearer realm="photon"` on missing/wrong bearer.
+- `tools/list`, `initialize`, `ping`, and `notifications/*` pass through unauthed so MCP clients can complete capability negotiation before authenticating.
+- Bearer comparison is timing-safe.
+- When `PHOTON_MCP_BEARER` is unset, `/mcp` stays open (back-compat for existing deployments).
+
+User code can read the auth state via `this.mcpAuthed` for finer-grained logic:
+
+```typescript
+async sensitiveMethod() {
+  if (!(this as any).mcpAuthed) {
+    throw new Error('unauthorized');
+  }
+  // ...
+}
+```
+
+`this.mcpAuthed` is `true` only inside a `tools/call` whose bearer passed; it's `false` when no secret is configured (i.e., when the gate is off) or outside a `/mcp` dispatch (e.g., inside a `@get`/`@post` handler that uses its own auth).
+
+For per-user identity (multi-tenant routing), use `@auth cf-access` instead — that maps each authenticated CF Access email to its own DO instance.
+
 ### Per-User Isolation with CF Access
 
 Add `@auth cf-access` to route each authenticated Cloudflare Access user to their own DO instance:

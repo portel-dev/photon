@@ -4,6 +4,8 @@
 
 ### Features
 
+- **cf-deploy/auth:** transport-level bearer check on `/mcp`. Set `PHOTON_MCP_BEARER` as a Worker secret and `tools/call` requires `Authorization: Bearer <secret>` (timing-safe compare); `tools/list`, `initialize`, `ping`, and `notifications/*` stay unauthed so MCP clients can complete handshake. Mismatch returns `401` with `WWW-Authenticate: Bearer realm="photon"`. Unset secret = current open behavior (back-compat).
+- **cf-deploy/auth:** `this.mcpAuthed` boolean exposed on photon instances when running on Cloudflare Workers. Reads an AsyncLocalStorage scoped to the active `tools/call` so per-method guards can branch on it without race conditions.
 - **cf:** `this.cf.*` namespace exposing R2, KV, D1, Queues, Vectorize, Workers AI, Images, Browser Rendering, and Durable Objects. Single shape across local miniflare and deployed Workers.
 - **cf:** `protected cfBindings = { ... }` declaration on photon classes; binding names resolve to the upstream Cloudflare types.
 - **cf-local:** miniflare-backed local runtime with persistent storage under `<baseDir>/.data/cf-sandbox/<photon>/`. KV / R2 / D1 (prepare/bind/run/all/exec) / Queue producer / Vectorize / Workers AI / Images all wired. DO and Browser Rendering deferred.
