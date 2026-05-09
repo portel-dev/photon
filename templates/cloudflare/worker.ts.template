@@ -298,6 +298,41 @@ function createCallProvider(env: Env, callerName: string) {
   };
 }
 
+/**
+ * Build a CFRuntime adapter that proxies `this.cf.*` to the real Worker
+ * env bindings. The local CFLocalRuntime exposes the same shape so
+ * photon source is unchanged between runtimes.
+ *
+ * Each named-binding category looks up `env[name]` directly. Property-
+ * style categories (ai/images/browser) live on canonical env keys
+ * (AI/IMAGES/BROWSER) — the deploy adapter writes the matching wrangler
+ * config so the bindings exist.
+ */
+function createCfRuntimeFromEnv(env: Env): any {
+  const named = (category: string) => (name: string) => {
+    const binding = (env as any)[name];
+    if (!binding) {
+      throw new Error(
+        `this.cf.${category}('${name}') — Worker env has no binding '${name}'. ` +
+          `Verify the photon's protected cfBindings declaration matches the deployed wrangler.toml.`
+      );
+    }
+    return binding;
+  };
+  return {
+    r2: named('r2'),
+    kv: named('kv'),
+    d1: named('d1'),
+    queue: named('queue'),
+    vectorize: named('vectorize'),
+    do: named('do'),
+    ai: (env as any).AI,
+    images: (env as any).IMAGES,
+    browser: (env as any).BROWSER,
+    fetch: (input: any, init?: any) => fetch(input, init),
+  };
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Capability shim — wires this.* on the photon instance
 // ════════════════════════════════════════════════════════════════════════════
@@ -361,6 +396,19 @@ function withCfCapabilities(
   // undefined). Non-enumerable so it doesn't leak into JSON output.
   Object.defineProperty(instance, 'env', {
     value: env,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
+  // `this.cf.*` namespace — local development uses miniflare via
+  // CFLocalRuntime; on a deployed Worker the bindings are real, so we
+  // build a thin adapter that pulls the named binding off `env` and
+  // routes property-style categories (ai/images/browser) to the
+  // single-binding env keys. The `_cfRuntime` slot is the same one the
+  // local loader uses, so the photon source is unchanged across runtimes.
+  Object.defineProperty(instance, '_cfRuntime', {
+    value: createCfRuntimeFromEnv(env),
     writable: false,
     enumerable: false,
     configurable: false,

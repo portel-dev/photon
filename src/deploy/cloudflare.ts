@@ -10,6 +10,8 @@ import { fileURLToPath } from 'url';
 import { homedir, tmpdir } from 'node:os';
 import { detectPM, detectRunner } from '../shared-utils.js';
 import { SchemaExtractor } from '@portel/photon-core';
+import { parseCfBindings } from '../cf-bindings-parser.js';
+import { mergeBindings, type CfBindingsConfig } from '../runtime/cf-local.js';
 import { PHOTON_VERSION } from '../version.js';
 import { logger } from '../shared/logger.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from '../shared/http-route-extractor.js';
@@ -366,6 +368,88 @@ export interface CloudflareDeployOptions {
   withLogs?: boolean;
 }
 
+/**
+ * Generate the wrangler.toml binding blocks for a deployment from each
+ * bundled photon's `protected cfBindings` declaration. The host photon's
+ * local override (`<baseDir>/.data/cf-overrides/<photon>.json`) is
+ * applied so renames done with `photon cf set` propagate into the
+ * deployed config.
+ *
+ * Bindings are deduped by binding name across photons; the first
+ * resource id wins (later photons should match). Returns a multi-line
+ * TOML fragment ready to splice into the template, or an empty string
+ * when no photon declared any bindings.
+ */
+async function renderCfBindingsToml(
+  photons: { name: string; source: string }[],
+  hostPhotonName: string,
+  hostPhotonDir: string
+): Promise<string> {
+  // Collect declared bindings from each photon source
+  let merged: CfBindingsConfig = {};
+  for (const p of photons) {
+    const declared = parseCfBindings(p.source);
+    if (declared) {
+      merged = mergeBindings(merged, declared);
+    }
+  }
+  // Apply the host's local override (if any)
+  try {
+    const overridePath = path.join(
+      hostPhotonDir,
+      '.data',
+      'cf-overrides',
+      `${hostPhotonName}.json`
+    );
+    const raw = await fs.readFile(overridePath, 'utf-8');
+    merged = mergeBindings(merged, JSON.parse(raw) as CfBindingsConfig);
+  } catch {
+    // No override — fine, deploy uses declared values verbatim.
+  }
+  return formatCfBindingsToml(merged);
+}
+
+function formatCfBindingsToml(bindings: CfBindingsConfig): string {
+  const blocks: string[] = [];
+  if (bindings.r2) {
+    for (const [binding, bucket] of Object.entries(bindings.r2)) {
+      blocks.push(`[[r2_buckets]]\nbinding = "${binding}"\nbucket_name = "${bucket}"`);
+    }
+  }
+  if (bindings.kv) {
+    for (const [binding, id] of Object.entries(bindings.kv)) {
+      blocks.push(`[[kv_namespaces]]\nbinding = "${binding}"\nid = "${id}"`);
+    }
+  }
+  if (bindings.d1) {
+    for (const [binding, dbName] of Object.entries(bindings.d1)) {
+      blocks.push(
+        `[[d1_databases]]\nbinding = "${binding}"\ndatabase_name = "${dbName}"\ndatabase_id = "${dbName}"`
+      );
+    }
+  }
+  if (bindings.queue) {
+    for (const [binding, queueName] of Object.entries(bindings.queue)) {
+      blocks.push(`[[queues.producers]]\nbinding = "${binding}"\nqueue = "${queueName}"`);
+    }
+  }
+  if (bindings.vectorize) {
+    for (const [binding, indexName] of Object.entries(bindings.vectorize)) {
+      blocks.push(`[[vectorize]]\nbinding = "${binding}"\nindex_name = "${indexName}"`);
+    }
+  }
+  if (bindings.images) {
+    blocks.push(`[images]\nbinding = "IMAGES"`);
+  }
+  if (bindings.browser) {
+    blocks.push(`[browser]\nbinding = "BROWSER"`);
+  }
+  // ai is already declared by the static template block.
+  return blocks.length > 0
+    ? '\n# Auto-generated from `protected cfBindings`\n' + blocks.join('\n\n') + '\n'
+    : '';
+}
+
 export async function deployToCloudflare(options: CloudflareDeployOptions): Promise<void> {
   const { photonPath, devMode = false, dryRun = false, withLogs = false } = options;
 
@@ -695,13 +779,26 @@ class_name = "${p.doClass}"`
     )
     .join('\n\n');
   const sqliteClassesToml = JSON.stringify(photons.map((p) => p.doClass));
+
+  // Aggregate `protected cfBindings` across the host and any siblings so
+  // every binding referenced by `this.cf.*` appears in the generated
+  // wrangler.toml. The local override JSON layered on the host photon
+  // wins over the source declaration so renames done with `photon cf set`
+  // propagate to deploys.
+  const cfBindingsToml = await renderCfBindingsToml(
+    photons.map((p) => ({ name: p.name, source: p.source })),
+    photonName,
+    path.dirname(absolutePath)
+  );
+
   let wranglerConfig = await fs.readFile(wranglerTemplatePath, 'utf-8');
   wranglerConfig = wranglerConfig
     .replace(/__PHOTON_NAME__/g, photonName)
     .replace(/__DURABLE_OBJECT_BINDINGS__/g, doBindingsToml)
     .replace(/__SQLITE_CLASSES__/g, sqliteClassesToml)
     .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement)
-    .replace(/__ASSETS_BLOCK__\n?/g, assetsBlock);
+    .replace(/__ASSETS_BLOCK__\n?/g, assetsBlock)
+    .replace(/__CF_BINDINGS__\n?/g, cfBindingsToml);
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);
 
   // Create package.json. Photon-declared dependencies land in `dependencies`

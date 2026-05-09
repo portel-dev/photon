@@ -7,6 +7,7 @@ main = "src/worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 __OBSERVABILITY__
+__CF_BINDINGS__
 # Workers AI binding — gives every photon access to CF's edge inference
 # (embeddings, classification, small LLMs) via `(this as any).env.AI.run(...)`.
 # Free tier covers thousands of calls/day; charges only kick in at scale.
