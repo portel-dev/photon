@@ -121,7 +121,7 @@
     "@modelcontextprotocol/ext-apps": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@portel/cli": "^1.1.0",
-    "@portel/photon-core": "^2.26.0",
+    "@portel/photon-core": "^2.27.0",
     "boxen": "^8.0.1",
     "chalk": "^5.4.1",
     "chart.js": "^4.5.1",
@@ -168,7 +168,8 @@
     "prettier": "^3.8.0",
     "release-it": "^20.0.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.5"
   },
   "overrides": {
     "minimatch": "^10.2.1"
