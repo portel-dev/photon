@@ -119,10 +119,14 @@ The more you express, the more Photon derives:
 | Method signatures | Tool definitions: names, inputs, outputs |
 | Type annotations | Input validation rules, UI field types |
 | JSDoc comments | Documentation for AI clients and human users |
-| Constructor parameters | Config UI, environment variable mapping |
+| Constructor parameters | Config UI, environment variable mapping, runtime injection (`Photon`, `Cloudflare`, `CloudflareEnv`) |
 | `@tags` | Validation, formatting, scheduling, webhooks |
 
 When you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation, Beam validates it in the form, the CLI validates it before running, and the MCP schema enforces it for the AI. One annotation. Three consumers.
+
+### Three ways to author
+
+`extends Photon` is one shape. You can also inject `Photon` as a constructor parameter when you already extend something else, or compose without inheritance — same API either way. CF resources reach the photon through a separate `Cloudflare` injection so portable photons stay portable. See [docs/guides/PHOTON-INJECTION.md](docs/guides/PHOTON-INJECTION.md).
 
 ---
 

@@ -1,30 +1,40 @@
 # Changelog
 
-## [Unreleased] — Cloudflare runtime preview
+## [Unreleased]
 
 ### Features
 
-- **cf-deploy/auth:** transport-level bearer check on `/mcp`. Set `PHOTON_MCP_BEARER` as a Worker secret and `tools/call` requires `Authorization: Bearer <secret>` (timing-safe compare); `tools/list`, `initialize`, `ping`, and `notifications/*` stay unauthed so MCP clients can complete handshake. Mismatch returns `401` with `WWW-Authenticate: Bearer realm="photon"`. Unset secret = current open behavior (back-compat).
-- **cf-deploy/auth:** `this.mcpAuthed` boolean exposed on photon instances when running on Cloudflare Workers. Reads an AsyncLocalStorage scoped to the active `tools/call` so per-method guards can branch on it without race conditions.
-- **cf:** `this.cf.*` namespace exposing R2, KV, D1, Queues, Vectorize, Workers AI, Images, Browser Rendering, and Durable Objects. Single shape across local miniflare and deployed Workers.
-- **cf:** `protected cfBindings = { ... }` declaration on photon classes. The runtime returns minimal structural types (e.g., `R2BucketLike` exposing the methods photons commonly call). Photons that import `@cloudflare/workers-types` get exact compatibility through structural typing; nothing else has to change. Binding names are unchecked strings — typos surface at runtime, not compile time.
-- **cf-local:** miniflare-backed local runtime with persistent storage under `<baseDir>/.data/cf-sandbox/<photon>/`. KV / R2 / D1 (prepare/bind/run/all/exec) / Queue producer / Vectorize / Workers AI / Images all wired. DO and Browser Rendering deferred.
-- **cf-deploy:** `photon host deploy cf` autogenerates `wrangler.toml` binding blocks (`[[r2_buckets]]`, `[[kv_namespaces]]`, `[[d1_databases]]`, `[[queues.producers]]`, `[[vectorize]]`, `[images]`, `[browser]`) from `protected cfBindings` across the host photon and any `@photons` siblings.
-- **cf-deploy:** worker template attaches `_cfRuntime` adapter built from real `env` so `this.cf.*` resolves to the deployed binding without source changes.
-- **cf-cli:** `photon cf bindings <photon>` / `photon cf set <photon> <category>.<name> <value>` / `photon cf reset <photon>` for layering an override on top of the declared bindings. Override JSON at `<baseDir>/.data/cf-overrides/<photon>.json` applies to both the local runtime and the deploy autogen.
+- **photon-injection:** three ways to consume runtime capabilities, same surface everywhere — `extends Photon` (classic), `constructor(private photon: Photon)` (compose without inheritance), or extend an unrelated base class and inject `Photon` alongside. Switching between modes is purely cosmetic; the runtime resolves to the same memory scope, schedule, call handler, etc. for the same photon name.
+- **cf-injection:** Cloudflare resources reach the photon through a separate, optional `Cloudflare` (or `CloudflareEnv<T>`) constructor parameter. Importing `Cloudflare` from `@portel/photon` is the deploy-target signal — the import line documents the dependency. Outside CF, the loader injects a throwing Proxy whose error message names the imported symbol so the diagnostic is unambiguous. Forgiving auto-inject covers plain classes that reference `this.cf.*` without the explicit ctor param.
+- **cf-auto-naming:** binding names are now derived from the photon name + optional qualifier — `cf.kv()` → `<photon>_kv`, `cf.kv('cache')` → `<photon>_cache_kv`, etc. Single source of truth (`bindingNameFor` from `@portel/photon-core`) feeds the local miniflare seed list, the deploy-time `wrangler.toml` emission, and the Worker-runtime lookup. Photons no longer pick global binding names; collisions across photons are impossible by construction.
+- **cf-source-scanner:** `cf-usage-scanner.ts` walks photon source at boot/deploy time to discover every literal qualifier passed to `cf.<category>(...)`. Qualifiers are recognized on every access path (`this.cf`, `this.<paramName>` for any constructor param typed `Cloudflare`, type-cast variants like `(this as any).cf`). Dynamic qualifiers fall back to the default binding plus a clear runtime miss for unknown names.
+- **cf-overrides:** `protected cfBindings` becomes a pure override layer keyed by qualifier. Optional in most photons; declare only when repointing a binding at a pre-existing CF resource (shared bucket, real D1 UUID, etc.). CLI overrides via `photon cf set <photon> <category>.<qualifier> <value>` continue to layer on top via JSON at `<baseDir>/.data/cf-overrides/<photon>.json`.
+- **cf-deploy:** `photon host deploy cloudflare` autogenerates `wrangler.toml` from the source scanner, namespaced per photon. Each photon contributes its own auto-named bindings; siblings can't collide.
+- **cf-flush:** `this.emit({ emit: 'progress'|'status'|'log'|'render' })` (and the `this.status(...)` / `this.log(...)` / `this.progress(...)` helpers) now flush through the active SSE writer on deployed Workers, mapped to `notifications/progress` / `notifications/message` JSON-RPC notifications. Client-supplied `_meta.progressToken` is echoed back so progress correlates with the request. Local STDIO already had this wiring; the deployed Worker now matches for cross-transport parity.
+- **cf-helpers:** the deployed Worker template now injects `this.status / this.log / this.progress / this.toast / this.thinking / this.render` on plain-class photons. Mirrors `injectEmitHelpers` from the classic loader so a photon written against the local runtime behaves identically when served from CF.
+- **cf-deploy/auth:** transport-level bearer check on `/mcp`. Set `PHOTON_MCP_BEARER` as a Worker secret and `tools/call` requires `Authorization: Bearer <secret>` (timing-safe compare); `tools/list`, `initialize`, `ping`, and `notifications/*` stay unauthed so MCP clients can complete handshake. Mismatch returns `401` with `WWW-Authenticate: Bearer realm="photon"`. Unset secret = open behavior (back-compat).
+- **cf-deploy/auth:** `this.mcpAuthed` boolean exposed on photon instances when running on Cloudflare Workers. Reads an `AsyncLocalStorage` scoped to the active `tools/call` so per-method guards can branch on it without race conditions.
+- **cf-local:** miniflare-backed local sandbox with persistent storage under `<baseDir>/.data/cf-sandbox/<photon>/`. KV / R2 / D1 (prepare/bind/run/all/exec) / Queue producer / Vectorize / Workers AI / Images all wired. Browser Rendering deferred until a photon dogfoods it (Chromium dep).
 - **cli:** kebab-case flag names resolve to camelCase parameters (`--pair-code` → `pairCode`).
+
+### Breaking changes (CF surface — pre-release, no published consumers)
+
+- `this.cf` is no longer a member of the `Photon` base class or the `withPhotonCapabilities` mixin. Authors that want the wrapped surface declare `constructor(private cf: Cloudflare)` or rely on the forgiving auto-inject for `this.cf.*`. Plain `extends Photon` photons that previously read `this.cf` need to either add the constructor injection or reference `this.cf.*` from a method (auto-inject covers it).
+- `cf.kv(name)` semantics changed: the argument is now an optional **qualifier** that's auto-resolved into a binding name, not the literal binding name. Photons that depended on the literal-name lookup must declare the qualifier in `protected cfBindings` overrides and update the call shape.
+- `CFRuntime` and `notConfiguredCF` exports retired from `@portel/photon-core`. `CFLocalRuntime` retains a deprecated positional constructor (`new CFLocalRuntime(name, cfBindings, baseDir)`) for transitional callers; new code should use the options form.
 
 ### Documentation
 
-- New [docs/guides/CF-BINDINGS.md](docs/guides/CF-BINDINGS.md) — full reference for `this.cf.*`, `protected cfBindings`, override layer, and local/deployed parity.
-- DEPLOYMENT.md updated with the `this.cf.*` capability row.
+- New [docs/guides/PHOTON-INJECTION.md](docs/guides/PHOTON-INJECTION.md) — comprehensive reference for the three consumption modes.
+- [docs/guides/CF-BINDINGS.md](docs/guides/CF-BINDINGS.md) rewritten to lead with `Cloudflare` injection + auto-naming. Covers override layer, deploy autogen, escape hatch, miniflare sandbox, and the migration from the legacy shape.
 
 ### Deferred (acknowledged, not blocking release)
 
-- Beam UI panel for binding management (CLI surface ships in this release; UI iterates next).
+- Beam UI panel for binding management (CLI surface ships now; UI iterates next).
 - "Create resource" buttons that call the Cloudflare API.
 - Secrets manager / drift detection.
-- Local backends for Durable Objects and Browser Rendering.
+- Type-inferred `cf` IDE typing per photon (Alchemy-style codegen) — deferred follow-on.
+- Schema/migration ownership for D1 (BYO migrations for now).
 
 ## [1.29.0](https://github.com/portel-dev/photon/compare/v1.28.2...v1.29.0) (2026-05-05)
 
