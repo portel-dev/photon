@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.30.0](https://github.com/portel-dev/photon/compare/v1.29.0...v1.30.0) (2026-05-09)
 
 ### Features
 
