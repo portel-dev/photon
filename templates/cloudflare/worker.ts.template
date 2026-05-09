@@ -350,7 +350,10 @@ function withCfCapabilities(
   });
 
   Object.defineProperty(instance, 'emit', {
-    value: (event: { channel?: string; [k: string]: unknown }) => {
+    value: (event: { channel?: string; emit?: string; [k: string]: unknown }) => {
+      // (1) Channel pub/sub fan-out (existing behaviour). Hibernatable
+      // WebSocket subscribers tagged by channel each receive the raw
+      // event JSON.
       const channel = (event && typeof event === 'object' && event.channel) || 'default';
       const payload = JSON.stringify(event);
       for (const ws of ctx.getWebSockets(channel)) {
@@ -360,11 +363,155 @@ function withCfCapabilities(
           // Socket closing; webSocketClose hook will reap.
         }
       }
+      // (2) SSE forwarding for in-flight tool calls. When an SSE
+      // request context is active (i.e. the caller used
+      // `Accept: text/event-stream`), `this.emit({ emit: 'progress' })`,
+      // `this.emit({ emit: 'status' })`, etc. become real
+      // `notifications/progress` / `notifications/message` JSON-RPC
+      // notifications written to the open stream — the client sees
+      // them arrive as the tool runs, not in a single batch at the
+      // end. Mirrors `src/server.ts:1340-1397` for runtime parity
+      // between local and deployed transports.
+      const reqCtx = requestContext.getStore();
+      if (!reqCtx) return;
+      const kind = (event && typeof event === 'object' ? event.emit : undefined) as string | undefined;
+      if (!kind) return;
+      const progressToken = reqCtx.progressToken;
+      if (kind === 'progress') {
+        const rawValue = typeof event.value === 'number' ? (event.value as number) : 0;
+        const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
+        void reqCtx.send({
+          jsonrpc: '2.0',
+          method: 'notifications/progress',
+          params: {
+            ...(progressToken !== undefined ? { progressToken } : {}),
+            progress,
+            total: 100,
+            ...(typeof event.message === 'string' ? { message: event.message } : {}),
+          },
+        });
+      } else if (kind === 'status') {
+        void reqCtx.send({
+          jsonrpc: '2.0',
+          method: 'notifications/progress',
+          params: {
+            ...(progressToken !== undefined ? { progressToken } : {}),
+            progress: 0,
+            total: 100,
+            message: typeof event.message === 'string' ? event.message : '',
+          },
+        });
+      } else if (kind === 'log') {
+        void reqCtx.send({
+          jsonrpc: '2.0',
+          method: 'notifications/message',
+          params: {
+            level: typeof event.level === 'string' ? event.level : 'info',
+            data: typeof event.message === 'string' ? event.message : '',
+          },
+        });
+      } else if (kind === 'render') {
+        void reqCtx.send({
+          jsonrpc: '2.0',
+          method: 'notifications/message',
+          params: {
+            level: 'info',
+            data: JSON.stringify({
+              _render: true,
+              format: event.format,
+              value: event.value,
+            }),
+          },
+        });
+      } else if (kind === 'render:clear') {
+        void reqCtx.send({
+          jsonrpc: '2.0',
+          method: 'notifications/message',
+          params: {
+            level: 'info',
+            data: JSON.stringify({ _render: true, clear: true }),
+          },
+        });
+      }
     },
     writable: false,
     enumerable: false,
     configurable: false,
   });
+
+  // Emit-based convenience helpers — `this.status(...)`, `this.log(...)`,
+  // `this.progress(...)`, `this.toast(...)`, `this.thinking(...)`,
+  // `this.render(...)`. The classic loader injects these on every
+  // plain-class instance (`src/loader.ts:injectEmitHelpers`); the
+  // deployed Worker must do the same so a photon written against the
+  // local runtime behaves identically when served from CF. Without
+  // these, calls like `this.status?.('one')` short-circuit silently
+  // on the Worker and the whole chain of progress notifications is
+  // lost — which is exactly the symptom that prompted this wiring.
+  // Each helper guards on `in instance` so user-declared methods on
+  // the photon class always win.
+  const emitFn = (data: { [k: string]: unknown }) =>
+    (instance as { emit: (d: unknown) => void }).emit(data);
+  if (!('render' in instance)) {
+    (instance as { render?: (format?: string, value?: unknown) => void }).render = (
+      format?: string,
+      value?: unknown,
+    ) => {
+      if (format === undefined) return emitFn({ emit: 'render:clear' });
+      if (format === 'status') {
+        return emitFn(
+          typeof value === 'string'
+            ? { emit: 'status', message: value }
+            : { emit: 'status', ...(value as object) }
+        );
+      }
+      if (format === 'progress') {
+        return emitFn(
+          typeof value === 'number'
+            ? { emit: 'progress', value }
+            : { emit: 'progress', ...(value as object) }
+        );
+      }
+      if (format === 'toast') {
+        return emitFn(
+          typeof value === 'string'
+            ? { emit: 'toast', message: value }
+            : { emit: 'toast', ...(value as object) }
+        );
+      }
+      emitFn({ emit: 'render', format, value });
+    };
+  }
+  if (!('toast' in instance)) {
+    (instance as { toast?: (m: string, o?: { type?: string; duration?: number }) => void }).toast = (
+      message: string,
+      opts: { type?: string; duration?: number } = {},
+    ) => emitFn({ emit: 'toast', message, ...opts });
+  }
+  if (!('log' in instance)) {
+    (instance as { log?: (m: string, o?: { level?: string; data?: unknown }) => void }).log = (
+      message: string,
+      opts: { level?: string; data?: unknown } = {},
+    ) => emitFn({ emit: 'log', message, level: opts.level ?? 'info', data: opts.data });
+  }
+  if (!('status' in instance)) {
+    // Signature mirrors `src/loader.ts:288` exactly. Photons that pass a
+    // second arg (e.g. `this.status('one', { n: 1 })`) keep working —
+    // the extra arg is dropped on both transports for parity. If we
+    // ever decide to surface it, change both call sites at once.
+    (instance as { status?: (m: string) => void }).status = (message: string) =>
+      emitFn({ emit: 'status', message });
+  }
+  if (!('progress' in instance)) {
+    (instance as { progress?: (v: number, m?: string) => void }).progress = (
+      value: number,
+      message?: string,
+    ) => emitFn({ emit: 'progress', value, message });
+  }
+  if (!('thinking' in instance)) {
+    (instance as { thinking?: (a?: boolean) => void }).thinking = (active = true) =>
+      emitFn({ emit: 'thinking', active });
+  }
 
   Object.defineProperty(instance, 'schedule', {
     value: createScheduleProvider(ctx, photonName),
@@ -469,6 +616,14 @@ interface RequestContext {
   send: (msg: unknown) => Promise<void>;
   /** Shared pending map; the DO's POST /mcp handler resolves entries here. */
   pendingRequests: Map<string, PendingRequest>;
+  /**
+   * Client-supplied progress token from the originating request's
+   * `_meta.progressToken`. Echoed back in every `notifications/progress`
+   * event we send during the call so the client can correlate progress
+   * with its outstanding request. Falls back to a synthesized token if
+   * the client didn't supply one.
+   */
+  progressToken?: string | number;
 }
 
 /**
@@ -1176,9 +1331,15 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       await writer.write(encoder.encode(`data: ${JSON.stringify(msg)}\n\n`));
     };
 
+    // Per MCP spec, echo the client-supplied progressToken so any
+    // streamed progress notifications correlate with this request.
+    const clientProgressToken = (rpcRequest?.params as { _meta?: { progressToken?: string | number } })
+      ?._meta?.progressToken;
+    const toolName = (rpcRequest?.params as { name?: string })?.name ?? 'tool';
     const ctx: RequestContext = {
       send,
       pendingRequests: this.pendingRequests,
+      progressToken: clientProgressToken ?? `progress_${toolName}`,
     };
 
     // Fire-and-forget: the response stream stays open as long as the writer
