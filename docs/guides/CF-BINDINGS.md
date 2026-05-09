@@ -247,6 +247,88 @@ protected cfBindings = {
 };
 ```
 
+## Schema and migrations (D1)
+
+Photon does not own SQL DDL or migrations — it gives you the binding and stays out of your way. Three patterns work today, ordered from simplest to most ambitious:
+
+### Pattern 1 — idempotent schema in source (recommended for new photons)
+
+The cheapest reliable approach. Schema setup runs at the top of every method that touches the database, guarded by `CREATE TABLE IF NOT EXISTS`:
+
+```typescript
+async upload(p: { name: string; bytes: string }) {
+  await this.cf.d1().exec(
+    `CREATE TABLE IF NOT EXISTS items (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       name TEXT NOT NULL,
+       created_at INTEGER NOT NULL
+     )`,
+  );
+  await this.cf.d1().prepare('INSERT INTO items (name, created_at) VALUES (?, ?)')
+    .bind(p.name, Date.now())
+    .run();
+  return { uploaded: p.name };
+}
+```
+
+Pros: single file, zero deps, works locally and deployed identically. Cons: no version tracking — schema changes that need migrations (rename column, add NOT NULL constraint to existing data, etc.) need a more careful approach.
+
+### Pattern 2 — versioned migrations on a tracking table
+
+When you need to evolve schema without dropping data, run migrations against a `_photon_migrations` tracking table during a setup method or in `onInitialize`:
+
+```typescript
+const MIGRATIONS = [
+  { id: '001', sql: `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)` },
+  { id: '002', sql: `ALTER TABLE items ADD COLUMN created_at INTEGER` },
+];
+
+async onInitialize() {
+  const db = this.cf.d1();
+  await db.exec('CREATE TABLE IF NOT EXISTS _photon_migrations (id TEXT PRIMARY KEY)');
+  const applied = new Set(
+    ((await db.prepare('SELECT id FROM _photon_migrations').all()).results as { id: string }[])
+      .map(r => r.id),
+  );
+  for (const m of MIGRATIONS) {
+    if (applied.has(m.id)) continue;
+    await db.exec(m.sql);
+    await db.prepare('INSERT INTO _photon_migrations (id) VALUES (?)').bind(m.id).run();
+  }
+}
+```
+
+Migrations run idempotently on every photon load. The tracking table makes it cheap to add new migrations without re-running old ones. Photon may ship a `runMigrations()` helper for this pattern in a future minor when a real photon dogfoods it; for now, copy the snippet.
+
+### Pattern 3 — BYO Drizzle (power users)
+
+`cf.d1()` returns a structurally compatible `D1DatabaseLike`. Drizzle's D1 adapter wraps any binding that satisfies that shape:
+
+```typescript
+import { drizzle } from 'drizzle-orm/d1';
+import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
+
+const items = sqliteTable('items', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull(),
+});
+
+async list() {
+  const db = drizzle(this.cf.d1() as any);
+  return db.select().from(items).all();
+}
+```
+
+You manage `drizzle.config.ts`, schema files, and `drizzle-kit generate` / `drizzle-kit migrate` yourself; Photon doesn't get in the way. This is the right answer when you need full ORM ergonomics.
+
+### Which to pick
+
+- **New photon, simple schema** → Pattern 1.
+- **Schema will evolve, but you don't want a build step** → Pattern 2.
+- **You already use Drizzle elsewhere or want type-safe queries** → Pattern 3.
+
+Photon explicitly doesn't ship a migration framework. The single-file invariant is more strategic than ORM convenience; authors who need heavy schema tooling reach for Drizzle, and those who don't get a primitive that doesn't lock them in.
+
 ## Reference
 
 - [PHOTON-INJECTION.md](PHOTON-INJECTION.md) — the broader injection model (`Photon`, `Cloudflare`, `CloudflareEnv`).
