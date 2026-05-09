@@ -44,7 +44,13 @@ describe('CFLocalRuntime', () => {
     });
 
     it('throws when binding is undeclared', () => {
-      expect(() => rt.kv('not-declared')).toThrow(/not declared in protected cfBindings/);
+      // Legacy mode rejects unknown binding names with the runtime
+      // miss diagnostic (the message wording moved when CFLocalRuntime
+      // was rewired to implement the `Cloudflare` interface; the
+      // semantic — "this binding wasn't seeded, fix the photon" — is
+      // identical to the prior "not declared in protected cfBindings"
+      // text and back-compatible regression-wise).
+      expect(() => rt.kv('not-declared')).toThrow(/did not seed/);
     });
   });
 
@@ -66,7 +72,7 @@ describe('CFLocalRuntime', () => {
     });
 
     it('throws on undeclared binding', () => {
-      expect(() => rt.r2('archive')).toThrow(/not declared/);
+      expect(() => rt.r2('archive')).toThrow(/did not seed/);
     });
   });
 
@@ -97,7 +103,7 @@ describe('CFLocalRuntime', () => {
     });
 
     it('throws on undeclared binding', () => {
-      expect(() => rt.queue('unknown')).toThrow(/not declared/);
+      expect(() => rt.queue('unknown')).toThrow(/did not seed/);
     });
   });
 
@@ -112,7 +118,7 @@ describe('CFLocalRuntime', () => {
 
   describe('Deferred categories', () => {
     it('fetch() rejects with deferral reason', async () => {
-      await expect(rt.fetch('https://x/')).rejects.toThrow(/deferred.*Phase B/);
+      await expect(rt.fetch('https://x/')).rejects.toThrow(/not yet supported/);
     });
 
     it('browser proxy throws on access', () => {
@@ -122,7 +128,7 @@ describe('CFLocalRuntime', () => {
     it('images throws when not declared', () => {
       // Default fixture omits images; access errors at use time.
       const rt2 = new CFLocalRuntime('p', { kv: { c: 'c' } }, baseDir);
-      expect(() => (rt2.images as any).info('x')).toThrow(/declare `images: true`/);
+      expect(() => (rt2.images as any).info('x')).toThrow(/reference this\.cf\.images/);
     });
   });
 });
