@@ -385,27 +385,26 @@ async function renderCfBindingsToml(
   hostPhotonName: string,
   hostPhotonDir: string
 ): Promise<string> {
-  // Collect declared bindings from each photon source
+  // For each photon (host + siblings) collect its declared bindings then
+  // layer that photon's local override on top — so a sibling repointed
+  // via `photon cf set <sibling> ...` has its override included in the
+  // host deploy's wrangler.toml. Merging photon-by-photon means overrides
+  // can't accidentally cross photon boundaries.
   let merged: CfBindingsConfig = {};
   for (const p of photons) {
     const declared = parseCfBindings(p.source);
-    if (declared) {
-      merged = mergeBindings(merged, declared);
+    if (!declared) continue;
+    let perPhoton: CfBindingsConfig = declared;
+    try {
+      const overridePath = path.join(hostPhotonDir, '.data', 'cf-overrides', `${p.name}.json`);
+      const raw = await fs.readFile(overridePath, 'utf-8');
+      perPhoton = mergeBindings(perPhoton, JSON.parse(raw) as CfBindingsConfig);
+    } catch {
+      // No override for this photon — fine, deploy uses declared values verbatim.
     }
+    merged = mergeBindings(merged, perPhoton);
   }
-  // Apply the host's local override (if any)
-  try {
-    const overridePath = path.join(
-      hostPhotonDir,
-      '.data',
-      'cf-overrides',
-      `${hostPhotonName}.json`
-    );
-    const raw = await fs.readFile(overridePath, 'utf-8');
-    merged = mergeBindings(merged, JSON.parse(raw) as CfBindingsConfig);
-  } catch {
-    // No override — fine, deploy uses declared values verbatim.
-  }
+  void hostPhotonName;
   return formatCfBindingsToml(merged);
 }
 
@@ -422,9 +421,24 @@ function formatCfBindingsToml(bindings: CfBindingsConfig): string {
     }
   }
   if (bindings.d1) {
-    for (const [binding, dbName] of Object.entries(bindings.d1)) {
+    for (const [binding, value] of Object.entries(bindings.d1)) {
+      let dbName: string;
+      let dbId: string;
+      if (typeof value === 'string') {
+        // String shape: same value used for both name and id. Wrangler
+        // requires database_id to be the actual UUID for production
+        // accounts; using the display name works for `wrangler d1
+        // create` flows that pre-create a DB whose id matches its name,
+        // and for miniflare-only sandboxes. Production users should
+        // declare `{ name, id }` explicitly to avoid silent breakage.
+        dbName = value;
+        dbId = value;
+      } else {
+        dbName = value.name;
+        dbId = value.id;
+      }
       blocks.push(
-        `[[d1_databases]]\nbinding = "${binding}"\ndatabase_name = "${dbName}"\ndatabase_id = "${dbName}"`
+        `[[d1_databases]]\nbinding = "${binding}"\ndatabase_name = "${dbName}"\ndatabase_id = "${dbId}"`
       );
     }
   }
@@ -438,13 +452,15 @@ function formatCfBindingsToml(bindings: CfBindingsConfig): string {
       blocks.push(`[[vectorize]]\nbinding = "${binding}"\nindex_name = "${indexName}"`);
     }
   }
+  if (bindings.ai) {
+    blocks.push(`[ai]\nbinding = "AI"`);
+  }
   if (bindings.images) {
     blocks.push(`[images]\nbinding = "IMAGES"`);
   }
   if (bindings.browser) {
     blocks.push(`[browser]\nbinding = "BROWSER"`);
   }
-  // ai is already declared by the static template block.
   return blocks.length > 0
     ? '\n# Auto-generated from `protected cfBindings`\n' + blocks.join('\n\n') + '\n'
     : '';

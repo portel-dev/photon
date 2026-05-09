@@ -26,10 +26,15 @@ import * as path from 'path';
 export interface CfBindingsConfig {
   r2?: Record<string, string>;
   kv?: Record<string, string>;
-  d1?: Record<string, string>;
+  /**
+   * D1 databases. Either a string (resource id used for both
+   * `database_name` and `database_id` in the deploy config — fine for
+   * the local sandbox; on a real CF account `database_id` must be the
+   * actual UUID), or an object with separate `name` / `id` fields.
+   */
+  d1?: Record<string, string | { name: string; id: string }>;
   queue?: Record<string, string>;
   vectorize?: Record<string, string>;
-  do?: Record<string, string>;
   ai?: boolean;
   images?: boolean;
   browser?: boolean;
@@ -51,8 +56,14 @@ export function mergeBindings(
 ): CfBindingsConfig {
   if (!override) return declared;
   const merged: CfBindingsConfig = { ...declared };
-  for (const cat of ['r2', 'kv', 'd1', 'queue', 'vectorize', 'do'] as const) {
-    if (override[cat]) merged[cat] = { ...(declared[cat] ?? {}), ...override[cat] };
+  // Named-binding categories with string-only values (r2/kv/queue/vectorize)
+  for (const cat of ['r2', 'kv', 'queue', 'vectorize'] as const) {
+    const ov = override[cat];
+    if (ov) merged[cat] = { ...(declared[cat] ?? {}), ...ov };
+  }
+  // d1 admits string | { name, id } per binding
+  if (override.d1) {
+    merged.d1 = { ...(declared.d1 ?? {}), ...override.d1 };
   }
   for (const cat of ['ai', 'images', 'browser'] as const) {
     if (typeof override[cat] === 'boolean') merged[cat] = override[cat];
@@ -200,16 +211,6 @@ export class CFLocalRuntime implements CFRuntime {
     this.assertDeclared('vectorize', name);
     const get = this.getMiniflare.bind(this);
     return this.envProxy(get, name, ['insert', 'upsert', 'query', 'getByIds', 'deleteByIds']);
-  }
-
-  do(_name: string): any {
-    throw new Error(
-      DEFER_HINT(
-        'do',
-        'requires a registered DO class binding plus the cross-photon ' +
-          'call mapping that lands in A3'
-      )
-    );
   }
 
   fetch(_input: string, _init?: unknown): Promise<unknown> {

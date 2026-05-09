@@ -22,7 +22,7 @@ import { PhotonLoader } from '../../loader.js';
 import type { CfBindingsConfig } from '../../runtime/cf-local.js';
 import { printError, printInfo } from '../../cli-formatter.js';
 
-const NAMED_CATEGORIES = new Set(['r2', 'kv', 'd1', 'queue', 'vectorize', 'do']);
+const NAMED_CATEGORIES = new Set(['r2', 'kv', 'd1', 'queue', 'vectorize']);
 const BOOLEAN_CATEGORIES = new Set(['ai', 'images', 'browser']);
 
 export function registerCfCommands(program: Command): void {
@@ -115,6 +115,11 @@ async function openPhoton(name: string): Promise<{ loader: PhotonLoader; tsConte
 }
 
 function applyOverride(into: CfBindingsConfig, bindingPath: string, value: string): void {
+  if (bindingPath.length === 0) {
+    throw new Error(
+      `Empty binding path. Use <category>.<name> for named bindings or <category> alone for booleans.`
+    );
+  }
   const dotIdx = bindingPath.indexOf('.');
   if (dotIdx === -1) {
     if (!BOOLEAN_CATEGORIES.has(bindingPath)) {
@@ -133,10 +138,21 @@ function applyOverride(into: CfBindingsConfig, bindingPath: string, value: strin
   }
   const category = bindingPath.slice(0, dotIdx);
   const bindingName = bindingPath.slice(dotIdx + 1);
+  if (category.length === 0) {
+    throw new Error(`Missing category before '.'. Path was '${bindingPath}'.`);
+  }
+  if (bindingName.length === 0) {
+    throw new Error(
+      `Missing binding name after '${category}.'. Use <category>.<name>, e.g. '${category}.cache'.`
+    );
+  }
   if (!NAMED_CATEGORIES.has(category)) {
     throw new Error(
       `Unknown CF category '${category}'. Valid: ${Array.from(NAMED_CATEGORIES).join(', ')} (named) or ${Array.from(BOOLEAN_CATEGORIES).join(', ')} (boolean).`
     );
+  }
+  if (value.length === 0) {
+    throw new Error(`Empty value for '${bindingPath}'. Pass a non-empty resource id.`);
   }
   const map = ((into as Record<string, Record<string, string>>)[category] ??= {});
   map[bindingName] = value;

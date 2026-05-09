@@ -19,7 +19,7 @@ describe('parseCfBindings', () => {
     expect(parseCfBindings(src)).toBeNull();
   });
 
-  it('parses named-resource bindings (r2, kv, d1, queue, vectorize, do)', () => {
+  it('parses named-resource bindings (r2, kv, d1, queue, vectorize)', () => {
     const src = `
       export default class Gallery {
         protected cfBindings = {
@@ -28,7 +28,6 @@ describe('parseCfBindings', () => {
           d1: { app: 'gallery-app' },
           queue: { uploads: 'gallery-uploads' },
           vectorize: { embeddings: 'gallery-embeddings' },
-          do: { sessions: 'GallerySession' },
         };
       }
     `;
@@ -38,7 +37,25 @@ describe('parseCfBindings', () => {
       d1: { app: 'gallery-app' },
       queue: { uploads: 'gallery-uploads' },
       vectorize: { embeddings: 'gallery-embeddings' },
-      do: { sessions: 'GallerySession' },
+    });
+  });
+
+  it('parses d1 entries with the { name, id } object shape', () => {
+    const src = `
+      export default class Gallery {
+        protected cfBindings = {
+          d1: {
+            catalog: { name: 'gallery-catalog', id: 'abcd-1234-uuid' },
+            legacy: 'legacy-db',
+          },
+        };
+      }
+    `;
+    expect(parseCfBindings(src)).toEqual({
+      d1: {
+        catalog: { name: 'gallery-catalog', id: 'abcd-1234-uuid' },
+        legacy: 'legacy-db',
+      },
     });
   });
 

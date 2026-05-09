@@ -325,7 +325,6 @@ function createCfRuntimeFromEnv(env: Env): any {
     d1: named('d1'),
     queue: named('queue'),
     vectorize: named('vectorize'),
-    do: named('do'),
     ai: (env as any).AI,
     images: (env as any).IMAGES,
     browser: (env as any).BROWSER,

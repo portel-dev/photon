@@ -14,7 +14,7 @@
 import * as ts from 'typescript';
 import type { CfBindingsConfig } from './runtime/cf-local.js';
 
-const NAMED_BINDING_CATEGORIES = ['r2', 'kv', 'd1', 'queue', 'vectorize', 'do'] as const;
+const NAMED_BINDING_CATEGORIES = ['r2', 'kv', 'd1', 'queue', 'vectorize'] as const;
 const BOOLEAN_CATEGORIES = ['ai', 'images', 'browser'] as const;
 
 export function parseCfBindings(tsContent: string): CfBindingsConfig | null {
@@ -58,12 +58,31 @@ function readBindingsLiteral(
 
     if ((NAMED_BINDING_CATEGORIES as readonly string[]).includes(key)) {
       if (!ts.isObjectLiteralExpression(init)) continue;
-      const map: Record<string, string> = {};
+      const map: Record<string, string | { name: string; id: string }> = {};
       for (const sub of init.properties) {
         if (!ts.isPropertyAssignment(sub)) continue;
         const subKey = unquote(sub.name.getText(sourceFile));
-        if (!ts.isStringLiteral(sub.initializer)) continue;
-        map[subKey] = sub.initializer.text;
+        if (ts.isStringLiteral(sub.initializer)) {
+          map[subKey] = sub.initializer.text;
+          continue;
+        }
+        // d1 accepts `{ name, id }` so users can hand the deploy adapter
+        // a real database UUID for `database_id` separate from the
+        // human-readable `database_name`.
+        if (key === 'd1' && ts.isObjectLiteralExpression(sub.initializer)) {
+          let name: string | undefined;
+          let id: string | undefined;
+          for (const inner of sub.initializer.properties) {
+            if (!ts.isPropertyAssignment(inner)) continue;
+            const innerKey = unquote(inner.name.getText(sourceFile));
+            if (!ts.isStringLiteral(inner.initializer)) continue;
+            if (innerKey === 'name') name = inner.initializer.text;
+            else if (innerKey === 'id') id = inner.initializer.text;
+          }
+          if (name && id) {
+            map[subKey] = { name, id };
+          }
+        }
       }
       (out as Record<string, unknown>)[key] = map;
       continue;

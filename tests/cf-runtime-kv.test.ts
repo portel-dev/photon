@@ -111,10 +111,6 @@ describe('CFLocalRuntime', () => {
   });
 
   describe('Deferred categories', () => {
-    it('do() throws with deferral reason', () => {
-      expect(() => rt.do('any')).toThrow(/deferred.*A3/i);
-    });
-
     it('fetch() rejects with deferral reason', async () => {
       await expect(rt.fetch('https://x/')).rejects.toThrow(/deferred.*Phase B/);
     });

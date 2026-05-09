@@ -162,7 +162,7 @@ Photons deploy to Cloudflare Workers via a Durable Objects bridge. Each photon i
 ### Deploy
 
 ```bash
-photon host deploy my-photon --target cloudflare
+photon host deploy cloudflare my-photon   # alias: photon host deploy cf my-photon
 ```
 
 This compiles your photon, generates a `wrangler.toml`, and deploys via Wrangler in one step.
