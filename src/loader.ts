@@ -17,6 +17,7 @@ import {
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
 import { parseCfBindings } from './cf-bindings-parser.js';
 import { CFLocalRuntime, mergeBindings, type CfBindingsConfig } from './runtime/cf-local.js';
+import { scanCfUsage, type CfUsage } from './cf-usage-scanner.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from './shared/http-route-extractor.js';
 import { extractExposesFromSource, type ExposeDef } from './shared/expose-route-extractor.js';
 import type {
@@ -67,7 +68,6 @@ import {
   // CLI formatting
   formatOutput as cliFormatOutput,
   // MCP Client types and SDK transport
-  notConfiguredCF,
   type MCPClientFactory,
   type MCPDependency,
   type PhotonDependency,
@@ -294,6 +294,27 @@ function injectEmitHelpers(instance: any): void {
   if (!('thinking' in instance)) {
     instance.thinking = (active = true) => emit({ emit: 'thinking', active });
   }
+}
+
+/** True when the scanner detected any CF usage that warrants attaching a runtime. */
+function cfUsageNonEmpty(usage: CfUsage): boolean {
+  for (const cat of ['kv', 'r2', 'd1', 'queue', 'vectorize'] as const) {
+    if (usage.qualifiers[cat].size > 0) return true;
+  }
+  return usage.shared.ai || usage.shared.images || usage.shared.browser;
+}
+
+/** Short, log-friendly summary of which CF surfaces a photon reaches for. */
+function describeUsage(usage: CfUsage, declared: CfBindingsConfig | null): string {
+  const parts: string[] = [];
+  for (const cat of ['kv', 'r2', 'd1', 'queue', 'vectorize'] as const) {
+    if (usage.qualifiers[cat].size > 0) parts.push(`${cat}×${usage.qualifiers[cat].size}`);
+  }
+  if (usage.shared.ai) parts.push('ai');
+  if (usage.shared.images) parts.push('images');
+  if (usage.shared.browser) parts.push('browser');
+  if (parts.length === 0 && declared) parts.push('overrides-only');
+  return parts.join(', ') || 'cf';
 }
 
 /** Extra regex checks that force 'emit' capability when helper methods are used. */
@@ -671,6 +692,31 @@ export class PhotonLoader {
     await fs.mkdir(path.dirname(overridePath), { recursive: true });
     await writeJSON(overridePath, override);
     return overridePath;
+  }
+
+  /**
+   * Build (or fetch the cached) CFLocalRuntime for `photonName`. Uses
+   * the new options-form constructor so auto-naming applies and
+   * miniflare seeds every literal qualifier the scanner found, plus
+   * any override-declared bindings.
+   */
+  private async attachCfRuntime(
+    photonName: string,
+    usage: CfUsage,
+    declared: CfBindingsConfig | null
+  ): Promise<CFLocalRuntime> {
+    let runtime = this.cfRuntimes.get(photonName);
+    if (runtime) return runtime;
+    const overrideJson = await this.loadCfOverride(photonName);
+    const overrides = mergeBindings(declared, overrideJson);
+    runtime = new CFLocalRuntime({
+      photonName,
+      baseDir: this.baseDir,
+      usage,
+      overrides,
+    });
+    this.cfRuntimes.set(photonName, runtime);
+    return runtime;
   }
 
   /** Read the effective bindings for a photon: declared (from source) plus override. */
@@ -1456,22 +1502,12 @@ export class PhotonLoader {
           });
         }
 
-        // Always-inject lazy `this.cf` getter for plain classes. The
-        // `_cfRuntime` slot is populated by the CF runtime injection block
-        // above when `protected cfBindings` is declared; otherwise the
-        // accessor returns the not-configured stub from photon-core.
-        if (!('cf' in instance)) {
-          Object.defineProperty(instance, 'cf', {
-            get() {
-              if (this._cfRuntime) return this._cfRuntime;
-              if (!this._cfStub) {
-                this._cfStub = notConfiguredCF();
-              }
-              return this._cfStub;
-            },
-            configurable: true,
-          });
-        }
+        // `this.cf` is no longer always-injected. The CF runtime
+        // injection block above sets `instance.cf` directly when the
+        // photon either references the surface (scanner detection) or
+        // declares `protected cfBindings`. Plain photons that never
+        // touch CF leave `this.cf` undefined — a plain runtime error
+        // beats a throwing-Proxy stub for the diagnostic.
 
         // Always-inject `this.callerCwd`. Reads the originating CLI cwd from
         // the request context, falling back to `process.cwd()` when no context
@@ -1816,21 +1852,21 @@ export class PhotonLoader {
       } = await this.extractTools(MCPClass, absolutePath);
 
       // ═══ CF RUNTIME INJECTION ═══
-      // If the photon declared `protected cfBindings = { ... }`, attach a
-      // local miniflare-backed runtime to `_cfRuntime` so `this.cf.*`
-      // resolves to a real backend instead of the not-configured stub.
+      // The photon's CF surface comes from the new `Cloudflare` injection
+      // (constructor param typed `Cloudflare`, or the forgiving `this.cf.*`
+      // path on plain classes). The scanner discovers literal qualifiers
+      // so miniflare seeds them up front; `protected cfBindings` is now
+      // an optional override layer for repointing bindings at pre-existing
+      // CF resources.
       if (tsContent) {
-        const cfBindings = parseCfBindings(tsContent);
-        if (cfBindings) {
-          let runtime = this.cfRuntimes.get(name);
-          if (!runtime) {
-            const override = await this.loadCfOverride(name);
-            const effective = mergeBindings(cfBindings, override);
-            runtime = new CFLocalRuntime(name, effective, this.baseDir);
-            this.cfRuntimes.set(name, runtime);
-          }
-          (instance as { _cfRuntime?: unknown })._cfRuntime = runtime;
-          this.log(`☁️  CF runtime attached to ${name} (${Object.keys(cfBindings).join(', ')})`);
+        const usage = scanCfUsage(tsContent);
+        const overrides = parseCfBindings(tsContent);
+        const photonUsesCf = cfUsageNonEmpty(usage) || overrides !== null;
+        if (photonUsesCf) {
+          const runtime = await this.attachCfRuntime(name, usage, overrides);
+          (instance as { cf?: unknown }).cf = runtime;
+          const what = describeUsage(usage, overrides);
+          this.log(`☁️  CF runtime attached to ${name} (${what})`);
         }
       }
 
@@ -2295,16 +2331,12 @@ export class PhotonLoader {
 
     // CF runtime injection (mirrors the loadFile path above)
     if (tsContent) {
-      const cfBindings = parseCfBindings(tsContent);
-      if (cfBindings) {
-        let runtime = this.cfRuntimes.get(name);
-        if (!runtime) {
-          const override = await this.loadCfOverride(name);
-          const effective = mergeBindings(cfBindings, override);
-          runtime = new CFLocalRuntime(name, effective, this.baseDir);
-          this.cfRuntimes.set(name, runtime);
-        }
-        (instance as { _cfRuntime?: unknown })._cfRuntime = runtime;
+      const usage = scanCfUsage(tsContent);
+      const overrides = parseCfBindings(tsContent);
+      const photonUsesCf = cfUsageNonEmpty(usage) || overrides !== null;
+      if (photonUsesCf) {
+        const runtime = await this.attachCfRuntime(name, usage, overrides);
+        (instance as { cf?: unknown }).cf = runtime;
       }
     }
 
