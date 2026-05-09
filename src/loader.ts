@@ -16,7 +16,7 @@ import {
 } from 'fs';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
 import { parseCfBindings } from './cf-bindings-parser.js';
-import { CFLocalRuntime } from './runtime/cf-local.js';
+import { CFLocalRuntime, mergeBindings, type CfBindingsConfig } from './runtime/cf-local.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from './shared/http-route-extractor.js';
 import { extractExposesFromSource, type ExposeDef } from './shared/expose-route-extractor.js';
 import type {
@@ -641,6 +641,51 @@ export class PhotonLoader {
       return config;
     });
     return this.mcpConfigPromise;
+  }
+
+  /**
+   * Resolve the path where a photon's CF binding override JSON lives.
+   * The override layers on top of `protected cfBindings` so users can
+   * repoint a binding (e.g., point `kv: cache` at a different namespace)
+   * without editing source.
+   */
+  getCfOverridePath(photonName: string): string {
+    return path.join(this.baseDir, '.data', 'cf-overrides', `${photonName}.json`);
+  }
+
+  /** Load the per-photon CF override JSON. Returns null if missing. */
+  private async loadCfOverride(photonName: string): Promise<CfBindingsConfig | null> {
+    try {
+      return await readJSON(this.getCfOverridePath(photonName));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Persist the CF override for a photon. Creates parent directories as
+   * needed; called by the `photon cf set` CLI command.
+   */
+  async saveCfOverride(photonName: string, override: CfBindingsConfig): Promise<string> {
+    const overridePath = this.getCfOverridePath(photonName);
+    await fs.mkdir(path.dirname(overridePath), { recursive: true });
+    await writeJSON(overridePath, override);
+    return overridePath;
+  }
+
+  /** Read the effective bindings for a photon: declared (from source) plus override. */
+  async getEffectiveCfBindings(
+    photonName: string,
+    tsContent: string
+  ): Promise<{
+    declared: CfBindingsConfig | null;
+    override: CfBindingsConfig | null;
+    effective: CfBindingsConfig | null;
+  }> {
+    const declared = parseCfBindings(tsContent);
+    if (!declared) return { declared: null, override: null, effective: null };
+    const override = await this.loadCfOverride(photonName);
+    return { declared, override, effective: mergeBindings(declared, override) };
   }
 
   private async getMarketplaceManager(): Promise<MarketplaceManager> {
@@ -1779,7 +1824,9 @@ export class PhotonLoader {
         if (cfBindings) {
           let runtime = this.cfRuntimes.get(name);
           if (!runtime) {
-            runtime = new CFLocalRuntime(name, cfBindings, this.baseDir);
+            const override = await this.loadCfOverride(name);
+            const effective = mergeBindings(cfBindings, override);
+            runtime = new CFLocalRuntime(name, effective, this.baseDir);
             this.cfRuntimes.set(name, runtime);
           }
           (instance as { _cfRuntime?: unknown })._cfRuntime = runtime;
@@ -2252,7 +2299,9 @@ export class PhotonLoader {
       if (cfBindings) {
         let runtime = this.cfRuntimes.get(name);
         if (!runtime) {
-          runtime = new CFLocalRuntime(name, cfBindings, this.baseDir);
+          const override = await this.loadCfOverride(name);
+          const effective = mergeBindings(cfBindings, override);
+          runtime = new CFLocalRuntime(name, effective, this.baseDir);
           this.cfRuntimes.set(name, runtime);
         }
         (instance as { _cfRuntime?: unknown })._cfRuntime = runtime;

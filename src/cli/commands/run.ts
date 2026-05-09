@@ -65,6 +65,7 @@ export const RESERVED_COMMANDS = [
   'search',
   'maker',
   'host',
+  'cf',
   'uninit',
   'diagram',
   'diagrams',
@@ -115,6 +116,7 @@ const knownCommands = [
   'marketplace',
   'maker',
   'host',
+  'cf',
   'shell',
   'build',
   'publish',
@@ -128,6 +130,7 @@ const knownSubcommands: Record<string, string[]> = {
   maker: ['new', 'validate', 'sync', 'init'],
   init: ['cli', 'completions'],
   uninit: ['cli'],
+  cf: ['bindings', 'set', 'reset'],
 };
 
 // ══════════════════════════════════════════════════════════════════════════════

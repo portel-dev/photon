@@ -39,6 +39,27 @@ const DEFER_HINT = (cat: string, reason: string) =>
   `this.cf.${cat}() — deferred: ${reason}. Track plan file ` +
   `how-can-we-open-expressive-hollerith.md.`;
 
+/**
+ * Merge a runtime override on top of declared bindings. Used by the
+ * loader before constructing the runtime so users can repoint a
+ * binding (e.g., point `kv: cache` at a different namespace) without
+ * editing photon source.
+ */
+export function mergeBindings(
+  declared: CfBindingsConfig,
+  override: CfBindingsConfig | null | undefined
+): CfBindingsConfig {
+  if (!override) return declared;
+  const merged: CfBindingsConfig = { ...declared };
+  for (const cat of ['r2', 'kv', 'd1', 'queue', 'vectorize', 'do'] as const) {
+    if (override[cat]) merged[cat] = { ...(declared[cat] ?? {}), ...override[cat] };
+  }
+  for (const cat of ['ai', 'images', 'browser'] as const) {
+    if (typeof override[cat] === 'boolean') merged[cat] = override[cat];
+  }
+  return merged;
+}
+
 export class CFLocalRuntime implements CFRuntime {
   private mfPromise: Promise<import('miniflare').Miniflare> | null = null;
 
@@ -47,6 +68,11 @@ export class CFLocalRuntime implements CFRuntime {
     private readonly bindings: CfBindingsConfig,
     private readonly baseDir: string
   ) {}
+
+  /** Inspector for tools/CLI: returns the effective bindings post-override. */
+  getBindings(): CfBindingsConfig {
+    return this.bindings;
+  }
 
   /** Lazily boot a Miniflare instance scoped to this photon. */
   private getMiniflare(): Promise<import('miniflare').Miniflare> {

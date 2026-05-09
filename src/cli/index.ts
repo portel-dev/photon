@@ -17,6 +17,7 @@ import { registerMCPCommand } from './commands/mcp.js';
 import { registerSSECommand, registerBeamCommand } from './commands/beam.js';
 import { registerServeCommand } from './commands/serve.js';
 import { registerHostCommand } from './commands/host.js';
+import { registerCfCommands } from './commands/cf.js';
 import { registerSearchCommand } from './commands/search.js';
 import { registerMakerCommands, registerNewCommand } from './commands/maker.js';
 import { registerMarketplaceCommands } from './commands/marketplace.js';
@@ -108,6 +109,7 @@ Run 'photon <command> --help' for detailed usage.
   registerBeamCommand(program);
   registerServeCommand(program);
   registerHostCommand(program);
+  registerCfCommands(program);
   registerSearchCommand(program);
   registerMakerCommands(program);
   registerNewCommand(program);
