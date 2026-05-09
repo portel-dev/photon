@@ -171,14 +171,16 @@ This compiles your photon, generates a `wrangler.toml`, and deploys via Wrangler
 
 | Capability | How it works on CF |
 |------------|--------------------|
-| `this.memory` | KV namespace auto-bound as `PHOTON_KV` |
+| `this.memory` | DO storage backing the photon instance |
 | `this.schedule` | DO Alarm multiplexer - each scheduled method becomes an alarm |
 | `this.call(otherPhoton)` | Sibling DO binding resolved by photon name |
+| `this.cf.*` (R2/KV/D1/Queues/Vectorize/AI/Images) | Real bindings on the deployed Worker; same shape as local miniflare |
 | `this.sample` / `this.confirm` / `this.elicit` | Forwarded over the SSE response stream |
 | `@get /path` / `@post /path` | Dispatched by the Worker fetch handler before MCP routing |
 | `@env MY_KEY` | Read from `wrangler.toml` `[vars]` or CF Secrets |
-| Workers AI (`@ai`) | `AI` binding auto-generated and injected |
 | `@auth cf-access` | Each CF Access email maps to its own DO instance |
+
+For the full `this.cf.*` reference and the local miniflare sandbox that mirrors a deployed Worker, see [CF-BINDINGS.md](CF-BINDINGS.md).
 
 ### Stateful Photons with Durable Objects
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — Cloudflare runtime preview
+
+### Features
+
+- **cf:** `this.cf.*` namespace exposing R2, KV, D1, Queues, Vectorize, Workers AI, Images, Browser Rendering, and Durable Objects. Single shape across local miniflare and deployed Workers.
+- **cf:** `protected cfBindings = { ... }` declaration on photon classes; binding names resolve to the upstream Cloudflare types.
+- **cf-local:** miniflare-backed local runtime with persistent storage under `<baseDir>/.data/cf-sandbox/<photon>/`. KV / R2 / D1 (prepare/bind/run/all/exec) / Queue producer / Vectorize / Workers AI / Images all wired. DO and Browser Rendering deferred.
+- **cf-deploy:** `photon host deploy cf` autogenerates `wrangler.toml` binding blocks (`[[r2_buckets]]`, `[[kv_namespaces]]`, `[[d1_databases]]`, `[[queues.producers]]`, `[[vectorize]]`, `[images]`, `[browser]`) from `protected cfBindings` across the host photon and any `@photons` siblings.
+- **cf-deploy:** worker template attaches `_cfRuntime` adapter built from real `env` so `this.cf.*` resolves to the deployed binding without source changes.
+- **cf-cli:** `photon cf bindings <photon>` / `photon cf set <photon> <category>.<name> <value>` / `photon cf reset <photon>` for layering an override on top of the declared bindings. Override JSON at `<baseDir>/.data/cf-overrides/<photon>.json` applies to both the local runtime and the deploy autogen.
+- **cli:** kebab-case flag names resolve to camelCase parameters (`--pair-code` → `pairCode`).
+
+### Documentation
+
+- New [docs/guides/CF-BINDINGS.md](docs/guides/CF-BINDINGS.md) — full reference for `this.cf.*`, `protected cfBindings`, override layer, and local/deployed parity.
+- DEPLOYMENT.md updated with the `this.cf.*` capability row.
+
+### Deferred (acknowledged, not blocking release)
+
+- Beam UI panel for binding management (CLI surface ships in this release; UI iterates next).
+- "Create resource" buttons that call the Cloudflare API.
+- Secrets manager / drift detection.
+- Local backends for Durable Objects and Browser Rendering.
+
 ## [1.29.0](https://github.com/portel-dev/photon/compare/v1.28.2...v1.29.0) (2026-05-05)
 
 ### Features

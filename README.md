@@ -293,6 +293,7 @@ Things you don't build because Photon handles them:
 | **Daemon ops** | `photon ps` lists and controls scheduled jobs, webhooks, and live sessions |
 | **Distributed locks** | `@locked` serializes access: one caller at a time, across processes |
 | **Cross-photon calls** | `this.call()` invokes another photon's methods |
+| **Cloudflare runtime** | `this.cf.r2('blobs')`, `this.cf.d1('app')`, `this.cf.kv('cache')` — same shape locally (miniflare) and deployed (real bindings). See [CF-BINDINGS.md](docs/guides/CF-BINDINGS.md) |
 | **Real-time events** | `this.emit()` fires named events to the browser UI with zero wiring |
 | **Live rendering** | `this.render()` pushes formatted output to CLI and Beam in real time |
 | **Delegated LLM** | `this.sample()` asks the driving agent's model to generate text — no API key, agent pays |
