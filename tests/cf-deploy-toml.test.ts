@@ -1,128 +1,184 @@
 /**
- * Verifies that the CF deploy adapter renders correct wrangler.toml
- * binding blocks from a photon's `protected cfBindings` declaration.
+ * Verify the deploy adapter's wrangler.toml binding emission.
  *
- * The formatter is internal to deploy/cloudflare.ts so we recreate its
- * contract here verbatim. If the production formatter drifts the test
- * still passes against this copy — keep them in sync by hand or fold
- * `formatCfBindingsToml` into a public export when the surface
- * stabilizes.
+ * Auto-naming convention: each photon contributes binding entries
+ * derived from its source. `cf.kv()` → `<photon>_kv`,
+ * `cf.kv('cache')` → `<photon>_cache_kv`, etc. Resource ids default
+ * to the binding name (works for `wrangler d1 create`-style preflows
+ * + miniflare); `protected cfBindings` overrides repoint specific
+ * qualifiers at pre-existing CF resources.
+ *
+ * These tests exercise the production `renderCfBindingsToml` (exported
+ * from src/deploy/cloudflare.ts) end-to-end so test + production stay
+ * locked together — the previous setup duplicated the formatter into
+ * the test file, which let the two drift.
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseCfBindings } from '../src/cf-bindings-parser.js';
-import { mergeBindings, type CfBindingsConfig } from '../src/runtime/cf-local.js';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
+import { renderCfBindingsToml } from '../src/deploy/cloudflare.js';
 
-function formatCfBindingsToml(b: CfBindingsConfig): string {
-  const blocks: string[] = [];
-  if (b.r2) {
-    for (const [binding, bucket] of Object.entries(b.r2)) {
-      blocks.push(`[[r2_buckets]]\nbinding = "${binding}"\nbucket_name = "${bucket}"`);
-    }
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cf-deploy-toml-'));
+  try {
+    return await fn(dir);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
   }
-  if (b.kv) {
-    for (const [binding, id] of Object.entries(b.kv)) {
-      blocks.push(`[[kv_namespaces]]\nbinding = "${binding}"\nid = "${id}"`);
-    }
-  }
-  if (b.d1) {
-    for (const [binding, value] of Object.entries(b.d1)) {
-      const dbName = typeof value === 'string' ? value : value.name;
-      const dbId = typeof value === 'string' ? value : value.id;
-      blocks.push(
-        `[[d1_databases]]\nbinding = "${binding}"\ndatabase_name = "${dbName}"\ndatabase_id = "${dbId}"`
-      );
-    }
-  }
-  if (b.queue) {
-    for (const [binding, queueName] of Object.entries(b.queue)) {
-      blocks.push(`[[queues.producers]]\nbinding = "${binding}"\nqueue = "${queueName}"`);
-    }
-  }
-  if (b.vectorize) {
-    for (const [binding, indexName] of Object.entries(b.vectorize)) {
-      blocks.push(`[[vectorize]]\nbinding = "${binding}"\nindex_name = "${indexName}"`);
-    }
-  }
-  if (b.ai) blocks.push(`[ai]\nbinding = "AI"`);
-  if (b.images) blocks.push(`[images]\nbinding = "IMAGES"`);
-  if (b.browser) blocks.push(`[browser]\nbinding = "BROWSER"`);
-  return blocks.length > 0
-    ? '\n# Auto-generated from `protected cfBindings`\n' + blocks.join('\n\n') + '\n'
-    : '';
 }
 
-describe('CF deploy autogen (wrangler.toml)', () => {
-  it('renders r2 buckets with binding + bucket_name', () => {
-    const out = formatCfBindingsToml({ r2: { photos: 'gallery-photos' } });
-    expect(out).toContain('[[r2_buckets]]');
-    expect(out).toContain('binding = "photos"');
-    expect(out).toContain('bucket_name = "gallery-photos"');
-  });
-
-  it('renders kv with binding + id', () => {
-    const out = formatCfBindingsToml({ kv: { cache: 'cache-id' } });
+describe('CF deploy autogen — auto-naming', () => {
+  it('emits <photon>_kv for cf.kv() default call', async () => {
+    const out = await withTempDir((dir) =>
+      renderCfBindingsToml(
+        [{ name: 'gallery', source: `class X { async f() { await this.cf.kv().get('a'); } }` }],
+        'gallery',
+        dir
+      )
+    );
     expect(out).toContain('[[kv_namespaces]]');
-    expect(out).toContain('binding = "cache"');
-    expect(out).toContain('id = "cache-id"');
+    expect(out).toContain('binding = "gallery_kv"');
+    expect(out).toContain('id = "gallery_kv"');
   });
 
-  it('renders d1 (string shape: name == id)', () => {
-    const out = formatCfBindingsToml({ d1: { app: 'gallery-app' } });
-    expect(out).toContain('[[d1_databases]]');
-    expect(out).toContain('binding = "app"');
-    expect(out).toContain('database_name = "gallery-app"');
-    expect(out).toContain('database_id = "gallery-app"');
+  it('emits <photon>_<qualifier>_kv for qualified calls', async () => {
+    const out = await withTempDir((dir) =>
+      renderCfBindingsToml(
+        [
+          {
+            name: 'gallery',
+            source: `class X { async f() {
+              await this.cf.kv('cache').get('a');
+              await this.cf.kv('sessions').get('b');
+            } }`,
+          },
+        ],
+        'gallery',
+        dir
+      )
+    );
+    expect(out).toContain('binding = "gallery_cache_kv"');
+    expect(out).toContain('binding = "gallery_sessions_kv"');
   });
 
-  it('renders d1 ({ name, id } shape: distinct values)', () => {
-    const out = formatCfBindingsToml({
-      d1: { app: { name: 'gallery-app', id: 'abcd-1234' } },
-    });
-    expect(out).toContain('database_name = "gallery-app"');
+  it('emits r2 / d1 / queue / vectorize with auto-naming', async () => {
+    const out = await withTempDir((dir) =>
+      renderCfBindingsToml(
+        [
+          {
+            name: 'gallery',
+            source: `class X { async f() {
+              await this.cf.r2().put('a','b');
+              await this.cf.d1().exec('select 1');
+              await this.cf.queue().send({});
+              await this.cf.vectorize().query([], {});
+            } }`,
+          },
+        ],
+        'gallery',
+        dir
+      )
+    );
+    expect(out).toContain('[[r2_buckets]]\nbinding = "gallery_r2"');
+    expect(out).toContain('[[d1_databases]]\nbinding = "gallery_d1"');
+    expect(out).toContain('database_name = "gallery_d1"');
+    expect(out).toContain('database_id = "gallery_d1"');
+    expect(out).toContain('[[queues.producers]]\nbinding = "gallery_queue"');
+    expect(out).toContain('[[vectorize]]\nbinding = "gallery_vectorize"');
+  });
+
+  it('emits shared [ai] / [images] / [browser] when referenced', async () => {
+    const out = await withTempDir((dir) =>
+      renderCfBindingsToml(
+        [
+          {
+            name: 'agent',
+            source: `class X { async f() {
+              await this.cf.ai.run('@cf/foo', {});
+              this.cf.images.info(null);
+              this.cf.browser.fetch('http://x');
+            } }`,
+          },
+        ],
+        'agent',
+        dir
+      )
+    );
+    expect(out).toContain('[ai]\nbinding = "AI"');
+    expect(out).toContain('[images]\nbinding = "IMAGES"');
+    expect(out).toContain('[browser]\nbinding = "BROWSER"');
+  });
+
+  it('does NOT emit shared blocks when no photon references them', async () => {
+    const out = await withTempDir((dir) =>
+      renderCfBindingsToml(
+        [{ name: 'silent', source: `class X { async f() { await this.cf.kv().get('a'); } }` }],
+        'silent',
+        dir
+      )
+    );
+    expect(out).not.toContain('[ai]');
+    expect(out).not.toContain('[images]');
+    expect(out).not.toContain('[browser]');
+  });
+
+  it('returns empty string when no photon uses CF', async () => {
+    const out = await withTempDir((dir) =>
+      renderCfBindingsToml(
+        [{ name: 'plain', source: `class X { async ping() { return 'pong'; } }` }],
+        'plain',
+        dir
+      )
+    );
+    expect(out).toBe('');
+  });
+
+  it('protected cfBindings override repoints a specific qualifier resource', async () => {
+    const source = `
+      class X {
+        protected cfBindings = {
+          d1: { default: { name: 'real-app-db', id: 'abcd-1234' } },
+        };
+        async f() { await this.cf.d1().exec('select 1'); }
+      }
+    `;
+    const out = await withTempDir((dir) =>
+      renderCfBindingsToml([{ name: 'app', source }], 'app', dir)
+    );
+    expect(out).toContain('binding = "app_d1"');
+    expect(out).toContain('database_name = "real-app-db"');
     expect(out).toContain('database_id = "abcd-1234"');
   });
 
-  it('renders queue producers, vectorize, images, browser, ai', () => {
-    const out = formatCfBindingsToml({
-      queue: { uploads: 'gallery-uploads' },
-      vectorize: { embeddings: 'gallery-embeddings' },
-      ai: true,
-      images: true,
-      browser: true,
+  it('per-photon override JSON layered on top of source declarations', async () => {
+    const source = `class X { async f() { await this.cf.r2().put('k','v'); } }`;
+    const out = await withTempDir(async (dir) => {
+      const overrideDir = path.join(dir, '.data', 'cf-overrides');
+      await fs.mkdir(overrideDir, { recursive: true });
+      await fs.writeFile(
+        path.join(overrideDir, 'gallery.json'),
+        JSON.stringify({ r2: { default: 'org-shared-photos' } })
+      );
+      return renderCfBindingsToml([{ name: 'gallery', source }], 'gallery', dir);
     });
-    expect(out).toContain('[[queues.producers]]');
-    expect(out).toContain('queue = "gallery-uploads"');
-    expect(out).toContain('[[vectorize]]');
-    expect(out).toContain('index_name = "gallery-embeddings"');
-    expect(out).toContain('[ai]');
-    expect(out).toContain('[images]');
-    expect(out).toContain('[browser]');
+    expect(out).toContain('binding = "gallery_r2"');
+    expect(out).toContain('bucket_name = "org-shared-photos"');
   });
 
-  it('does NOT emit [ai] when ai opt-in is missing or false', () => {
-    expect(formatCfBindingsToml({ kv: { cache: 'x' } })).not.toContain('[ai]');
-    expect(formatCfBindingsToml({ ai: false, kv: { cache: 'x' } })).not.toContain('[ai]');
-  });
-
-  it('returns an empty string when no bindings declared', () => {
-    expect(formatCfBindingsToml({})).toBe('');
-  });
-
-  it('honors override merge when generating toml', () => {
-    const declared = parseCfBindings(`
-      export default class C {
-        protected cfBindings = {
-          r2: { photos: 'dev-photos' },
-          kv: { cache: 'dev-cache' },
-        };
-      }
-    `);
-    const override: CfBindingsConfig = { r2: { photos: 'prod-photos' } };
-    const merged = mergeBindings(declared!, override);
-    const out = formatCfBindingsToml(merged);
-    expect(out).toContain('bucket_name = "prod-photos"');
-    expect(out).toContain('id = "dev-cache"');
-    expect(out).not.toContain('bucket_name = "dev-photos"');
+  it('multi-photon: each photon contributes its own auto-named bindings', async () => {
+    const out = await withTempDir((dir) =>
+      renderCfBindingsToml(
+        [
+          { name: 'gallery', source: `class A { async f() { await this.cf.kv().get('a'); } }` },
+          { name: 'notes', source: `class B { async f() { await this.cf.r2().put('a','b'); } }` },
+        ],
+        'gallery',
+        dir
+      )
+    );
+    expect(out).toContain('binding = "gallery_kv"');
+    expect(out).toContain('binding = "notes_r2"');
   });
 });

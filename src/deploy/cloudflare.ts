@@ -9,9 +9,10 @@ import { execSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { homedir, tmpdir } from 'node:os';
 import { detectPM, detectRunner } from '../shared-utils.js';
-import { SchemaExtractor } from '@portel/photon-core';
+import { SchemaExtractor, bindingNameFor } from '@portel/photon-core';
 import { parseCfBindings } from '../cf-bindings-parser.js';
 import { mergeBindings, type CfBindingsConfig } from '../runtime/cf-local.js';
+import { scanCfUsage } from '../cf-usage-scanner.js';
 import { PHOTON_VERSION } from '../version.js';
 import { logger } from '../shared/logger.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from '../shared/http-route-extractor.js';
@@ -369,101 +370,125 @@ export interface CloudflareDeployOptions {
 }
 
 /**
- * Generate the wrangler.toml binding blocks for a deployment from each
- * bundled photon's `protected cfBindings` declaration. The host photon's
- * local override (`<baseDir>/.data/cf-overrides/<photon>.json`) is
- * applied so renames done with `photon cf set` propagate into the
- * deployed config.
+ * Generate the wrangler.toml binding blocks for a deployment.
  *
- * Bindings are deduped by binding name across photons; the first
- * resource id wins (later photons should match). Returns a multi-line
- * TOML fragment ready to splice into the template, or an empty string
- * when no photon declared any bindings.
+ * Each bundled photon contributes auto-named bindings derived from its
+ * own usage: the source scanner discovers every literal qualifier the
+ * photon passes to `cf.kv(...)`, `cf.r2(...)`, etc., and
+ * `bindingNameFor` composes the wrangler-legal name (`<photon>_kv`,
+ * `<photon>_cache_kv`, ...). The same convention drives miniflare seed
+ * names locally and the worker template's runtime resolution, so
+ * bindings always line up across runtimes.
+ *
+ * `protected cfBindings` is now an optional override layer keyed by
+ * qualifier. Authors set it only when they need to point a specific
+ * binding at a pre-existing CF resource (typically a real D1 UUID or
+ * a shared org-wide bucket). The host photon's local override JSON
+ * (`<baseDir>/.data/cf-overrides/<photon>.json`) is layered on top so
+ * `photon cf set ...` edits flow into the deployed config without
+ * touching photon source.
+ *
+ * Shared categories (ai/images/browser) emit a single block once per
+ * Worker if any bundled photon either references them in source or
+ * sets the corresponding boolean flag in `protected cfBindings`.
  */
-async function renderCfBindingsToml(
+export async function renderCfBindingsToml(
   photons: { name: string; source: string }[],
   hostPhotonName: string,
   hostPhotonDir: string
 ): Promise<string> {
-  // For each photon (host + siblings) collect its declared bindings then
-  // layer that photon's local override on top — so a sibling repointed
-  // via `photon cf set <sibling> ...` has its override included in the
-  // host deploy's wrangler.toml. Merging photon-by-photon means overrides
-  // can't accidentally cross photon boundaries.
-  let merged: CfBindingsConfig = {};
+  void hostPhotonName;
+  const blocks: string[] = [];
+  let anyAi = false;
+  let anyImages = false;
+  let anyBrowser = false;
+  const seenBindings = new Set<string>();
+
   for (const p of photons) {
+    const usage = scanCfUsage(p.source);
     const declared = parseCfBindings(p.source);
-    if (!declared) continue;
-    let perPhoton: CfBindingsConfig = declared;
+    let overrides: CfBindingsConfig = declared ?? {};
     try {
       const overridePath = path.join(hostPhotonDir, '.data', 'cf-overrides', `${p.name}.json`);
       const raw = await fs.readFile(overridePath, 'utf-8');
-      perPhoton = mergeBindings(perPhoton, JSON.parse(raw) as CfBindingsConfig);
+      overrides = mergeBindings(overrides, JSON.parse(raw) as CfBindingsConfig);
     } catch {
-      // No override for this photon — fine, deploy uses declared values verbatim.
+      // No override JSON — fine, fall through to declared-only or empty.
     }
-    merged = mergeBindings(merged, perPhoton);
+
+    // Scoped categories — auto-named per (photon, category, qualifier).
+    for (const category of ['kv', 'r2', 'd1', 'queue', 'vectorize'] as const) {
+      for (const qualifier of usage.qualifiers[category]) {
+        const bindingName = bindingNameFor(p.name, category, qualifier || undefined);
+        if (seenBindings.has(bindingName)) continue;
+        seenBindings.add(bindingName);
+        const overrideKey = qualifier === '' ? 'default' : qualifier;
+        const overrideValue = overrides[category]?.[overrideKey];
+        blocks.push(formatScopedBlock(category, bindingName, overrideValue));
+      }
+    }
+
+    if (usage.shared.ai || overrides.ai === true) anyAi = true;
+    if (usage.shared.images || overrides.images === true) anyImages = true;
+    if (usage.shared.browser || overrides.browser === true) anyBrowser = true;
   }
-  void hostPhotonName;
-  return formatCfBindingsToml(merged);
+
+  if (anyAi) blocks.push('[ai]\nbinding = "AI"');
+  if (anyImages) blocks.push('[images]\nbinding = "IMAGES"');
+  if (anyBrowser) blocks.push('[browser]\nbinding = "BROWSER"');
+
+  return blocks.length > 0
+    ? '\n# Auto-generated from photon source (this.cf.* / Cloudflare injection)\n' +
+        blocks.join('\n\n') +
+        '\n'
+    : '';
 }
 
-function formatCfBindingsToml(bindings: CfBindingsConfig): string {
-  const blocks: string[] = [];
-  if (bindings.r2) {
-    for (const [binding, bucket] of Object.entries(bindings.r2)) {
-      blocks.push(`[[r2_buckets]]\nbinding = "${binding}"\nbucket_name = "${bucket}"`);
+/**
+ * Render a single `[[<table>]]` block for a scoped binding. Resource id
+ * defaults to the binding name so `wrangler d1 create`-style preflows
+ * (and miniflare sandboxes) work without an explicit override; production
+ * users override with `protected cfBindings = { kv: { cache: '<id>' } }`
+ * to point at a real CF resource.
+ */
+function formatScopedBlock(
+  category: 'kv' | 'r2' | 'd1' | 'queue' | 'vectorize',
+  bindingName: string,
+  override: string | { name: string; id: string } | undefined
+): string {
+  switch (category) {
+    case 'r2': {
+      const bucket = typeof override === 'string' ? override : bindingName;
+      return `[[r2_buckets]]\nbinding = "${bindingName}"\nbucket_name = "${bucket}"`;
     }
-  }
-  if (bindings.kv) {
-    for (const [binding, id] of Object.entries(bindings.kv)) {
-      blocks.push(`[[kv_namespaces]]\nbinding = "${binding}"\nid = "${id}"`);
+    case 'kv': {
+      const id = typeof override === 'string' ? override : bindingName;
+      return `[[kv_namespaces]]\nbinding = "${bindingName}"\nid = "${id}"`;
     }
-  }
-  if (bindings.d1) {
-    for (const [binding, value] of Object.entries(bindings.d1)) {
+    case 'd1': {
       let dbName: string;
       let dbId: string;
-      if (typeof value === 'string') {
-        // String shape: same value used for both name and id. Wrangler
-        // requires database_id to be the actual UUID for production
-        // accounts; using the display name works for `wrangler d1
-        // create` flows that pre-create a DB whose id matches its name,
-        // and for miniflare-only sandboxes. Production users should
-        // declare `{ name, id }` explicitly to avoid silent breakage.
-        dbName = value;
-        dbId = value;
+      if (typeof override === 'string') {
+        dbName = override;
+        dbId = override;
+      } else if (override && typeof override === 'object') {
+        dbName = override.name;
+        dbId = override.id;
       } else {
-        dbName = value.name;
-        dbId = value.id;
+        dbName = bindingName;
+        dbId = bindingName;
       }
-      blocks.push(
-        `[[d1_databases]]\nbinding = "${binding}"\ndatabase_name = "${dbName}"\ndatabase_id = "${dbId}"`
-      );
+      return `[[d1_databases]]\nbinding = "${bindingName}"\ndatabase_name = "${dbName}"\ndatabase_id = "${dbId}"`;
+    }
+    case 'queue': {
+      const queueName = typeof override === 'string' ? override : bindingName;
+      return `[[queues.producers]]\nbinding = "${bindingName}"\nqueue = "${queueName}"`;
+    }
+    case 'vectorize': {
+      const indexName = typeof override === 'string' ? override : bindingName;
+      return `[[vectorize]]\nbinding = "${bindingName}"\nindex_name = "${indexName}"`;
     }
   }
-  if (bindings.queue) {
-    for (const [binding, queueName] of Object.entries(bindings.queue)) {
-      blocks.push(`[[queues.producers]]\nbinding = "${binding}"\nqueue = "${queueName}"`);
-    }
-  }
-  if (bindings.vectorize) {
-    for (const [binding, indexName] of Object.entries(bindings.vectorize)) {
-      blocks.push(`[[vectorize]]\nbinding = "${binding}"\nindex_name = "${indexName}"`);
-    }
-  }
-  if (bindings.ai) {
-    blocks.push(`[ai]\nbinding = "AI"`);
-  }
-  if (bindings.images) {
-    blocks.push(`[images]\nbinding = "IMAGES"`);
-  }
-  if (bindings.browser) {
-    blocks.push(`[browser]\nbinding = "BROWSER"`);
-  }
-  return blocks.length > 0
-    ? '\n# Auto-generated from `protected cfBindings`\n' + blocks.join('\n\n') + '\n'
-    : '';
 }
 
 export async function deployToCloudflare(options: CloudflareDeployOptions): Promise<void> {
