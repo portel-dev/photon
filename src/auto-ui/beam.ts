@@ -1525,29 +1525,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // REST API routes (extracted modules)
       // ══════════════════════════════════════════════════════════════════════════
       if (url.pathname.startsWith('/api/')) {
-        if (url.pathname === '/api/restart' && req.method === 'POST') {
-          // CSRF guard: a cross-site POST to this endpoint could kill the user's
-          // Beam session from any webpage. CORS blocks cross-origin *reads* but
-          // not simple POST requests. Validate Origin when present; when absent
-          // (same-origin fetch or curl) validate that Host is localhost-only.
-          const origin = req.headers['origin'];
-          const host = req.headers['host'] || '';
-          const hostIsLocal =
-            host.startsWith('localhost:') ||
-            host.startsWith('127.0.0.1:') ||
-            host === 'localhost' ||
-            host === '127.0.0.1';
-          const originOk = !origin || origin === `http://${host}`;
-          if (!hostIsLocal || !originOk) {
-            res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'forbidden' }));
-            return;
-          }
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true }));
-          setTimeout(() => process.exit(0), 100);
-          return;
-        }
         if (await handleMarketplaceRoutes(req, res, url, beamState)) return;
         if (await handleBrowseRoutes(req, res, url, beamState)) return;
         if (await handleConfigRoutes(req, res, url, beamState)) return;
@@ -2712,14 +2689,24 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 return;
               }
 
-              // esbuild subprocess crash: the in-process module is permanently
-              // "stopped" — cache clears don't help. Tell the UI and skip retry.
+              // esbuild subprocess crash: the in-process service is permanently
+              // dead — cache clears don't help. Respawn Beam so the next
+              // file-save gets a fresh compiler. The browser's SSE reconnect
+              // loop handles the brief disconnect transparently.
               const isServiceCrash =
                 errorMsg.includes('The service was stopped') ||
                 errorMsg.includes('The service is no longer running');
               if (isServiceCrash) {
-                logger.error(`Compiler service crashed — Beam restart required`);
-                broadcastToBeam('beam/compiler-crash', { photon: photonName });
+                logger.warn(
+                  `Compiler service crashed — restarting Beam (${process.argv.slice(1).join(' ')})`
+                );
+                const { spawn } = await import('child_process');
+                spawn(process.execPath, process.argv.slice(1), {
+                  stdio: 'inherit',
+                  env: process.env,
+                  detached: false,
+                });
+                process.exit(0);
                 return;
               }
 

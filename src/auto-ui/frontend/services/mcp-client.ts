@@ -125,8 +125,7 @@ type MCPEventType =
   | 'toast'
   | 'thinking'
   | 'log'
-  | 'photon-notification'
-  | 'compiler-crash';
+  | 'photon-notification';
 
 // Pending operation for offline queue.
 interface PendingOperation {
@@ -154,7 +153,6 @@ const NOTIFICATION_EVENT_MAP: Record<string, MCPEventType> = {
   'beam/result': 'result',
   'beam/configured': 'configured',
   'beam/error': 'error',
-  'beam/compiler-crash': 'compiler-crash',
   'beam/toast': 'toast',
   'beam/thinking': 'thinking',
   'beam/log': 'log',
