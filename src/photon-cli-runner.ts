@@ -739,14 +739,16 @@ export function parseCliArgs(args: string[], params: MethodInfo['params']): Reco
   // Create a map of param names to types for quick lookup
   const paramTypes = new Map(params.map((p) => [p.name, p.type]));
 
-  // Map kebab-case flag back to the camelCase param name when applicable,
-  // so `--pair-code` resolves to a `pairCode` parameter. Unknown keys pass
-  // through unchanged (validation downstream surfaces the typo).
+  // Map kebab-case flag back to the matching param name when applicable.
+  // Tries: direct match, camelCase (`pairCode`), then snake_case (`pair_code`).
+  // Unknown keys pass through unchanged (validation downstream surfaces the typo).
   const resolveKey = (raw: string): string => {
     if (paramTypes.has(raw)) return raw;
     if (raw.includes('-')) {
       const camel = raw.replace(/-([a-zA-Z0-9])/g, (_, c: string) => c.toUpperCase());
       if (paramTypes.has(camel)) return camel;
+      const snake = raw.replace(/-/g, '_');
+      if (paramTypes.has(snake)) return snake;
     }
     return raw;
   };

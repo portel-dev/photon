@@ -4535,7 +4535,7 @@ Run: photon mcp ${mcpName} --config
           instance: mcp.instance?.instanceName,
         });
       }
-      this.logger.error(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
+      this.logger.debug(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
       throw error;
     } finally {
       span.end();

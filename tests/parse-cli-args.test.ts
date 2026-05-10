@@ -119,6 +119,21 @@ describe('parseCliArgs', () => {
     });
   });
 
+  it('maps kebab-case flags to snake_case params', () => {
+    const params = [
+      { name: 'pair_code', type: 'string', optional: false, description: 'Pair code' },
+      { name: 'port_url', type: 'string', optional: true, description: 'Port URL' },
+    ];
+    const result = parseCliArgs(
+      ['--pair-code', 'YX-YB7-62', '--port-url', 'http://localhost:3000'],
+      params
+    );
+    expect(result).toEqual({
+      pair_code: 'YX-YB7-62',
+      port_url: 'http://localhost:3000',
+    });
+  });
+
   it('does not match bare words that are not param names as named args', () => {
     // "hello" is not a param name, so it's positional
     const result = parseCliArgs(['hello', '~/Projects', '@bot'], registerParams);
