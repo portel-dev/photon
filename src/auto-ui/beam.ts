@@ -2170,9 +2170,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 photonPath + (url.search || ''),
                 `http://${req.headers.host || 'localhost'}`
               );
+              const forwardedHeaders: Record<string, string> = {
+                ...(req.headers as Record<string, string>),
+                'x-photon-base-path': `/web/${photonName}`,
+              };
               const webReq = new Request(internalUrl.toString(), {
                 method: req.method,
-                headers: req.headers as Record<string, string>,
+                headers: forwardedHeaders,
                 ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
               });
               const result: unknown = await fn.call(photonClass.instance, webReq);
