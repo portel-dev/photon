@@ -126,6 +126,7 @@ SUITES=(
   "dynamic-resources-subscribe:$VITEST tests/dynamic-resources-subscribe.test.ts"
   "roots:$VITEST tests/roots.test.ts"
   "subscribe-sse-e2e:$VITEST tests/dynamic-resources-subscribe-sse.e2e.test.ts"
+  "beam-status-sse:$VITEST tests/beam-status-sse.test.ts"
 )
 
 TOTAL=0

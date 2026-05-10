@@ -304,14 +304,17 @@ class BeamCompatTransport implements Transport {
       }
     }
 
-    // If there's a pending HTTP request waiting for a response, deliver it
-    if (this.pendingResponse) {
+    // JSON-RPC notifications have no 'id' — route to SSE only, never to pendingResponse.
+    // Responses have 'id' + 'result'/'error'. Server-initiated requests have 'id' + 'method'.
+    const isResponse = message.id !== undefined && message.id !== null && !message.method;
+
+    if (isResponse && this.pendingResponse) {
       const resolve = this.pendingResponse;
       this.pendingResponse = null;
       resolve(message);
       return;
     }
-    // Otherwise push to SSE stream if connected
+    // Notifications and server-initiated requests go to the SSE stream
     if (this.sseResponse && !this.sseResponse.writableEnded) {
       const id = message.id ?? crypto.randomUUID();
       this.sseResponse.write(`event: message\nid: ${id}\ndata: ${JSON.stringify(message)}\n\n`);
