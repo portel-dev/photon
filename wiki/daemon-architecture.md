@@ -55,23 +55,35 @@ Beam uses this for its real-time channel subscriptions. The subscription survive
 
 `src/server.ts` (the MCP stdio + SSE server) calls `sendCommand` for every tool invocation (lines 1305, 1317). At startup it calls `ensureDaemon(true)` (line 2218). MCP stdio is **not** independent - it depends on the daemon for all photon execution. Losing the daemon during an MCP stdio session will cause tool calls to fail until the daemon restarts and the call retries.
 
-## What Is Missing or Fragile
+## Fixed Gaps (closed in v1.30.x)
 
-### No queueing during daemon downtime
+### Socket error now always handled (was: process crash)
 
-If the daemon is down and a CLI call arrives, the flow is: fail fast, restart daemon, one retry. Commands that arrive before the daemon is ready get an error, not a queued hold. This is fine for interactive use. For high-concurrency MCP clients issuing parallel tool calls during a daemon restart, some calls will fail on the first attempt and either retry (if retryable) or surface an error to the agent.
+`connectToDaemon` previously threw synchronously when the socket file was missing. A throw inside a Promise executor becomes a rejection (fine), but a throw outside one crashes the process. Callers that used fire-and-forget patterns triggered this.
 
-The user's vision of "all communication held in a queue" is only partially implemented: channel event replay (subscriber side) works. Command queueing (caller side) does not exist.
+Fixed: `connectToDaemon` now always returns a socket and emits the ENOENT error asynchronously via `process.nextTick`. This matches `net.createConnection` semantics — callers always attach `error` handlers before the event fires. The `process.on('uncaughtException')` band-aid in `beam.ts` has been removed.
 
-### Socket error leak in subscribeChannel
+### sendCommand waits for daemon readiness (was: single blind retry)
 
-`scheduleReconnect` in `client.ts` (line 631) calls `connect()` inside a `void (async () => {})()` IIFE. The IIFE has a try/catch. But during an active subscription (`subscribed = true`), if a socket `error` event fires after the Promise from `connect()` has already resolved, the error is handled by `client.on('error', ...)` which calls `scheduleReconnect()`. A second error event on the same socket (already being torn down) could fire with no handler if the socket is in a partially-destroyed state after `client.destroy()` is called.
+After `ensureDaemon()`, the daemon process may be starting but the socket not yet bound. The previous single retry happened immediately, hitting the not-yet-ready socket and failing.
 
-This is the suspected root cause of the raw ENOENT crashes Beam produces when the daemon socket disappears. The current fix is a `process.on('uncaughtException')` handler in `beam.ts:startBeam()` that recognizes daemon-related errors and suppresses them with a warning. This is a band-aid. The proper fix is to attach a no-op `error` listener on the socket before calling `client.destroy()` in the reconnect path.
+Fixed: `waitForDaemon()` polls `pingDaemon` with exponential backoff (100ms → 1s, cap 10s) after `ensureDaemon()`. The retry only fires once the socket responds, covering the daemon startup window.
+
+### Event buffer has a count cap (was: unbounded in 5-minute window)
+
+High-frequency channels could accumulate thousands of events within the 5-minute window.
+
+Fixed: `MAX_BUFFER_EVENTS_PER_CHANNEL = 500` enforced in `bufferEvent`. Overflow drops oldest events; reconnecting clients with a stale `lastEventId` receive `refreshNeeded: true` and do a full sync via the existing mechanism.
+
+## Still Open
 
 ### No cross-directory daemon awareness at the CLI level
 
 The daemon is global but `baseDir` for state is per-directory. When a photon changes its working directory (e.g. a user switches projects), the daemon continues holding instances from the previous directory until they are explicitly unloaded or the daemon restarts. There is no protocol for a CLI client to announce its working directory is changing or for the daemon to scope running instances to their originating directory.
+
+### No command queueing during daemon downtime
+
+Commands that arrive during a daemon restart window are retried once (after `waitForDaemon` returns). If the daemon takes longer than 10 seconds to start, the retry fails. High-concurrency MCP clients issuing parallel tool calls during a restart will see some failures. True queueing (hold commands until daemon is ready, drain in order) is not implemented.
 
 ## The Intended Model (User's Vision)
 
