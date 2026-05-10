@@ -18,10 +18,6 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import {
-  ProgressNotificationSchema,
-  type ProgressNotification,
-} from '@modelcontextprotocol/sdk/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..');
@@ -50,7 +46,6 @@ async function waitForPort(port: number, timeoutMs = 8000): Promise<void> {
 describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', () => {
   let server: ChildProcess;
   let client: Client;
-  const progressNotifications: ProgressNotification[] = [];
 
   beforeAll(async () => {
     server = spawn(PHOTON_BIN, ['mcp', '--transport', 'sse', '--port', String(PORT), FIXTURE], {
@@ -63,12 +58,13 @@ describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', 
 
     const transport = new StreamableHTTPClientTransport(new URL(ENDPOINT));
     client = new Client({ name: 'beam-status-sse-test', version: '0.0.0' }, {});
-
-    client.setNotificationHandler(ProgressNotificationSchema, (n) => {
-      progressNotifications.push(n);
-    });
-
     await client.connect(transport);
+
+    // Give the transport time to establish its GET SSE stream.
+    // StreamableHTTPClientTransport opens it asynchronously (fire-and-forget)
+    // after the initialized handshake, so there is a small gap before
+    // BeamCompatTransport.sseResponse is populated.
+    await new Promise((r) => setTimeout(r, 300));
   }, 15_000);
 
   afterAll(async () => {
@@ -81,9 +77,7 @@ describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', 
   });
 
   it('tools/call returns actual result, not a notification', async () => {
-    const result = await client.callTool({ name: 'imperative' }, undefined, {
-      _meta: { progressToken: 'test-token-1' },
-    } as any);
+    const result = await client.callTool({ name: 'imperative' });
 
     // The result must be the return value of imperative() — { ok: true }
     expect(result.isError).toBeFalsy();
@@ -92,17 +86,23 @@ describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', 
   });
 
   it('progress notifications arrive on the SSE stream', async () => {
-    progressNotifications.length = 0;
+    // Use onprogress so the SDK includes a progressToken in the request and
+    // routes incoming notifications/progress back to this handler.
+    // setNotificationHandler(ProgressNotificationSchema) does NOT work for
+    // progress — the SDK intercepts those in _onprogress() and routes by
+    // token, dropping any with no matching handler.
+    const messages: string[] = [];
 
     await client.callTool({ name: 'imperative' }, undefined, {
-      _meta: { progressToken: 'test-token-2' },
+      onprogress: (p: any) => {
+        if (p.message) messages.push(p.message);
+      },
     } as any);
 
-    // Give the SSE stream a moment to deliver any queued notifications
+    // Give the SSE stream a moment to deliver any queued notifications.
     await new Promise((r) => setTimeout(r, 500));
 
-    // this.status('working') and this.progress(0.5, 'halfway') should both arrive
-    const messages = progressNotifications.map((n) => (n.params as any).message);
+    // this.status('working') and this.progress(0.5, 'halfway') should both arrive.
     expect(messages).toContain('working');
     expect(messages).toContain('halfway');
   });
