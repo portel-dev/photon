@@ -761,6 +761,12 @@ class MCPClientService {
             methods: [],
           });
         }
+        // Propagate web URL from any tool in this photon (all share the same value).
+        if (tool['x-web-url'] && !photonMap.get(serverName).webUrl) {
+          photonMap.get(serverName).webUrl = tool['x-web-url'];
+          photonMap.get(serverName).webDescription = tool['x-web-description'];
+          photonMap.get(serverName).hasWebApp = true;
+        }
         // Skip internal runtime tools (_use, _instances, _undo, _redo).
         if (!methodName.startsWith('_')) {
           photonMap.get(serverName).methods.push({
@@ -788,6 +794,9 @@ class MCPClientService {
       if (mainMethod) {
         photon.isApp = true;
         photon.appEntry = mainMethod;
+      }
+      if (photon.hasWebApp) {
+        photon.isApp = true;
       }
     }
 

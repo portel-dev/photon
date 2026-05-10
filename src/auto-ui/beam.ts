@@ -2138,6 +2138,109 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
 
+      // Web route proxy: /web/{photonName}/{...path} dispatches to the photon's
+      // @get/@post handlers. The prefix is stripped before dispatch so that the
+      // photon's routes look like they're running at the root. HTML responses
+      // get a fetch interceptor injected so that absolute fetch('/api/foo')
+      // calls inside the photon's UI are transparently rewritten to
+      // /web/{photonName}/api/foo by the browser.
+      if (url.pathname.startsWith('/web/')) {
+        const [, , photonName, ...pathParts] = url.pathname.split('/');
+        const photonPath = '/' + pathParts.join('/') || '/';
+        const photonClass = photonName ? photonMCPs.get(photonName) : undefined;
+        const httpRoutes:
+          | Array<{ method: string; path: string; handler: string; format?: string }>
+          | undefined = photonClass?._httpRoutes;
+        const route = httpRoutes?.find(
+          (r) => r.method === (req.method || 'GET') && r.path === photonPath
+        );
+
+        if (route && photonClass?.instance) {
+          const fn = photonClass.instance[route.handler];
+          if (typeof fn === 'function') {
+            try {
+              let bodyBuffer = Buffer.alloc(0);
+              await new Promise<void>((resolve) => {
+                req.on('data', (chunk: Buffer) => {
+                  bodyBuffer = Buffer.concat([bodyBuffer, chunk]);
+                });
+                req.on('end', resolve);
+              });
+              const internalUrl = new URL(
+                photonPath + (url.search || ''),
+                `http://${req.headers.host || 'localhost'}`
+              );
+              const webReq = new Request(internalUrl.toString(), {
+                method: req.method,
+                headers: req.headers as Record<string, string>,
+                ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
+              });
+              const result: unknown = await fn.call(photonClass.instance, webReq);
+
+              if (result instanceof Response) {
+                const contentType = result.headers.get('content-type') || '';
+                const responseHeaders: Record<string, string> = {};
+                result.headers.forEach((value, key) => {
+                  responseHeaders[key] = value;
+                });
+                let body = Buffer.from(await result.arrayBuffer());
+
+                // Inject fetch interceptor into HTML responses so relative API
+                // calls inside the photon UI resolve via the /web/ prefix.
+                if (contentType.includes('text/html')) {
+                  const prefix = `/web/${photonName}`;
+                  const interceptor = `<script>
+(function(){
+  const _prefix="${prefix}";
+  const _origFetch=window.fetch;
+  window.fetch=function(input,init){
+    if(typeof input==='string'&&input.startsWith('/')&&!input.startsWith(_prefix))
+      input=_prefix+input;
+    return _origFetch(input,init);
+  };
+  const _origOpen=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(m,u,...a){
+    if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith(_prefix))u=_prefix+u;
+    return _origOpen.call(this,m,u,...a);
+  };
+})();
+</script>`;
+                  const bodyStr = body.toString('utf-8').replace('<head>', '<head>' + interceptor);
+                  body = Buffer.from(bodyStr, 'utf-8');
+                  responseHeaders['content-length'] = String(body.length);
+                }
+
+                res.writeHead(result.status, responseHeaders);
+                res.end(body);
+                return;
+              }
+
+              // Plain value — negotiate content type and render
+              const { negotiateAccept } = await import('../format/registry.js');
+              const { getDefaultRegistry } = await import('../format/seed.js');
+              const acceptHeader = req.headers['accept'];
+              const rendered = negotiateAccept({
+                accept: typeof acceptHeader === 'string' ? acceptHeader : undefined,
+                declaredFormat: route.format,
+                value: result,
+                registry: getDefaultRegistry(),
+              });
+              res.writeHead(200, { 'Content-Type': rendered.mime });
+              res.end(
+                typeof rendered.body === 'string' ? rendered.body : Buffer.from(rendered.body)
+              );
+              return;
+            } catch (err: any) {
+              res.writeHead(500).end(err?.message ?? 'Internal Server Error');
+              return;
+            }
+          }
+        }
+
+        res.writeHead(404).end('Not Found');
+        return;
+      }
+
       // Default route: Serve Lit App
       if (url.pathname === '/' || !url.pathname.startsWith('/api')) {
         try {

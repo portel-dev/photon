@@ -281,6 +281,12 @@ export interface ExternalMCPInfo {
   appResourceUris?: string[];
   /** True if this MCP has an MCP App extension */
   hasApp?: boolean;
+  /** True if this MCP has @get/@post web routes exposed at a stable URL */
+  hasWebApp?: boolean;
+  /** Base URL of the photon's web interface (from MCP capabilities.web) */
+  webUrl?: string;
+  /** Short description of the web interface */
+  webDescription?: string;
 }
 
 /**

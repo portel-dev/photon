@@ -1208,6 +1208,13 @@ const handlers: Record<string, RequestHandler> = {
     for (const photon of visiblePhotons) {
       if (!photon.configured || !photon.methods) continue;
 
+      // Check if this photon has a @get / web root so we can advertise a web URL.
+      const photonClass = ctx.photonMCPs.get(photon.name) as any;
+      const httpRoutes: Array<{ method: string; path: string }> | undefined =
+        photonClass?._httpRoutes;
+      const webRootRoute = httpRoutes?.find((r) => r.method === 'GET' && r.path === '/');
+      const webUrl = webRootRoute ? `/web/${photon.name}/` : undefined;
+
       for (const method of photon.methods) {
         tools.push({
           name: `${photon.name}/${method.name}`,
@@ -1235,6 +1242,7 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-install-source': photon.installSource,
           'x-photon-prompt-count': photon.promptCount ?? 0,
           'x-photon-resource-count': photon.resourceCount ?? 0,
+          ...(webUrl ? { 'x-web-url': webUrl, 'x-web-description': photon.description } : {}),
           ...buildToolMetadataExtensions(method),
           // MCP Apps standard: _meta.ui for linked UI resources and visibility
           ...(method.linkedUi || method.visibility

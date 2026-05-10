@@ -2112,6 +2112,7 @@ export class BeamApp extends LitElement {
     | 'config'
     | 'diagnostics'
     | 'mcp-app'
+    | 'web-app'
     | 'studio'
     | 'source' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
@@ -3376,6 +3377,14 @@ export class BeamApp extends LitElement {
             return;
           }
 
+          // Handle photons with web routes
+          if (photon.hasWebApp && photon.webUrl) {
+            this._selectedMethod = null;
+            this._view = 'web-app';
+            this._mainTab = 'app';
+            return;
+          }
+
           if (methodName && photon.methods) {
             // Handle split view format: "method1+method2"
             const [firstMethodName, secondMethodName] = methodNames;
@@ -4048,7 +4057,8 @@ export class BeamApp extends LitElement {
           .mainTab=${this._mainTab}
           .isApp=${!!(
             this._selectedPhoton?.isApp ||
-            (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp)
+            (this._selectedPhoton?.isExternalMCP && this._selectedPhoton?.hasMcpApp) ||
+            this._selectedPhoton?.hasWebApp
           )}
           .hasSettings=${!!(
             this._selectedPhoton?.hasSettings && !this._selectedPhoton?.isExternalMCP
@@ -4136,6 +4146,10 @@ export class BeamApp extends LitElement {
               this._selectedPhoton?.hasMcpApp
             ) {
               this._view = 'mcp-app';
+            }
+            // Handle app tab for web-route photons
+            if (tab === 'app' && this._selectedPhoton?.hasWebApp && this._selectedPhoton?.webUrl) {
+              this._view = 'web-app';
             }
             // Handle app tab for native apps. Re-entering this tab (e.g.,
             // after a quick Pulse/Help peek) must not re-invoke when the app
@@ -5125,6 +5139,35 @@ ${photon.errorMessage || 'Unknown error'}</pre
       `;
     }
 
+    // Web app view: render the photon's @get / route inside an iframe
+    if (this._view === 'web-app' && this._selectedPhoton.hasWebApp && this._selectedPhoton.webUrl) {
+      const webUrl = this._selectedPhoton.webUrl;
+      return html`
+        <div style="display: flex; flex-direction: column; height: calc(100vh - 80px);">
+          <div
+            style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
+          >
+            <span
+              style="font-size: 12px; color: var(--t-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+              >${webUrl}</span
+            >
+            <a
+              href="${webUrl}"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="font-size: 11px; color: var(--accent-primary); text-decoration: none; white-space: nowrap;"
+              >Open in browser</a
+            >
+          </div>
+          <iframe
+            src="${webUrl}"
+            style="flex: 1; border: none; width: 100%;"
+            allow="camera; microphone; display-capture; accelerometer; gyroscope"
+          ></iframe>
+        </div>
+      `;
+    }
+
     if (this._view === 'form' && this._selectedMethod) {
       const isAppMain = this._selectedPhoton.isApp && this._selectedMethod.name === 'main';
 
@@ -5675,6 +5718,14 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // For external MCPs with MCP Apps, show the MCP App
     if (this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
       this._view = 'mcp-app';
+      this._mainTab = 'app';
+      this._updateRoute();
+      return;
+    }
+
+    // For photons (local or external) with web routes, show the web UI
+    if (this._selectedPhoton.hasWebApp && this._selectedPhoton.webUrl) {
+      this._view = 'web-app';
       this._mainTab = 'app';
       this._updateRoute();
       return;

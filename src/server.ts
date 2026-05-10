@@ -137,6 +137,18 @@ function uiSiblingMime(ext: string): string {
   }
 }
 
+function findFreePort(preferred: number = 0): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.listen(preferred, () => {
+      const addr = srv.address();
+      const port = typeof addr === 'object' && addr ? addr.port : preferred;
+      srv.close((err) => (err ? reject(err) : resolve(port)));
+    });
+    srv.on('error', reject);
+  });
+}
+
 export interface UnresolvedPhoton {
   name: string;
   workingDir: string;
@@ -2262,13 +2274,40 @@ export class PhotonServer {
       // and translates them to notifications/claude/channel for the connected client.
       await this.channelManager.subscribeToChannels();
 
-      // Start with the appropriate transport
+      // Announce web capability when the photon has @get / defined.
+      // HTTP mode: the existing HTTP server already handles web routes at their
+      // declared paths, so we expose the server's own base URL.
+      // STDIO stateful: we spin up a companion HTTP server to host those routes
+      // and expose its URL. Stateless photons cannot have a companion server.
       const transport = this.options.transport || 'stdio';
 
+      const photonWithMeta = this.mcp as PhotonClassWithMeta | undefined;
+      const webRootRoute = photonWithMeta?._httpRoutes?.find(
+        (r) => r.method === 'GET' && r.path === '/'
+      );
+
       if (transport === 'sse') {
+        if (webRootRoute) {
+          const httpPort = Number(this.options.port) || 3000;
+          const webDescription =
+            photonWithMeta?.description || `${photonWithMeta?.name} web interface`;
+          this.server.registerCapabilities({
+            web: { url: `http://localhost:${httpPort}`, description: webDescription },
+          } as any);
+        }
         await this.startSSE();
       } else {
-        await this.startStdio();
+        if (webRootRoute && photonStateful) {
+          const webPort = await findFreePort(Number(this.options.port) || 0);
+          const webDescription =
+            photonWithMeta?.description || `${photonWithMeta?.name} web interface`;
+          this.server.registerCapabilities({
+            web: { url: `http://localhost:${webPort}`, description: webDescription },
+          } as any);
+          await this.startStdio(webPort);
+        } else {
+          await this.startStdio();
+        }
       }
 
       // In dev mode, we could set up file watching here
@@ -2285,9 +2324,11 @@ export class PhotonServer {
   }
 
   /**
-   * Start server with stdio transport
+   * Start server with stdio transport.
+   * @param webPort - when set, start a companion HTTP server on this port
+   *                  to serve @get/@post web routes for stateful photons.
    */
-  private async startStdio() {
+  private async startStdio(webPort?: number) {
     const transport = new StdioServerTransport();
 
     // Wrap transport.send with a write mutex to prevent concurrent generators
@@ -2309,6 +2350,100 @@ export class PhotonServer {
     );
     await this.server.connect(transport);
     this.log('info', `Server started: ${this.mcp!.name}`);
+
+    if (webPort) {
+      const webServer = createServer((req, res) => {
+        void this.handleWebRoute(req, res);
+      });
+      await new Promise<void>((resolve, reject) => {
+        webServer.listen(webPort, () => resolve());
+        webServer.on('error', reject);
+      });
+      this.log('info', `Web UI: http://localhost:${webPort}`);
+    }
+  }
+
+  /**
+   * Dispatch an incoming HTTP request to the photon's @get/@post web routes.
+   * Used by the companion HTTP server that runs alongside STDIO stateful photons.
+   */
+  private async handleWebRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    setSecurityHeaders(res);
+    if (!req.url) {
+      res.writeHead(400).end('Missing URL');
+      return;
+    }
+
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const corsOrigin = getCorsOrigin(req);
+
+    if (req.method === 'OPTIONS') {
+      const preflightHeaders: Record<string, string> = {
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Accept',
+      };
+      if (corsOrigin) preflightHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+      res.writeHead(204, preflightHeaders).end();
+      return;
+    }
+
+    const httpRoutes = this.mcp?._httpRoutes;
+    if (httpRoutes?.length && req.method) {
+      const route = httpRoutes.find((r) => r.method === req.method && r.path === url.pathname);
+      if (route) {
+        const targetMcp = await this.resolveInstanceMcp(undefined);
+        const photonInstance = targetMcp?.instance;
+        const fn = photonInstance?.[route.handler];
+        if (typeof fn === 'function') {
+          try {
+            let bodyBuffer = Buffer.alloc(0);
+            await new Promise<void>((resolve) => {
+              req.on('data', (chunk: Buffer) => {
+                bodyBuffer = Buffer.concat([bodyBuffer, chunk]);
+              });
+              req.on('end', resolve);
+            });
+            const webReq = new Request(url.toString(), {
+              method: req.method,
+              headers: req.headers as Record<string, string>,
+              ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
+            });
+            const result: unknown = await fn.call(photonInstance, webReq);
+
+            if (result instanceof Response) {
+              const responseHeaders: Record<string, string> = {};
+              result.headers.forEach((value, key) => {
+                responseHeaders[key] = value;
+              });
+              if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+              res.writeHead(result.status, responseHeaders);
+              res.end(Buffer.from(await result.arrayBuffer()));
+              return;
+            }
+
+            const { negotiateAccept } = await import('./format/registry.js');
+            const { getDefaultRegistry } = await import('./format/seed.js');
+            const acceptHeader = req.headers['accept'];
+            const rendered = negotiateAccept({
+              accept: typeof acceptHeader === 'string' ? acceptHeader : undefined,
+              declaredFormat: route.format,
+              value: result,
+              registry: getDefaultRegistry(),
+            });
+            const negotiatedHeaders: Record<string, string> = { 'Content-Type': rendered.mime };
+            if (corsOrigin) negotiatedHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+            res.writeHead(200, negotiatedHeaders);
+            res.end(typeof rendered.body === 'string' ? rendered.body : Buffer.from(rendered.body));
+            return;
+          } catch (err: any) {
+            res.writeHead(500).end(err?.message ?? 'Internal Server Error');
+            return;
+          }
+        }
+      }
+    }
+
+    res.writeHead(404).end('Not Found');
   }
 
   /**
@@ -3178,6 +3313,18 @@ export class PhotonServer {
         method: 'notifications/resources/updated',
         params: { uri },
       });
+
+    // Mirror web capability onto the per-session server when the photon has web routes.
+    const sessionWebMeta = (this.mcp as PhotonClassWithMeta | undefined)?._httpRoutes?.find(
+      (r) => r.method === 'GET' && r.path === '/'
+    );
+    if (sessionWebMeta) {
+      const httpPort = Number(this.options.port) || 3000;
+      const webDescription = this.mcp?.description || `${this.mcp?.name} web interface`;
+      sessionServer.registerCapabilities({
+        web: { url: `http://localhost:${httpPort}`, description: webDescription },
+      } as any);
+    }
 
     // Copy handlers to the session server
     this.setupSessionHandlers(sessionServer, sessionSink);

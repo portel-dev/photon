@@ -123,6 +123,18 @@ function toolsToMethods(tools: any[]): MethodInfo[] {
   }));
 }
 
+/** Detect web capability from an SDK client (capabilities.web extension) */
+function detectWebCapability(sdkClient: Client, mcpInfo: ExternalMCPInfo): void {
+  const caps = (sdkClient as any).getServerCapabilities?.() as Record<string, any> | undefined;
+  const web = caps?.web as { url?: string; description?: string } | undefined;
+  if (web?.url) {
+    mcpInfo.hasWebApp = true;
+    mcpInfo.webUrl = web.url;
+    mcpInfo.webDescription = web.description;
+    logger.info(`🌐 Web UI detected: ${mcpInfo.name} (${web.url})`);
+  }
+}
+
 /** Detect MCP App resources from an SDK client */
 async function detectMCPApps(
   sdkClient: Client,
@@ -195,6 +207,7 @@ export async function loadExternalMCPs(
         methods = toolsToMethods(toolsResult.tools || []);
 
         await detectMCPApps(sdkClient, methods, mcpInfo, name);
+        detectWebCapability(sdkClient, mcpInfo);
 
         mcpInfo.connected = true;
         mcpInfo.methods = methods;
@@ -246,6 +259,7 @@ export async function loadExternalMCPs(
           methods = toolsToMethods(toolsResult.tools || []);
 
           await detectMCPApps(sdkClient, methods, mcpInfo, name);
+          detectWebCapability(sdkClient, mcpInfo);
 
           mcpInfo.connected = true;
           mcpInfo.methods = methods;
