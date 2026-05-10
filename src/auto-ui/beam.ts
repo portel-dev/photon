@@ -1526,6 +1526,23 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // ══════════════════════════════════════════════════════════════════════════
       if (url.pathname.startsWith('/api/')) {
         if (url.pathname === '/api/restart' && req.method === 'POST') {
+          // CSRF guard: a cross-site POST to this endpoint could kill the user's
+          // Beam session from any webpage. CORS blocks cross-origin *reads* but
+          // not simple POST requests. Validate Origin when present; when absent
+          // (same-origin fetch or curl) validate that Host is localhost-only.
+          const origin = req.headers['origin'];
+          const host = req.headers['host'] || '';
+          const hostIsLocal =
+            host.startsWith('localhost:') ||
+            host.startsWith('127.0.0.1:') ||
+            host === 'localhost' ||
+            host === '127.0.0.1';
+          const originOk = !origin || origin === `http://${host}`;
+          if (!hostIsLocal || !originOk) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'forbidden' }));
+            return;
+          }
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
           setTimeout(() => process.exit(0), 100);
