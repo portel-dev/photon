@@ -140,9 +140,11 @@ Beam is the web dashboard. Every photon becomes an interactive form automaticall
 
 The UI is **fully auto-generated** from your method signatures: field types, validation, defaults, layouts. You never write frontend code. When you add a `{@choice a,b,c}` tag to a parameter, Beam renders a dropdown. When you mark a string as `{@format email}`, the field validates email format. The UI evolves as your code does.
 
-When forms aren't the right interface for what you're building, you can replace Beam's auto-generated view with your own HTML. A global named after your photon is auto-injected (e.g., `analytics.onResult(data => ...)`) — no framework required.
+When forms aren't the right interface for what you're building, you can replace Beam's auto-generated view with your own HTML. A global named after your photon is auto-injected (e.g., `analytics.onResult(data => ...)`) — no framework required. `window.photon.url` is also injected and resolves to the Beam base URL so your HTML can construct fetch paths correctly whether running locally or behind a reverse proxy.
 
 > Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
+
+Photons that declare `@get` or `@post` HTTP routes are shown in Beam as web apps. Beam proxies requests to those routes and injects an `x-photon-base-path` header so the app can construct correct absolute paths regardless of where Beam is hosted.
 
 ---
 
@@ -384,7 +386,9 @@ export default class Editor {
 | `await this.sample({ prompt })` | Delegates LLM generation to the caller's model via MCP sampling |
 | `await this.confirm(question)` | Yes/no prompt — returns `boolean` |
 | `await this.elicit(params)` | Arbitrary input (text, select, form, file, etc.) |
-| `this.status(msg)` / `this.progress(v)` | Live feedback during long work |
+| `this.status(msg)` / `this.progress(v)` | Live feedback during long work; routes to SSE stream in Beam |
+| `this.roots` | MCP workspace roots declared by the connected client (`roots/list`) |
+| `this.notifyResourceUpdated(uri)` | Push `notifications/resources/updated` to subscribed clients |
 
 Full reference: [`docs/reference/MCP-PRIMITIVES.md`](docs/reference/MCP-PRIMITIVES.md).
 
@@ -543,6 +547,10 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | `@param ... {@min N} {@max N}` | Param | Numeric range constraints |
 | `@ui` | Class/Method | Link a custom HTML template |
 | `@expose` | Method | Auto-bind to `POST /api/<kebab>` for SPA fetch (`public` skips the SameSite gate) |
+| `@get /path` | Method | HTTP-only GET route; shown as a web app in Beam, not an MCP tool |
+| `@post /path` | Method | HTTP-only POST route; shown as a web app in Beam, not an MCP tool |
+| `@resource <uri>` | Method | Dynamic MCP resource resolver (canonical form; replaces `@Static`) |
+| `@prompt` | Method | MCP prompt template (canonical form; replaces `@Template`) |
 | `@webhook` | Method | Expose as HTTP endpoint |
 | `@scheduled` | Method | Run on a cron schedule |
 | `@locked` | Method | Distributed lock across processes |
