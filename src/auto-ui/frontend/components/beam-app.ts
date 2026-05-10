@@ -5143,25 +5143,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
     if (this._view === 'web-app' && this._selectedPhoton.hasWebApp && this._selectedPhoton.webUrl) {
       const webUrl = this._selectedPhoton.webUrl;
       return html`
-        <div style="display: flex; flex-direction: column; height: calc(100vh - 80px);">
-          <div
-            style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border-glass); background: var(--bg-glass);"
-          >
-            <span
-              style="font-size: 12px; color: var(--t-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-              >${webUrl}</span
-            >
-            <a
-              href="${webUrl}"
-              target="_blank"
-              rel="noopener noreferrer"
-              style="font-size: 11px; color: var(--accent-primary); text-decoration: none; white-space: nowrap;"
-              >Open in browser</a
-            >
-          </div>
+        <div style="height: calc(100vh - 80px); overflow: hidden;">
           <iframe
             src="${webUrl}"
-            style="flex: 1; border: none; width: 100%;"
+            style="width: 100%; height: 100%; border: none; display: block;"
             allow="camera; microphone; display-capture; accelerometer; gyroscope"
           ></iframe>
         </div>
