@@ -3360,6 +3360,12 @@ export class BeamApp extends LitElement {
           this._lastResult = null;
           this._customFormatUri = null;
 
+          // Clear web-app focus mode when switching photons; web-app branch re-enables it.
+          if (this._focusMode && !photon.hasWebApp) {
+            this._focusMode = false;
+            this.classList.remove('focus-mode');
+          }
+
           // Restore saved instance for stateful photons (survives tab refresh)
           if (photon.stateful && photon.configured) {
             await this._restoreInstance(photon.name);
@@ -3383,6 +3389,8 @@ export class BeamApp extends LitElement {
             this._selectedMethod = null;
             this._view = 'web-app';
             this._mainTab = 'app';
+            this._focusMode = true;
+            this.classList.add('focus-mode');
             return;
           }
 
@@ -4151,6 +4159,8 @@ export class BeamApp extends LitElement {
             // Handle app tab for web-route photons
             if (tab === 'app' && this._selectedPhoton?.hasWebApp && this._selectedPhoton?.webUrl) {
               this._view = 'web-app';
+              this._focusMode = true;
+              this.classList.add('focus-mode');
             }
             // Handle app tab for native apps. Re-entering this tab (e.g.,
             // after a quick Pulse/Help peek) must not re-invoke when the app
