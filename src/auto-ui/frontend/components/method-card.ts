@@ -75,6 +75,7 @@ export class MethodCard extends LitElement {
         gap: var(--space-sm);
         flex: 1;
         min-width: 0;
+        overflow: hidden;
       }
 
       .method-icon {
@@ -107,6 +108,8 @@ export class MethodCard extends LitElement {
         display: flex;
         align-items: baseline;
         min-width: 0;
+        overflow: hidden;
+        max-width: 100%;
       }
 
       .title-name {
@@ -125,17 +128,21 @@ export class MethodCard extends LitElement {
       .title .method-params-trunc {
         overflow: hidden;
         text-overflow: ellipsis;
+        white-space: nowrap;
         flex-shrink: 1;
         min-width: 0;
       }
       .title .method-params-suffix {
         flex-shrink: 0;
+        white-space: nowrap;
       }
 
       .editable {
         display: flex;
         align-items: center;
         min-width: 0;
+        overflow: hidden;
+        flex: 1;
       }
 
       .edit-pencil {
@@ -188,6 +195,8 @@ export class MethodCard extends LitElement {
         margin: -4px -6px;
         margin-bottom: calc(var(--space-md) - 4px);
         border-radius: var(--radius-sm);
+        max-height: calc(1.5em * 3 + 8px);
+        word-break: break-word;
       }
 
       .description.placeholder {
