@@ -1009,6 +1009,14 @@ export class PhotonLoader {
     );
   }
 
+  private isCompilationServiceError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      message.includes('The service was stopped') ||
+      message.includes('The service is no longer running')
+    );
+  }
+
   private static parseDependenciesFromSource(source: string): DependencySpec[] {
     const deps: DependencySpec[] = [];
 
@@ -1168,6 +1176,14 @@ export class PhotonLoader {
           );
           module = await importModule();
         } else {
+          if (this.isCompilationServiceError(error) && cacheKey) {
+            // Compiler process crashed — clear the build cache so the next startup
+            // recompiles from source instead of finding a stale or missing artifact.
+            await this.clearBuildCache(cacheKey);
+            this.log(
+              `⚠️  Compiler service crashed for ${mcpName || 'unknown'}, build cache cleared. Restart to recover.`
+            );
+          }
           throw error;
         }
       }

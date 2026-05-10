@@ -2180,6 +2180,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const activeLoads = new Set<string>(); // Photons currently being loaded (prevents concurrent duplicate loads)
   const pendingAfterLoad = new Set<string>(); // File changes that arrived while a load was active; re-triggered after
   const symlinkWatchedDirs = new Set<string>(); // Track which source dirs already have watchers (prevents duplicates on re-setup)
+  const transientRetryCount = new Map<string, number>(); // Retry attempts for transient load failures
 
   // Set up file watchers for a symlinked photon's real source directory and asset folder.
   // Called both at startup and after a previously-errored symlinked photon recovers.
@@ -2467,6 +2468,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               if (!mcp.instance) throw new Error('Failed to create instance');
 
               photonMCPs.set(photonName, mcp);
+              transientRetryCount.delete(photonName); // Clear retry count on success
 
               // Re-extract schema - use extractAllFromSource to get both tools and templates
               const extractor = new SchemaExtractor();
@@ -2693,6 +2695,23 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 photon: photonName,
                 message: errorMsg.slice(0, 200),
               });
+
+              // Transient errors (compiler crash, service stopped) auto-retry with backoff.
+              // Permanent errors (syntax, missing config) are not retried.
+              const isTransient =
+                errorMsg.includes('The service was stopped') ||
+                errorMsg.includes('The service is no longer running');
+              if (isTransient) {
+                const retries = transientRetryCount.get(photonName) ?? 0;
+                if (retries < 3) {
+                  transientRetryCount.set(photonName, retries + 1);
+                  const delay = 5000 * (retries + 1); // 5s, 10s, 15s
+                  logger.info(
+                    `🔄 ${photonName} will retry in ${delay / 1000}s (attempt ${retries + 1}/3)`
+                  );
+                  setTimeout(() => void handleFileChange(photonName), delay);
+                }
+              }
             }
           } finally {
             activeLoads.delete(photonName);

@@ -177,6 +177,45 @@ When you add a `@cached 5m` tag, all three surfaces cache. When you add `@thrott
 
 ---
 
+## 7. Where Photon Stores Your Data
+
+Every photon has a **home directory** — the folder where its state, memory, logs, and compiled cache live. Photon picks this directory using one simple rule:
+
+| Where you run `photon` | Home directory |
+|---|---|
+| Inside a **marketplace** (any folder containing `.photon.ts` files) | That folder |
+| Anywhere else | `~/.photon` (global default) |
+
+A marketplace is just a directory with one or more `.photon.ts` files at any depth. No config file needed. The presence of source files is the signal.
+
+```
+~/Projects/myapp/          ← marketplace (contains .photon.ts files)
+  tasks.photon.ts
+  .data/
+    tasks/                 ← state, memory, logs for tasks.photon.ts
+      state/
+      memory/
+
+~/.photon/                 ← global default (used anywhere else)
+  features.photon.ts
+  .data/
+    features/
+```
+
+All data for a photon — state, memory, logs, schedules, compile cache — lands under `{home}/.data/{photon-name}/`. The source layout mirrors the data layout exactly.
+
+You can override the home directory for any process by setting `PHOTON_DIR`:
+
+```bash
+PHOTON_DIR=~/Projects/myapp photon beam
+```
+
+This lets you run Beam or the CLI against a specific marketplace from any working directory.
+
+**The daemon is the only global piece.** Everything else — state, memory, schedules, cache — belongs to whichever marketplace or global home owns the photon file. The daemon serves all marketplaces from a single process.
+
+---
+
 ## Next Steps
 
 | Ready to... | Go to |
