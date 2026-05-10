@@ -215,7 +215,7 @@ export interface UnconfiguredPhotonInfo {
   /** Human-readable error message explaining what's missing */
   errorMessage: string;
   /** Why this photon needs attention */
-  errorReason?: 'missing-config' | 'load-error';
+  errorReason?: 'missing-config' | 'load-error' | 'missing-auth';
   /** Display name from @label tag, or auto-prettified from name */
   label?: string;
   /** True if marked with @internal (system photon, hidden from normal UI) */

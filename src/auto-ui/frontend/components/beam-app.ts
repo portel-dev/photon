@@ -5658,6 +5658,20 @@ ${photon.errorMessage || 'Unknown error'}</pre
       return;
     }
 
+    // Auth-required photon with no token stored — show token config before connecting
+    if (this._selectedPhoton.auth === 'required' && !mcpClient.authToken) {
+      this._selectedPhoton = {
+        ...this._selectedPhoton,
+        configured: false,
+        errorReason: 'missing-auth',
+        errorMessage: 'This photon requires authentication. Enter a Bearer token to continue.',
+        requiredParams: [],
+      };
+      this._view = 'config';
+      this._updateRoute();
+      return;
+    }
+
     // For external MCPs with MCP Apps, show the MCP App
     if (this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
       this._view = 'mcp-app';
@@ -7782,6 +7796,21 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   private async _handleConfigure(e: CustomEvent) {
     const { photon, config } = e.detail;
+
+    // Auth token submission — store locally and reconnect
+    if (config?.type === 'auth-token') {
+      mcpClient.setAuthToken(config.token);
+      await mcpClient.connect().catch(() => {});
+      // Find the real photon and navigate to it
+      const real = this._photons.find((p) => p.name === photon);
+      if (real) {
+        this._selectedPhoton = real;
+        this._view = 'list';
+        this._updateRoute();
+      }
+      return;
+    }
+
     this._log('info', `Configuring ${photon}...`);
 
     if (this._mcpReady) {

@@ -28,6 +28,7 @@ interface UnconfiguredPhoton {
   configured?: boolean;
   requiredParams: ConfigParam[];
   errorMessage?: string;
+  errorReason?: 'missing-config' | 'load-error' | 'missing-auth';
 }
 
 @customElement('photon-config')
@@ -230,6 +231,10 @@ export class PhotonConfig extends LitElement {
   render() {
     if (!this.photon) return html``;
 
+    if (this.photon.errorReason === 'missing-auth') {
+      return this._renderAuthForm();
+    }
+
     const params = this.photon.requiredParams || [];
 
     return html`
@@ -268,6 +273,56 @@ export class PhotonConfig extends LitElement {
             : this.mode === 'edit'
               ? 'Save Changes'
               : 'Configure & Enable'}
+        </button>
+      </div>
+    `;
+  }
+
+  private _renderAuthForm() {
+    return html`
+      <div class="config-header">
+        <h2 class="config-title text-gradient">${this.photon.name}</h2>
+        <p class="config-description">
+          This photon requires authentication. Enter your Bearer token to continue.
+        </p>
+      </div>
+      <div class="config-form" role="presentation">
+        <div class="form-group">
+          <label>
+            Bearer Token
+            <span class="required" aria-label="required">*</span>
+          </label>
+          <input
+            class="form-input"
+            type="password"
+            placeholder="Enter token..."
+            .value=${this._formData['__auth_token'] || ''}
+            @input=${(e: InputEvent) => {
+              this._formData = {
+                ...this._formData,
+                __auth_token: (e.target as HTMLInputElement).value,
+              };
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          class="submit-btn"
+          ?disabled=${this._loading || !this._formData['__auth_token']}
+          @click=${() => {
+            this.dispatchEvent(
+              new CustomEvent('configure', {
+                detail: {
+                  photon: this.photon.name,
+                  config: { type: 'auth-token', token: this._formData['__auth_token'] },
+                },
+                bubbles: true,
+                composed: true,
+              })
+            );
+          }}
+        >
+          Connect
         </button>
       </div>
     `;

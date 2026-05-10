@@ -859,6 +859,19 @@ export class PhotonLoader {
   }
 
   /**
+   * Clear all caches for a photon identified by file path.
+   * Called by Beam when a photon fails to load, so the next reload
+   * recompiles from source rather than using stale cached artifacts.
+   */
+  async clearCacheForFile(filePath: string): Promise<void> {
+    const absolutePath = path.resolve(filePath);
+    const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
+    const cacheKey = this.getCacheKey(mcpName, absolutePath);
+    await this.clearAllCaches(cacheKey);
+    this.log(`🗑️  Cache cleared for ${mcpName} (auto-retry after load failure)`);
+  }
+
+  /**
    * Path to metadata file describing installed dependencies
    */
   private getDependencyMetadataPath(cacheKey: string): string {
