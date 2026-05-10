@@ -3360,8 +3360,8 @@ export class BeamApp extends LitElement {
           this._lastResult = null;
           this._customFormatUri = null;
 
-          // Clear web-app focus mode when switching photons; web-app branch re-enables it.
-          if (this._focusMode && !photon.hasWebApp) {
+          // Clear focus mode when switching photons.
+          if (this._focusMode) {
             this._focusMode = false;
             this.classList.remove('focus-mode');
           }
@@ -3389,8 +3389,6 @@ export class BeamApp extends LitElement {
             this._selectedMethod = null;
             this._view = 'web-app';
             this._mainTab = 'app';
-            this._focusMode = true;
-            this.classList.add('focus-mode');
             return;
           }
 
