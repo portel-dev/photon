@@ -531,7 +531,7 @@ export class MethodCard extends LitElement {
         style="${isTyped ? `--type-accent: ${typeAccent}` : ''}"
         role="button"
         tabindex="0"
-        aria-label="${this.method.title || formatLabel(this.method.name)}${hasDescription
+        aria-label="${this.method.title || this.method.name}${hasDescription
           ? ': ' + this._renderDescription(this.method.description)
           : ''}"
         @click=${(e: Event) => this._handleCardClick(e)}
@@ -553,8 +553,7 @@ export class MethodCard extends LitElement {
                 : ''}
               <span class="${this.editable ? 'editable' : 'title-wrapper'}">
                 <h3 class="title">
-                  <span class="title-name"
-                    >${this.method.title || formatLabel(this.method.name)}</span
+                  <span class="title-name">${this.method.title || this.method.name}</span
                   >${this._renderParamSignature()}
                 </h3>
                 ${this.editable
@@ -672,7 +671,7 @@ export class MethodCard extends LitElement {
   private _renderParamSignature() {
     if (this.method.isTemplate) return '';
     const props = this.method.params?.properties || {};
-    const paramNames = Object.keys(props).map((p) => formatLabel(p));
+    const paramNames = Object.keys(props);
     if (paramNames.length === 0) return '';
     if (paramNames.length <= 4) {
       return html`<span class="method-params method-params-trunc">(${paramNames.join(', ')}</span
