@@ -165,11 +165,24 @@ echo "  Testing Beam startup..."
 BEAM_LOG=$(mktemp)
 PHOTON_DIR="$FRESH_DIR" node dist/cli.js beam > "$BEAM_LOG" 2>&1 &
 BEAM_PID=$!
-sleep 6
+
+# Poll for startup banner (up to 30s). The global daemon may need to restart
+# when the binary was just rebuilt — that can take 10-15s before Beam proceeds.
+BEAM_STARTED=0
+for i in $(seq 1 30); do
+  if grep -q "⚡ Photon Beam" "$BEAM_LOG" 2>/dev/null; then
+    BEAM_STARTED=1
+    break
+  fi
+  if ! kill -0 $BEAM_PID 2>/dev/null; then
+    break  # process died
+  fi
+  sleep 1
+done
 kill $BEAM_PID 2>/dev/null || true
 wait $BEAM_PID 2>/dev/null || true
 
-if grep -q "⚡ Photon Beam" "$BEAM_LOG"; then
+if [ "$BEAM_STARTED" -eq 1 ]; then
   echo "  ✓ Beam starts successfully"
 else
   echo "  ✗ FAIL: Beam did not start"
