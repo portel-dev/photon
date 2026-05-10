@@ -128,10 +128,11 @@ export class BeamApp extends LitElement {
         display: flex;
         height: 100vh;
         width: 100vw;
+        max-width: 100vw;
         background: var(--bg-app);
         color: var(--t-primary);
         font-family: var(--font-sans);
-        overflow: visible; /* Allow focus rings and shadows to display */
+        overflow: hidden;
       }
 
       /* ===== Light Theme — Mineral Paper ===== */
@@ -5143,7 +5144,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     if (this._view === 'web-app' && this._selectedPhoton.hasWebApp && this._selectedPhoton.webUrl) {
       const webUrl = this._selectedPhoton.webUrl;
       return html`
-        <div style="height: calc(100vh - 80px); overflow: hidden;">
+        <div style="width: 100%; height: calc(100vh - 80px); overflow: hidden;">
           <iframe
             src="${webUrl}"
             style="width: 100%; height: 100%; border: none; display: block;"
