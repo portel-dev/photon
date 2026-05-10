@@ -2091,6 +2091,7 @@ export class BeamApp extends LitElement {
   ];
 
   @state() private _connected = false;
+  @state() private _compilerCrashed = false;
   @state() private _reconnecting = false;
   @state() private _reconnectAttempt = 0;
   private _connectRetries = 0;
@@ -3251,6 +3252,10 @@ export class BeamApp extends LitElement {
         }
       });
 
+      mcpClient.on('compiler-crash', () => {
+        this._compilerCrashed = true;
+      });
+
       await mcpClient.connect();
       this._connectRetries = 0;
     } catch (error) {
@@ -3949,6 +3954,39 @@ export class BeamApp extends LitElement {
         }}
         >Skip to main content</a
       >
+      ${this._compilerCrashed
+        ? html`
+            <div
+              class="connection-banner"
+              role="alert"
+              aria-live="assertive"
+              style="background: linear-gradient(135deg, hsl(30 80% 35%), hsl(0 70% 40%));"
+            >
+              <div>
+                <span>Compiler crashed - Beam must restart to compile photons</span>
+                <div style="font-size: 0.75rem; opacity: 0.8; margin-top: 2px;">
+                  Click Restart or run
+                  <code
+                    style="background: rgba(255,255,255,0.2); padding: 1px 4px; border-radius: var(--radius-xs);"
+                    >photon beam</code
+                  >
+                  again
+                </div>
+              </div>
+              <button
+                @click=${async () => {
+                  try {
+                    await fetch('/api/restart', { method: 'POST' });
+                  } catch {
+                    // server exited before response — expected
+                  }
+                }}
+              >
+                Restart
+              </button>
+            </div>
+          `
+        : ''}
       ${!this._connected
         ? html`
             <div

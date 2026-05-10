@@ -1525,6 +1525,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // REST API routes (extracted modules)
       // ══════════════════════════════════════════════════════════════════════════
       if (url.pathname.startsWith('/api/')) {
+        if (url.pathname === '/api/restart' && req.method === 'POST') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+          setTimeout(() => process.exit(0), 100);
+          return;
+        }
         if (await handleMarketplaceRoutes(req, res, url, beamState)) return;
         if (await handleBrowseRoutes(req, res, url, beamState)) return;
         if (await handleConfigRoutes(req, res, url, beamState)) return;
@@ -2689,9 +2695,20 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 return;
               }
 
+              // esbuild subprocess crash: the in-process module is permanently
+              // "stopped" — cache clears don't help. Tell the UI and skip retry.
+              const isServiceCrash =
+                errorMsg.includes('The service was stopped') ||
+                errorMsg.includes('The service is no longer running');
+              if (isServiceCrash) {
+                logger.error(`Compiler service crashed — Beam restart required`);
+                broadcastToBeam('beam/compiler-crash', { photon: photonName });
+                return;
+              }
+
               // On the first failure, clear the build cache and retry automatically.
-              // This recovers from stale artifacts, compiler crashes, or dependency
-              // issues without requiring the user to touch the file or restart Beam.
+              // This recovers from stale artifacts or dependency issues without
+              // requiring the user to touch the file or restart Beam.
               if (!autoRetried.has(photonName)) {
                 autoRetried.add(photonName);
                 logger.info(`🔄 ${photonName} failed to load, clearing cache and retrying...`);
