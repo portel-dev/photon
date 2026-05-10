@@ -62,9 +62,9 @@ describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', 
 
     // Give the transport time to establish its GET SSE stream.
     // StreamableHTTPClientTransport opens it asynchronously (fire-and-forget)
-    // after the initialized handshake, so there is a small gap before
-    // BeamCompatTransport.sseResponse is populated.
-    await new Promise((r) => setTimeout(r, 300));
+    // after the initialized handshake. Under load (full test suite), the
+    // loopback round-trip still takes multiple event loop cycles.
+    await new Promise((r) => setTimeout(r, 1500));
   }, 15_000);
 
   afterAll(async () => {
@@ -99,8 +99,14 @@ describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', 
       },
     } as any);
 
-    // Give the SSE stream a moment to deliver any queued notifications.
-    await new Promise((r) => setTimeout(r, 500));
+    // Poll until both expected messages arrive or the deadline passes.
+    // The SSE delivery is async relative to the POST response, so a fixed
+    // sleep is unreliable under load — poll instead.
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      if (messages.includes('working') && messages.includes('halfway')) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
 
     // this.status('working') and this.progress(0.5, 'halfway') should both arrive.
     expect(messages).toContain('working');
