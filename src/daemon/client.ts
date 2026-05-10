@@ -165,33 +165,37 @@ function connectToDaemon(socketPath: string): net.Socket {
     err.code = 'ENOENT';
     err.syscall = 'connect';
     err.address = socketPath;
-    throw err;
+    // Emit asynchronously so callers always have a tick to attach 'error'
+    // handlers before it fires. Throwing synchronously inside a Promise
+    // executor is fine (the constructor catches it), but a sync throw
+    // outside one crashes the process. Async emission is safe in both
+    // contexts and matches how net.createConnection itself behaves.
+    const dummy = new net.Socket();
+    process.nextTick(() => dummy.emit('error', err));
+    return dummy;
   }
   try {
     return net.createConnection(socketPath);
-  } catch (err: any) {
-    // Race: file vanished between existsSync and createConnection, or
-    // some other sync throw (EACCES, EPERM). Re-throw so the enclosing
-    // Promise rejects normally instead of the process crashing.
-    throw err;
+  } catch (syncErr: any) {
+    // TOCTOU: file vanished between existsSync and createConnection.
+    // Emit asynchronously for the same reason as above.
+    const dummy = new net.Socket();
+    process.nextTick(() => dummy.emit('error', syncErr));
+    return dummy;
   }
 }
 
 /**
  * connectToDaemon variant for the best-effort health-check helpers
- * (pingDaemon, queryDaemonStatus, clearInstances) whose Promise
- * executors only have `resolve` — a sync throw from connectToDaemon
- * would surface as an unhandled rejection their callers don't expect.
+ * (pingDaemon, queryDaemonStatus, clearInstances).
  *
- * Returns null instead of throwing, so the caller can resolve a fallback
- * value (false/null) and keep the "is the daemon reachable?" semantics.
+ * connectToDaemon no longer throws — errors arrive via the 'error'
+ * event on the next tick. This wrapper exists for call-site clarity;
+ * callers must still attach an 'error' handler to handle the case
+ * where the daemon socket is unreachable.
  */
-function tryConnectToDaemon(socketPath: string): net.Socket | null {
-  try {
-    return connectToDaemon(socketPath);
-  } catch {
-    return null;
-  }
+function tryConnectToDaemon(socketPath: string): net.Socket {
+  return connectToDaemon(socketPath);
 }
 
 /**
@@ -223,6 +227,22 @@ function isTransientError(error: unknown): boolean {
 
 /** Methods that are safe to retry (read-only runtime tools) */
 const RETRYABLE_METHODS = new Set(['_instances', '_use', '_settings', '_runs', '_run_info']);
+
+/**
+ * Wait until the daemon socket responds to a ping or the timeout elapses.
+ * Called after ensureDaemon() so sendCommand retries land on a ready socket,
+ * not on a socket that exists on disk but the daemon hasn't bound yet.
+ */
+async function waitForDaemon(timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let delay = 100;
+  while (Date.now() < deadline) {
+    if (await pingDaemon('__health__')) return;
+    await new Promise<void>((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 1000);
+  }
+  throw new Error('Daemon did not become ready within timeout');
+}
 
 /**
  * Send command to daemon with auto-restart on connection failure.
@@ -261,8 +281,9 @@ export async function sendCommand(
       );
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
-        logger.info(`Daemon unreachable (${photonName}/${method}), retrying...`);
+        logger.info(`Daemon unreachable (${photonName}/${method}), waiting for daemon...`);
         await ensureDaemon();
+        await waitForDaemon();
         continue;
       }
       // Retry transient errors for read-only methods only
@@ -1469,10 +1490,6 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
 
   return new Promise((resolve) => {
     const client = tryConnectToDaemon(socketPath);
-    if (!client) {
-      resolve(false);
-      return;
-    }
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1529,9 +1546,6 @@ export async function queryDaemonStatus(): Promise<{
 } | null> {
   const socketPath = getGlobalSocketPath();
 
-  // Bail early if socket doesn't exist — avoids Bun crashing on ENOENT
-  // before the 'error' event listener can be attached.
-  // Skip the existsSync check on Windows named pipes (no FS entry).
   if (!isWindowsNamedPipe(socketPath) && !fs.existsSync(socketPath)) {
     return null;
   }
@@ -1540,10 +1554,6 @@ export async function queryDaemonStatus(): Promise<{
 
   return new Promise((resolve) => {
     const client = tryConnectToDaemon(socketPath);
-    if (!client) {
-      resolve(null);
-      return;
-    }
 
     const timeout = setTimeout(() => {
       client.destroy();
@@ -1614,10 +1624,6 @@ export async function clearInstances(photonName: string, workingDir?: string): P
 
   return new Promise((resolve) => {
     const client = tryConnectToDaemon(socketPath);
-    if (!client) {
-      resolve(false);
-      return;
-    }
 
     const timeout = setTimeout(() => {
       client.destroy();

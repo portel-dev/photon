@@ -437,6 +437,8 @@ interface ChannelBuffer {
 
 /** Buffer retention window — events older than this are purged */
 const EVENT_BUFFER_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+/** Hard cap per channel — prevents unbounded growth on high-frequency channels */
+const MAX_BUFFER_EVENTS_PER_CHANNEL = 500;
 const channelEventBuffers = new Map<string, ChannelBuffer>();
 
 function bufferEvent(channel: string, message: unknown): number {
@@ -466,6 +468,14 @@ function bufferEvent(channel: string, message: unknown): number {
     } else if (firstValid > 0) {
       buffer.events.splice(0, firstValid);
     }
+  }
+
+  // Hard cap: trim oldest when a high-frequency channel exceeds the count limit.
+  // A reconnecting subscriber whose lastEventId predates the oldest buffered event
+  // will receive refreshNeeded:true via getEventsSince — same handling as the
+  // time-based purge above.
+  if (buffer.events.length > MAX_BUFFER_EVENTS_PER_CHANNEL) {
+    buffer.events.splice(0, buffer.events.length - MAX_BUFFER_EVENTS_PER_CHANNEL);
   }
 
   return now;
