@@ -1312,6 +1312,10 @@ export default class CtxProbe {
       timeout: 30000,
     });
     await page.waitForSelector('.photon-item', { timeout: 30000 }).catch(() => {});
+    // Wait for main content area (method cards) to render after auto-selection
+    await page
+      .waitForSelector('.method-card, .method-list, .main-area', { timeout: 10000 })
+      .catch(() => {});
     await page.waitForTimeout(2000);
 
     // P1.1 — Beam shows photons in sidebar
@@ -1334,7 +1338,7 @@ export default class CtxProbe {
       'Beam',
       async () => {
         const result = await lookoutValidate(sidebarImg, [
-          'A main content area for viewing results or interacting',
+          'A split-pane layout with a sidebar on the left and content on the right',
         ]);
         assert.ok(result.failed === 0, `${result.failed} visual promise(s) failed`);
       }
