@@ -573,6 +573,42 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const workingDir = path.resolve(rawWorkingDir);
   const { PHOTON_VERSION } = await import('../version.js');
 
+  // Bun crashes on unhandled errors/rejections by default. Beam must survive
+  // daemon socket failures (ENOENT when daemon is not running, ECONNREFUSED
+  // when it crashes mid-session). These are expected operational events, not bugs.
+  const isDaemonSocketError = (err: unknown): boolean => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return (
+      msg.includes('daemon.sock') ||
+      msg.includes('ENOENT') ||
+      msg.includes('ECONNREFUSED') ||
+      (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT')
+    );
+  };
+
+  process.on('uncaughtException', (err) => {
+    if (isDaemonSocketError(err)) {
+      logger.warn(
+        `Daemon unreachable (${(err as NodeJS.ErrnoException).code ?? 'ENOENT'}) — subscriptions will reconnect automatically`
+      );
+      return; // keep Beam running
+    }
+    logger.error(`Uncaught exception in Beam: ${getErrorMessage(err)}`);
+    // Re-throw anything that isn't a daemon connectivity issue so genuine
+    // bugs still surface rather than being silently swallowed.
+    throw err;
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    if (isDaemonSocketError(reason)) {
+      logger.warn(`Daemon unreachable — subscriptions will reconnect automatically`);
+      return; // keep Beam running
+    }
+    logger.error(
+      `Unhandled rejection in Beam: ${reason instanceof Error ? getErrorMessage(reason) : String(reason)}`
+    );
+  });
+
   // Auto-start the daemon up front so every downstream path that needs it
   // (subscriptions, /api/daemon/*, marketplace cache reload, ps, hot
   // reload) can connect without a race. Previously this was gated on
