@@ -137,6 +137,14 @@ export class MethodCard extends LitElement {
         white-space: nowrap;
       }
 
+      .title-wrapper {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        overflow: hidden;
+        flex: 1;
+      }
+
       .editable {
         display: flex;
         align-items: center;
@@ -543,7 +551,7 @@ export class MethodCard extends LitElement {
                     </div>
                   `
                 : ''}
-              <span class="${this.editable ? 'editable' : ''}">
+              <span class="${this.editable ? 'editable' : 'title-wrapper'}">
                 <h3 class="title">
                   <span class="title-name"
                     >${this.method.title || formatLabel(this.method.name)}</span
