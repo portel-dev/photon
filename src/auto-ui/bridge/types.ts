@@ -127,6 +127,8 @@ export interface PhotonAPI {
   // Context
   readonly theme: 'light' | 'dark';
   readonly locale: string;
+  /** Base URL of this photon including any proxy prefix. Use for all fetch() calls. */
+  readonly url: string;
 }
 
 /**

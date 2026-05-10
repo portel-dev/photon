@@ -419,6 +419,11 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   // WINDOW.PHOTON API
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // Capture base URL once at init, before any pushState navigation changes pathname.
+  // Trailing slash stripped: '/web/port/' → 'http://localhost:3000/web/port'
+  //                          '/'          → 'https://port.workers.dev'
+  var _photonBaseUrl = window.location.origin + window.location.pathname.replace(/\/$/, '');
+
   window.photon = {
     get toolOutput() { return toolOutput; },
     get toolInput() { return toolInput; },
@@ -443,6 +448,12 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     get photon() { return ctx.photon; },
     get method() { return ctx.method; },
     get hostContext() { return hostContext; },
+
+    // Base URL of this photon, including any proxy prefix (e.g. /web/port in Beam dev).
+    // Captured once at bridge init — before any pushState navigation changes window.location.
+    // Use this as the root for all fetch() calls instead of window.location.origin alone.
+    // e.g. fetch(window.photon.url + '/api/pairing/code')
+    url: _photonBaseUrl,
 
     // List of all supported format names (lazy — loaded when renderers bundle is ready)
     get formats() { return window._photonRenderers ? window._photonRenderers.formats : []; },
