@@ -365,16 +365,20 @@ function withCfCapabilities(
 
   Object.defineProperty(instance, 'emit', {
     value: (event: { channel?: string; emit?: string; [k: string]: unknown }) => {
-      // (1) Channel pub/sub fan-out (existing behaviour). Hibernatable
-      // WebSocket subscribers tagged by channel each receive the raw
-      // event JSON.
-      const channel = (event && typeof event === 'object' && event.channel) || 'default';
-      const payload = JSON.stringify(event);
-      for (const ws of ctx.getWebSockets(channel)) {
-        try {
-          ws.send(payload);
-        } catch {
-          // Socket closing; webSocketClose hook will reap.
+      // (1) Channel pub/sub fan-out. Only broadcast to WebSocket
+      // subscribers when the photon code explicitly targets a channel
+      // (i.e. event.channel is set). Unconditional fan-out on every
+      // this.emit() / this.status() call would leak internal progress
+      // events to non-MCP WebSocket clients sharing the same DO and
+      // violate MCP's per-connection notification model.
+      if (event && typeof event === 'object' && typeof event.channel === 'string') {
+        const payload = JSON.stringify(event);
+        for (const ws of ctx.getWebSockets(event.channel)) {
+          try {
+            ws.send(payload);
+          } catch {
+            // Socket closing; webSocketClose hook will reap.
+          }
         }
       }
       // (2) SSE forwarding for in-flight tool calls. When an SSE
