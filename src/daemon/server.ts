@@ -5846,7 +5846,17 @@ function startHealthMonitor(): void {
 // ════════════════════════════════════════════════════════════════════════════════
 
 function startupWatchPhotons(): void {
-  const photonDir = getDefaultContext().baseDir;
+  const defaultBase = getDefaultContext().baseDir;
+  const bases = new Set<string>([defaultBase]);
+  for (const base of listActiveBases()) {
+    bases.add(base.path);
+  }
+  for (const photonDir of bases) {
+    startupWatchPhotonDir(photonDir, defaultBase);
+  }
+}
+
+function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
   if (!fs.existsSync(photonDir)) return;
 
   // Host mode: when the default base is host-disabled, skip the file
@@ -5877,7 +5887,8 @@ function startupWatchPhotons(): void {
 
     const photonName = entry.name.slice(0, -ext.length);
     const photonPath = path.join(photonDir, entry.name);
-    photonPaths.set(compositeKey(photonName), photonPath);
+    photonPaths.set(compositeKey(photonName, photonDir), photonPath);
+    workingDirs.set(compositeKey(photonName, photonDir), photonDir);
     watchPhotonFile(photonName, photonPath);
   }
 
@@ -5894,7 +5905,9 @@ function startupWatchPhotons(): void {
     const pPath = path.join(photonDir, entry.name);
     try {
       const source = fs.readFileSync(pPath, 'utf-8');
-      if (/\bonInitialize\s*\(/.test(source)) {
+      const hasPersistedState =
+        photonDir === defaultBase || fs.existsSync(path.join(photonDir, '.data', pName));
+      if (hasPersistedState && /\bonInitialize\s*\(/.test(source)) {
         toEagerLoad.push({ name: pName, path: pPath });
       }
     } catch {
@@ -5911,7 +5924,7 @@ function startupWatchPhotons(): void {
     const eagerLoad = async (): Promise<void> => {
       for (const p of toEagerLoad) {
         try {
-          const manager = await getOrCreateSessionManager(p.name, p.path);
+          const manager = await getOrCreateSessionManager(p.name, p.path, photonDir);
           if (manager) {
             await manager.getOrLoadInstance('');
             logger.info('Eager-loaded lifecycle photon', {
