@@ -52,6 +52,8 @@ import {
   // Generator utilities (ask/emit pattern from 1.2.0)
   isAsyncGenerator,
   executeGenerator,
+  isAskYield,
+  isEmitYield,
   type AskYield,
   type EmitYield,
   type PhotonYield,
@@ -121,6 +123,74 @@ import {
   assembleSampleParams,
   type SampleParams,
 } from './sample-augmenter.js';
+
+async function executeGeneratorWithAbort<T>(
+  generator: AsyncGenerator<PhotonYield, T, any>,
+  config: {
+    inputProvider: InputProvider;
+    outputHandler?: OutputHandler;
+    preProvidedInputs?: Record<string, any>;
+    signal?: AbortSignal;
+  }
+): Promise<T> {
+  const { inputProvider, outputHandler, preProvidedInputs, signal } = config;
+
+  if (!signal) {
+    return executeGenerator(generator, { inputProvider, outputHandler, preProvidedInputs });
+  }
+
+  let abortHandler: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    abortHandler = () => {
+      void generator.return(undefined as T).catch(() => {});
+      reject(new Error('Tool execution aborted'));
+    };
+    signal.addEventListener('abort', abortHandler, { once: true });
+  });
+
+  const withAbort = <V>(promise: Promise<V>) => {
+    if (signal.aborted) {
+      void generator.return(undefined as T).catch(() => {});
+      throw new Error('Tool execution aborted');
+    }
+    return Promise.race([promise, aborted]);
+  };
+
+  try {
+    let askIndex = 0;
+    let result = await withAbort(generator.next());
+
+    while (!result.done) {
+      const yielded = result.value;
+
+      if (isAskYield(yielded)) {
+        const askId = yielded.id || `ask_${askIndex++}`;
+        if (preProvidedInputs && askId in preProvidedInputs) {
+          result = await withAbort(generator.next(preProvidedInputs[askId]));
+          continue;
+        }
+        const input = await withAbort(inputProvider(yielded));
+        result = await withAbort(generator.next(input));
+      } else if (isEmitYield(yielded)) {
+        if (outputHandler) await withAbort(Promise.resolve(outputHandler(yielded)));
+        result = await withAbort(generator.next());
+      } else {
+        if (outputHandler) {
+          await withAbort(
+            Promise.resolve(outputHandler({ emit: 'stream', data: yielded } as EmitYield))
+          );
+        } else {
+          console.warn('[generator] Unknown yield type without output handler:', yielded);
+        }
+        result = await withAbort(generator.next());
+      }
+    }
+
+    return result.value;
+  } finally {
+    if (abortHandler) signal.removeEventListener('abort', abortHandler);
+  }
+}
 
 interface DependencySpec {
   name: string;
@@ -3958,6 +4028,7 @@ Run: photon mcp ${mcpName} --config
       caller?: CallerInfo;
       traceId?: string;
       parentTraceparent?: string;
+      signal?: AbortSignal;
     }
   ): Promise<any> {
     // Resolve parentTraceparent and callerCwd from options or in-band `_meta`
@@ -4039,6 +4110,7 @@ Run: photon mcp ${mcpName} --config
       caller?: CallerInfo;
       traceId?: string;
       parentTraceparent?: string;
+      signal?: AbortSignal;
     }
   ): Promise<any> {
     // Start audit trail recording
@@ -4233,9 +4305,10 @@ Run: photon mcp ${mcpName} --config
 
           // Handle generator result (if tool returns a generator)
           if (isAsyncGenerator(result)) {
-            return executeGenerator(result as AsyncGenerator<PhotonYield, any, any>, {
+            return executeGeneratorWithAbort(result as AsyncGenerator<PhotonYield, any, any>, {
               inputProvider,
               outputHandler,
+              signal: options?.signal,
             });
           }
           return result;

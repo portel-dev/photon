@@ -707,6 +707,8 @@ interface HandlerContext {
   generatePhotonHelp?: (photonName: string) => Promise<string>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
+  responseStream?: { send: (message: object) => void };
+  signal?: AbortSignal;
   subscriptionManager?: {
     onClientViewingBoard: (
       sessionId: string,
@@ -993,6 +995,7 @@ const handlers: Record<string, RequestHandler> = {
         result = await ctx.loader.executeTool(mcp, methodName, args, {
           outputHandler: agui.outputHandler,
           caller: ctx.caller,
+          signal: ctx.signal,
         });
       } else {
         const method = mcp.instance[methodName];
@@ -2118,20 +2121,22 @@ const handlers: Record<string, RequestHandler> = {
     try {
       // Create outputHandler to capture emits for real-time UI updates
       const outputHandler = (yieldValue: any) => {
-        if (!ctx.broadcast) return;
-
         // Echo the caller's progressToken when supplied so the client
         // can route notifications back to the originating panel. Fall
         // back to the synthetic `progress_<photon>_<method>` only when
         // the caller didn't send one (e.g. server-initiated task
         // progress with no user request to correlate against).
         const progressToken = clientProgressToken ?? `progress_${photonName}_${methodName}`;
+        const sendJsonRpcNotification = (message: JSONRPCRequest) => {
+          ctx.broadcast?.(message);
+          ctx.responseStream?.send(message);
+        };
 
         // Forward progress events as MCP notifications
         if (yieldValue?.emit === 'progress') {
           const rawValue = typeof yieldValue.value === 'number' ? yieldValue.value : 0;
           const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
-          ctx.broadcast({
+          sendJsonRpcNotification({
             jsonrpc: '2.0',
             method: 'notifications/progress',
             params: {
@@ -2146,7 +2151,8 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward status events as MCP notifications
         if (yieldValue?.emit === 'status') {
-          ctx.broadcast({
+          const payload = yieldValue.value ?? yieldValue.data;
+          sendJsonRpcNotification({
             jsonrpc: '2.0',
             method: 'notifications/progress',
             params: {
@@ -2154,6 +2160,7 @@ const handlers: Record<string, RequestHandler> = {
               progress: 0,
               total: 100,
               message: yieldValue.message || '',
+              ...(payload !== undefined && { data: payload }),
             },
           });
           return;
@@ -2161,7 +2168,7 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward toast events as beam notifications
         if (yieldValue?.emit === 'toast') {
-          ctx.broadcast({
+          ctx.broadcast?.({
             jsonrpc: '2.0',
             method: 'beam/toast',
             params: {
@@ -2175,7 +2182,7 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward thinking events as beam notifications
         if (yieldValue?.emit === 'thinking') {
-          ctx.broadcast({
+          ctx.broadcast?.({
             jsonrpc: '2.0',
             method: 'beam/thinking',
             params: {
@@ -2187,7 +2194,7 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward log events as beam notifications
         if (yieldValue?.emit === 'log') {
-          ctx.broadcast({
+          ctx.broadcast?.({
             jsonrpc: '2.0',
             method: 'beam/log',
             params: {
@@ -2201,7 +2208,7 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward render events — intermediate formatted results
         if (yieldValue?.emit === 'render') {
-          ctx.broadcast({
+          ctx.broadcast?.({
             jsonrpc: '2.0',
             method: 'beam/render',
             params: {
@@ -2216,7 +2223,7 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward canvas:ui events — AI-generated UI layout with data-slot placeholders
         if (yieldValue?.emit === 'canvas:ui') {
-          ctx.broadcast({
+          ctx.broadcast?.({
             jsonrpc: '2.0',
             method: 'beam/canvas',
             params: {
@@ -2231,7 +2238,7 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward canvas:data events — data targeting named slots
         if (yieldValue?.emit === 'canvas:data') {
-          ctx.broadcast({
+          ctx.broadcast?.({
             jsonrpc: '2.0',
             method: 'beam/canvas',
             params: {
@@ -2247,7 +2254,7 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward render:clear events — clear the render zone
         if (yieldValue?.emit === 'render:clear') {
-          ctx.broadcast({
+          ctx.broadcast?.({
             jsonrpc: '2.0',
             method: 'beam/render',
             params: { photon: photonName, method: methodName, clear: true },
@@ -2257,7 +2264,7 @@ const handlers: Record<string, RequestHandler> = {
 
         // Forward channel events (task-moved, task-updated, etc.) with full delta
         // These contain specific event type + data for efficient UI updates
-        if (yieldValue?.channel && yieldValue?.event) {
+        if (yieldValue?.channel && yieldValue?.event && ctx.broadcast) {
           ctx.broadcast({
             type: 'channel-event',
             photon: photonName,
@@ -2363,6 +2370,7 @@ const handlers: Record<string, RequestHandler> = {
           inputProvider,
           samplingProvider,
           caller: ctx.caller,
+          signal: ctx.signal,
         });
       } else {
         // For static methods, don't bind to instance
@@ -2394,7 +2402,9 @@ const handlers: Record<string, RequestHandler> = {
               photon: photonName,
               board: value.board,
             });
-          } else if (value?.emit !== 'progress') {
+          } else if (value?.emit) {
+            outputHandler(value);
+          } else {
             chunks.push(value);
           }
         }
@@ -4556,6 +4566,33 @@ export async function handleStreamableHTTP(
   if (req.method === 'POST') {
     const accept = req.headers.accept || '';
     const wantsSSE = accept.includes('text/event-stream');
+    const requestAbort = new AbortController();
+    const abortRequest = () => requestAbort.abort();
+    req.on('aborted', abortRequest);
+    res.on('close', abortRequest);
+    res.on('error', abortRequest);
+    req.socket?.on('close', abortRequest);
+    res.socket?.on('close', abortRequest);
+    let responseStreamStarted = false;
+
+    const ensureResponseStream = () => {
+      if (responseStreamStarted) return;
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Mcp-Session-Id': session.id,
+      });
+      res.socket?.setNoDelay(true);
+      responseStreamStarted = true;
+    };
+
+    const sendResponseStreamMessage = (message: object) => {
+      if (!wantsSSE || res.writableEnded || res.destroyed) return;
+      ensureResponseStream();
+      res.write(`data: ${JSON.stringify(message)}\n\n`);
+    };
 
     // Read body
     let body = '';
@@ -4591,6 +4628,8 @@ export async function handleStreamableHTTP(
       generatePhotonHelp: options.generatePhotonHelp,
       loader: options.loader,
       broadcast: options.broadcast,
+      responseStream: wantsSSE ? { send: sendResponseStreamMessage } : undefined,
+      signal: requestAbort.signal,
       subscriptionManager: options.subscriptionManager,
       workingDir: options.workingDir,
       caller,
@@ -4655,18 +4694,18 @@ export async function handleStreamableHTTP(
     // Send response
     if (responses.length === 0) {
       // All were notifications
-      res.writeHead(202);
-      res.end();
+      if (responseStreamStarted) {
+        res.end();
+      } else {
+        res.writeHead(202);
+        res.end();
+      }
     } else if (wantsSSE) {
       // SSE response
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Mcp-Session-Id': session.id,
-      });
+      ensureResponseStream();
 
       for (const response of responses) {
-        res.write(`data: ${JSON.stringify(response)}\n\n`);
+        sendResponseStreamMessage(response);
       }
       res.end();
     } else {
@@ -4680,6 +4719,11 @@ export async function handleStreamableHTTP(
       res.end(JSON.stringify(result));
     }
 
+    res.off('close', abortRequest);
+    res.off('error', abortRequest);
+    req.off('aborted', abortRequest);
+    req.socket?.off('close', abortRequest);
+    res.socket?.off('close', abortRequest);
     return true;
   }
 

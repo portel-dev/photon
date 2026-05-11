@@ -1368,6 +1368,7 @@ export class PhotonServer {
       if (emit?.emit === 'progress') {
         const rawValue = typeof emit.value === 'number' ? emit.value : 0;
         const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
+        const payload = emit.value ?? emit.data;
         this.queueNotification({
           method: 'notifications/progress',
           params: {
@@ -1375,9 +1376,11 @@ export class PhotonServer {
             progress,
             total: 100,
             ...(emit.message ? { message: emit.message } : {}),
+            ...(payload !== undefined && typeof payload !== 'number' ? { data: payload } : {}),
           },
         } as ServerNotification);
       } else if (emit?.emit === 'status') {
+        const payload = emit.value ?? emit.data;
         this.queueNotification({
           method: 'notifications/progress',
           params: {
@@ -1385,6 +1388,7 @@ export class PhotonServer {
             progress: 0,
             total: 100,
             message: emit.message || '',
+            ...(payload !== undefined ? { data: payload } : {}),
           },
         } as ServerNotification);
       } else if (emit?.emit === 'log') {
@@ -1615,6 +1619,7 @@ export class PhotonServer {
               const rawValue =
                 emit?.emit === 'progress' && typeof emit.value === 'number' ? emit.value : 0;
               const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
+              const payload = emit.value ?? emit.data;
               void this.server?.notification({
                 method: 'notifications/progress',
                 params: {
@@ -1622,6 +1627,10 @@ export class PhotonServer {
                   progress,
                   total: 100,
                   message: emit.message || '',
+                  ...(payload !== undefined &&
+                  (emit?.emit === 'status' || typeof payload !== 'number')
+                    ? { data: payload }
+                    : {}),
                 },
               });
             } else if (emit?.emit === 'log') {
@@ -2767,11 +2776,15 @@ export class PhotonServer {
                 const reportProgress = (emit: any) => {
                   const rawValue = typeof emit?.value === 'number' ? emit.value : 0;
                   const percent = rawValue <= 1 ? rawValue * 100 : rawValue;
+                  const payload = emit?.value ?? emit?.data;
                   sendNotification('notifications/progress', {
                     progressToken,
                     progress: percent,
                     total: 100,
                     message: emit?.message || null,
+                    ...(payload !== undefined && typeof payload !== 'number'
+                      ? { data: payload }
+                      : {}),
                   });
                 };
 
