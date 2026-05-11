@@ -1333,6 +1333,10 @@ function loadDaemonSchedulesFromDir(
       // one catch-up for the most recent missed occurrence. We intentionally
       // fire at most once per boot to avoid a flood after long outages; older
       // windows are dropped.
+      // Delay by 15 s so the event loop stays free for ping/IPC during startup.
+      // Without this delay, simultaneous TypeScript loads for multiple photons
+      // block the event loop long enough to fail the 2-second ping health check,
+      // causing the manager to declare the daemon dead and spawn a duplicate.
       if (job.lastRun !== undefined) {
         const missed = computeMissedRun(job.cron, job.lastRun, Date.now());
         if (missed !== null) {
@@ -1343,7 +1347,7 @@ function loadDaemonSchedulesFromDir(
             lastRun: new Date(job.lastRun).toISOString(),
             missedAt: new Date(missed).toISOString(),
           });
-          void runJob(asScheduleKey(job.id));
+          setTimeout(() => void runJob(asScheduleKey(job.id)), 15_000);
         }
       }
       return true;
