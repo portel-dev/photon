@@ -60,7 +60,7 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
   // Stub process.kill: any non-zero signal is a no-op (the "process"
   // ignores SIGTERM and SIGKILL); signal 0 reports `unkillablePid` as
   // alive forever, while real PIDs are checked for real.
-  function withUnkillablePid<T>(unkillablePid: number, fn: () => T): T {
+  async function withUnkillablePid<T>(unkillablePid: number, fn: () => Promise<T>): Promise<T> {
     const realKill = process.kill.bind(process);
     (process as any).kill = (pid: number, sig?: string | number) => {
       if (sig === 0 || sig === undefined) {
@@ -72,7 +72,7 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
       return realKill(pid, sig);
     };
     try {
-      return fn();
+      return await fn();
     } finally {
       (process as any).kill = realKill;
     }
@@ -87,7 +87,7 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
     seedDaemonState(999_999_999); // PID that doesn't exist on this system
     const mgr = new DaemonManager(ctx as any);
 
-    (mgr as any).cleanupStale();
+    await (mgr as any).cleanupStaleAsync();
 
     assert.equal(fs.existsSync(pidFile), false, 'pid file removed');
     assert.equal(fs.existsSync(ownerFile), false, 'owner file removed');
@@ -107,10 +107,10 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
     seedDaemonState(fakePid);
 
     let threw: unknown;
-    withUnkillablePid(fakePid, () => {
+    await withUnkillablePid(fakePid, async () => {
       const mgr = new DaemonManager(ctx as any);
       try {
-        (mgr as any).cleanupStale();
+        await (mgr as any).cleanupStaleAsync();
       } catch (err) {
         threw = err;
       }
@@ -138,7 +138,7 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
     seedDaemonState(fakePid);
 
     let threw: unknown;
-    withUnkillablePid(fakePid, () => {
+    await withUnkillablePid(fakePid, async () => {
       const mgr = new DaemonManager(ctx as any);
       try {
         (mgr as any).killProcess();
@@ -187,7 +187,7 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
       fs.writeFileSync(socketPath, '');
 
       const mgr = new DaemonManager(ctx as any);
-      (mgr as any).cleanupStale(); // must not throw
+      await (mgr as any).cleanupStaleAsync(); // must not throw
 
       // Critical: the unrelated process MUST still be alive — we must
       // not have signaled it.
@@ -252,9 +252,8 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
   // because kill(pid,0) succeeds on a zombie. The fix adds a ps state
   // check and treats 'Z' as dead.
   //
-  // Why the zombie persists during cleanupStale: cleanupStale uses
-  // Atomics.wait which blocks the Node.js main thread. While blocked,
-  // libuv cannot process SIGCHLD and call waitpid to reap the zombie.
+  // The async cleanup path must also classify zombies as dead so recovery
+  // can proceed without manual intervention.
   // ─────────────────────────────────────────────────────────────────
   if (process.platform !== 'win32') {
     clearDaemonState();
@@ -274,17 +273,15 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
     // Seed state as if this were our daemon.
     seedDaemonState(zombiePid);
 
-    // Kill it — process dies immediately but stays as a zombie in the
-    // process table until waitpid is called. Since we're about to block
-    // the main thread with Atomics.wait inside cleanupStale, libuv
-    // cannot reap it during the test.
+    // Kill it — process dies immediately but may remain as a zombie in the
+    // process table until waitpid is called.
     process.kill(zombiePid, 'SIGKILL');
 
     // cleanupStale must succeed — the zombie must be treated as dead.
     const mgr = new DaemonManager(ctx as any);
     let zombieThrew: unknown;
     try {
-      (mgr as any).cleanupStale();
+      await (mgr as any).cleanupStaleAsync();
     } catch (err) {
       zombieThrew = err;
     }

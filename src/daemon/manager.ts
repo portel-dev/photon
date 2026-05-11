@@ -100,7 +100,7 @@ export class DaemonManager {
     if (this.fsm.state === 'running') {
       if (!(await this.isSocketAlive())) {
         this.logger.warn('Daemon marked running but socket is unreachable, recovering stale state');
-        this.cleanupStale();
+        await this.cleanupStaleAsync();
         this.resyncFromDisk();
         await this.start(quiet);
         return;
@@ -139,7 +139,7 @@ export class DaemonManager {
         return;
       }
       this.logger.warn('Daemon marked running but socket is unreachable, recovering stale state');
-      this.cleanupStale();
+      await this.cleanupStaleAsync();
       this.resyncFromDisk();
     }
 
@@ -184,7 +184,7 @@ export class DaemonManager {
       }
 
       // Socket unresponsive → cleanup stale state
-      this.cleanupStale();
+      await this.cleanupStaleAsync();
 
       // Transition to starting
       if (this.fsm.state !== 'stopped') this.resyncFromDisk();
@@ -248,7 +248,7 @@ export class DaemonManager {
       // If the running daemon refuses to die, killProcess throws
       // DaemonOrphanError; let it propagate. We must NOT delete the
       // socket of a still-running daemon and spawn a competitor.
-      this.stop();
+      await this.stopAsync();
     }
 
     // killProcess already removed pid/owner/socket files when it succeeded.
@@ -404,6 +404,21 @@ export class DaemonManager {
   }
 
   /**
+   * Async variant used by web-server/request paths. The old synchronous
+   * polling loop uses Atomics.wait, which freezes Beam while a daemon is
+   * stopping. Keep the synchronous helper for direct CLI stop/tests, but
+   * never use it from async daemon recovery paths.
+   */
+  private async waitForPidsDead(pids: number[], timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (pids.every((pid) => !this.isPidStillAlive(pid))) return true;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return pids.every((pid) => !this.isPidStillAlive(pid));
+  }
+
+  /**
    * SIGTERM → wait → SIGKILL → wait. Returns whether every tracked pid is
    * confirmed dead (or the slot has been confirmed recycled), plus the
    * list of survivors that the caller should report in DaemonOrphanError.
@@ -462,6 +477,55 @@ export class DaemonManager {
       }
     }
     const allDead = this.waitForPidsDeadSync(ourPids, 1500);
+    const survivors = allDead ? [] : ourPids.filter((pid) => this.isPidStillAlive(pid));
+    return { allDead, survivors };
+  }
+
+  private async terminateTrackedPids(pids: number[]): Promise<{
+    allDead: boolean;
+    survivors: number[];
+  }> {
+    if (pids.length === 0) return { allDead: true, survivors: [] };
+
+    const ourPids: number[] = [];
+    const recycledPids: number[] = [];
+    for (const pid of pids) {
+      const verdict = this.isPidOurDaemon(pid);
+      if (verdict === false) {
+        recycledPids.push(pid);
+      } else {
+        ourPids.push(pid);
+      }
+    }
+    if (recycledPids.length > 0) {
+      this.logger.warn(
+        'Detected PID reuse — tracked PID(s) belong to unrelated processes; ' +
+          'treating slot as dead and skipping signal delivery.',
+        { recycledPids }
+      );
+    }
+    if (ourPids.length === 0) return { allDead: true, survivors: [] };
+
+    for (const pid of ourPids) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Already dead or no permission — fine, the wait loop will confirm.
+      }
+    }
+    if (await this.waitForPidsDead(ourPids, 3000)) {
+      return { allDead: true, survivors: [] };
+    }
+
+    const stragglers = ourPids.filter((pid) => this.isPidStillAlive(pid));
+    for (const pid of stragglers) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // EPERM (not ours) or ESRCH (just died) — no recourse either way.
+      }
+    }
+    const allDead = await this.waitForPidsDead(ourPids, 1500);
     const survivors = allDead ? [] : ourPids.filter((pid) => this.isPidStillAlive(pid));
     return { allDead, survivors };
   }
@@ -702,9 +766,9 @@ export class DaemonManager {
     });
   }
 
-  private cleanupStale(): void {
+  private async cleanupStaleAsync(): Promise<void> {
     const pids = this.getTrackedPids();
-    const { survivors } = this.terminateTrackedPidsSync(pids);
+    const { survivors } = await this.terminateTrackedPids(pids);
     if (survivors.length > 0) {
       this.logger.error(
         'Refusing to delete daemon state files: tracked PID(s) survived SIGTERM and SIGKILL. ' +
@@ -739,6 +803,53 @@ export class DaemonManager {
     }
     this.removeStateFiles();
     this.logger.debug('Stopped global daemon', { pids });
+  }
+
+  private async killProcessAsync(): Promise<void> {
+    const pids = this.getTrackedPids();
+    if (pids.length === 0) return;
+    const { survivors } = await this.terminateTrackedPids(pids);
+    if (survivors.length > 0) {
+      // Don't unlink files — surviving daemon still owns the socket.
+      this.logger.error(
+        'Daemon stop incomplete: tracked PID(s) survived SIGKILL. State files left intact ' +
+          'so the running daemon stays reachable.',
+        { survivorPids: survivors }
+      );
+      throw new DaemonOrphanError(
+        `Daemon PID ${survivors.join(', ')} did not exit after SIGKILL.`,
+        survivors
+      );
+    }
+    this.removeStateFiles();
+    this.logger.debug('Stopped global daemon', { pids });
+  }
+
+  private async stopAsync(): Promise<void> {
+    if (this.fsm.state === 'stopped') {
+      this.logger.warn('No global daemon running');
+      return;
+    }
+
+    if (this.fsm.state === 'running' || this.fsm.state === 'stale') {
+      this.fsm.transition('stopping');
+    } else {
+      this.resyncFromDisk();
+      if ((this.fsm.state as DaemonState) === 'stopped') return;
+      if (this.fsm.canTransition('stopping')) {
+        this.fsm.transition('stopping');
+      }
+    }
+
+    try {
+      await this.killProcessAsync();
+      this.fsm.transition('stopped');
+      this.fsm.transition('stopped');
+    } catch (error) {
+      if (error instanceof DaemonOrphanError) throw error;
+      this.fsm.transition('stopped');
+      throw error;
+    }
   }
 
   /**
@@ -829,7 +940,7 @@ export class DaemonManager {
       }
     }
 
-    this.cleanupStale();
+    await this.cleanupStaleAsync();
     throw new Error('Daemon started but socket was not ready within 10s');
   }
 
