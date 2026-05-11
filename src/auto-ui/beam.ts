@@ -68,6 +68,59 @@ const ICON_MIME_TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
+export interface BeamWebRouteDef {
+  method: string;
+  path: string;
+  handler: string;
+  format?: string;
+}
+
+function splitRoutePath(pathname: string): string[] {
+  const normalized = pathname === '/' ? '/' : pathname.replace(/\/+$/, '');
+  if (normalized === '/') return [];
+  return normalized.split('/').filter(Boolean);
+}
+
+export function beamWebRouteMatches(routePath: string, requestPath: string): boolean {
+  if (routePath === requestPath) return true;
+  const routeParts = splitRoutePath(routePath);
+  const requestParts = splitRoutePath(requestPath);
+  if (routeParts.length !== requestParts.length) return false;
+  for (let i = 0; i < routeParts.length; i++) {
+    const routePart = routeParts[i];
+    const requestPart = requestParts[i];
+    if (routePart.startsWith(':')) {
+      if (!requestPart) return false;
+      continue;
+    }
+    if (routePart !== requestPart) return false;
+  }
+  return true;
+}
+
+function beamWebRouteScore(routePath: string): number {
+  return splitRoutePath(routePath).reduce(
+    (score, part) => {
+      if (part.startsWith(':')) return score + 1;
+      return score + 10;
+    },
+    routePath === '/' ? 100 : 0
+  );
+}
+
+export function findBeamWebRoute(
+  routes: BeamWebRouteDef[] | undefined,
+  method: string,
+  requestPath: string
+): BeamWebRouteDef | undefined {
+  const wantedMethod = method.toUpperCase();
+  return routes
+    ?.filter(
+      (r) => r.method.toUpperCase() === wantedMethod && beamWebRouteMatches(r.path, requestPath)
+    )
+    .sort((a, b) => beamWebRouteScore(b.path) - beamWebRouteScore(a.path))[0];
+}
+
 /**
  * Resolve raw icon image paths to MCP Icon[] format (data URIs)
  */
@@ -2148,12 +2201,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         const [, , photonName, ...pathParts] = url.pathname.split('/');
         const photonPath = '/' + pathParts.join('/') || '/';
         const photonClass = photonName ? photonMCPs.get(photonName) : undefined;
-        const httpRoutes:
-          | Array<{ method: string; path: string; handler: string; format?: string }>
-          | undefined = photonClass?._httpRoutes;
-        const route = httpRoutes?.find(
-          (r) => r.method === (req.method || 'GET') && r.path === photonPath
-        );
+        const httpRoutes: BeamWebRouteDef[] | undefined = photonClass?._httpRoutes;
+        const route = findBeamWebRoute(httpRoutes, req.method || 'GET', photonPath);
 
         if (route && photonClass?.instance) {
           const fn = photonClass.instance[route.handler];
