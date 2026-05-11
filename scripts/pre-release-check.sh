@@ -9,6 +9,33 @@ echo "  Pre-Release Verification"
 echo "═══════════════════════════════════════════════════"
 echo ""
 
+# ─── Pre-flight: git clean + npm registry sync ──────
+# These two checks have caused repeated release failures.
+# Run them first so the problem is visible immediately.
+
+echo "▶ Pre-flight: working directory and registry"
+
+# Must be clean before anything else runs.
+GIT_DIRTY=$(git status --porcelain 2>/dev/null | grep -v '^\?\?' || true)
+if [ -n "$GIT_DIRTY" ]; then
+  echo "  ✗ FAIL: Working directory has uncommitted changes — commit or stash before releasing:"
+  echo "$GIT_DIRTY" | sed 's/^/    /'
+  exit 1
+fi
+echo "  ✓ Working directory is clean"
+
+# Warn clearly if npm registry version does not match the git tag.
+# A mismatch means a previous release-it run created the tag but npm publish failed.
+PKG_VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+NPM_VERSION=$(npm view "$(node -e "process.stdout.write(require('./package.json').name)")" version 2>/dev/null || echo "unavailable")
+if [ "$NPM_VERSION" != "$PKG_VERSION" ] && [ "$NPM_VERSION" != "unavailable" ]; then
+  echo "  ⚠ npm registry has $NPM_VERSION but package.json says $PKG_VERSION"
+  echo "    A prior release-it run likely tagged but did not publish."
+  echo "    release-it will warn about this but continue — the new version will still publish correctly."
+fi
+echo "  ✓ Registry check complete (npm: ${NPM_VERSION}, package.json: ${PKG_VERSION})"
+echo ""
+
 # ─── 0. Clean-state pre-flight ──────────────────────
 # Catches dirty-repo bugs that have shipped before:
 #  - Stray `*.photon.ts` in repo root: getDefaultContext() treats the repo

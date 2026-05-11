@@ -349,11 +349,17 @@ class BeamCompatTransport implements Transport {
       }, 15000);
       req.on('close', () => {
         clearInterval(keepalive);
-        this.sseResponse = null;
+        // Only clear if this response is still the active SSE stream.
+        // A newer GET may have already replaced it — don't overwrite that.
+        if (this.sseResponse === res) {
+          this.sseResponse = null;
+        }
       });
       res.on('error', () => {
         clearInterval(keepalive);
-        this.sseResponse = null;
+        if (this.sseResponse === res) {
+          this.sseResponse = null;
+        }
       });
       return;
     }
@@ -1505,6 +1511,13 @@ export class PhotonServer {
       const uiMeta = this.resourceServer.buildUIToolMeta(this.mcp.name, linkedUI.id);
       response._meta = { ...response._meta, ...uiMeta };
     }
+
+    // For SSE/Streamable-HTTP transports: flush the notification queue before
+    // returning so that progress/status notifications are delivered via the GET
+    // SSE stream BEFORE the HTTP POST response body is written. Without this, the
+    // client receives the tool result, deletes its _progressHandlers entry, and then
+    // silently drops any notifications that arrive later on the SSE stream.
+    await this._notifyQueue;
 
     return response;
   }
