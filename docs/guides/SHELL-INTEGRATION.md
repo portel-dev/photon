@@ -5,14 +5,10 @@ Run photons as direct terminal commands with full tab completion.
 ## Quick Start
 
 ```bash
-photon init cli
+eval "$(photon init cli)"
 ```
 
-This auto-detects your shell, adds the hook to your profile, and generates the completion cache. Then activate it:
-
-```bash
-source ~/.zshrc   # or source ~/.bashrc
-```
+This auto-detects your shell, adds the hook to your profile, generates the completion cache, and activates shell integration in one step.
 
 ## What It Does
 
@@ -47,9 +43,9 @@ Tab completion works at every level:
 
 | Shell | Profile | Completion System | Hook Line |
 |-------|---------|-------------------|-----------|
-| **zsh** | `~/.zshrc` | `compdef` + `_arguments` | `eval "$(photon init cli --hook)"` |
-| **bash** | `~/.bashrc` | `complete -F` + `compgen` | `eval "$(photon init cli --hook)"` |
-| **PowerShell** | `$PROFILE` | `Register-ArgumentCompleter` | `Invoke-Expression (& photon init cli --hook)` |
+| **zsh** | `~/.zshrc` | `compdef` + `_arguments` | `eval "$(photon init cli)"` |
+| **bash** | `~/.bashrc` | `complete -F` + `compgen` | `eval "$(photon init cli)"` |
+| **PowerShell** | `$PROFILE` | `Register-ArgumentCompleter` | `Invoke-Expression (& photon init cli)` |
 
 Detection is automatic:
 - **zsh/bash**: Detected via `$SHELL` environment variable
@@ -106,8 +102,7 @@ photon init completions
 
 | Command | Description |
 |---------|-------------|
-| `photon init cli` | Install shell integration into your profile |
-| `photon init cli --hook` | Output the hook script (used by eval/Invoke-Expression, not run directly) |
+| `photon init cli` | Install shell integration and activate it via stdout hook |
 | `photon init completions` | Show cache status |
 | `photon init completions --generate` | Regenerate the completions cache |
 | `photon uninit cli` | Remove shell integration from your profile |

@@ -6,13 +6,10 @@ The `photon init` command suite configures your system for optimal Photon usage 
 
 ```bash
 # One-command setup: shell integration + daemon auto-start
-photon init all
-
-# Activate shell integration (zsh/bash)
-source ~/.zshrc  # or ~/.bashrc
+eval "$(photon init all)"
 ```
 
-After this, restart your terminal and photons work as direct commands:
+After this, photons work as direct commands immediately:
 ```bash
 list add "Buy milk"          # instead of: photon cli list add "Buy milk"
 kanban board                 # instead of: photon cli kanban board
@@ -54,22 +51,19 @@ This command:
 ### Installation
 
 ```bash
-# Auto-detects shell, updates rc file
-photon init cli
-
-# Activate the hook
-source ~/.zshrc  # zsh
-source ~/.bashrc # bash
-. $PROFILE       # PowerShell
+# Auto-detects shell, updates rc file, and activates integration
+eval "$(photon init cli)"       # zsh/bash
+# or
+Invoke-Expression (& photon init cli)  # PowerShell
 ```
 
 ### Supported Shells
 
 | Shell | Profile | Completion | Hook |
 |-------|---------|-----------|------|
-| **zsh** | `~/.zshrc` | `compdef` + `_arguments` | `eval "$(photon init cli --hook)"` |
-| **bash** | `~/.bashrc` | `complete -F` + `compgen` | `eval "$(photon init cli --hook)"` |
-| **PowerShell** | `$PROFILE` | `Register-ArgumentCompleter` | `Invoke-Expression (& photon init cli --hook)` |
+| **zsh** | `~/.zshrc` | `compdef` + `_arguments` | `eval "$(photon init cli)"` |
+| **bash** | `~/.bashrc` | `complete -F` + `compgen` | `eval "$(photon init cli)"` |
+| **PowerShell** | `$PROFILE` | `Register-ArgumentCompleter` | `Invoke-Expression (& photon init cli)` |
 
 ### Shell Detection
 
@@ -248,8 +242,7 @@ Setting up Photon...
 Step 1/2: Shell integration
   ✓ Installed shell integration into /Users/arul/.zshrc
 
-    Activate now:  source /Users/arul/.zshrc
-    Then type any photon name directly:
+    Type any photon name directly:
       list get
       list add "Milk"
     Tab completion is enabled for: Photon names, methods, parameters, and instances.
@@ -410,7 +403,7 @@ photon init cli
     └─ ~/.photon/.data/.cache/completions.cache
        (Contains: photons, methods, params, instances)
     ↓
-User runs: source ~/.zshrc
+eval hook emitted to stdout (captured by eval wrapper)
     ↓
 ✓ Direct photon invocation works
 ✓ Tab completion enabled
@@ -467,13 +460,10 @@ photon init all
 # 1. Verify hook was installed
 cat ~/.zshrc | grep "photon init cli"
 
-# 2. Re-run setup
-photon init cli
+# 2. Re-run setup and activate
+eval "$(photon init cli)"
 
-# 3. Activate changes
-source ~/.zshrc
-
-# 4. Check functions exist
+# 3. Check functions exist
 declare -f list  # should show function definition
 ```
 
@@ -489,8 +479,8 @@ ls -la ~/.photon/.data/.cache/completions.cache
 # 2. Regenerate cache
 photon init completions --generate
 
-# 3. Restart shell
-exec $SHELL
+# 3. Activate shell integration (if not already done)
+eval "$(photon init cli)"
 ```
 
 ### Daemon Not Starting
