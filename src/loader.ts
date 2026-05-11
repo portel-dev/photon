@@ -38,7 +38,7 @@ import {
   recordRateLimitRejection,
   recordBulkheadRejection,
 } from './telemetry/metrics.js';
-import { runWithRequestContext, getRequestContext } from './telemetry/context.js';
+import { runWithRequestContext, getRequestContext, runWithPhotonDir } from './telemetry/context.js';
 import { spawn, execSync } from 'child_process';
 import {
   SchemaExtractor,
@@ -1245,7 +1245,7 @@ export class PhotonLoader {
       };
 
       try {
-        module = await importModule();
+        module = await runWithPhotonDir(this.baseDir, importModule);
       } catch (error) {
         if (this.shouldRetryInstall(error) && tsContent && sourceHash && mcpName && cacheKey) {
           this.log(`⚠️  Missing dependency detected, reinstalling dependencies for ${mcpName}`);
@@ -1257,7 +1257,7 @@ export class PhotonLoader {
             sourceHash,
             absolutePath
           );
-          module = await importModule();
+          module = await runWithPhotonDir(this.baseDir, importModule);
         } else {
           if (this.isCompilationServiceError(error) && cacheKey) {
             // Compiler process crashed — clear the build cache so the next startup
@@ -1302,7 +1302,10 @@ export class PhotonLoader {
       // Create instance with injected dependencies
       let instance: Record<string, unknown>;
       try {
-        instance = new MCPClass(...values) as Record<string, unknown>;
+        instance = (await runWithPhotonDir(this.baseDir, () => new MCPClass(...values))) as Record<
+          string,
+          unknown
+        >;
       } catch (error) {
         // Constructor threw an error (likely validation failure)
         const constructorParams = await this.extractConstructorParams(absolutePath);
@@ -2103,7 +2106,10 @@ export class PhotonLoader {
     // Create instance
     let instance: Record<string, unknown>;
     try {
-      instance = new MCPClass(...values) as Record<string, unknown>;
+      instance = (await runWithPhotonDir(this.baseDir, () => new MCPClass(...values))) as Record<
+        string,
+        unknown
+      >;
     } catch (error) {
       let constructorParams: any[] = [];
       try {
@@ -4059,6 +4065,7 @@ Run: photon mcp ${mcpName} --config
           parentTraceparent: resolvedParentTraceparent,
           caller: options?.caller,
           cwd: resolvedCallerCwd,
+          photonDir: this.baseDir,
           startedAt: Date.now(),
         },
         () =>
@@ -5179,7 +5186,7 @@ Run: photon mcp ${mcpName} --config
     if (typeof hook !== 'function' || options?.skipInitialize) return;
     this.onProgress?.('running onInitialize');
     try {
-      await hook.call(instance, ctx);
+      await runWithPhotonDir(this.baseDir, () => hook.call(instance, ctx));
     } catch (error) {
       const message = ctx
         ? `Initialization failed for ${name}: ${getErrorMessage(error)}`
