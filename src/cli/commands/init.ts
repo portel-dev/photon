@@ -29,9 +29,13 @@ export function registerInitCommands(program: Command): void {
   initCmd
     .command('cli')
     .option('--hook', 'Output the shell hook script (used internally by eval/Invoke-Expression)')
-    .description('Set up shell integration for direct photon commands and tab completion')
+    .description(
+      'Set up shell integration for direct photon commands and tab completion\n' +
+        '  Usage: eval "$(photon init cli)"   (installs + activates in this shell)\n' +
+        '  New shells pick it up automatically from ~/.zshrc / ~/.bashrc'
+    )
     .action(async (options: { hook?: boolean }) => {
-      const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
+      const { printError } = await import('../../cli-formatter.js');
       if (!options.hook) {
         const { announceContext } = await import('../../shared/announce-context.js');
         announceContext({ action: 'Initializing CLI integration' });
@@ -484,18 +488,11 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
       // hook script directly so the current shell activates immediately.
       // All status messages go to stderr so they don't pollute the eval stream.
       const stdoutIsTTY = process.stdout.isTTY;
-      const say = (msg: string) => {
-        if (stdoutIsTTY) console.log(msg);
-        else console.error(msg);
-      };
-      const sayOk = (msg: string) => {
-        if (stdoutIsTTY) printSuccess(msg);
-        else console.error(`✓ ${msg}`);
-      };
-      const sayInfo = (msg: string) => {
-        if (stdoutIsTTY) printInfo(msg);
-        else console.error(`ℹ ${msg}`);
-      };
+      // stdout is always the hook script channel (eval captures it), so all
+      // status messages go to stderr regardless of TTY state.
+      const say = (msg: string) => console.error(msg);
+      const sayOk = (msg: string) => console.error(`✓ ${msg}`);
+      const sayInfo = (msg: string) => console.error(`ℹ ${msg}`);
 
       // Interactive mode → install into rc file
       try {
@@ -537,25 +534,16 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
 
         await ensureCompletionsCache();
 
-        // When stdout is captured (eval "$(photon init cli)"), emit the hook
-        // script to stdout so the current shell activates immediately.
-        if (!stdoutIsTTY) {
-          process.stdout.write(await buildHookScript());
-          process.stdout.write('\n');
-        }
+        // Always emit the hook script to stdout so eval captures it.
+        // Status messages go to stderr to keep stdout clean for eval.
+        process.stdout.write(await buildHookScript());
+        process.stdout.write('\n');
 
         if (!alreadyInstalled) sayOk(`Installed shell integration into ${rcFile}`);
-        say('');
         if (stdoutIsTTY) {
-          // Not captured — user needs to take one more step to activate.
-          say(`  Activate in this shell:`);
-          if (shellType === 'powershell') {
-            say(`    Invoke-Expression (& photon init cli --hook)`);
-          } else {
-            say(`    eval "$(photon init cli --hook)"`);
-          }
+          // Running bare — stdout not captured, hook was emitted but not eval'd.
           say('');
-          say(`  Or run with eval to install + activate in one step:`);
+          say(`  Wrap in eval to activate immediately in this shell:`);
           if (shellType === 'powershell') {
             say(`    Invoke-Expression (& photon init cli)`);
           } else {
@@ -568,8 +556,8 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
         }
       } catch (error) {
         printError(`Failed to update ${rcFile}: ${getErrorMessage(error)}`);
-        console.log(`  Add this line manually to your shell profile:`);
-        console.log(`    ${evalLine}`);
+        console.error(`  Add this line manually to your shell profile:`);
+        console.error(`    ${evalLine}`);
         process.exit(1);
       }
     });
