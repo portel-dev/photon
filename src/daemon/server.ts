@@ -6047,6 +6047,12 @@ function startServer(): void {
       pid: process.pid,
       ownerPid: process.pid,
     });
+    // Load persisted schedules (including catch-up fires) only after the
+    // socket is bound. Catch-up jobs load heavy photons immediately; if they
+    // run before listen() completes, clients find the socket unreachable and
+    // race to spawn a second daemon.
+    migrateLegacyIpcSchedules();
+    loadAllPersistedSchedules();
   });
 
   server.on('error', (error: any) => {
@@ -6462,8 +6468,6 @@ void (async () => {
   });
   startupWatchPhotons();
   startServer();
-  migrateLegacyIpcSchedules();
-  loadAllPersistedSchedules();
   void (async () => {
     await discoverProactiveMetadataAtBoot();
     syncActiveSchedulesAtBoot();
