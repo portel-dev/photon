@@ -165,15 +165,35 @@ _photon() {
         'set:Configure environment for a photon'
         'beam:Start the interactive UI'
         'serve:Start MCP stdio server'
-        'list:List installed photons'
+        'mcp:Start MCP stdio server'
+        'sse:Start SSE transport server'
+        'run:Execute a photon method'
+        'host:Manage hosted photons'
+        'cf:Cloudflare runtime'
         'add:Install a photon'
         'remove:Uninstall a photon'
+        'upgrade:Upgrade a photon'
+        'up:Upgrade a photon'
         'search:Search for photons'
         'info:Show photon details'
+        'list:List installed photons'
+        'publish:Publish a photon'
+        'ps:Manage processes'
+        'daemon:Manage background daemon'
+        'new:Create a new photon'
+        'maker:Interactive photon generator'
+        'build:Build a photon'
+        'test:Run photon tests'
+        'package:Package a photon'
         'init:Setup and shell integration'
         'uninit:Remove integrations'
-        'test:Run photon tests'
+        'claim:Claim ownership'
+        'update:Update photon'
+        'changelog:Show changelog'
         'doctor:Check system health'
+        'audit:Audit dependencies'
+        'marketplace:Browse marketplace'
+        'alias:Manage command aliases'
       )
       _describe 'command' builtins
       ;;
@@ -287,7 +307,7 @@ _photon_complete() {
   if [[ ! -f "\$_photon_cache" ]]; then return; fi
 
   if [[ \$COMP_CWORD -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "cli use instances set beam serve list add remove search info init uninit test doctor" -- "\$cur"))
+    COMPREPLY=($(compgen -W "cli use instances set beam serve mcp sse run host cf add remove upgrade up search info list publish ps daemon new maker build test package init uninit claim update changelog doctor audit marketplace alias" -- "\$cur"))
   elif [[ \$COMP_CWORD -eq 2 ]]; then
     case "\${COMP_WORDS[1]}" in
       cli|use|instances|set|info|serve)
@@ -296,10 +316,16 @@ _photon_complete() {
         COMPREPLY=($(compgen -W "\$photons" -- "\$cur"))
         ;;
       init)
-        COMPREPLY=($(compgen -W "cli completions" -- "\$cur"))
+        COMPREPLY=($(compgen -W "cli completions daemon all" -- "\$cur"))
         ;;
       uninit)
-        COMPREPLY=($(compgen -W "cli" -- "\$cur"))
+        COMPREPLY=($(compgen -W "cli daemon" -- "\$cur"))
+        ;;
+      ps)
+        COMPREPLY=($(compgen -W "enable disable pause resume history" -- "\$cur"))
+        ;;
+      daemon)
+        COMPREPLY=($(compgen -W "start stop restart status prune-bases" -- "\$cur"))
         ;;
     esac
   elif [[ \$COMP_CWORD -eq 3 ]]; then
@@ -386,7 +412,7 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
   param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
   $pos = $commandAst.CommandElements.Count
   if ($pos -le 1) {
-    @('cli','use','instances','set','beam','serve','list','add','remove','search','info','init','uninit','test','doctor') |
+    @('cli','use','instances','set','beam','serve','mcp','sse','run','host','cf','add','remove','upgrade','up','search','info','list','publish','ps','daemon','new','maker','build','test','package','init','uninit','claim','update','changelog','doctor','audit','marketplace','alias') |
       Where-Object { $_ -like "$wordToComplete*" } |
       ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
   } elseif ($pos -le 2) {
@@ -401,11 +427,19 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
         }
       }
       'init' {
-        @('cli','completions') | Where-Object { $_ -like "$wordToComplete*" } |
+        @('cli','completions','daemon','all') | Where-Object { $_ -like "$wordToComplete*" } |
           ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
       }
       'uninit' {
-        @('cli') | Where-Object { $_ -like "$wordToComplete*" } |
+        @('cli','daemon') | Where-Object { $_ -like "$wordToComplete*" } |
+          ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+      }
+      'ps' {
+        @('enable','disable','pause','resume','history') | Where-Object { $_ -like "$wordToComplete*" } |
+          ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+      }
+      'daemon' {
+        @('start','stop','restart','status','prune-bases') | Where-Object { $_ -like "$wordToComplete*" } |
           ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
       }
     }
