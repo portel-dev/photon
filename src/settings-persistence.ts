@@ -90,6 +90,8 @@ export class SettingsPersistence {
     instance._settingsInstanceName = instanceName;
     instance._settingsSchema = schema;
 
+    const persist = this.persist.bind(this);
+    const emitChange = this.emitChange.bind(this);
     instance.settings = new Proxy(backing, {
       get(target, prop) {
         if (typeof prop === 'string') {
@@ -97,11 +99,14 @@ export class SettingsPersistence {
         }
         return undefined;
       },
-      set(_target, prop, _value) {
-        throw new Error(
-          `Cannot directly set settings.${String(prop)}. ` +
-            `Use the 'settings' tool to change settings (e.g., settings({ ${String(prop)}: newValue })).`
-        );
+      set(target, prop, value) {
+        if (typeof prop === 'string') {
+          const oldValue = target[prop];
+          target[prop] = value;
+          persist(photonName, instanceName, target).catch(() => {});
+          emitChange(instance, prop, oldValue, value);
+        }
+        return true;
       },
       deleteProperty(_target, prop) {
         throw new Error(`Cannot delete settings.${String(prop)}. Use the 'settings' tool instead.`);

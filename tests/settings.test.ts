@@ -249,28 +249,29 @@ async function runTests() {
     console.log('✅ Settings tool auto-generated, persisted, and reads updated values');
   }
 
-  // Test 8: Read-only proxy throws on direct write
+  // Test 8: Methods can write to settings directly and changes persist
   {
-    const tmpDir = path.join(os.tmpdir(), `photon-settings-proxy-${Date.now()}`);
+    const tmpDir = path.join(os.tmpdir(), `photon-settings-internal-write-${Date.now()}`);
     const photonDir = path.join(tmpDir, 'photons');
     await fs.mkdir(photonDir, { recursive: true });
 
-    const photonPath = path.join(photonDir, 'proxy-test.photon.ts');
+    const photonPath = path.join(photonDir, 'internal-write.photon.ts');
     await fs.writeFile(
       photonPath,
       `
-      export default class ProxyTest {
+      export default class InternalWriteTest {
         protected settings = {
           value: 42,
+          mode: 'normal',
         };
 
-        async tryWrite() {
-          try {
-            (this.settings as any).value = 99;
-            return { threw: false };
-          } catch (e: any) {
-            return { threw: true, message: e.message };
-          }
+        async updateValue(params: { v: number }) {
+          this.settings.value = params.v;
+          return { value: this.settings.value };
+        }
+
+        async read() {
+          return { value: this.settings.value, mode: this.settings.mode };
         }
       }
     `
@@ -279,19 +280,32 @@ async function runTests() {
     const loader = new PhotonLoader(false, undefined, tmpDir);
     const mcp = await loader.loadFile(photonPath);
 
-    const result = await loader.executeTool(mcp, 'tryWrite', {});
-    assert.equal(
-      result.threw,
-      true,
-      `Direct write to settings should throw, got: ${JSON.stringify(result)}`
+    // Method can write to this.settings directly
+    const updated = await loader.executeTool(mcp, 'updateValue', { v: 99 });
+    assert.equal(updated.value, 99, 'Method should be able to set settings.value');
+
+    // Subsequent read should see the updated value
+    const read = await loader.executeTool(mcp, 'read', {});
+    assert.equal(read.value, 99, 'Updated value should be readable after write');
+    assert.equal(read.mode, 'normal', 'Unmodified setting should be unchanged');
+
+    // Give the fire-and-forget persist time to flush
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Verify it was persisted to disk
+    const settingsPath = path.join(
+      tmpDir,
+      '.data',
+      'internal-write-test',
+      'state',
+      'default',
+      'settings.json'
     );
-    assert.ok(
-      result.message.includes('settings'),
-      `Error message should mention settings, got: ${result.message}`
-    );
+    const persisted = JSON.parse(await fs.readFile(settingsPath, 'utf-8'));
+    assert.equal(persisted.value, 99, 'Value written by method should be persisted');
 
     await fs.rm(tmpDir, { recursive: true, force: true });
-    console.log('✅ Read-only proxy throws on direct write');
+    console.log('✅ Methods can write to settings directly and changes persist');
   }
 
   // Test 9: Settings persistence roundtrip (set → reload → read)
