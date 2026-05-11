@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.31.0](https://github.com/portel-dev/photon/compare/v1.30.0...v1.31.0) (2026-05-11)
+
+### Features
+
+* **beam:** announce and render photon web routes via MCP capabilities ([42d5e26](https://github.com/portel-dev/photon/commit/42d5e26e1ef29ca952e533b61dd453eb44bb028b))
+* **beam:** inject x-photon-base-path header into forwarded web route requests ([a973c3d](https://github.com/portel-dev/photon/commit/a973c3dea2d6ff44a6ad22e7ca13c8df9219fff7))
+* **bridge:** expose window.photon.url as photon base URL ([9285898](https://github.com/portel-dev/photon/commit/92858983c9cd31eb6db51ff5fbddc78859a7a1e9))
+
+### Bug Fixes
+
+* **beam:** actually contain method card params within card boundary ([e452952](https://github.com/portel-dev/photon/commit/e452952b2b1d6b93e089cab3e132f28264295260))
+* **beam:** auto-retry on load failure; auth photons show token config ([7dee6dd](https://github.com/portel-dev/photon/commit/7dee6dd2fd28536ea8af87c7561841216e190d32))
+* **beam:** don't auto-enter focus mode when selecting a web-app photon ([2d4ab4a](https://github.com/portel-dev/photon/commit/2d4ab4ad1efcaacd61de624b1552d0e5ba008901))
+* **beam:** eliminate horizontal and vertical scrollbars on main page ([84afab9](https://github.com/portel-dev/photon/commit/84afab9594e08badcbca5ff6cdaabbba8a6adfe5))
+* **beam:** enter focus mode for web-app view, same as mcp-app ([c4bcd05](https://github.com/portel-dev/photon/commit/c4bcd05ecc7289f14a605c5854642d4b54e81be2))
+* **beam:** flush notification queue before HTTP response for SSE transport ([ba0c85d](https://github.com/portel-dev/photon/commit/ba0c85d4422740ba6f3b4797cb10e1bba6076a59))
+* **beam:** guard /api/restart against cross-site requests ([89f2df6](https://github.com/portel-dev/photon/commit/89f2df64a1c15d1afe99200afa11d6dbba9532a5))
+* **beam:** handle daemon socket errors without crashing Beam ([a11acac](https://github.com/portel-dev/photon/commit/a11acaca86312f4203881b446b4a38942b5de7aa))
+* **beam:** prevent method card parameter and description overflow ([36ba3eb](https://github.com/portel-dev/photon/commit/36ba3eb7fb4c5908ce4d564c5bb898d4c66d21b9))
+* **beam:** remove URL bar chrome from web-app iframe view ([d07841e](https://github.com/portel-dev/photon/commit/d07841e42d023484460f204f7734df85764b8b64))
+* **beam:** route status/progress notifications to SSE stream, not HTTP response ([5a551cf](https://github.com/portel-dev/photon/commit/5a551cf48f49f7a1d3a117d41ed2a6d82264ce31))
+* **beam:** show method and param names verbatim, no title-casing ([3cc5d1f](https://github.com/portel-dev/photon/commit/3cc5d1f2ba526e80a5e5b81cfbd51f81f19b4aa8))
+* **beam:** surface compiler crash as actionable banner with restart button ([f209440](https://github.com/portel-dev/photon/commit/f209440f556e0700752b23969b6d1f27fa5e8967))
+* **cf-template:** gate WebSocket fan-out to explicit channel emits only ([25e233a](https://github.com/portel-dev/photon/commit/25e233a8e5a5f437fb0e6e5d6eaac16d8c6d73ba))
+* **cli:** add missing commands and subcommands to shell completion scripts ([a7ad2be](https://github.com/portel-dev/photon/commit/a7ad2be3aea7fedc16d38ab1c65e01ebba3341b3))
+* **cli:** always emit hook to stdout so eval"$(photon init cli)" activates immediately ([429ab41](https://github.com/portel-dev/photon/commit/429ab418c648ca0d968827bf96ad9cb2a48fce23))
+* **cli:** map kebab-case flags to snake_case params, suppress loader error prefix ([deaba80](https://github.com/portel-dev/photon/commit/deaba8084225cb90ea89d7999586593f9d5a522d))
+* **daemon:** close three resilience gaps in daemon communication ([b64e9e6](https://github.com/portel-dev/photon/commit/b64e9e6a8f192108a6e8cff9a0247ce92348695f))
+* **daemon:** treat zombie processes as dead during stale cleanup ([4731029](https://github.com/portel-dev/photon/commit/47310296071ba1e9e6cb8180d3d18adb94b5dc6b))
+* **loader,beam:** auto-recover from compiler service crashes ([2b32232](https://github.com/portel-dev/photon/commit/2b32232a3260645d4e4e6eab0afac1f85693ff74))
+* **release:** poll for Beam startup banner instead of fixed 6s sleep ([9d58362](https://github.com/portel-dev/photon/commit/9d58362172c5a930707f605c537ca5d16fe19638))
+* **test:** correct beam-status-sse SSE notification assertion ([321eb7b](https://github.com/portel-dev/photon/commit/321eb7b2fb94f5379f5393755c004fdcab613061))
+* **test:** increase SSE stream warmup and use polling in beam-status-sse ([0e7bf30](https://github.com/portel-dev/photon/commit/0e7bf304e2b80c9f7e32b8a0181bb474dbc9271e))
+* **test:** update visual promise assertion and wait for main content before screenshot ([289d1f2](https://github.com/portel-dev/photon/commit/289d1f2f8de8ed3004a93259304a37490a4b8791))
+
 ## [1.30.0](https://github.com/portel-dev/photon/compare/v1.29.0...v1.30.0) (2026-05-09)
 
 ### Features
