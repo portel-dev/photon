@@ -907,7 +907,7 @@ export class PhotonLoader {
    * Directory where MCP-specific dependencies are cached
    */
   private getDependencyCacheDir(cacheKey: string): string {
-    return path.join(getCacheDir(process.env.PHOTON_DIR), 'dependencies', cacheKey);
+    return path.join(getCacheDir(this.baseDir), 'dependencies', cacheKey);
   }
 
   private getBuildCacheDir(cacheKey: string): string {

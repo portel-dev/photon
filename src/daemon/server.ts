@@ -2535,13 +2535,8 @@ async function getOrCreateSessionManager(
       logger.info('Spawning worker thread for @worker photon', { photonName, key });
       const info = await workerManager.spawn(key, photonName, pathToUse, workingDir);
       photonPaths.set(key, pathToUse);
-      // Also mirror under the bare photon name so legacy helpers
-      // (snapshotState, persistInstanceState) without a workingDir still
-      // resolve in the default-base case. `compositeKey(name, undefined)`
-      // collapses to the bare name and is branded, so this round-trips
-      // through the type system without a raw cast.
       const legacyKey = compositeKey(photonName);
-      if (!photonPaths.has(legacyKey)) photonPaths.set(legacyKey, pathToUse);
+      if (legacyKey === key && !photonPaths.has(legacyKey)) photonPaths.set(legacyKey, pathToUse);
       if (workingDir) workingDirs.set(key, workingDir);
       watchPhotonFile(photonName, pathToUse);
 
@@ -2665,12 +2660,8 @@ async function getOrCreateSessionManager(
 
     sessionManagers.set(key, manager);
     photonPaths.set(key, pathToUse);
-    // Legacy callers without a workingDir (snapshotState, persistInstanceState)
-    // reach this map via bare photon name. compositeKey(name, undefined)
-    // collapses to that bare name for the default base and is branded, so
-    // the mirror entry preserves the legacy lookup path type-safely.
     const legacyKey = compositeKey(photonName);
-    if (!photonPaths.has(legacyKey)) {
+    if (legacyKey === key && !photonPaths.has(legacyKey)) {
       photonPaths.set(legacyKey, pathToUse);
     }
     // Baseline the stat-gate for this session so subsequent dispatches can
@@ -4453,7 +4444,7 @@ async function handleRequest(
         };
 
         // Snapshot state before execution for JSON Patch diffing
-        const preSnapshot = await snapshotState(targetInst, photonName);
+        const preSnapshot = await snapshotState(targetInst, photonName, request.workingDir);
 
         const startTime = Date.now();
         trackExecution(cmdKey);
@@ -4494,7 +4485,9 @@ async function handleRequest(
         await persistInstanceState(targetInst, photonName, targetName, request.workingDir);
 
         // Generate JSON Patch (RFC 6902) forward + inverse ops
-        const postSnapshot = preSnapshot ? await snapshotState(targetInst, photonName) : null;
+        const postSnapshot = preSnapshot
+          ? await snapshotState(targetInst, photonName, request.workingDir)
+          : null;
         const patch: Operation[] =
           preSnapshot && postSnapshot ? jsonPatchCompare(preSnapshot, postSnapshot) : [];
         const inversePatch: Operation[] =
@@ -4575,7 +4568,7 @@ async function handleRequest(
       };
 
       // Snapshot state before execution for JSON Patch diffing
-      const preSnapshot = await snapshotState(session.instance, photonName);
+      const preSnapshot = await snapshotState(session.instance, photonName, request.workingDir);
 
       const startTime = Date.now();
       trackExecution(cmdKey);
@@ -4622,7 +4615,9 @@ async function handleRequest(
       );
 
       // Generate JSON Patch (RFC 6902) forward + inverse ops
-      const postSnapshot = preSnapshot ? await snapshotState(session.instance, photonName) : null;
+      const postSnapshot = preSnapshot
+        ? await snapshotState(session.instance, photonName, request.workingDir)
+        : null;
       const patch: Operation[] =
         preSnapshot && postSnapshot ? jsonPatchCompare(preSnapshot, postSnapshot) : [];
       const inversePatch: Operation[] =
@@ -5963,7 +5958,7 @@ function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
       const photonName = filename.slice(0, -ext.length);
       const filePath = path.join(photonDir, filename);
 
-      const photonKey = compositeKey(photonName);
+      const photonKey = compositeKey(photonName, photonDir);
       // New file added — register and watch it
       if (!photonPaths.has(photonKey) && fs.existsSync(filePath)) {
         photonPaths.set(photonKey, filePath);

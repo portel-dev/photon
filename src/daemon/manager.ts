@@ -16,6 +16,7 @@ import * as net from 'net';
 import * as path from 'path';
 import { spawn, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
 import { DaemonStatus } from './protocol.js';
 import { DaemonStateMachine, type DaemonState } from './state-machine.js';
 import { getOwnerFilePath, isPidAlive as checkPidAlive, readOwnerRecord } from './ownership.js';
@@ -795,11 +796,14 @@ export class DaemonManager {
     const daemonScript = this.resolveDaemonScript();
     this.rotateLogIfTooLarge();
     const logStream = fs.openSync(this.ctx.logFile, 'a');
+    const env: NodeJS.ProcessEnv = { ...process.env, PHOTON_DAEMON: 'true' };
+    delete env.PHOTON_DIR;
 
     const child = spawn(process.execPath, [daemonScript, this.ctx.socketPath], {
       detached: true,
       stdio: ['ignore', logStream, logStream],
-      env: { ...process.env, PHOTON_DAEMON: 'true' },
+      env,
+      cwd: DEFAULT_PHOTON_DIR,
     });
     const childPid = child.pid;
     if (childPid === undefined) {
