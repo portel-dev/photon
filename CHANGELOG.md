@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.31.2](https://github.com/portel-dev/photon/compare/v1.31.1...v1.31.2) (2026-05-11)
+
+### Bug Fixes
+
+* **daemon:** delay catch-up fires 15 s to keep event loop free during startup ([877f437](https://github.com/portel-dev/photon/commit/877f437d0d34408cae4ce17f7164f0c9d25978bc))
+
 ## [1.31.1](https://github.com/portel-dev/photon/compare/v1.31.0...v1.31.1) (2026-05-11)
 
 ### Bug Fixes
