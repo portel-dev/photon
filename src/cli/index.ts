@@ -71,6 +71,24 @@ Configuration:
 
 Hosting:
   host <command>          Manage cloud hosting (preview, deploy)
+  cf <command>            Manage Cloudflare binding overrides
+    cf bindings <name>      Show declared + override bindings for a photon
+    cf set <name> <path> <value>    Override a single binding
+    cf reset <name>         Remove the override file
+
+Daemon & Scheduling:
+  ps                      List scheduled jobs, webhook routes, active sessions
+    ps enable <photon>:<method>     Activate a declared @scheduled method
+    ps disable <photon>:<method>    Drop a schedule from the active list
+    ps pause <photon>:<method>      Pause without removing
+    ps resume <photon>:<method>     Re-enable a paused schedule
+    ps history <photon>:<method>    Show recent firings of a scheduled method
+  daemon <command>        Manage the Photon background daemon
+    daemon start            Start the daemon (no-op if already running)
+    daemon stop             Stop the running daemon
+    daemon restart          Restart the daemon
+    daemon status           Show daemon status and health info
+    daemon prune-bases      Remove stale entries from bases registry
 
 Package Management:
   add <name>              Install a photon from marketplace
@@ -80,18 +98,35 @@ Package Management:
   info, list [name]       Show installed photons and details
   publish                 Publish your photons as a marketplace (wizard)
 
-Maintenance:
-  update                  Update the Photon CLI itself (not installed photons)
-  changelog [version]     Show what's new in the current or latest version
-  doctor [name]           Diagnose environment and installations
-  audit                   View persistent tool execution audit log
-
 Development:
   new <name>              Create a new photon from template (shortcut)
   maker new <name>        Create a new photon from template
   maker validate <name>   Validate photon syntax and schemas
   maker sync              Generate marketplace manifest
   maker init              Initialize marketplace with git hooks
+  build <file>            Compile a photon into a standalone executable binary
+  test [photon] [test]    Run test methods in photons
+    --mode <mode>         Test mode: direct, cli, mcp, all (default: direct)
+  init <command>          Setup and shell integration
+    init cli                Set up shell integration for direct photon commands
+    init daemon             Set up daemon auto-start on login (launchd/systemd)
+    init all                Run all setup steps
+    init completions        Manage shell completion cache
+  uninit <command>        Remove integrations
+    uninit cli              Remove shell integration
+    uninit daemon           Remove daemon auto-start
+  package <name>          Generate cross-platform PWA launchers for a photon
+
+Publishing:
+  claim                   Scope a remote MCP session to photons via claim code
+    claim list              List active claim codes
+    claim revoke <code>     Remove a claim code
+
+Maintenance:
+  update                  Update the Photon CLI itself (not installed photons)
+  changelog [version]     Show what's new in the current or latest version
+  doctor [name]           Diagnose environment and installations
+  audit                   View persistent tool execution audit log
 
 Advanced:
   marketplace             Manage marketplace sources
