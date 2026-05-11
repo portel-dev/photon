@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.31.1](https://github.com/portel-dev/photon/compare/v1.31.0...v1.31.1) (2026-05-11)
+
+### Bug Fixes
+
+* **daemon:** defer schedule load until after socket is bound ([ef9ec6f](https://github.com/portel-dev/photon/commit/ef9ec6f2ec6c140ef2426da4a6107dd1c228162d))
+
 ## [1.31.0](https://github.com/portel-dev/photon/compare/v1.30.0...v1.31.0) (2026-05-11)
 
 ### Features
