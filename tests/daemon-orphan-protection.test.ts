@@ -241,6 +241,63 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
     console.log('  ✅ Log rotation triggers above 50 MB');
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // Test 6: Zombie process regression — a process that has been killed
+  // (SIGKILL) but not yet reaped by its parent appears alive to
+  // kill(pid, 0) on POSIX. cleanupStale must detect the zombie via
+  // ps state='Z' and treat it as dead so cleanup proceeds without
+  // manual intervention.
+  //
+  // Root cause of the bug: isPidStillAlive returned true for zombies
+  // because kill(pid,0) succeeds on a zombie. The fix adds a ps state
+  // check and treats 'Z' as dead.
+  //
+  // Why the zombie persists during cleanupStale: cleanupStale uses
+  // Atomics.wait which blocks the Node.js main thread. While blocked,
+  // libuv cannot process SIGCHLD and call waitpid to reap the zombie.
+  // ─────────────────────────────────────────────────────────────────
+  if (process.platform !== 'win32') {
+    clearDaemonState();
+
+    // Spawn a real process. We'll kill it and immediately run cleanupStale
+    // before libuv gets to reap the zombie on the next event loop tick.
+    const zombie = spawn('sleep', ['60'], { detached: true, stdio: 'ignore' });
+    zombie.unref(); // do not auto-reap via libuv
+    if (typeof zombie.pid !== 'number') {
+      throw new Error('Failed to spawn sleep for zombie test');
+    }
+    const zombiePid = zombie.pid;
+
+    // Let the process register in the kernel's process table.
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Seed state as if this were our daemon.
+    seedDaemonState(zombiePid);
+
+    // Kill it — process dies immediately but stays as a zombie in the
+    // process table until waitpid is called. Since we're about to block
+    // the main thread with Atomics.wait inside cleanupStale, libuv
+    // cannot reap it during the test.
+    process.kill(zombiePid, 'SIGKILL');
+
+    // cleanupStale must succeed — the zombie must be treated as dead.
+    const mgr = new DaemonManager(ctx as any);
+    let zombieThrew: unknown;
+    try {
+      (mgr as any).cleanupStale();
+    } catch (err) {
+      zombieThrew = err;
+    }
+
+    assert.equal(zombieThrew, undefined, 'cleanupStale must NOT throw for a zombie process');
+    assert.equal(fs.existsSync(pidFile), false, 'pid file removed for zombie');
+    assert.equal(fs.existsSync(ownerFile), false, 'owner file removed for zombie');
+    assert.equal(fs.existsSync(socketPath), false, 'socket file removed for zombie');
+    console.log('  ✅ Zombie PID: cleanupStale treats zombie as dead and cleans state');
+  } else {
+    console.log('  ⊘ Zombie test skipped on Windows');
+  }
+
   // Cleanup
   clearDaemonState();
   try {

@@ -289,18 +289,37 @@ export class DaemonManager {
    * Handles stale locks (lock holder PID is dead).
    */
   /**
-   * Returns true if the PID responds to signal 0 (i.e. the process exists
-   * and we have permission to signal it). Robust to ESRCH and EPERM.
+   * Returns true if the PID is alive and able to hold resources (sockets,
+   * file descriptors). Zombie processes — dead but not yet reaped by their
+   * parent — appear alive to kill(pid, 0) on POSIX because their PID table
+   * entry persists, but they cannot hold sockets or any other resources.
+   * Treating a zombie as alive causes cleanupStale() to refuse cleanup even
+   * though removing the socket/pid files is perfectly safe.
    */
   private isPidStillAlive(pid: number): boolean {
     try {
       process.kill(pid, 0);
-      return true;
     } catch (err: any) {
-      // ESRCH = no such process; EPERM = process exists but not ours
-      // For our purposes EPERM means "alive" — we can't kill it either.
+      // ESRCH = no such process; EPERM = process exists but not ours.
+      // EPERM means "alive" — we can't send it signals anyway.
       return err?.code === 'EPERM';
     }
+    // Process exists in the table. On POSIX, zombie processes also respond
+    // to signal 0 successfully despite being dead. Check ps state and treat
+    // Z (zombie) as dead — a zombie holds no sockets or file descriptors.
+    if (process.platform !== 'win32') {
+      try {
+        const state = execFileSync('ps', ['-o', 'state=', '-p', String(pid)], {
+          encoding: 'utf8',
+          timeout: 2000,
+          stdio: ['pipe', 'pipe', 'pipe'], // suppress ps stderr (e.g. "no process found")
+        }).trim();
+        if (state.startsWith('Z')) return false;
+      } catch {
+        // ps unavailable or pid vanished between signal-0 and ps call — assume alive.
+      }
+    }
+    return true;
   }
 
   /**
@@ -684,8 +703,8 @@ export class DaemonManager {
 
   private cleanupStale(): void {
     const pids = this.getTrackedPids();
-    const { allDead, survivors } = this.terminateTrackedPidsSync(pids);
-    if (!allDead) {
+    const { survivors } = this.terminateTrackedPidsSync(pids);
+    if (survivors.length > 0) {
       this.logger.error(
         'Refusing to delete daemon state files: tracked PID(s) survived SIGTERM and SIGKILL. ' +
           'The socket may still be bound by the surviving process. ' +
@@ -704,8 +723,8 @@ export class DaemonManager {
   private killProcess(): void {
     const pids = this.getTrackedPids();
     if (pids.length === 0) return;
-    const { allDead, survivors } = this.terminateTrackedPidsSync(pids);
-    if (!allDead) {
+    const { survivors } = this.terminateTrackedPidsSync(pids);
+    if (survivors.length > 0) {
       // Don't unlink files — surviving daemon still owns the socket.
       this.logger.error(
         'Daemon stop incomplete: tracked PID(s) survived SIGKILL. State files left intact ' +
