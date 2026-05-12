@@ -10,6 +10,13 @@ import * as fs from 'fs';
 import { PhotonServer, HotReloadDisabledError } from './server.js';
 import { Logger, createLogger } from './shared/logger.js';
 
+const HOT_RELOAD_DEBOUNCE_MS = parseNonNegativeEnvInt('PHOTON_HOT_RELOAD_DEBOUNCE_MS', 1000);
+
+function parseNonNegativeEnvInt(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export class FileWatcher {
   private watcher: FSWatcher | null = null;
   private server: PhotonServer;
@@ -54,7 +61,7 @@ export class FileWatcher {
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {
-        stabilityThreshold: 100,
+        stabilityThreshold: HOT_RELOAD_DEBOUNCE_MS,
         pollInterval: 50,
       },
     });
@@ -87,7 +94,7 @@ export class FileWatcher {
     }
     this.logger.info(`File changed: ${displayPath}`);
 
-    // Debounce rapid changes
+    // Trailing debounce: reload only after streamed writes/editor saves settle.
     if (this.reloadTimeout) {
       clearTimeout(this.reloadTimeout);
     }
@@ -106,7 +113,7 @@ export class FileWatcher {
           }
         }
       })();
-    }, 200);
+    }, HOT_RELOAD_DEBOUNCE_MS);
   }
 
   /**

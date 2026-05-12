@@ -52,18 +52,68 @@ function isStale(cache: VersionCache): boolean {
   return Date.now() - checkedAt > CACHE_TTL_MS;
 }
 
+interface ParsedSemver {
+  core: [number, number, number];
+  prerelease: string[];
+}
+
+function parseSemver(version: string): ParsedSemver {
+  const withoutBuild = version.split('+')[0];
+  const [corePart, prereleasePart] = withoutBuild.split('-', 2);
+  const parts = corePart.split('.').map((part) => Number(part));
+  return {
+    core: [
+      Number.isFinite(parts[0]) ? parts[0] : 0,
+      Number.isFinite(parts[1]) ? parts[1] : 0,
+      Number.isFinite(parts[2]) ? parts[2] : 0,
+    ],
+    prerelease: prereleasePart ? prereleasePart.split('.') : [],
+  };
+}
+
+function comparePrerelease(a: string[], b: string[]): number {
+  if (a.length === 0 && b.length === 0) return 0;
+  if (a.length === 0) return 1;
+  if (b.length === 0) return -1;
+
+  const max = Math.max(a.length, b.length);
+  for (let i = 0; i < max; i++) {
+    const ai = a[i];
+    const bi = b[i];
+    if (ai === undefined) return -1;
+    if (bi === undefined) return 1;
+
+    const an = Number(ai);
+    const bn = Number(bi);
+    const aNumeric = Number.isInteger(an) && String(an) === ai;
+    const bNumeric = Number.isInteger(bn) && String(bn) === bi;
+
+    if (aNumeric && bNumeric) {
+      if (an > bn) return 1;
+      if (an < bn) return -1;
+      continue;
+    }
+    if (aNumeric) return -1;
+    if (bNumeric) return 1;
+    if (ai > bi) return 1;
+    if (ai < bi) return -1;
+  }
+
+  return 0;
+}
+
 /**
- * Compare two semver strings.
+ * Compare two semver strings, ignoring build metadata.
  * Returns 1 if a > b, -1 if a < b, 0 if equal.
  */
-function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
+export function compareSemver(a: string, b: string): number {
+  const pa = parseSemver(a);
+  const pb = parseSemver(b);
   for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
-    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+    if (pa.core[i] > pb.core[i]) return 1;
+    if (pa.core[i] < pb.core[i]) return -1;
   }
-  return 0;
+  return comparePrerelease(pa.prerelease, pb.prerelease);
 }
 
 /**

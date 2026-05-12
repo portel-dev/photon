@@ -263,6 +263,16 @@ const workingDirs = new Map<PhotonCompositeKey, string>(); // compositeKey -> wo
 // Keyed by resolved file path (realpathSync), not composite key.
 const fileWatchers = new Map<string, SafeWatcher>();
 const watchDebounce = new Map<string, NodeJS.Timeout>(); // keyed by base:filename, not photon
+const HOT_RELOAD_DEBOUNCE_MS = parseNonNegativeEnvInt('PHOTON_DAEMON_HOT_RELOAD_DEBOUNCE_MS', 1000);
+const PROACTIVE_METADATA_DEBOUNCE_MS = parseNonNegativeEnvInt(
+  'PHOTON_PROACTIVE_METADATA_DEBOUNCE_MS',
+  1000
+);
+
+function parseNonNegativeEnvInt(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
 
 // Source-stat gate (prototype — see docs/internals/STAT-GATE.md when landed):
 // compositeKey → last observed stat of the photon's source file. Used by
@@ -1805,7 +1815,7 @@ async function discoverProactiveMetadataAtBoot(): Promise<void> {
  * `@scheduled` cron expressions or `@webhook` additions only reached
  * the daemon at restart.
  *
- * Deduped by filename via the existing watchDebounce map (~150 ms) so
+ * Deduped by filename via the existing watchDebounce map so
  * editors that save-twice don't trigger two scans. Skips files that
  * aren't `.photon.ts`.
  */
@@ -1867,7 +1877,7 @@ function watchBaseForProactiveMetadata(basePath: string, _isDefaultBase: boolean
           });
         }
       })();
-    }, 150);
+    }, PROACTIVE_METADATA_DEBOUNCE_MS);
     timer.unref();
     watchDebounce.set(debounceKey, timer);
   };
@@ -5177,7 +5187,7 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
 
   try {
     const watcher = safeWatchFile(watchPath, (eventType) => {
-      // Debounce: 100ms (same as Beam)
+      // Trailing debounce: wait for write bursts to settle before reloading.
       const existing = watchDebounce.get(watchPath);
       if (existing) clearTimeout(existing);
 
@@ -5234,7 +5244,7 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
             });
           }
         })();
-      }, 100);
+      }, HOT_RELOAD_DEBOUNCE_MS);
       watchDebounce.set(watchPath, timer);
     });
 

@@ -354,8 +354,8 @@ async function testFileWatcher() {
     // Append a comment to trigger change event
     fs.appendFileSync(PHOTON_FILE, '\n// watcher-test-edit\n');
 
-    // Wait for debounce (100ms) + reload time
-    await new Promise((r) => setTimeout(r, 500));
+    // Wait for daemon hot-reload debounce + reload time
+    await new Promise((r) => setTimeout(r, 1500));
 
     const log = getDaemonLog().join('\n');
     assert.ok(
@@ -386,7 +386,7 @@ async function testFileWatcher() {
 
     // Trigger a reload via file edit
     fs.appendFileSync(PHOTON_FILE, '\n// reload-state-test\n');
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 1500));
 
     // Verify state is preserved (items copied to new instance)
     const response = await sendRequest({
@@ -836,18 +836,18 @@ async function testWatcherSurvivesReloadCycle() {
   await test('multiple rapid edits are debounced into single reload', async () => {
     clearDaemonLog();
 
-    // Rapid-fire 5 edits in 50ms
+    // Rapid-fire 5 edits inside the debounce window
     for (let i = 0; i < 5; i++) {
       fs.appendFileSync(PHOTON_FILE, `\n// rapid-edit-${i}\n`);
       await new Promise((r) => setTimeout(r, 10));
     }
 
-    // Wait for debounce (100ms) + reload
-    await new Promise((r) => setTimeout(r, 600));
+    // Wait for daemon hot-reload debounce + reload
+    await new Promise((r) => setTimeout(r, 1500));
 
     const log = getDaemonLog().join('\n');
     const reloadCount = (log.match(/File changed, auto-reloading/g) || []).length;
-    assert.ok(reloadCount <= 2, `Expected at most 2 reloads from debouncing, got ${reloadCount}`);
+    assert.equal(reloadCount, 1, `Expected one debounced reload, got ${reloadCount}`);
   });
 }
 
@@ -916,8 +916,8 @@ async function testSymlinkWatching() {
     // Edit the REAL file — NOT the symlink
     fs.writeFileSync(REAL_PHOTON_FILE, SYMTEST_SOURCE_V2);
 
-    // Wait for debounce + reload
-    await new Promise((r) => setTimeout(r, 800));
+    // Wait for daemon hot-reload debounce + reload
+    await new Promise((r) => setTimeout(r, 1500));
 
     const log = getDaemonLog().join('\n');
     assert.ok(
@@ -1016,7 +1016,7 @@ export default class StartupTest {
 
     // Edit the test file — watcher was set up during the first command
     fs.appendFileSync(PHOTON_FILE, '\n// startup-watcher-test\n');
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 1500));
 
     const log = getDaemonLog().join('\n');
     assert.ok(

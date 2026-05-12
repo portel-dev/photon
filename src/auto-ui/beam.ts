@@ -1437,6 +1437,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               }
             );
           },
+          schedulePhotonReload: async (photonName: string) => {
+            await handleFileChange(photonName);
+            const photon = photons.find(
+              (p): p is PhotonInfo => p.name === photonName && p.configured
+            );
+            return photon
+              ? { success: true, photon }
+              : { success: false, error: `Photon not found or not configured: ${photonName}` };
+          },
           removePhoton: async (photonName: string) => {
             return removePhotonViaMCP(
               photonName,
@@ -2366,9 +2375,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     broadcastToBeam('beam/photons', { photons });
   };
 
+  const HOT_RELOAD_DEBOUNCE_MS = (() => {
+    const parsed = Number(process.env.PHOTON_HOT_RELOAD_DEBOUNCE_MS);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1000;
+  })();
+
   // File watcher for hot reload
   const watchers: FSWatcher[] = [];
   const pendingReloads = new Map<string, NodeJS.Timeout>();
+  const pendingReloadResolvers = new Map<string, Array<() => void>>();
   const activeLoads = new Set<string>(); // Photons currently being loaded (prevents concurrent duplicate loads)
   const pendingAfterLoad = new Set<string>(); // File changes that arrived while a load was active; re-triggered after
   const symlinkWatchedDirs = new Set<string>(); // Track which source dirs already have watchers (prevents duplicates on re-setup)
@@ -2484,12 +2499,27 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   };
 
   // Handle file change with debounce
-  const handleFileChange = async (photonName: string) => {
+  const resolvePendingReload = (photonName: string): void => {
+    const resolvers = pendingReloadResolvers.get(photonName);
+    if (!resolvers) return;
+    pendingReloadResolvers.delete(photonName);
+    for (const resolve of resolvers) resolve();
+  };
+
+  const handleFileChange = (photonName: string): Promise<void> => {
+    const completion = new Promise<void>((resolve) => {
+      const resolvers = pendingReloadResolvers.get(photonName) || [];
+      resolvers.push(resolve);
+      pendingReloadResolvers.set(photonName, resolvers);
+    });
+
     // Clear any pending reload for this photon
     const pending = pendingReloads.get(photonName);
     if (pending) clearTimeout(pending);
 
-    // Debounce - wait 100ms for batch saves
+    // Trailing debounce: wait for write bursts to go quiet before loading.
+    // Editor saves and streamed file writes often land as multiple fs events;
+    // reloading every intermediate state creates unnecessary daemon pressure.
     pendingReloads.set(
       photonName,
       setTimeout(() => {
@@ -2500,6 +2530,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // finishes. Without this, file changes that arrive mid-load are silently dropped.
           if (activeLoads.has(photonName)) {
             pendingAfterLoad.add(photonName);
+            resolvePendingReload(photonName);
             return;
           }
           activeLoads.add(photonName);
@@ -2933,10 +2964,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               pendingAfterLoad.delete(photonName);
               void handleFileChange(photonName);
             }
+            resolvePendingReload(photonName);
           }
         })();
-      }, 100)
+      }, HOT_RELOAD_DEBOUNCE_MS)
     );
+
+    return completion;
   };
 
   // Watch working directory recursively

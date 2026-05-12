@@ -244,6 +244,11 @@ async function waitForDaemon(timeoutMs = 10_000): Promise<void> {
   throw new Error('Daemon did not become ready within timeout');
 }
 
+async function ensureDaemonReady(): Promise<void> {
+  await ensureDaemon();
+  await waitForDaemon();
+}
+
 /**
  * Send command to daemon with auto-restart on connection failure.
  * Retries on connection errors (restart daemon + retry) and on transient
@@ -282,8 +287,7 @@ export async function sendCommand(
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
         logger.info(`Daemon unreachable (${photonName}/${method}), waiting for daemon...`);
-        await ensureDaemon();
-        await waitForDaemon();
+        await ensureDaemonReady();
         continue;
       }
       // Retry transient errors for read-only methods only
@@ -303,6 +307,27 @@ export async function sendCommand(
  * Called by Beam after hot-reload so the daemon's instance matches.
  */
 export async function reloadDaemonPhoton(
+  photonName: string,
+  photonPath: string,
+  workingDir?: string
+): Promise<void> {
+  const maxRetries = 1;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await ensureDaemonReady();
+      return await reloadDaemonPhotonDirect(photonName, photonPath, workingDir);
+    } catch (error) {
+      if (isDaemonConnectionError(error) && attempt < maxRetries) {
+        logger.info(`Daemon unreachable during reload (${photonName}), waiting for daemon...`);
+        await ensureDaemonReady();
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+async function reloadDaemonPhotonDirect(
   photonName: string,
   photonPath: string,
   workingDir?: string
@@ -521,7 +546,8 @@ export async function subscribeChannel(
   let cancelled = false;
   let lastSeenEventId: string | undefined = options?.lastEventId;
 
-  const connect = (): Promise<() => void> => {
+  const connect = async (): Promise<() => void> => {
+    await ensureDaemonReady();
     const socketPath = getGlobalSocketPath();
     const subscribeId = `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -665,7 +691,7 @@ export async function subscribeChannel(
         if (cancelled) return;
         try {
           // Try reconnecting to existing daemon first; only start if it's down
-          await ensureDaemon();
+          await ensureDaemonReady();
           await connect();
           reconnectAttempts = 0;
           logger.debug(`Reconnected subscription for ${channel}`);
@@ -692,52 +718,12 @@ export async function publishToChannel(
   message: unknown,
   workingDir?: string
 ): Promise<void> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `pub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const timeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Publish timeout'));
-    }, 5000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'publish',
-        id: requestId,
-        photonName,
-        channel,
-        message,
-        workingDir,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-
-        if (response.id === requestId) {
-          clearTimeout(timeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve();
-          } else {
-            reject(new Error(response.error || 'Publish failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(timeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  await sendSimpleDaemonRequest({
+    type: 'publish',
+    photonName,
+    channel,
+    message,
+    workingDir,
   });
 }
 
@@ -751,54 +737,15 @@ export async function acquireLock(
   timeout?: number,
   workingDir?: string
 ): Promise<boolean> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `lock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const requestTimeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Lock request timeout'));
-    }, 10000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'lock',
-        id: requestId,
-        photonName,
-        sessionId: SESSION_ID,
-        lockName,
-        lockTimeout: timeout,
-        workingDir,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-
-        if (response.id === requestId) {
-          clearTimeout(requestTimeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve((response.data as { acquired: boolean }).acquired);
-          } else {
-            reject(new Error(response.error || 'Lock failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(requestTimeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  const result = await sendSimpleDaemonRequest<{ acquired: boolean }>({
+    type: 'lock',
+    photonName,
+    sessionId: SESSION_ID,
+    lockName,
+    lockTimeout: timeout,
+    workingDir,
   });
+  return result.acquired;
 }
 
 /**
@@ -810,53 +757,14 @@ export async function releaseLock(
   lockName: string,
   workingDir?: string
 ): Promise<boolean> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `unlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const timeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Unlock request timeout'));
-    }, 5000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'unlock',
-        id: requestId,
-        photonName,
-        sessionId: SESSION_ID,
-        lockName,
-        workingDir,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-
-        if (response.id === requestId) {
-          clearTimeout(timeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve((response.data as { released: boolean }).released);
-          } else {
-            reject(new Error(response.error || 'Unlock failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(timeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  const result = await sendSimpleDaemonRequest<{ released: boolean }>({
+    type: 'unlock',
+    photonName,
+    sessionId: SESSION_ID,
+    lockName,
+    workingDir,
   });
+  return result.released;
 }
 
 /**
@@ -865,50 +773,13 @@ export async function releaseLock(
 export async function listLocks(
   photonName: string
 ): Promise<Array<{ name: string; holder: string; acquiredAt: number; expiresAt: number }>> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `listlocks_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const timeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('List locks request timeout'));
-    }, 5000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'list_locks',
-        id: requestId,
-        photonName,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-
-        if (response.id === requestId) {
-          clearTimeout(timeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve((response.data as { locks: any[] }).locks || []);
-          } else {
-            reject(new Error(response.error || 'List locks failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(timeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  const result = await sendSimpleDaemonRequest<{
+    locks: Array<{ name: string; holder: string; acquiredAt: number; expiresAt: number }>;
+  }>({
+    type: 'list_locks',
+    photonName,
   });
+  return result.locks || [];
 }
 
 /**
@@ -922,54 +793,16 @@ export async function assignLock(
   timeout?: number,
   workingDir?: string
 ): Promise<boolean> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `assignlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const requestTimeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Assign lock request timeout'));
-    }, 10000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'assign_lock',
-        id: requestId,
-        photonName,
-        sessionId: SESSION_ID,
-        lockName,
-        lockHolder: holder,
-        lockTimeout: timeout,
-        workingDir,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-        if (response.id === requestId) {
-          clearTimeout(requestTimeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve((response.data as { acquired: boolean }).acquired);
-          } else {
-            reject(new Error(response.error || 'Assign lock failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(requestTimeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  const result = await sendSimpleDaemonRequest<{ acquired: boolean }>({
+    type: 'assign_lock',
+    photonName,
+    sessionId: SESSION_ID,
+    lockName,
+    lockHolder: holder,
+    lockTimeout: timeout,
+    workingDir,
   });
+  return result.acquired;
 }
 
 /**
@@ -983,55 +816,17 @@ export async function transferLock(
   timeout?: number,
   workingDir?: string
 ): Promise<boolean> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `transferlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const requestTimeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Transfer lock request timeout'));
-    }, 10000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'transfer_lock',
-        id: requestId,
-        photonName,
-        sessionId: SESSION_ID,
-        lockName,
-        lockHolder: fromHolder,
-        lockTransferTo: toHolder,
-        lockTimeout: timeout,
-        workingDir,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-        if (response.id === requestId) {
-          clearTimeout(requestTimeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve((response.data as { transferred: boolean }).transferred);
-          } else {
-            reject(new Error(response.error || 'Transfer lock failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(requestTimeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  const result = await sendSimpleDaemonRequest<{ transferred: boolean }>({
+    type: 'transfer_lock',
+    photonName,
+    sessionId: SESSION_ID,
+    lockName,
+    lockHolder: fromHolder,
+    lockTransferTo: toHolder,
+    lockTimeout: timeout,
+    workingDir,
   });
+  return result.transferred;
 }
 
 /**
@@ -1043,53 +838,15 @@ export async function releaseIdentityLock(
   holder: string,
   workingDir?: string
 ): Promise<boolean> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `releaselock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const requestTimeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Release lock request timeout'));
-    }, 5000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'unlock',
-        id: requestId,
-        photonName,
-        sessionId: SESSION_ID,
-        lockName,
-        lockHolder: holder,
-        workingDir,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-        if (response.id === requestId) {
-          clearTimeout(requestTimeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve((response.data as { released: boolean }).released);
-          } else {
-            reject(new Error(response.error || 'Release lock failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(requestTimeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  const result = await sendSimpleDaemonRequest<{ released: boolean }>({
+    type: 'unlock',
+    photonName,
+    sessionId: SESSION_ID,
+    lockName,
+    lockHolder: holder,
+    workingDir,
   });
+  return result.released;
 }
 
 /**
@@ -1099,51 +856,14 @@ export async function queryLock(
   photonName: string,
   lockName: string
 ): Promise<{ holder: string | null; acquiredAt?: number; expiresAt?: number }> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `querylock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const requestTimeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Query lock request timeout'));
-    }, 5000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'query_lock',
-        id: requestId,
-        photonName,
-        lockName,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-        if (response.id === requestId) {
-          clearTimeout(requestTimeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve(
-              response.data as { holder: string | null; acquiredAt?: number; expiresAt?: number }
-            );
-          } else {
-            reject(new Error(response.error || 'Query lock failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(requestTimeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  return sendSimpleDaemonRequest<{
+    holder: string | null;
+    acquiredAt?: number;
+    expiresAt?: number;
+  }>({
+    type: 'query_lock',
+    photonName,
+    lockName,
   });
 }
 
@@ -1157,54 +877,14 @@ export async function scheduleJob(
   cron: string,
   args?: Record<string, unknown>
 ): Promise<{ scheduled: boolean; nextRun?: number }> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `schedule_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const timeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Schedule request timeout'));
-    }, 5000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'schedule',
-        id: requestId,
-        photonName,
-        sessionId: SESSION_ID,
-        jobId,
-        method,
-        cron,
-        args,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-
-        if (response.id === requestId) {
-          clearTimeout(timeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve(response.data as { scheduled: boolean; nextRun?: number });
-          } else {
-            reject(new Error(response.error || 'Schedule failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(timeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  return sendSimpleDaemonRequest<{ scheduled: boolean; nextRun?: number }>({
+    type: 'schedule',
+    photonName,
+    sessionId: SESSION_ID,
+    jobId,
+    method,
+    cron,
+    args,
   });
 }
 
@@ -1212,51 +892,12 @@ export async function scheduleJob(
  * Unschedule a job
  */
 export async function unscheduleJob(photonName: string, jobId: string): Promise<boolean> {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `unschedule_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const timeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('Unschedule request timeout'));
-    }, 5000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'unschedule',
-        id: requestId,
-        photonName,
-        jobId,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-
-        if (response.id === requestId) {
-          clearTimeout(timeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve((response.data as { unscheduled: boolean }).unscheduled);
-          } else {
-            reject(new Error(response.error || 'Unschedule failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(timeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  const result = await sendSimpleDaemonRequest<{ unscheduled: boolean }>({
+    type: 'unschedule',
+    photonName,
+    jobId,
   });
+  return result.unscheduled;
 }
 
 /**
@@ -1272,50 +913,20 @@ export async function listJobs(photonName: string): Promise<
     runCount: number;
   }>
 > {
-  const socketPath = getGlobalSocketPath();
-  const requestId = `listjobs_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-  return new Promise((resolve, reject) => {
-    const client = connectToDaemon(socketPath);
-
-    const timeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error('List jobs request timeout'));
-    }, 5000);
-
-    client.on('connect', () => {
-      const request: DaemonRequest = {
-        type: 'list_jobs',
-        id: requestId,
-        photonName,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
-
-    client.on('data', (chunk) => {
-      try {
-        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
-
-        if (response.id === requestId) {
-          clearTimeout(timeout);
-          client.destroy();
-          if (response.type === 'result') {
-            resolve((response.data as { jobs: any[] }).jobs || []);
-          } else {
-            reject(new Error(response.error || 'List jobs failed'));
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
-      }
-    });
-
-    client.on('error', (error) => {
-      clearTimeout(timeout);
-      client.destroy();
-      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-    });
+  const result = await sendSimpleDaemonRequest<{
+    jobs: Array<{
+      id: string;
+      method: string;
+      cron: string;
+      nextRun?: number;
+      lastRun?: number;
+      runCount: number;
+    }>;
+  }>({
+    type: 'list_jobs',
+    photonName,
   });
+  return result.jobs || [];
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -1352,6 +963,26 @@ export interface PsSnapshot {
 
 /** Fire-and-forget helper for the new RPCs. Returns the parsed result.data. */
 async function sendSimpleDaemonRequest<T = unknown>(
+  req: Omit<DaemonRequest, 'id'> & { id?: string }
+): Promise<T> {
+  const maxRetries = 1;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await ensureDaemonReady();
+      return await sendSimpleDaemonRequestDirect<T>(req);
+    } catch (error) {
+      if (isDaemonConnectionError(error) && attempt < maxRetries) {
+        logger.info(`Daemon unreachable during ${req.type}, waiting for daemon...`);
+        await ensureDaemonReady();
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`${req.type} failed`);
+}
+
+async function sendSimpleDaemonRequestDirect<T = unknown>(
   req: Omit<DaemonRequest, 'id'> & { id?: string }
 ): Promise<T> {
   const socketPath = getGlobalSocketPath();
@@ -1662,6 +1293,30 @@ export async function clearInstances(photonName: string, workingDir?: string): P
 }
 
 export async function getEventsSince(
+  photonName: string,
+  channel: string,
+  lastEventId: string
+): Promise<{ events: Array<{ eventId: string; message: unknown }>; refreshNeeded: boolean }> {
+  const maxRetries = 1;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await ensureDaemonReady();
+      return await getEventsSinceDirect(photonName, channel, lastEventId);
+    } catch (error) {
+      if (isDaemonConnectionError(error) && attempt < maxRetries) {
+        logger.info(
+          `Daemon unreachable during get_events_since (${channel}), waiting for daemon...`
+        );
+        await ensureDaemonReady();
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error('get_events_since failed');
+}
+
+async function getEventsSinceDirect(
   photonName: string,
   channel: string,
   lastEventId: string

@@ -25,6 +25,7 @@ const BEAM_URL = `http://localhost:${BEAM_PORT}`;
 
 let beamProcess: ChildProcess | null = null;
 let tmpDir: string;
+const beamLogs: string[] = [];
 
 // ── Test infrastructure ──
 
@@ -108,6 +109,8 @@ async function startBeam(): Promise<void> {
       clearTimeout(timeout);
       reject(err);
     });
+    beamProcess.stdout?.on('data', (chunk) => beamLogs.push(chunk.toString()));
+    beamProcess.stderr?.on('data', (chunk) => beamLogs.push(chunk.toString()));
 
     setTimeout(checkReady, 1500);
   });
@@ -184,6 +187,31 @@ async function mcpCallTool(
     signal: AbortSignal.timeout(15000),
   });
   return res.json();
+}
+
+function restartDaemon(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('node', [path.join(__dirname, '../../dist/cli.js'), 'daemon', 'restart'], {
+      cwd: tmpDir,
+      env: { ...process.env, PHOTON_DIR: tmpDir, NODE_ENV: 'test' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    proc.stdout?.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    proc.stderr?.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`daemon restart exited ${code}: ${output}`));
+      }
+    });
+  });
 }
 
 function parseToolResult(response: any): any {
@@ -516,10 +544,16 @@ export default class StudioTest {
   count() { return this.items.length; }
 }
 `;
-    await fs.writeFile(path.join(tmpDir, 'studio-test.photon.ts'), updatedSource);
-
-    // Wait for hot-reload + daemon reload
-    await new Promise((r) => setTimeout(r, 5000));
+    const writeResp = await mcpCallTool(
+      sessionId,
+      'beam/studio-write',
+      { name: 'studio-test', source: updatedSource },
+      49
+    );
+    assert(
+      !writeResp.result?.isError,
+      `beam/studio-write should save and reload, got: ${writeResp.result?.content?.[0]?.text}`
+    );
 
     // Verify new methods appear
     tools = await mcpListTools(sessionId);
@@ -611,7 +645,9 @@ export default class Ephemeral {
   });
 
   // ─── Test 10: Concurrent hot-reloads resolve to latest version ───
-  await test('rapid double-save resolves to the latest version', async () => {
+  await test('rapid double-save is debounced and resolves to the latest version', async () => {
+    const beforeLogCount = beamLogs.length;
+
     // Write v1 with methodA
     const v1 = `
 /**
@@ -646,6 +682,15 @@ export default class RapidSave {
 
     assert(hasMethodB, 'methodB (v2) should be in tools after rapid double-save');
     assert(!hasMethodA, 'methodA (v1) should NOT be in tools — v2 replaced it');
+
+    const newLogs = beamLogs.slice(beforeLogCount).join('');
+    const loadCount =
+      (newLogs.match(/New photon detected: rapid-save/g) || []).length +
+      (newLogs.match(/File change detected, reloading rapid-save/g) || []).length;
+    assert(
+      loadCount === 1,
+      `rapid double-save should coalesce to one load, got ${loadCount}:\n${newLogs}`
+    );
   });
 
   // ─── Test 11: Undo via MCP rolls back state ───
@@ -676,6 +721,45 @@ export default class RapidSave {
     assert(
       Array.isArray(after) && !after.includes('undo-test-2'),
       `undo-test-2 should be removed after _undo, got: ${JSON.stringify(after)}`
+    );
+  });
+
+  // ─── Test 12: Daemon restart under active Beam MCP traffic ───
+  await test('daemon restart during Beam MCP traffic does not leak ENOENT or listener warnings', async () => {
+    const beforeLogCount = beamLogs.length;
+    const restartPromise = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        restartDaemon().then(resolve, reject);
+      }, 500);
+    });
+
+    const callResults: any[] = [];
+    for (let i = 0; i < 20; i++) {
+      const response = await mcpCallTool(sessionId, 'sync-list/get', {}, 100 + i);
+      callResults.push(response);
+      assert(!response.error, `sync-list/get returned JSON-RPC error: ${JSON.stringify(response)}`);
+      assert(
+        !response.result?.isError,
+        `sync-list/get returned tool error: ${response.result?.content?.[0]?.text || JSON.stringify(response)}`
+      );
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    await restartPromise;
+    assert(callResults.length === 20, `Expected 20 successful calls, got ${callResults.length}`);
+
+    const newLogs = beamLogs.slice(beforeLogCount).join('');
+    assert(
+      !/MaxListenersExceededWarning/.test(newLogs),
+      `Beam emitted listener leak warning during restart:\n${newLogs}`
+    );
+    assert(
+      !/connect ENOENT/.test(newLogs),
+      `Beam emitted daemon ENOENT during restart:\n${newLogs}`
+    );
+    assert(
+      !/UnhandledPromiseRejection|unhandled rejection/i.test(newLogs),
+      `Beam emitted unhandled rejection during restart:\n${newLogs}`
     );
   });
 

@@ -698,6 +698,9 @@ interface HandlerContext {
   reloadPhoton?: (
     photonName: string
   ) => Promise<{ success: boolean; photon?: any; error?: string }>;
+  schedulePhotonReload?: (
+    photonName: string
+  ) => Promise<{ success: boolean; photon?: any; error?: string }>;
   removePhoton?: (photonName: string) => Promise<{ success: boolean; error?: string }>;
   updateMetadata?: (
     photonName: string,
@@ -4040,11 +4043,14 @@ async function handleBeamStudioWrite(
       // Parse is best-effort — don't fail the write
     }
 
-    // Trigger hot-reload if available
-    if (ctx.reloadPhoton) {
+    // Trigger hot-reload if available. Studio writes go through the debounced
+    // reload path so streamed saves coalesce with file watcher events.
+    const useScheduledReload = !!ctx.schedulePhotonReload;
+    const reloadPhoton = ctx.schedulePhotonReload || ctx.reloadPhoton;
+    if (reloadPhoton) {
       try {
-        const reloadResult = await ctx.reloadPhoton(photonName);
-        if (reloadResult.success) {
+        const reloadResult = await reloadPhoton(photonName);
+        if (!useScheduledReload && reloadResult.success && reloadResult.photon) {
           broadcastToBeam('beam/hot-reload', { photon: reloadResult.photon });
         }
       } catch {
@@ -4195,10 +4201,12 @@ async function handleBeamStudioApplyFiles(
       }
     }
 
-    if (ctx.reloadPhoton) {
+    const useScheduledReload = !!ctx.schedulePhotonReload;
+    const reloadPhoton = ctx.schedulePhotonReload || ctx.reloadPhoton;
+    if (reloadPhoton) {
       try {
-        const reloadResult = await ctx.reloadPhoton(photonName);
-        if (reloadResult.success) {
+        const reloadResult = await reloadPhoton(photonName);
+        if (!useScheduledReload && reloadResult.success && reloadResult.photon) {
           broadcastToBeam('beam/hot-reload', { photon: reloadResult.photon });
         }
       } catch {
@@ -4362,6 +4370,9 @@ export interface StreamableHTTPOptions {
     config: Record<string, any>
   ) => Promise<{ success: boolean; error?: string }>;
   reloadPhoton?: (
+    photonName: string
+  ) => Promise<{ success: boolean; photon?: any; error?: string }>;
+  schedulePhotonReload?: (
     photonName: string
   ) => Promise<{ success: boolean; photon?: any; error?: string }>;
   removePhoton?: (photonName: string) => Promise<{ success: boolean; error?: string }>;
@@ -4571,160 +4582,170 @@ export async function handleStreamableHTTP(
     req.on('aborted', abortRequest);
     res.on('close', abortRequest);
     res.on('error', abortRequest);
-    req.socket?.on('close', abortRequest);
-    res.socket?.on('close', abortRequest);
-    let responseStreamStarted = false;
-
-    const ensureResponseStream = () => {
-      if (responseStreamStarted) return;
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-        'Mcp-Session-Id': session.id,
-      });
-      res.socket?.setNoDelay(true);
-      responseStreamStarted = true;
-    };
-
-    const sendResponseStreamMessage = (message: object) => {
-      if (!wantsSSE || res.writableEnded || res.destroyed) return;
-      ensureResponseStream();
-      res.write(`data: ${JSON.stringify(message)}\n\n`);
-    };
-
-    // Read body
-    let body = '';
-    for await (const chunk of req) {
-      body += chunk;
+    const sockets = new Set<NonNullable<typeof req.socket>>();
+    if (req.socket) sockets.add(req.socket);
+    if (res.socket) sockets.add(res.socket);
+    for (const socket of sockets) {
+      socket.on('close', abortRequest);
     }
 
-    let requests: JSONRPCRequest[];
     try {
-      const parsed = JSON.parse(body);
-      requests = Array.isArray(parsed) ? parsed : [parsed];
-    } catch {
-      res.writeHead(400);
-      res.end(JSON.stringify({ error: 'Invalid JSON' }));
-      return true;
-    }
+      let responseStreamStarted = false;
 
-    // Extract caller identity from Authorization header or query token (MCP OAuth)
-    const caller = decodeJWTCaller(authHeader);
+      const ensureResponseStream = () => {
+        if (responseStreamStarted) return;
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+          'Mcp-Session-Id': session.id,
+        });
+        res.socket?.setNoDelay(true);
+        responseStreamStarted = true;
+      };
 
-    const context: HandlerContext = {
-      photons: options.photons,
-      photonMCPs: options.photonMCPs,
-      externalMCPs: options.externalMCPs,
-      externalMCPClients: options.externalMCPClients,
-      externalMCPSDKClients: options.externalMCPSDKClients,
-      reconnectExternalMCP: options.reconnectExternalMCP,
-      loadUIAsset: options.loadUIAsset,
-      configurePhoton: options.configurePhoton,
-      reloadPhoton: options.reloadPhoton,
-      removePhoton: options.removePhoton,
-      updateMetadata: options.updateMetadata,
-      generatePhotonHelp: options.generatePhotonHelp,
-      loader: options.loader,
-      broadcast: options.broadcast,
-      responseStream: wantsSSE ? { send: sendResponseStreamMessage } : undefined,
-      signal: requestAbort.signal,
-      subscriptionManager: options.subscriptionManager,
-      workingDir: options.workingDir,
-      caller,
-    };
+      const sendResponseStreamMessage = (message: object) => {
+        if (!wantsSSE || res.writableEnded || res.destroyed) return;
+        ensureResponseStream();
+        res.write(`data: ${JSON.stringify(message)}\n\n`);
+      };
 
-    // Process requests
-    const responses: JSONRPCResponse[] = [];
+      // Read body
+      let body = '';
+      for await (const chunk of req) {
+        body += chunk;
+      }
 
-    for (const request of requests) {
-      // Response to a server→client request: no method, has id, has
-      // either result or error. Route to the pending-request map so
-      // the samplingProvider / future server-initiated primitives see
-      // the browser's reply. These never produce an outgoing response.
-      //
-      // SECURITY: the reply's session MUST match the session that
-      // originated the server→client request. Ids are globally
-      // monotonic (`srv-1`, `srv-2`, ...), so without a session cross
-      // check, session A could POST a reply carrying session B's id
-      // and inject a fabricated sampling result into B's photon.
-      // Drop mismatched replies silently — the original timeout on
-      // the pending entry stays the only way to fail legitimately.
-      if (!request.method && request.id !== undefined) {
-        const msg = request as unknown as {
-          id: string | number;
-          result?: unknown;
-          error?: { message?: string; code?: number };
-        };
-        const pending = pendingServerRequests.get(msg.id);
-        if (pending && pending.sessionId === session.id) {
-          if (pending.timer) clearTimeout(pending.timer);
-          pendingServerRequests.delete(msg.id);
-          if (msg.error) {
-            pending.reject(new Error(msg.error.message || 'server→client request failed'));
-          } else {
-            pending.resolve(msg.result);
+      let requests: JSONRPCRequest[];
+      try {
+        const parsed = JSON.parse(body);
+        requests = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return true;
+      }
+
+      // Extract caller identity from Authorization header or query token (MCP OAuth)
+      const caller = decodeJWTCaller(authHeader);
+
+      const context: HandlerContext = {
+        photons: options.photons,
+        photonMCPs: options.photonMCPs,
+        externalMCPs: options.externalMCPs,
+        externalMCPClients: options.externalMCPClients,
+        externalMCPSDKClients: options.externalMCPSDKClients,
+        reconnectExternalMCP: options.reconnectExternalMCP,
+        loadUIAsset: options.loadUIAsset,
+        configurePhoton: options.configurePhoton,
+        reloadPhoton: options.reloadPhoton,
+        schedulePhotonReload: options.schedulePhotonReload,
+        removePhoton: options.removePhoton,
+        updateMetadata: options.updateMetadata,
+        generatePhotonHelp: options.generatePhotonHelp,
+        loader: options.loader,
+        broadcast: options.broadcast,
+        responseStream: wantsSSE ? { send: sendResponseStreamMessage } : undefined,
+        signal: requestAbort.signal,
+        subscriptionManager: options.subscriptionManager,
+        workingDir: options.workingDir,
+        caller,
+      };
+
+      // Process requests
+      const responses: JSONRPCResponse[] = [];
+
+      for (const request of requests) {
+        // Response to a server→client request: no method, has id, has
+        // either result or error. Route to the pending-request map so
+        // the samplingProvider / future server-initiated primitives see
+        // the browser's reply. These never produce an outgoing response.
+        //
+        // SECURITY: the reply's session MUST match the session that
+        // originated the server→client request. Ids are globally
+        // monotonic (`srv-1`, `srv-2`, ...), so without a session cross
+        // check, session A could POST a reply carrying session B's id
+        // and inject a fabricated sampling result into B's photon.
+        // Drop mismatched replies silently — the original timeout on
+        // the pending entry stays the only way to fail legitimately.
+        if (!request.method && request.id !== undefined) {
+          const msg = request as unknown as {
+            id: string | number;
+            result?: unknown;
+            error?: { message?: string; code?: number };
+          };
+          const pending = pendingServerRequests.get(msg.id);
+          if (pending && pending.sessionId === session.id) {
+            if (pending.timer) clearTimeout(pending.timer);
+            pendingServerRequests.delete(msg.id);
+            if (msg.error) {
+              pending.reject(new Error(msg.error.message || 'server→client request failed'));
+            } else {
+              pending.resolve(msg.result);
+            }
           }
+          continue;
         }
-        continue;
-      }
 
-      const handler = handlers[request.method];
+        const handler = handlers[request.method];
 
-      if (!handler) {
-        if (request.id !== undefined) {
-          responses.push({
-            jsonrpc: '2.0',
-            id: request.id,
-            error: { code: -32601, message: `Method not found: ${request.method}` },
-          });
+        if (!handler) {
+          if (request.id !== undefined) {
+            responses.push({
+              jsonrpc: '2.0',
+              id: request.id,
+              error: { code: -32601, message: `Method not found: ${request.method}` },
+            });
+          }
+          continue;
         }
-        continue;
+
+        const response = await handler(request, session, context);
+
+        // Only include responses for requests (not notifications)
+        if (request.id !== undefined && response.id !== undefined) {
+          responses.push(response);
+        }
       }
 
-      const response = await handler(request, session, context);
+      // Send response
+      if (responses.length === 0) {
+        // All were notifications
+        if (responseStreamStarted) {
+          res.end();
+        } else {
+          res.writeHead(202);
+          res.end();
+        }
+      } else if (wantsSSE) {
+        // SSE response
+        ensureResponseStream();
 
-      // Only include responses for requests (not notifications)
-      if (request.id !== undefined && response.id !== undefined) {
-        responses.push(response);
-      }
-    }
-
-    // Send response
-    if (responses.length === 0) {
-      // All were notifications
-      if (responseStreamStarted) {
+        for (const response of responses) {
+          sendResponseStreamMessage(response);
+        }
         res.end();
       } else {
-        res.writeHead(202);
-        res.end();
-      }
-    } else if (wantsSSE) {
-      // SSE response
-      ensureResponseStream();
+        // JSON response
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Mcp-Session-Id': session.id,
+        });
 
-      for (const response of responses) {
-        sendResponseStreamMessage(response);
+        const result = responses.length === 1 ? responses[0] : responses;
+        res.end(JSON.stringify(result));
       }
-      res.end();
-    } else {
-      // JSON response
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Mcp-Session-Id': session.id,
-      });
 
-      const result = responses.length === 1 ? responses[0] : responses;
-      res.end(JSON.stringify(result));
+      return true;
+    } finally {
+      res.off('close', abortRequest);
+      res.off('error', abortRequest);
+      req.off('aborted', abortRequest);
+      for (const socket of sockets) {
+        socket.off('close', abortRequest);
+      }
     }
-
-    res.off('close', abortRequest);
-    res.off('error', abortRequest);
-    req.off('aborted', abortRequest);
-    req.socket?.off('close', abortRequest);
-    res.socket?.off('close', abortRequest);
-    return true;
   }
 
   // Method not allowed
