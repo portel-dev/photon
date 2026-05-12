@@ -4076,8 +4076,24 @@ Run: photon mcp ${mcpName} --config
       );
 
     const gateKey = mcp.instance as object | undefined;
-    if (!gateKey) return run();
+    if (!gateKey || this._isAsyncGeneratorTool(mcp, toolName)) return run();
     return this._withInstanceGate(gateKey, run);
+  }
+
+  /**
+   * Long-lived subscription tools are async generators. They must not hold
+   * the stateful instance gate for their entire stream lifetime, or every
+   * ordinary request to the same photon queues behind the subscription.
+   */
+  private _isAsyncGeneratorTool(mcp: PhotonClass, toolName: string): boolean {
+    let method = mcp.instance?.[toolName];
+    if (typeof method !== 'function' && mcp.instance) {
+      method = Object.getPrototypeOf(mcp.instance)?.[toolName];
+    }
+    if (typeof method !== 'function' && mcp.classConstructor) {
+      method = mcp.classConstructor[toolName];
+    }
+    return typeof method === 'function' && method.constructor?.name === 'AsyncGeneratorFunction';
   }
 
   /**
