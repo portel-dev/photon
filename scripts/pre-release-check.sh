@@ -24,14 +24,31 @@ if [ -n "$GIT_DIRTY" ]; then
 fi
 echo "  ✓ Working directory is clean"
 
-# Warn clearly if npm registry version does not match the git tag.
-# A mismatch means a previous release-it run created the tag but npm publish failed.
+# Warn clearly if npm registry version does not match package.json.
+# If npm is ahead, fail early because release-it would target an already-published version.
+# If package.json is ahead, a previous release-it run likely tagged but did not publish.
 PKG_VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
 NPM_VERSION=$(npm view "$(node -e "process.stdout.write(require('./package.json').name)")" version 2>/dev/null || echo "unavailable")
-if [ "$NPM_VERSION" != "$PKG_VERSION" ] && [ "$NPM_VERSION" != "unavailable" ]; then
-  echo "  ⚠ npm registry has $NPM_VERSION but package.json says $PKG_VERSION"
-  echo "    A prior release-it run likely tagged but did not publish."
-  echo "    release-it will warn about this but continue — the new version will still publish correctly."
+if [ "$NPM_VERSION" != "unavailable" ]; then
+  VERSION_CMP=$(node -e "
+    const parse = (v) => v.split('.').map(Number);
+    const [a, b] = [process.argv[1], process.argv[2]].map(parse);
+    for (let i = 0; i < 3; i++) {
+      if ((a[i] || 0) > (b[i] || 0)) process.exit(1);
+      if ((a[i] || 0) < (b[i] || 0)) process.exit(2);
+    }
+  " "$NPM_VERSION" "$PKG_VERSION"; echo $?)
+  if [ "$VERSION_CMP" = "1" ]; then
+    echo "  ✗ FAIL: npm registry has $NPM_VERSION but package.json says $PKG_VERSION"
+    echo "    package.json is behind the already-published npm version."
+    echo "    Bump package.json/package-lock.json to $NPM_VERSION before running release-it,"
+    echo "    or release-it will try to publish an already-existing version."
+    exit 1
+  elif [ "$VERSION_CMP" = "2" ]; then
+    echo "  ⚠ npm registry has $NPM_VERSION but package.json says $PKG_VERSION"
+    echo "    A prior release-it run likely tagged but did not publish."
+    echo "    release-it can continue because the package version is ahead of npm."
+  fi
 fi
 echo "  ✓ Registry check complete (npm: ${NPM_VERSION}, package.json: ${PKG_VERSION})"
 echo ""
