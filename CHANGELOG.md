@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.32.2](https://github.com/portel-dev/photon/compare/v1.32.0...v1.32.2) (2026-05-12)
+
+### Bug Fixes
+
+* support local ts imports in photons ([fb326e0](https://github.com/portel-dev/photon/commit/fb326e0ebe5fb0278e74382d211b042269bbc3e9))
+
 ## [1.32.0](https://github.com/portel-dev/photon/compare/v1.31.2...v1.32.0) (2026-05-12)
 
 ### Features
