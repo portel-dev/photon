@@ -844,10 +844,9 @@ export class DaemonManager {
     try {
       await this.killProcessAsync();
       this.fsm.transition('stopped');
-      this.fsm.transition('stopped');
     } catch (error) {
       if (error instanceof DaemonOrphanError) throw error;
-      this.fsm.transition('stopped');
+      if (this.fsm.canTransition('stopped')) this.fsm.transition('stopped');
       throw error;
     }
   }

@@ -121,6 +121,44 @@ export function findBeamWebRoute(
     .sort((a, b) => beamWebRouteScore(b.path) - beamWebRouteScore(a.path))[0];
 }
 
+async function writeFetchResponseToNode(
+  response: Response,
+  res: http.ServerResponse
+): Promise<void> {
+  const responseHeaders: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    responseHeaders[key] = value;
+  });
+  res.writeHead(response.status, responseHeaders);
+
+  if (!response.body) {
+    res.end();
+    return;
+  }
+
+  const reader = response.body.getReader();
+  let closed = false;
+  const cancelReader = () => {
+    closed = true;
+    reader.cancel().catch(() => undefined);
+  };
+  res.on('close', cancelReader);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || closed) break;
+      if (value) res.write(Buffer.from(value));
+    }
+    if (!res.writableEnded && !res.destroyed) res.end();
+  } catch (err) {
+    if (!closed && !res.destroyed) {
+      res.destroy(err instanceof Error ? err : new Error(String(err)));
+    }
+  } finally {
+    res.off('close', cancelReader);
+  }
+}
+
 /**
  * Resolve raw icon image paths to MCP Icon[] format (data URIs)
  */
@@ -2228,17 +2266,20 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
               if (result instanceof Response) {
                 const contentType = result.headers.get('content-type') || '';
+                if (!contentType.includes('text/html')) {
+                  await writeFetchResponseToNode(result, res);
+                  return;
+                }
+
+                // Inject fetch interceptor into HTML responses so relative API
+                // calls inside the photon UI resolve via the /web/ prefix.
                 const responseHeaders: Record<string, string> = {};
                 result.headers.forEach((value, key) => {
                   responseHeaders[key] = value;
                 });
                 let body = Buffer.from(await result.arrayBuffer());
-
-                // Inject fetch interceptor into HTML responses so relative API
-                // calls inside the photon UI resolve via the /web/ prefix.
-                if (contentType.includes('text/html')) {
-                  const prefix = `/web/${photonName}`;
-                  const interceptor = `<script>
+                const prefix = `/web/${photonName}`;
+                const interceptor = `<script>
 (function(){
   const _prefix="${prefix}";
   const _origFetch=window.fetch;
@@ -2254,10 +2295,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   };
 })();
 </script>`;
-                  const bodyStr = body.toString('utf-8').replace('<head>', '<head>' + interceptor);
-                  body = Buffer.from(bodyStr, 'utf-8');
-                  responseHeaders['content-length'] = String(body.length);
-                }
+                const bodyStr = body.toString('utf-8').replace('<head>', '<head>' + interceptor);
+                body = Buffer.from(bodyStr, 'utf-8');
+                responseHeaders['content-length'] = String(body.length);
 
                 res.writeHead(result.status, responseHeaders);
                 res.end(body);

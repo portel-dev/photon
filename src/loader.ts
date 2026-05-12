@@ -4086,14 +4086,18 @@ Run: photon mcp ${mcpName} --config
    * ordinary request to the same photon queues behind the subscription.
    */
   private _isAsyncGeneratorTool(mcp: PhotonClass, toolName: string): boolean {
-    let method = mcp.instance?.[toolName];
-    if (typeof method !== 'function' && mcp.instance) {
-      method = Object.getPrototypeOf(mcp.instance)?.[toolName];
+    const localToolName = toolName.includes('/') ? toolName.split('/').pop()! : toolName;
+    const candidates = [
+      mcp.instance?.[localToolName],
+      mcp.instance ? Object.getPrototypeOf(mcp.instance)?.[localToolName] : undefined,
+      mcp.classConstructor?.[localToolName],
+    ];
+    for (const method of candidates) {
+      if (typeof method === 'function' && method.constructor?.name === 'AsyncGeneratorFunction') {
+        return true;
+      }
     }
-    if (typeof method !== 'function' && mcp.classConstructor) {
-      method = mcp.classConstructor[toolName];
-    }
-    return typeof method === 'function' && method.constructor?.name === 'AsyncGeneratorFunction';
+    return false;
   }
 
   /**

@@ -80,6 +80,46 @@ export class HotReloadDisabledError extends Error {
   }
 }
 
+async function writeFetchResponseToNode(
+  response: Response,
+  res: ServerResponse,
+  extraHeaders: Record<string, string> = {}
+): Promise<void> {
+  const responseHeaders: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    responseHeaders[key] = value;
+  });
+  Object.assign(responseHeaders, extraHeaders);
+  res.writeHead(response.status, responseHeaders);
+
+  if (!response.body) {
+    res.end();
+    return;
+  }
+
+  const reader = response.body.getReader();
+  let closed = false;
+  const cancelReader = () => {
+    closed = true;
+    reader.cancel().catch(() => undefined);
+  };
+  res.on('close', cancelReader);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || closed) break;
+      if (value) res.write(Buffer.from(value));
+    }
+    if (!res.writableEnded && !res.destroyed) res.end();
+  } catch (err) {
+    if (!closed && !res.destroyed) {
+      res.destroy(err instanceof Error ? err : new Error(String(err)));
+    }
+  } finally {
+    res.off('close', cancelReader);
+  }
+}
+
 export type TransportType = 'stdio' | 'sse';
 
 /**
@@ -2436,13 +2476,11 @@ export class PhotonServer {
             const result: unknown = await fn.call(photonInstance, webReq);
 
             if (result instanceof Response) {
-              const responseHeaders: Record<string, string> = {};
-              result.headers.forEach((value, key) => {
-                responseHeaders[key] = value;
-              });
-              if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-              res.writeHead(result.status, responseHeaders);
-              res.end(Buffer.from(await result.arrayBuffer()));
+              await writeFetchResponseToNode(
+                result,
+                res,
+                corsOrigin ? { 'Access-Control-Allow-Origin': corsOrigin } : {}
+              );
               return;
             }
 
@@ -3206,13 +3244,11 @@ export class PhotonServer {
               // NOT touch its bytes. This is the v1.28 contract and is
               // locked by tests/v128-byte-compat.test.ts.
               if (result instanceof Response) {
-                const responseHeaders: Record<string, string> = {};
-                result.headers.forEach((value, key) => {
-                  responseHeaders[key] = value;
-                });
-                if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-                res.writeHead(result.status, responseHeaders);
-                res.end(Buffer.from(await result.arrayBuffer()));
+                await writeFetchResponseToNode(
+                  result,
+                  res,
+                  corsOrigin ? { 'Access-Control-Allow-Origin': corsOrigin } : {}
+                );
                 return;
               }
 
