@@ -392,6 +392,58 @@ async function runTests() {
       console.log('  ✅ Execute tool with aliased object params');
     }
 
+    // Test 7c: Execute photon with local relative TypeScript imports
+    {
+      const loader = new PhotonLoader();
+      await fs.mkdir(path.join(testDir, 'nested'), { recursive: true });
+      await fs.writeFile(
+        path.join(testDir, 'helper.ts'),
+        `
+          export const label = 'local-helper';
+        `,
+        'utf-8'
+      );
+      await fs.writeFile(
+        path.join(testDir, 'nested', 'math.ts'),
+        `
+          export function double(value: number) {
+            return value * 2;
+          }
+        `,
+        'utf-8'
+      );
+      await fs.writeFile(
+        path.join(testDir, 'suffix.ts'),
+        `
+          export const suffix = 'esm-style';
+        `,
+        'utf-8'
+      );
+      const testFile = await createTestPhoton(
+        'exec-local-imports',
+        `
+          import { label } from './helper.ts';
+          import { double } from './nested/math';
+          import { suffix } from './suffix.js';
+
+          export default class LocalImportsMCP {
+            async combine(params: { value: number }) {
+              return \`\${label}:\${double(params.value)}:\${suffix}\`;
+            }
+          }
+        `
+      );
+
+      const mcp = await loader.loadFile(testFile);
+      const result = await loader.executeTool(mcp, 'combine', { value: 4 });
+      assert.equal(
+        result,
+        'local-helper:8:esm-style',
+        'Should execute using relative local TypeScript imports'
+      );
+      console.log('  ✅ Execute photon with local relative TypeScript imports');
+    }
+
     // Test 8: Execute tool with object result
     {
       const loader = new PhotonLoader();

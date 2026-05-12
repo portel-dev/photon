@@ -2568,9 +2568,131 @@ export class PhotonLoader {
     tsContent?: string
   ): Promise<string> {
     const cacheDir = this.getBuildCacheDir(cacheKey);
-    const result = await compilePhotonTS(tsFilePath, { cacheDir, content: tsContent });
+    const compiled = new Map<string, string>();
+    const result = await this.compileTypeScriptWithLocalImports(
+      path.resolve(tsFilePath),
+      cacheDir,
+      compiled,
+      tsContent
+    );
     this.log(`Compiled: ${path.basename(tsFilePath)}`, { cached: result });
     return result;
+  }
+
+  private async compileTypeScriptWithLocalImports(
+    tsFilePath: string,
+    cacheDir: string,
+    compiled: Map<string, string>,
+    tsContent?: string
+  ): Promise<string> {
+    const absolutePath = path.resolve(tsFilePath);
+    const existing = compiled.get(absolutePath);
+    if (existing) {
+      return existing;
+    }
+
+    const source = tsContent ?? (await readText(absolutePath));
+    const result = await compilePhotonTS(absolutePath, { cacheDir, content: source });
+    compiled.set(absolutePath, result);
+
+    const localImports = await this.resolveLocalTypeScriptImports(source, absolutePath);
+    if (localImports.length === 0) {
+      return result;
+    }
+
+    const rewrites = new Map<string, string>();
+    for (const localImport of localImports) {
+      const compiledImportPath = await this.compileTypeScriptWithLocalImports(
+        localImport.filePath,
+        cacheDir,
+        compiled
+      );
+      const relative = path
+        .relative(path.dirname(result), compiledImportPath)
+        .split(path.sep)
+        .join('/');
+      rewrites.set(localImport.specifier, relative.startsWith('.') ? relative : `./${relative}`);
+    }
+
+    await this.rewriteCompiledLocalImports(result, rewrites);
+    return result;
+  }
+
+  private async resolveLocalTypeScriptImports(
+    source: string,
+    importerPath: string
+  ): Promise<Array<{ specifier: string; filePath: string }>> {
+    const imports: Array<{ specifier: string; filePath: string }> = [];
+    const seen = new Set<string>();
+    const importRegex =
+      /(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+    let match: RegExpExecArray | null;
+    while ((match = importRegex.exec(source)) !== null) {
+      const specifier = match[1] ?? match[2];
+      if (!specifier || !specifier.startsWith('.')) {
+        continue;
+      }
+
+      const resolved = this.resolveLocalTypeScriptImport(specifier, importerPath);
+      if (!resolved || seen.has(specifier)) {
+        continue;
+      }
+
+      seen.add(specifier);
+      imports.push({ specifier, filePath: resolved });
+    }
+
+    return imports;
+  }
+
+  private resolveLocalTypeScriptImport(specifier: string, importerPath: string): string | null {
+    const basePath = path.resolve(path.dirname(importerPath), specifier);
+    const ext = path.extname(basePath);
+    const candidates: string[] = [];
+
+    if (ext === '.ts' || ext === '.tsx') {
+      candidates.push(basePath);
+    } else if (ext === '.js' || ext === '.mjs') {
+      candidates.push(basePath.slice(0, -ext.length) + '.ts');
+      candidates.push(basePath.slice(0, -ext.length) + '.tsx');
+    } else if (!ext) {
+      candidates.push(basePath + '.ts');
+      candidates.push(basePath + '.tsx');
+      candidates.push(path.join(basePath, 'index.ts'));
+      candidates.push(path.join(basePath, 'index.tsx'));
+    }
+
+    for (const candidate of candidates) {
+      if (existsSync(candidate) && statSync(candidate).isFile()) {
+        return path.resolve(candidate);
+      }
+    }
+
+    return null;
+  }
+
+  private async rewriteCompiledLocalImports(
+    compiledPath: string,
+    rewrites: Map<string, string>
+  ): Promise<void> {
+    if (rewrites.size === 0) {
+      return;
+    }
+
+    let code = await readText(compiledPath);
+    for (const [from, to] of rewrites) {
+      const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      code = code.replace(
+        new RegExp(`((?:import|export)\\s+(?:[^'"]*?\\s+from\\s+)?)(['"])${escaped}\\2`, 'g'),
+        `$1$2${to}$2`
+      );
+      code = code.replace(
+        new RegExp(`(import\\s*\\(\\s*)(['"])${escaped}\\2(\\s*\\))`, 'g'),
+        `$1$2${to}$2$3`
+      );
+    }
+    await writeText(compiledPath, code);
   }
 
   /**
