@@ -140,7 +140,7 @@ export default class Poller extends Photon {
   };
 
   async tick() {
-    const url = this.settings.endpoint; // read-only Proxy
+    const url = this.settings.endpoint; // readable and writable from inside the photon
     return await fetch(url);
   }
 }

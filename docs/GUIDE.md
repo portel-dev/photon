@@ -171,7 +171,7 @@ What you get for free:
 - An MCP tool named `settings` that lists current values, accepts updates, and validates types from the property declarations.
 - JSDoc on each property becomes the tool's parameter description.
 - Persistence to `~/.photon/state/<photon>/<instance>-settings.json`. Persisted values win over the in-source defaults on the next load.
-- A read-only Proxy on `this.settings`. Direct assignment (`this.settings.endpoint = '...'`) throws — the only way to change a value is the `settings` tool.
+- A writable Proxy on `this.settings`. You can read and write via `this.settings.key = value` from inside a photon method — the runtime persists the change and emits `settings:changed`, identical to what the `settings` MCP tool produces.
 
 ### Changing settings
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.32.0](https://github.com/portel-dev/photon/compare/v1.31.2...v1.32.0) (2026-05-12)
+
+### Features
+
+* **beam:** dynamic web route matching with `:param` path segments ([1e648ec](https://github.com/portel-dev/photon/commit/1e648ec0ecaf2a0a193af8eba59d4f2be6529a89))
+* **daemon:** load lifecycle photons from all registered base directories ([8b8973c](https://github.com/portel-dev/photon/commit/8b8973c5407661d940467132496a8c4c98479253))
+* **daemon:** non-blocking Beam startup during daemon restart ([316b520](https://github.com/portel-dev/photon/commit/316b520d2eef9a905136a0e7ec5c28f3804bef74))
+* **loader:** isolate PHOTON_DIR per photon context ([386528d](https://github.com/portel-dev/photon/commit/386528d46b65e1fc1d5ac9200e4fc84b582ca0f0))
+
+### Bug Fixes
+
+* **beam:** stream non-HTML web route responses directly without buffering ([7cbfec7](https://github.com/portel-dev/photon/commit/7cbfec7270995a88cc7e40be7fd0ac7437bf5692))
+* **daemon:** keep base directory isolated across photon dirs during restart ([859e22b](https://github.com/portel-dev/photon/commit/859e22b8f098be9cf39103e6390665332953e7d1))
+* **loader:** allow async generator subscriptions without sync generator guard ([fbf9b6f](https://github.com/portel-dev/photon/commit/fbf9b6f8c9ecd78e489615256e28707d833694d2))
+* **settings:** allow photon methods to write to this.settings directly ([00c1905](https://github.com/portel-dev/photon/commit/00c1905d1a94d20e26d52e5a1f7c1e66ee282b3b))
+* **transport:** forward data payload and AbortSignal across all generator paths ([266dcd0](https://github.com/portel-dev/photon/commit/266dcd0d))
+
 ## [1.31.2](https://github.com/portel-dev/photon/compare/v1.31.1...v1.31.2) (2026-05-11)
 
 ### Bug Fixes
