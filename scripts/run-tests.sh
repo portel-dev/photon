@@ -136,6 +136,7 @@ PASSED=0
 FAILED=0
 FAILURES=()
 LOGDIR=$(mktemp -d)
+STATUSFILE="$LOGDIR/status.tsv"
 START_TIME=$(date +%s)
 
 echo ""
@@ -153,6 +154,7 @@ for entry in "${SUITES[@]}"; do
   SUITE_START=$(date +%s)
   eval "$CMD" > "$LOGFILE" 2>&1
   EXIT=$?
+  printf "%s\t%s\t%s\n" "$NAME" "$EXIT" "$CMD" >> "$STATUSFILE"
   SUITE_END=$(date +%s)
   SUITE_DUR=$((SUITE_END - SUITE_START))
 
