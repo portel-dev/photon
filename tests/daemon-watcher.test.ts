@@ -148,6 +148,27 @@ function clearDaemonLog(): void {
   daemonLog = [];
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForDaemonLog(
+  predicate: (log: string) => boolean,
+  message: string,
+  timeoutMs = 5000
+): Promise<string> {
+  const started = Date.now();
+  let log = '';
+
+  while (Date.now() - started < timeoutMs) {
+    log = getDaemonLog().join('\n');
+    if (predicate(log)) return log;
+    await sleep(100);
+  }
+
+  throw new Error(`${message}\nLog:\n${log}`);
+}
+
 /** Send a request to the daemon and wait for a matching response */
 function sendRequest(request: DaemonRequest, timeout = 10000): Promise<DaemonResponse> {
   return new Promise((resolve, reject) => {
@@ -354,10 +375,12 @@ async function testFileWatcher() {
     // Append a comment to trigger change event
     fs.appendFileSync(PHOTON_FILE, '\n// watcher-test-edit\n');
 
-    // Wait for daemon hot-reload debounce + reload time
-    await new Promise((r) => setTimeout(r, 1500));
-
-    const log = getDaemonLog().join('\n');
+    const log = await waitForDaemonLog(
+      (current) =>
+        current.includes('File changed, auto-reloading') &&
+        current.includes('Photon reloaded successfully'),
+      'Expected daemon watcher to auto-reload after file edit'
+    );
     assert.ok(
       log.includes('File changed, auto-reloading'),
       'Expected "File changed, auto-reloading" in daemon log'
@@ -386,7 +409,10 @@ async function testFileWatcher() {
 
     // Trigger a reload via file edit
     fs.appendFileSync(PHOTON_FILE, '\n// reload-state-test\n');
-    await new Promise((r) => setTimeout(r, 1500));
+    await waitForDaemonLog(
+      (log) => log.includes('Photon reloaded successfully'),
+      'Expected daemon watcher reload before checking state'
+    );
 
     // Verify state is preserved (items copied to new instance)
     const response = await sendRequest({
@@ -416,11 +442,11 @@ async function testFileWatcher() {
     fs.unlinkSync(PHOTON_FILE);
     fs.writeFileSync(PHOTON_FILE, content + '\n// inode-replaced\n');
 
-    // Wait for rename detection + re-watch + reload
-    // macOS fs.watch rename events can be slow — give extra time
-    await new Promise((r) => setTimeout(r, 1500));
-
-    const log = getDaemonLog().join('\n');
+    const log = await waitForDaemonLog(
+      (current) => current.includes('File changed, auto-reloading'),
+      'Expected auto-reload after file replacement',
+      7000
+    );
     assert.ok(
       log.includes('File changed, auto-reloading'),
       'Expected auto-reload after file replacement'
@@ -824,9 +850,11 @@ async function testWatcherSurvivesReloadCycle() {
     // Edit file and verify reload (allow extra time after daemon restart)
     clearDaemonLog();
     fs.appendFileSync(PHOTON_FILE, '\n// resilience-test\n');
-    await new Promise((r) => setTimeout(r, 1500));
 
-    const reloadLog = getDaemonLog().join('\n');
+    const reloadLog = await waitForDaemonLog(
+      (log) => log.includes('File changed, auto-reloading'),
+      'File edit should trigger reload'
+    );
     assert.ok(
       reloadLog.includes('File changed, auto-reloading'),
       'File edit should trigger reload'
@@ -842,9 +870,11 @@ async function testWatcherSurvivesReloadCycle() {
       await new Promise((r) => setTimeout(r, 10));
     }
 
-    // Wait for daemon hot-reload debounce + reload
-    await new Promise((r) => setTimeout(r, 1500));
-
+    await waitForDaemonLog(
+      (current) => current.includes('File changed, auto-reloading'),
+      'Expected one debounced reload after rapid edits'
+    );
+    await sleep(300);
     const log = getDaemonLog().join('\n');
     const reloadCount = (log.match(/File changed, auto-reloading/g) || []).length;
     assert.equal(reloadCount, 1, `Expected one debounced reload, got ${reloadCount}`);
