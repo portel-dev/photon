@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.32.3](https://github.com/portel-dev/photon/compare/v1.32.2...v1.32.3) (2026-05-13)
+
+### Features
+
+* move Auto UI render hints into MCP metadata ([734c191](https://github.com/portel-dev/photon/commit/734c19163d7125c3617f4b6d204220b6f9c6eb24))
+
+### Bug Fixes
+
+* absorb daemon restart socket races ([b532f1f](https://github.com/portel-dev/photon/commit/b532f1fb98dd4f8e8550350c94ebca74cbb24ef7))
+* allow tested release hook path ([8466863](https://github.com/portel-dev/photon/commit/84668636d3b689965358d199082fdea0158c775e))
+* avoid duplicate promise release gate ([d887441](https://github.com/portel-dev/photon/commit/d8874417e7ef37c5874821c352edcffb81dcfc6c))
+* coalesce daemon watcher reload events ([11d8cf4](https://github.com/portel-dev/photon/commit/11d8cf4635d1d41a833d6eb5bb99038e3ab50560))
+* harden Beam daemon transport stability ([51943bb](https://github.com/portel-dev/photon/commit/51943bbd87c5a1a6faf9dcbc676b805be2e8d123))
+* harden beam photon app smoke paths ([04bd58d](https://github.com/portel-dev/photon/commit/04bd58d70b7d54aa30ded5ab7ac2440016a25dfa))
+* harden daemon socket recovery under bun ([6a8afbe](https://github.com/portel-dev/photon/commit/6a8afbebadd46a94dd8fd07186f87f2c1e1eccaf))
+* isolate release fresh install check ([6158fd2](https://github.com/portel-dev/photon/commit/6158fd25037ad70adcd74bf76883d310a1d88b07))
+* keep Bun-launched Beam alive ([807eeca](https://github.com/portel-dev/photon/commit/807eeca3cde1ab186abba4c533eb4e7bca35484f))
+* paginate MCP discovery lists ([1c5ff94](https://github.com/portel-dev/photon/commit/1c5ff944b0521efc4631718ea65d6812db282c70))
+* raise release test file limit ([d10c992](https://github.com/portel-dev/photon/commit/d10c992b48399328c069e63ab2ff6bebd12fb886))
+* restore stateful app UI metadata ([232f6d5](https://github.com/portel-dev/photon/commit/232f6d5d9382312a50d4e60ea9ae56c8753704e8))
+* route interactive asks through MCP elicitation ([4e83c42](https://github.com/portel-dev/photon/commit/4e83c429ec8cef53f00d8ee01bc20ea23f999cb6))
+* stabilize beam regression checks ([4ab633f](https://github.com/portel-dev/photon/commit/4ab633f08788f74c06ca6b17318180c6a86b1ac2))
+* unfreeze production install simulation ([c17cf22](https://github.com/portel-dev/photon/commit/c17cf228c91a22f47a2a2f57813a2e05fd4efc21))
+* use bunx in Beam install guidance ([4cafba4](https://github.com/portel-dev/photon/commit/4cafba42d008266209272a481103b38646a53662))
+
 ## [1.32.2](https://github.com/portel-dev/photon/compare/v1.32.0...v1.32.2) (2026-05-12)
 
 ### Bug Fixes
