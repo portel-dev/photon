@@ -335,7 +335,8 @@ PACK_CHECK=$(bun pm pack --quiet 2>/dev/null | tail -1)
 if [ -f "$PACK_CHECK" ]; then
   cd "$PROD_DIR"
   bun init -y > /dev/null 2>&1
-  bun add "$(cd - > /dev/null && pwd)/$PACK_CHECK" --production > /dev/null 2>&1
+  rm -f bun.lock bun.lockb
+  bun add "$(cd - > /dev/null && pwd)/$PACK_CHECK" --production --no-frozen-lockfile > /dev/null 2>&1
   # Verify the CLI entry point loads without crashing
   PROD_OUT=$(node node_modules/@portel/photon/dist/cli.js --version 2>&1) || true
   cd - > /dev/null
