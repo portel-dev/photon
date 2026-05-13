@@ -6933,13 +6933,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
             // Photon not in backend list (still loading?) — use name directly
             config = {
               mcpServers: {
-                [name]: { command: 'npx', args: ['-y', '@portel/photon', 'mcp', name] },
+                [name]: { command: 'bunx', args: ['-y', '@portel/photon', 'mcp', name] },
               },
             };
           }
         } else {
           config = {
-            mcpServers: { [name]: { command: 'npx', args: ['-y', '@portel/photon', 'mcp', name] } },
+            mcpServers: {
+              [name]: { command: 'bunx', args: ['-y', '@portel/photon', 'mcp', name] },
+            },
           };
         }
       }
@@ -8820,7 +8822,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       lines.push('Use this photon as an MCP server in one step:');
       lines.push('');
       lines.push('```bash');
-      lines.push(`npx @portel/photon mcp ${name}`);
+      lines.push(`bunx @portel/photon mcp ${name}`);
       lines.push('```');
       lines.push('');
       lines.push(
@@ -8829,7 +8831,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       lines.push('');
       if (photon.installSource?.marketplace) {
         lines.push(
-          `From a custom marketplace: \`npx @portel/photon mcp ${photon.installSource.marketplace}:${name}\``
+          `From a custom marketplace: \`bunx @portel/photon mcp ${photon.installSource.marketplace}:${name}\``
         );
         lines.push('');
       }
@@ -8837,8 +8839,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
       lines.push('');
       lines.push('```json');
       lines.push(`"${name}": {`);
-      lines.push(`  "command": "npx",`);
-      lines.push(`  "args": ["@portel/photon", "mcp", "${name}"]`);
+      lines.push(`  "command": "bunx",`);
+      lines.push(`  "args": ["-y", "@portel/photon", "mcp", "${name}"]`);
       lines.push(`}`);
       lines.push('```');
       lines.push('');
