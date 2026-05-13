@@ -30,10 +30,10 @@
   "scripts": {
     "build": "node ./scripts/build.cjs",
     "check": "node -c ./extension.cjs",
-    "smoke": "npm run check && npm run build && node ./scripts/smoke.cjs",
-    "regression": "npm run smoke && node ./scripts/regression.cjs",
-    "package": "npm run build && npx @vscode/vsce package --allow-missing-repository",
-    "vscode:prepublish": "npm run build"
+    "smoke": "bun run check && bun run build && node ./scripts/smoke.cjs",
+    "regression": "bun run smoke && node ./scripts/regression.cjs",
+    "package": "bun run build && bunx @vscode/vsce package --allow-missing-repository",
+    "vscode:prepublish": "bun run build"
   },
   "files": [
     "extension.cjs",

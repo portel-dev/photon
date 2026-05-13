@@ -1,29 +1,22 @@
 #!/bin/bash
 # Test runner with failure summary
 # Runs all test suites and collects failures for a final report.
-# Uses bun for faster execution (falls back to npx tsx if bun unavailable).
+# Uses Bun for install/build/test execution.
 
 set -o pipefail
 
-# Detect runtime
-if command -v bun &>/dev/null; then
-  RUN="bun"
-  VITEST="bunx vitest run"
-  # bun needs 'bun test' for node:test describe/it, not 'bun file.ts'
-  RUN_TEST="bun test"
-else
-  RUN="npx tsx"
-  VITEST="npx vitest run"
-  RUN_TEST="npx tsx --test"
+if ! command -v bun &>/dev/null; then
+  echo "❌ Bun is required. Install Bun, then run: bun install"
+  exit 1
 fi
+RUN="bun"
+VITEST="bunx vitest run"
+# bun needs 'bun test' for node:test describe/it, not 'bun file.ts'
+RUN_TEST="bun test"
 
 # Build first
 echo "━━━ Building ━━━"
-if command -v bun &>/dev/null; then
-  bun run build 2>&1
-else
-  npm run build 2>&1
-fi
+bun run build 2>&1
 if [ $? -ne 0 ]; then
   echo "❌ Build failed — aborting tests"
   exit 1

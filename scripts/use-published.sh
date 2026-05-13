@@ -1,20 +1,20 @@
 #!/bin/bash
-# Remove the npm link so npx/bunx will fetch the published version again.
+# Remove the Bun link so bunx will fetch the published version again.
 # Also tears down the photon-core sibling symlink so the next install
-# pulls a real copy from npm.
+# pulls a real copy from the registry.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
-echo "==> Removing npm global link for @portel/photon..."
-npm unlink -g @portel/photon 2>/dev/null || npm rm -g @portel/photon 2>/dev/null || true
+echo "==> Removing bun global link for @portel/photon..."
+(cd "$REPO_DIR" && bun unlink) 2>/dev/null || bun remove -g @portel/photon 2>/dev/null || true
 
 echo "==> Removing @portel/photon-core sibling symlink (if any)..."
 CORE_LINK="$REPO_DIR/node_modules/@portel/photon-core"
 if [ -L "$CORE_LINK" ]; then
   rm -f "$CORE_LINK"
-  echo "    Removed — run 'npm install' to restore the npm copy."
+  echo "    Removed — run 'bun install' to restore the registry copy."
 else
   echo "    Not a symlink, leaving in place."
 fi
@@ -42,7 +42,7 @@ done < <(find "$HOME/.bun" -path "*/@portel/photon/package.json" -exec dirname {
 echo "    Removed $bun_count bun cache dir(s)"
 
 echo ""
-echo "Done. npm link removed. Next 'npx @portel/photon' or 'bunx @portel/photon' will fetch from npm."
+echo "Done. bun link removed. Next 'bunx @portel/photon' will fetch from the registry."
 
 # Verify it's gone
 if which photon &>/dev/null; then

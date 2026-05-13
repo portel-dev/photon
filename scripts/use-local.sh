@@ -1,7 +1,7 @@
 #!/bin/bash
 # Link the local photon repo as the global `photon` command, and symlink
 # the sibling photon-core repo into node_modules so edits in either
-# project flow through to the global binary without an npm publish.
+# project flow through to the global binary without a registry publish.
 #
 # Run this after switching repos, after a fresh clone, or any time the
 # global `photon` is suspected of running stale code.
@@ -48,10 +48,10 @@ fi
 
 echo "==> Building local photon..."
 cd "$REPO_DIR"
-npm run build
+bun run build
 
-echo "==> npm link (global)..."
-npm link
+echo "==> bun link (global)..."
+bun link
 
 echo "==> Killing any running daemons spawned by an older binary..."
 # A daemon spawned by the previous global install may still own the

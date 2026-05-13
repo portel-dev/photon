@@ -9,7 +9,7 @@ echo "  Pre-Release Verification"
 echo "═══════════════════════════════════════════════════"
 echo ""
 
-# ─── Pre-flight: git clean + npm registry sync ──────
+# ─── Pre-flight: git clean + registry sync ──────
 # These two checks have caused repeated release failures.
 # Run them first so the problem is visible immediately.
 
@@ -24,11 +24,11 @@ if [ -n "$GIT_DIRTY" ]; then
 fi
 echo "  ✓ Working directory is clean"
 
-# Warn clearly if npm registry version does not match package.json.
-# If npm is ahead, fail early because release-it would target an already-published version.
+# Warn clearly if registry version does not match package.json.
+# If registry is ahead, fail early because release-it would target an already-published version.
 # If package.json is ahead, a previous release-it run likely tagged but did not publish.
 PKG_VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
-NPM_VERSION=$(npm view "$(node -e "process.stdout.write(require('./package.json').name)")" version 2>/dev/null || echo "unavailable")
+NPM_VERSION=$(bun pm view "$(node -e "process.stdout.write(require('./package.json').name)")" version 2>/dev/null || echo "unavailable")
 if [ "$NPM_VERSION" != "unavailable" ]; then
   VERSION_CMP=$(node -e "
     const parse = (v) => v.split('.').map(Number);
@@ -40,8 +40,8 @@ if [ "$NPM_VERSION" != "unavailable" ]; then
   " "$NPM_VERSION" "$PKG_VERSION"; echo $?)
   if [ "$VERSION_CMP" = "1" ]; then
     echo "  ✗ FAIL: npm registry has $NPM_VERSION but package.json says $PKG_VERSION"
-    echo "    package.json is behind the already-published npm version."
-    echo "    Bump package.json/package-lock.json to $NPM_VERSION before running release-it,"
+    echo "    package.json is behind the already-published registry version."
+    echo "    Bump package.json/bun.lock to $NPM_VERSION before running release-it,"
     echo "    or release-it will try to publish an already-existing version."
     exit 1
   elif [ "$VERSION_CMP" = "2" ]; then
@@ -102,44 +102,47 @@ fi
 echo "  ✓ No stray photons or broken symlinks"
 echo ""
 
-# ─── 1. Replace npm-linked packages with registry versions ──
-echo "▶ Step 1: Resolve npm links"
+# ─── 1. Replace linked packages with registry versions ──
+echo "▶ Step 1: Resolve package links"
 LINKED=""
 for dep in $(node -e "const p=require('./package.json'); console.log([...Object.keys(p.dependencies||{}), ...Object.keys(p.devDependencies||{})].join(' '))"); do
   target="node_modules/$dep"
   if [ -L "$target" ]; then
-    version=$(node -e "const p=require('./package.json'); console.log((p.dependencies||{})['$dep'] || (p.devDependencies||{})['$dep'] || 'latest')")
-    echo "  ⚠ $dep is npm-linked → reinstalling $version from registry"
-    npm unlink "$dep" 2>/dev/null || true
-    npm install "$dep@$version" --save 2>/dev/null
+    version=$(node -e "const p=require('./package.json'); process.stdout.write((p.dependencies||{})['$dep'] || (p.devDependencies||{})['$dep'] || 'latest')")
+    is_dev=$(node -e "const p=require('./package.json'); process.stdout.write((p.devDependencies||{})['$dep'] ? '1' : '0')")
+    echo "  ⚠ $dep is linked → reinstalling $version from registry"
+    unlink "$target" 2>/dev/null || rm -rf "$target"
+    if [ "$is_dev" = "1" ]; then
+      bun add --dev "$dep@$version" >/dev/null
+    else
+      bun add "$dep@$version" >/dev/null
+    fi
     LINKED="$LINKED $dep"
   fi
 done
 if [ -z "$LINKED" ]; then
-  echo "  ✓ No npm-linked packages"
+  echo "  ✓ No linked packages"
 else
   echo "  ✓ Resolved:$LINKED"
-  # Ensure lock file is clean for the release commit
-  git checkout -- package-lock.json 2>/dev/null || true
-  npm install
+  bun install --frozen-lockfile
 fi
 echo ""
 
-# ─── 2. Lockfile sync check (critical — `npm ci` in CI/Release workflows fails hard if out of sync) ──
+# ─── 2. Lockfile sync check (critical — Bun install in CI/Release workflows fails hard if out of sync) ──
 echo "▶ Step 2: Lockfile sync"
-if ! npm ci --dry-run >/dev/null 2>&1; then
-  echo "  ✗ FAIL: package-lock.json is out of sync with package.json"
-  echo "    CI and Release workflows will fail. Run 'npm install' and commit package-lock.json."
-  npm ci --dry-run 2>&1 | grep -E "Invalid:" | head -3
+if ! bun install --frozen-lockfile --dry-run >/dev/null 2>&1; then
+  echo "  ✗ FAIL: bun.lock is out of sync with package.json"
+  echo "    CI and Release workflows will fail. Run 'bun install' and commit bun.lock."
+  bun install --frozen-lockfile --dry-run 2>&1 | head -20
   exit 1
 fi
-echo "  ✓ npm ci dry-run passes (package-lock.json in sync)"
+echo "  ✓ bun install dry-run passes (bun.lock in sync)"
 echo ""
 
 # ─── 3. Build verification ───────────────────────────
 echo "▶ Step 3: Full build"
-npm run build
-npm run build:beam
+bun run build
+bun run build:beam
 echo "  ✓ Build passes"
 echo ""
 
@@ -276,7 +279,7 @@ echo ""
 echo "▶ Step 8: Visual tests (lookout AI)"
 if command -v photon >/dev/null 2>&1 && photon lookout status -y 2>/dev/null | grep -q '"ready": true\|ready.*true'; then
   echo "  Lookout available — running visual tests..."
-  npm run test:visual
+  bun run test:visual
   echo "  ✓ Visual tests passed"
 else
   echo "  ⏭ Lookout not available (no MLX or photon not installed) — skipping"
@@ -286,7 +289,7 @@ fi
 echo ""
 echo "▶ Step 9: Promise validation"
 echo "  Running promise validation suite..."
-npm run test:promises
+bun run test:promises
 echo "  ✓ Platform promises validated"
 # Restore test fixture data files
 git checkout -- tests/fixtures/.data/ 2>/dev/null || true
@@ -294,57 +297,35 @@ git checkout -- tests/fixtures/.data/ 2>/dev/null || true
 # ─── 10. Global install simulation ────
 echo ""
 echo "▶ Step 10: Global install simulation"
-PACK_TGZ=$(npm pack 2>/dev/null | tail -1)
+PACK_TGZ=$(bun pm pack --quiet 2>/dev/null | tail -1)
 PACK_ABS="$(pwd)/$PACK_TGZ"
 if [ -f "$PACK_ABS" ]; then
-  # Test with bun if available
-  if command -v bun >/dev/null 2>&1; then
-    echo "  Testing bun global install..."
-    bun add -g "$PACK_ABS" 2>/dev/null || true
-    BUN_OUT=$(photon --version 2>&1) || true
-    bun remove -g @portel/photon 2>/dev/null || true
-    if echo "$BUN_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-      echo "  ✓ bun global install works ($BUN_OUT)"
-    else
-      echo "  ✗ FAIL: bun global install broken: $BUN_OUT"
-      rm -f "$PACK_ABS"
-      exit 1
-    fi
+  echo "  Testing bun global install..."
+  bun add -g "$PACK_ABS" 2>/dev/null || true
+  BUN_OUT=$(photon --version 2>&1) || true
+  bun remove -g @portel/photon 2>/dev/null || true
+  if echo "$BUN_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+    echo "  ✓ bun global install works ($BUN_OUT)"
   else
-    echo "  ⏭ bun not available — skipping bun global test"
-  fi
-
-  # Test with npm/node if available
-  if command -v node >/dev/null 2>&1; then
-    echo "  Testing npm global install..."
-    npm install -g "$PACK_ABS" 2>/dev/null || true
-    NPM_OUT=$(photon --version 2>&1) || true
-    npm uninstall -g @portel/photon 2>/dev/null || true
-    if echo "$NPM_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-      echo "  ✓ npm global install works ($NPM_OUT)"
-    else
-      echo "  ✗ FAIL: npm global install broken: $NPM_OUT"
-      rm -f "$PACK_ABS"
-      exit 1
-    fi
-  else
-    echo "  ⏭ node not available — skipping npm global test"
+    echo "  ✗ FAIL: bun global install broken: $BUN_OUT"
+    rm -f "$PACK_ABS"
+    exit 1
   fi
 
   rm -f "$PACK_ABS"
 else
-  echo "  ⏭ npm pack failed — skipping install test"
+  echo "  ⏭ bun pack failed — skipping install test"
 fi
 
 # ─── 10. Production dependency verification ────
 echo ""
 echo "▶ Step 11: Production dependency verification"
 PROD_DIR=$(mktemp -d)
-PACK_CHECK=$(npm pack 2>/dev/null | tail -1)
+PACK_CHECK=$(bun pm pack --quiet 2>/dev/null | tail -1)
 if [ -f "$PACK_CHECK" ]; then
   cd "$PROD_DIR"
-  npm init -y > /dev/null 2>&1
-  npm install "$(cd - > /dev/null && pwd)/$PACK_CHECK" --production > /dev/null 2>&1
+  bun init -y > /dev/null 2>&1
+  bun add "$(cd - > /dev/null && pwd)/$PACK_CHECK" --production > /dev/null 2>&1
   # Verify the CLI entry point loads without crashing
   PROD_OUT=$(node node_modules/@portel/photon/dist/cli.js --version 2>&1) || true
   cd - > /dev/null
@@ -359,7 +340,7 @@ if [ -f "$PACK_CHECK" ]; then
   rm -rf "$PROD_DIR"
   rm -f "$PACK_CHECK"
 else
-  echo "  ⏭ npm pack failed — skipping production dep test"
+  echo "  ⏭ bun pack failed — skipping production dep test"
 fi
 
 echo ""

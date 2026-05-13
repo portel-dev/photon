@@ -13,11 +13,13 @@
   },
   "npm": {
     "publish": true,
-    "skipChecks": false
+    "skipChecks": true,
+    "publishPackageManager": "bun",
+    "versionArgs": "--no-package-lock"
   },
   "hooks": {
     "before:init": ["bash scripts/pre-release-check.sh"],
-    "after:bump": ["npm run build"],
+    "after:bump": ["bun run build"],
     "after:release": "echo Successfully released ${name} v${version} to ${repo.repository}"
   },
   "plugins": {
