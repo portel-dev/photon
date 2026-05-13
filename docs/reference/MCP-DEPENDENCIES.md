@@ -241,11 +241,11 @@ When running in NCP, configure your MCPs in your NCP profile and they become ava
 {
   "mcps": {
     "tavily": {
-      "command": "npx",
+      "command": "bunx",
       "args": ["-y", "@anthropic/mcp-server-tavily"]
     },
     "browser": {
-      "command": "npx",
+      "command": "bunx",
       "args": ["-y", "@anthropic/mcp-server-browser"]
     }
   }

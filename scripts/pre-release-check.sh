@@ -148,7 +148,7 @@ echo ""
 
 # ─── 3. Test suite ───────────────────────────────────
 echo "▶ Step 4: Test suite"
-npm test
+bun run test
 echo "  ✓ Tests pass"
 echo ""
 

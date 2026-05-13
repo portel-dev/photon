@@ -174,14 +174,17 @@ fi
 echo "📦 Installing Photon CLI..." >&2
 if command -v bun &> /dev/null; then
   bun add -g @portel/photon &> /dev/null
+elif command -v pnpm &> /dev/null; then
+  pnpm add -g @portel/photon &> /dev/null
 else
-  npm install -g @portel/photon &> /dev/null
+  echo "❌ Bun or pnpm is required to install Photon CLI. Install Bun, then run: bun add -g @portel/photon" >&2
+  exit 1
 fi
 
 if [ $? -eq 0 ]; then
   echo "✅ Photon CLI installed successfully" >&2
 else
-  echo "❌ Failed to install Photon CLI. Please run: npx @portel/photon --help" >&2
+  echo "❌ Failed to install Photon CLI. Please run: bunx @portel/photon --help" >&2
   exit 1
 fi
 `;
@@ -242,8 +245,11 @@ if ! command -v photon &> /dev/null; then
   echo -e "Installing..."
   if command -v bun &> /dev/null; then
     bun add -g @portel/photon
+  elif command -v pnpm &> /dev/null; then
+    pnpm add -g @portel/photon
   else
-    npm install -g @portel/photon
+    echo -e "\${RED}Bun or pnpm is required to install Photon CLI. Install Bun, then run: bun add -g @portel/photon\${NC}"
+    exit 1
   fi
 
   if [ $? -ne 0 ]; then

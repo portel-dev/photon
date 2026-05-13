@@ -133,7 +133,7 @@ From install to working photon in under 60 seconds.
 
 | # | Assertion | Target |
 |---|-----------|--------|
-| 1 | `npm i -g @portel/photon` → `photon beam` shows working UI | CLI, Beam |
+| 1 | `bun add -g @portel/photon` → `photon beam` shows working UI | CLI, Beam |
 | 2 | No `~/.photon/` directory required before first run | CLI |
 | 3 | Marketplace photons are pre-cached or fast-fetched on first boot | Beam |
 | 4 | `photon install <name>` → immediately usable, no restart needed | CLI |
@@ -427,7 +427,7 @@ Each assertion maps to one of:
 
 Every assertion in this document must be backed by automation before it is treated as launch-safe.
 
-`npm run test:promises` validates the current release-gate subset and emits a machine-readable
+`bun run test:promises` validates the current release-gate subset and emits a machine-readable
 coverage report (`promise-report.json`) showing which intents are currently exercised by that
 suite. Assertions outside that subset must be covered by dedicated tests before they should be
 described as validated.

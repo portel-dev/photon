@@ -42,7 +42,7 @@ The fastest way to use Photon is via the **Beam**, a visual dashboard for managi
 Install the global package and run the `photon` command to open the dashboard in the web browser:
 
 ```bash
-npm install -g @portel/photon
+bun add -g @portel/photon
 photon
 ```
 
@@ -1967,10 +1967,13 @@ Use the official MCP Inspector:
 
 ```bash
 # Install globally
-npm install -g @modelcontextprotocol/inspector
+bun add -g @modelcontextprotocol/inspector
 
 # Test your MCP
-npx @modelcontextprotocol/inspector photon my-tool.photon.ts
+bunx @modelcontextprotocol/inspector photon my-tool.photon.ts
+
+# pnpm alternative
+pnpm dlx @modelcontextprotocol/inspector photon my-tool.photon.ts
 ```
 
 ### Manual Testing
@@ -2005,7 +2008,7 @@ test().catch(console.error);
 
 Run:
 ```bash
-npx tsx test.ts
+bunx tsx test.ts
 ```
 
 ### Debugging
@@ -2051,8 +2054,8 @@ photon info my-tool --mcp
 {
   "mcpServers": {
     "my-tool": {
-      "command": "npx",
-      "args": ["@portel/photon", "mcp", "my-tool"],
+      "command": "bunx",
+      "args": ["-y", "@portel/photon", "mcp", "my-tool"],
       "env": {
         "MY_TOOL_WORKDIR": "~/Documents",
         "MY_TOOL_MAX_FILE_SIZE": "10485760"
@@ -2102,8 +2105,8 @@ Add to MCP settings:
 {
   "mcpServers": {
     "my-tool": {
-      "command": "npx",
-      "args": ["@portel/photon", "mcp", "my-tool"]
+      "command": "bunx",
+      "args": ["-y", "@portel/photon", "mcp", "my-tool"]
     }
   }
 }
@@ -2666,7 +2669,7 @@ Error: Cannot find module 'my-dependency'
 **Solution:** Install dependencies in the same directory:
 ```bash
 cd ~/.photon
-npm install my-dependency
+bun add my-dependency
 ```
 
 **2. Environment variables not working:**
@@ -2754,13 +2757,13 @@ Shows:
 **3. Test compilation:**
 ```bash
 # Compile manually
-npx esbuild my-tool.photon.ts --bundle --platform=node --format=esm
+bunx esbuild my-tool.photon.ts --bundle --platform=node --format=esm
 ```
 
 **4. Check MCP protocol:**
 ```bash
 # Use MCP Inspector
-npx @modelcontextprotocol/inspector photon my-tool
+bunx @modelcontextprotocol/inspector photon my-tool
 ```
 
 **5. Verify environment:**

@@ -14,7 +14,7 @@ Comprehensive guide to diagnosing and fixing common Photon MCP issues.
 - [Performance Issues](#performance-issues)
 - [MCP Protocol Errors](#mcp-protocol-errors)
 - [Stale Cache After Upgrade](#stale-cache-after-upgrade)
-- [npx Quick Reset Guide](#npx-quick-reset-guide)
+- [bunx / pnpm dlx Quick Reset Guide](#bunx--pnpm-dlx-quick-reset-guide)
 
 ---
 
@@ -40,9 +40,9 @@ Related: [MCP Not Found in Marketplace](#mcp-not-found-in-marketplace), [Global 
 
 ---
 
-## npx Quick Reset Guide
+## bunx / pnpm dlx Quick Reset Guide
 
-If you're using `npx @portel/photon` and things aren't working, here's a quick reference for resetting to a clean state.
+If you're using `bunx @portel/photon` or `pnpm dlx @portel/photon` and things aren't working, here's a quick reference for resetting to a clean state.
 
 ### Full Reset (Nuclear Option)
 
@@ -50,11 +50,12 @@ If you're using `npx @portel/photon` and things aren't working, here's a quick r
 # 1. Remove all installed photons and caches
 rm -rf ~/.photon
 
-# 2. Clear npx cache to get the latest version
-npx clear-npx-cache 2>/dev/null; npm cache clean --force
+# 2. Clear package runner caches to get the latest version
+bun pm cache rm @portel/photon 2>/dev/null || true
+pnpm store prune 2>/dev/null || true
 
 # 3. Start fresh
-npx @portel/photon@latest
+bunx @portel/photon@latest
 ```
 
 ### Repair a Single Photon
@@ -63,8 +64,8 @@ If a specific photon isn't working (e.g., showing under PHOTONS instead of APPS,
 
 ```bash
 # Remove and reinstall it
-npx @portel/photon remove <name>
-npx @portel/photon add <name>
+bunx @portel/photon remove <name>
+bunx @portel/photon add <name>
 ```
 
 This re-downloads both the photon file and its UI assets.
@@ -78,18 +79,18 @@ This re-downloads both the photon file and its UI assets.
 **Fix**:
 ```bash
 # Option 1: Upgrade Photon (v1.8.4+ auto-repairs on startup)
-npx @portel/photon@latest beam
+bunx @portel/photon@latest beam
 
 # Option 2: Reinstall the affected photon
-npx @portel/photon remove git-box
-npx @portel/photon add git-box
+bunx @portel/photon remove git-box
+bunx @portel/photon add git-box
 ```
 
 ### Verify Your Installation
 
 ```bash
 # Check version
-npx @portel/photon --version
+bunx @portel/photon --version
 
 # Check what's installed
 ls ~/.photon/*.photon.ts
@@ -102,17 +103,17 @@ ls ~/.photon/.data/.cache/
 
 # Run Beam diagnostics (in browser)
 # Start Beam, then click the 🔍 Status button in the bottom-left
-npx @portel/photon beam
+bunx @portel/photon beam
 ```
 
-### Common npx Pitfalls
+### Common Package Runner Pitfalls
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| Old version running | npx caches packages | `npm cache clean --force` then retry |
+| Old version running | Package runner cache is stale | `bun pm cache rm @portel/photon` or `pnpm store prune`, then retry |
 | `~/.photon` doesn't exist | First run, no photons installed | Normal — `photon beam` creates it automatically |
 | Assets missing after install | Installed with older version that had a bug | Upgrade to latest and restart Beam (auto-repairs) |
-| "No photons found" in Beam | Empty `~/.photon` directory | Use marketplace in Beam sidebar or `npx @portel/photon add <name>` |
+| "No photons found" in Beam | Empty `~/.photon` directory | Use marketplace in Beam sidebar or `bunx @portel/photon add <name>` |
 
 ---
 
@@ -126,32 +127,32 @@ npx @portel/photon beam
 
 ```bash
 # Verify installation
-npm list -g @portel/photon
+bun pm ls -g @portel/photon
 
 # If not installed
-npm install -g @portel/photon
+bun add -g @portel/photon
 
-# Check npm global bin path
-npm config get prefix
+# Check Bun global bin path
+bun pm bin -g
 
 # Add to PATH if needed (macOS/Linux)
-export PATH="$(npm config get prefix)/bin:$PATH"
+export PATH="$(bun pm bin -g):$PATH"
 
 # Add to PATH (Windows PowerShell)
-$env:PATH += ";$(npm config get prefix)"
+$env:PATH += ";$(bun pm bin -g)"
 ```
 
-### npx Version Conflicts
+### Package Runner Version Conflicts
 
-**Symptom**: Different behavior between `photon` and `npx @portel/photon`
+**Symptom**: Different behavior between `photon` and `bunx @portel/photon`
 
 **Solution**:
 ```bash
-# Always use specific version with npx
-npx @portel/photon@latest mcp <name>
+# Always use a specific version with bunx
+bunx @portel/photon@latest mcp <name>
 
 # Or install globally for consistency
-npm install -g @portel/photon
+bun add -g @portel/photon
 ```
 
 ---
@@ -182,8 +183,8 @@ photon mcp github-issues --config
    {
      "mcpServers": {
        "github-issues": {
-         "command": "npx",
-         "args": ["@portel/photon", "mcp", "github-issues"],
+         "command": "bunx",
+         "args": ["-y", "@portel/photon", "mcp", "github-issues"],
          "env": {
            "GITHUB_ISSUES_TOKEN": "your-token-here"
          }
@@ -298,7 +299,7 @@ export default class MyMCP {
 **Symptom**:
 ```
 📦 Installing dependencies for github-issues...
-❌ npm install failed with code 1
+❌ bun install failed with code 1
 ```
 
 **Solutions**:
@@ -310,12 +311,12 @@ photon clear-cache
 # Or clear specific MCP
 rm -rf ~/.photon/.data/.cache/dependencies/<mcp-name>
 
-# Check npm configuration
-npm config list
+# Check Bun configuration
+bun pm ls
 
 # Try manual install to see error
 cd ~/.photon/.data/.cache/dependencies/<mcp-name>
-npm install
+bun install
 ```
 
 ### Module Not Found After Install
@@ -553,7 +554,7 @@ time photon mcp <name>
 **Diagnosis**:
 ```bash
 # Run load tests
-npm run test:load
+bun run test:load
 
 # Monitor memory in production
 node --expose-gc --max-old-space-size=4096 \
@@ -669,9 +670,9 @@ Error: Connection refused
    ```json
    {
      "mcpServers": {
-       "my-mcp": {
-         "command": "npx",  // ✅ or "photon"
-         "args": ["@portel/photon", "mcp", "my-mcp"]  // ✅ Correct
+         "my-mcp": {
+         "command": "bunx",  // ✅ or "photon"
+         "args": ["-y", "@portel/photon", "mcp", "my-mcp"]  // ✅ Correct
        }
      }
    }
@@ -777,7 +778,7 @@ photon mcp my-tool --dev
 
 # In another terminal, test with curl (if using stdio)
 # Or use the test suite
-npm run test:integration
+bun run test:integration
 ```
 
 ### Clear All Caches
@@ -832,5 +833,5 @@ photon search <query>           # Search for MCPs
 
 # Debugging
 export PHOTON_DEBUG=1           # Enable debug logging
-npm run test:load               # Run performance tests
+bun run test:load               # Run performance tests
 ```

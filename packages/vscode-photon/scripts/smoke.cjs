@@ -46,7 +46,7 @@ async function main() {
 
   if (missingRuntimeFiles.length > 0) {
     throw new Error(
-      `Missing vendored Photon runtime files:\n${missingRuntimeFiles.map((file) => `- ${file}`).join('\n')}\nRun "npm run build" inside packages/vscode-photon first.`
+      `Missing vendored Photon runtime files:\n${missingRuntimeFiles.map((file) => `- ${file}`).join('\n')}\nRun "bun run build" inside packages/vscode-photon first.`
     );
   }
 

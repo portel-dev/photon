@@ -85,12 +85,12 @@ ssh user@server my-tool sse --port 3000
 ### Basic Dockerfile
 
 ```dockerfile
-FROM node:22-alpine
+FROM oven/bun:1
 
 WORKDIR /app
 
 # Install photon CLI
-RUN npm install -g @portel/photon
+RUN bun add -g @portel/photon
 
 # Copy your photon files
 COPY *.photon.ts ./
@@ -105,12 +105,12 @@ CMD ["photon", "sse", "my-photon"]
 ### Multi-Photon Dockerfile
 
 ```dockerfile
-FROM node:22-alpine
+FROM oven/bun:1
 
 WORKDIR /app
 
 # Install photon CLI
-RUN npm install -g @portel/photon
+RUN bun add -g @portel/photon
 
 # Copy all photons
 COPY *.photon.ts ./

@@ -34,7 +34,7 @@ async function copyFile(relativePath) {
 
   if (!(await pathExists(sourcePath))) {
     throw new Error(
-      `Missing ${relativePath} in repo dist/. Run "npm run build" at the repo root before packaging the VS Code extension.`
+      `Missing ${relativePath} in repo dist/. Run "bun run build" at the repo root before packaging the VS Code extension.`
     );
   }
 

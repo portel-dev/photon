@@ -6,9 +6,9 @@ Thank you for your interest in contributing to Photon!
 
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/<your-username>/photon.git`
-3. Install dependencies: `npm install`
-4. Build: `npm run build`
-5. Run tests: `npm test`
+3. Install dependencies: `bun install`
+4. Build: `bun run build`
+5. Run tests: `bun run test`
 
 ## Development Workflow
 
@@ -16,10 +16,10 @@ Thank you for your interest in contributing to Photon!
 2. Make your changes
 3. Ensure code passes lint and format checks:
    ```bash
-   npm run lint
-   npm run format:check
+   bun run lint
+   bun run format:check
    ```
-4. Run the full test suite: `npm test`
+4. Run the full test suite: `bun run test`
 5. Commit using [Conventional Commits](https://www.conventionalcommits.org/):
    - `fix:` for bug fixes (patch release)
    - `feat:` for new features (minor release)
@@ -39,8 +39,8 @@ Thank you for your interest in contributing to Photon!
 - TypeScript with strict mode
 - Formatting enforced by [Prettier](https://prettier.io/) (config in `.prettierrc`)
 - Linting via [ESLint](https://eslint.org/) (config in `eslint.config.mjs`)
-- Run `npm run format` to auto-fix formatting
-- Run `npm run lint:fix` to auto-fix lint issues
+- Run `bun run format` to auto-fix formatting
+- Run `bun run lint:fix` to auto-fix lint issues
 
 ## Project Structure
 

@@ -1096,7 +1096,7 @@ Add a `tsconfig.json` in your `ui/` folder to override the built-in runtime:
 }
 ```
 
-Then install the framework in your photon's directory (`npm i preact`). The TSX compiler will use it instead of the built-in runtime.
+Then install the framework in your photon's directory (`bun add preact`; pnpm users can run `pnpm add preact`). The TSX compiler will use it instead of the built-in runtime.
 
 ### Bridge Integration
 

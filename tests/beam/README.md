@@ -19,13 +19,13 @@ tests/beam/
 
 ```bash
 # Run all BEAM tests
-npm run test:beam
+bun run test:beam
 
 # Run with visible browser (debugging)
-HEADLESS=false npm run test:beam
+HEADLESS=false bun run test:beam
 
 # Update snapshots
-UPDATE_SNAPSHOTS=true npm run test:beam
+UPDATE_SNAPSHOTS=true bun run test:beam
 ```
 
 ## Writing Tests

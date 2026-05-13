@@ -75,7 +75,7 @@ One definition. Multiple surfaces.
 From zero to an MCP server connected to Claude Desktop in three commands:
 
 ```bash
-npm install -g @portel/photon
+bun add -g @portel/photon
 photon new my-tool                  # Scaffolds ./my-tool.photon.ts in your CWD
 photon mcp install my-tool          # Registers it in Claude Desktop's config
 # Restart Claude Desktop. Your tool is live.
@@ -86,8 +86,12 @@ Prefer the web dashboard? Skip step 3 and run `photon` instead — it opens Beam
 Or try without installing globally:
 
 ```bash
-npx @portel/photon new my-tool
-npx @portel/photon mcp install my-tool
+bunx @portel/photon new my-tool
+bunx @portel/photon mcp install my-tool
+
+# pnpm users can use pnpm dlx instead:
+pnpm dlx @portel/photon new my-tool
+pnpm dlx @portel/photon mcp install my-tool
 ```
 
 > Requires [Node.js 20+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
@@ -255,7 +259,7 @@ export default class Weather {
 }
 ```
 
-`@dependencies` installs `node-fetch` automatically on first run, no `npm install` needed. The `{@pattern}` validates in the form, the CLI, and the MCP schema simultaneously. `days` becomes a number spinner with bounds. `@format table` renders the result as a table in Beam. One annotation, three surfaces.
+`@dependencies` installs `node-fetch` automatically on first run, no manual package install needed. The `{@pattern}` validates in the form, the CLI, and the MCP schema simultaneously. `days` becomes a number spinner with bounds. `@format table` renders the result as a table in Beam. One annotation, three surfaces.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-4.png" alt="Step 4" width="100%">

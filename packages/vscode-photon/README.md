@@ -24,12 +24,12 @@ This package is intentionally thin and reuses the shared editor-support modules 
 
 ## Dogfooding
 
-1. From the repo root, run `npm run build`.
-2. From this folder, run `npm run build`.
-3. Optional sanity check: run `npm run smoke`.
+1. From the repo root, run `bun run build`.
+2. From this folder, run `bun run build`.
+3. Optional sanity check: run `bun run smoke`.
 4. Open VS Code and use `Developer: Install Extension from Location...` on `packages/vscode-photon`.
 
-For a slightly stronger package-level check, run `npm run regression`.
+For a slightly stronger package-level check, run `bun run regression`.
 
 For extension-host dogfooding in this repo:
 
@@ -39,5 +39,5 @@ For extension-host dogfooding in this repo:
 
 To build a `.vsix` for local testing:
 
-1. From the repo root, run `npm run build`.
-2. From this folder, run `npm run package`.
+1. From the repo root, run `bun run build`.
+2. From this folder, run `bun run package`.

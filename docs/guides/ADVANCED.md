@@ -644,7 +644,7 @@ describe('MyMCP', () => {
 Photon uses **vitest** for unit tests and **tsx** for integration tests. Jest is not used.
 
 ```typescript
-// Integration test — run with: npx vitest run
+// Integration test — run with: bunx vitest run
 import { describe, it, expect } from 'vitest';
 import { execSync } from 'child_process';
 
@@ -671,12 +671,12 @@ describe('MCP Integration', () => {
 
 ```dockerfile
 # Dockerfile
-FROM node:20-alpine
+FROM oven/bun:1
 
 WORKDIR /app
 
 # Install Photon globally
-RUN npm install -g @portel/photon
+RUN bun add -g @portel/photon
 
 # Copy MCP file
 COPY my-mcp.photon.ts .

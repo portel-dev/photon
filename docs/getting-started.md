@@ -9,10 +9,19 @@ Photon turns a `.photon.ts` file into a **CLI tool**, a **web dashboard**, and a
 ## Install
 
 ```bash
-npm install -g @portel/photon
+bun add -g @portel/photon
 ```
 
-> Requires [Node.js 20+](https://nodejs.org). TypeScript is compiled internally — no `tsconfig.json` needed.
+Or run it without a global install:
+
+```bash
+bunx @portel/photon --help
+
+# pnpm alternative
+pnpm dlx @portel/photon --help
+```
+
+> Requires [Node.js 20+](https://nodejs.org). Bun is the preferred package manager; pnpm `dlx` is also supported for one-off runs. TypeScript is compiled internally — no `tsconfig.json` needed.
 
 ---
 

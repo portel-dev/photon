@@ -302,7 +302,7 @@ Optional observability following CNCF OpenTelemetry GenAI semantic conventions. 
 
 ```bash
 # Opt-in: install the OTel API
-npm install @opentelemetry/api
+bun add @opentelemetry/api
 ```
 
 ```typescript

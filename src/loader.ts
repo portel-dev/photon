@@ -1203,7 +1203,7 @@ export class PhotonLoader {
         const parsed = PhotonLoader.parseDependenciesFromSource(tsContent);
         dependencies = PhotonLoader.mergeDependencySpecs(extracted, parsed);
 
-        // @portel/photon-core is the runtime itself — never pass it to npm install.
+        // @portel/photon-core is the runtime itself — never pass it to the package installer.
         // The dependency manager's fixBrokenPhotonCoreLink() handles symlinking it
         // into the cache's node_modules after install.
         dependencies = dependencies.filter((d) => d.name !== '@portel/photon-core');
@@ -3901,8 +3901,8 @@ Option 1: Set environment variables in your MCP client config
 {
   "mcpServers": {
     "${mcpName}": {
-      "command": "npx",
-      "args": ["@portel/photon", "${mcpName}"],
+      "command": "bunx",
+      "args": ["-y", "@portel/photon", "mcp", "${mcpName}"],
       "env": ${JSON.stringify(envExample, null, 8).replace(/\n/g, '\n      ')}
     }
   }

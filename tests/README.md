@@ -10,14 +10,14 @@ The test client spawns MCP servers, sends JSON-RPC messages over stdio, and vali
 
 ### All Tests
 ```bash
-npm test
+bun run test
 ```
 
 Runs the complete test suite including unit tests, integration tests, load tests, and README validation.
 
 ### README Validation
 ```bash
-npm run test:readme
+bun run test:readme
 # or
 ./tests/readme-validation.sh
 ```
@@ -41,7 +41,7 @@ npm run test:readme
 
 ### Load Testing
 ```bash
-npm run test:load
+bun run test:load
 ```
 
 **Purpose**: Validates performance under stress and ensures no memory leaks.
@@ -56,17 +56,17 @@ npm run test:load
 
 ### SQLite MCP (no credentials needed)
 ```bash
-npm test:sqlite
+bun run test:sqlite
 # or
-npx tsx tests/sqlite.test.ts
+bunx tsx tests/sqlite.test.ts
 ```
 
 ### GitHub Issues MCP (requires token)
 ```bash
 export GITHUB_TOKEN="ghp_your_token_here"
-npm test:github
+bun run test:github
 # or
-npx tsx tests/github-issues.integration.ts
+bunx tsx tests/github-issues.integration.ts
 ```
 
 ## Writing Tests
@@ -262,7 +262,7 @@ await client.start('node', ['dist/cli.js', 'example.photon.ts'], {
 Tests exit with code 0 on success, 1 on failure:
 
 ```bash
-npm test || exit 1
+bun run test || exit 1
 ```
 
 ## Tips

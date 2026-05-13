@@ -197,7 +197,7 @@ As Photon adds more editor-facing features, keep these rules:
 
 The healthiest verification loop is:
 
-1. `npx tsx tests/editor-support.test.ts`
-2. `npm run build:beam`
-3. `npm --prefix packages/vscode-photon run smoke`
-4. `npm --prefix packages/vscode-photon run regression`
+1. `bunx tsx tests/editor-support.test.ts`
+2. `bun run build:beam`
+3. `bun --cwd packages/vscode-photon run smoke`
+4. `bun --cwd packages/vscode-photon run regression`

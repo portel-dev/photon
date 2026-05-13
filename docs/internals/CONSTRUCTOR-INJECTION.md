@@ -105,7 +105,7 @@ MCP clients are cached and reused across the photon's lifetime.
 
 | Format | Example | Description |
 |--------|---------|-------------|
-| GitHub | `anthropics/mcp-server-github` | Cloned and run via npx |
+| GitHub | `anthropics/mcp-server-github` | Cloned and run via bunx |
 | npm | `npm:@modelcontextprotocol/server-filesystem` | Installed from npm |
 | URL | `https://api.example.com/mcp` | Remote Streamable HTTP |
 | Local | `./my-local-mcp` | Local file path |

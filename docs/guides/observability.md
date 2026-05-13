@@ -10,12 +10,12 @@ OTel SDK to route everything to any OTLP-compatible backend
 
 ```bash
 # 1. Install the OTel SDK as a peer dep of your deployment
-npm install @opentelemetry/sdk-node @opentelemetry/api \
-            @opentelemetry/exporter-trace-otlp-http \
-            @opentelemetry/exporter-metrics-otlp-http \
-            @opentelemetry/exporter-logs-otlp-http \
-            @opentelemetry/resources \
-            @opentelemetry/semantic-conventions
+bun add @opentelemetry/sdk-node @opentelemetry/api \
+        @opentelemetry/exporter-trace-otlp-http \
+        @opentelemetry/exporter-metrics-otlp-http \
+        @opentelemetry/exporter-logs-otlp-http \
+        @opentelemetry/resources \
+        @opentelemetry/semantic-conventions
 
 # 2. Point at a collector
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
