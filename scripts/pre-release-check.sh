@@ -202,23 +202,26 @@ echo ""
 # ─── 7. Fresh install simulation ────────────────────
 echo "▶ Step 7: Fresh install simulation"
 FRESH_DIR=$(mktemp -d)
+FRESH_HOME="$FRESH_DIR/.photon-home"
 export PHOTON_DIR="$FRESH_DIR"
+export PHOTON_HOME="$FRESH_HOME"
 
 # Trap to clean up temp dir on any failure
 cleanup_fresh() {
   rm -rf "$FRESH_DIR"
   unset PHOTON_DIR
+  unset PHOTON_HOME
 }
 trap cleanup_fresh EXIT
 
 # Test 6a: Beam starts with only internal photons
 echo "  Testing Beam startup..."
 BEAM_LOG=$(mktemp)
-PHOTON_DIR="$FRESH_DIR" node dist/cli.js beam > "$BEAM_LOG" 2>&1 &
+PHOTON_DIR="$FRESH_DIR" PHOTON_HOME="$FRESH_HOME" node dist/cli.js beam > "$BEAM_LOG" 2>&1 &
 BEAM_PID=$!
 
-# Poll for startup banner (up to 30s). The global daemon may need to restart
-# when the binary was just rebuilt — that can take 10-15s before Beam proceeds.
+# Poll for startup banner (up to 30s). Use an isolated PHOTON_HOME so this
+# fresh-install check never depends on the user's live global daemon state.
 BEAM_STARTED=0
 for i in $(seq 1 30); do
   if grep -q "⚡ Photon Beam" "$BEAM_LOG" 2>/dev/null; then
@@ -254,7 +257,7 @@ rm -f "$BEAM_LOG"
 
 # Test 6b: Marketplace search works
 echo "  Testing marketplace search..."
-SEARCH_OUT=$(PHOTON_DIR="$FRESH_DIR" node dist/cli.js search web 2>&1)
+SEARCH_OUT=$(PHOTON_DIR="$FRESH_DIR" PHOTON_HOME="$FRESH_HOME" node dist/cli.js search web 2>&1)
 if echo "$SEARCH_OUT" | grep -q "web"; then
   echo "  ✓ Marketplace search works"
 else
@@ -265,7 +268,7 @@ fi
 
 # Test 6c: Photon install works
 echo "  Testing photon install..."
-ADD_OUT=$(PHOTON_DIR="$FRESH_DIR" node dist/cli.js add web 2>&1)
+ADD_OUT=$(PHOTON_DIR="$FRESH_DIR" PHOTON_HOME="$FRESH_HOME" node dist/cli.js add web 2>&1)
 if echo "$ADD_OUT" | grep -q "Added web"; then
   echo "  ✓ Photon install works"
 else
@@ -277,6 +280,7 @@ fi
 # Clean up fresh install dir — restore normal PHOTON_DIR
 rm -rf "$FRESH_DIR"
 unset PHOTON_DIR
+unset PHOTON_HOME
 
 # ─── 8. Visual tests (optional — requires lookout + MLX) ────
 echo ""
