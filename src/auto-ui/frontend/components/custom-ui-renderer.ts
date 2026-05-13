@@ -28,6 +28,18 @@ function getBeamThemeTokens(themeMode: 'light' | 'dark'): Record<string, string>
   return tokens;
 }
 
+function injectIntoDocumentHead(htmlText: string, injected: string): string {
+  const isFullDocument = /^\s*(?:<!doctype[^>]*>\s*)?<html(?:\s[^>]*)?>/i.test(htmlText);
+  if (isFullDocument) {
+    const headOpen = htmlText.match(/<head(?:\s[^>]*)?>/i);
+    if (headOpen?.index !== undefined) {
+      const insertAt = headOpen.index + headOpen[0].length;
+      return `${htmlText.slice(0, insertAt)}${injected}${htmlText.slice(insertAt)}`;
+    }
+  }
+  return `<html><head>${injected}</head><body>${htmlText}</body></html>`;
+}
+
 @customElement('custom-ui-renderer')
 export class CustomUiRenderer extends LitElement {
   static styles = [
@@ -414,12 +426,12 @@ export class CustomUiRenderer extends LitElement {
 </style>`;
         const templateMeta = '<meta name="photon-template" content="true">';
         finalHtml = `<html><head>${templateMeta}${injected}${photonBaseCSS}</head><body>${finalHtml}</body></html>`;
-      } else if (finalHtml.includes('</head>')) {
+      } else if (/^\s*(?:<!doctype[^>]*>\s*)?<html(?:\s[^>]*)?>/i.test(finalHtml)) {
         // ── .html with full structure: inject bridge only ──
-        finalHtml = finalHtml.replace('</head>', `${injected}</head>`);
+        finalHtml = injectIntoDocumentHead(finalHtml, injected);
       } else {
         // ── .html fragment (no <head>): wrap minimally, no base CSS ──
-        finalHtml = `<html><head>${injected}</head><body>${finalHtml}</body></html>`;
+        finalHtml = injectIntoDocumentHead(finalHtml, injected);
       }
 
       // Abort if a newer _loadContent() was triggered while we were fetching

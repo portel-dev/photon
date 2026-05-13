@@ -27,9 +27,11 @@ import { PHOTON_VERSION } from '../version.js';
 import { formatToolError } from '../shared/error-handler.js';
 import { SimpleRateLimiter } from '../shared/security.js';
 
-// Default rate limit: 60 requests/min per source IP. Override via
+// Default rate limit: 600 requests/min per source IP. Beam app UI opens several
+// MCP sessions and can legitimately burst while navigating between photons.
+// Override via
 // PHOTON_MCP_RATE_LIMIT (count) and PHOTON_MCP_RATE_WINDOW_MS (window).
-const MCP_RATE_LIMIT = Math.max(1, parseInt(process.env.PHOTON_MCP_RATE_LIMIT || '60', 10) || 60);
+const MCP_RATE_LIMIT = Math.max(1, parseInt(process.env.PHOTON_MCP_RATE_LIMIT || '600', 10) || 600);
 const MCP_RATE_WINDOW_MS = Math.max(
   1_000,
   parseInt(process.env.PHOTON_MCP_RATE_WINDOW_MS || '60000', 10) || 60_000

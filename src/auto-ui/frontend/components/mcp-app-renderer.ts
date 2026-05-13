@@ -45,6 +45,18 @@ function getBeamThemeTokens(themeMode: 'light' | 'dark'): Record<string, string>
   return tokens;
 }
 
+function injectIntoDocumentHead(htmlText: string, injected: string): string {
+  const isFullDocument = /^\s*(?:<!doctype[^>]*>\s*)?<html(?:\s[^>]*)?>/i.test(htmlText);
+  if (isFullDocument) {
+    const headOpen = htmlText.match(/<head(?:\s[^>]*)?>/i);
+    if (headOpen?.index !== undefined) {
+      const insertAt = headOpen.index + headOpen[0].length;
+      return `${htmlText.slice(0, insertAt)}${injected}${htmlText.slice(insertAt)}`;
+    }
+  }
+  return `<html><head>${injected}</head><body>${htmlText}</body></html>`;
+}
+
 /**
  * Filter theme tokens to only include keys valid per the MCP Apps Extension spec.
  * AppBridge validates styles.variables via Zod and rejects unrecognized keys.
@@ -396,12 +408,7 @@ export class McpAppRenderer extends LitElement {
 
         if (bridgeRes.ok) {
           const bridgeScript = await bridgeRes.text();
-          // Inject bridge into HTML
-          if (htmlContent.includes('</head>')) {
-            htmlContent = htmlContent.replace('</head>', `${bridgeScript}</head>`);
-          } else {
-            htmlContent = `<html><head>${bridgeScript}</head><body>${htmlContent}</body></html>`;
-          }
+          htmlContent = injectIntoDocumentHead(htmlContent, bridgeScript);
         }
       }
 

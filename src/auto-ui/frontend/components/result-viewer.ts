@@ -7907,7 +7907,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       if (!viewport) return;
 
       // Render markdown to HTML
-      const { html: slideHtml } = this._renderSlideHtml(markdown, target);
+      const { html: slideHtml } = this._renderSlideHtml(markdown, slideIndex);
 
       // Create hidden container for rendering + measurement
       const container = document.createElement('div');

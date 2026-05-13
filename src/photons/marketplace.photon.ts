@@ -7,7 +7,35 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
+
+async function loadMarketplaceManager(): Promise<typeof import('../marketplace-manager.js')> {
+  const moduleId = '@portel/photon/dist/marketplace-manager.js';
+  try {
+    return (await import(moduleId)) as typeof import('../marketplace-manager.js');
+  } catch {
+    // Internal photons are cached before execution, so relative imports point at
+    // the cache directory. Resolve the manager from the running Photon package.
+    const binDir = path.dirname(process.argv[1] || '');
+    const candidates = [
+      path.resolve(binDir, 'marketplace-manager.js'),
+      path.resolve(binDir, '../dist/marketplace-manager.js'),
+      path.resolve(process.cwd(), 'dist/marketplace-manager.js'),
+    ];
+    for (const candidate of candidates) {
+      try {
+        await fs.access(candidate);
+        return (await import(
+          pathToFileURL(candidate).href
+        )) as typeof import('../marketplace-manager.js');
+      } catch {
+        // Try the next known install layout.
+      }
+    }
+    throw new Error('Unable to locate Photon marketplace manager module');
+  }
+}
 
 export default class Marketplace {
   constructor(_workingDir?: string) {
@@ -33,7 +61,7 @@ export default class Marketplace {
       installed: boolean;
     }>
   > {
-    const { MarketplaceManager } = await import('../marketplace-manager.js');
+    const { MarketplaceManager } = await loadMarketplaceManager();
     const manager = new MarketplaceManager();
     await manager.initialize();
 
@@ -87,7 +115,7 @@ export default class Marketplace {
     path?: string;
     version?: string;
   }> {
-    const { MarketplaceManager } = await import('../marketplace-manager.js');
+    const { MarketplaceManager } = await loadMarketplaceManager();
     const manager = new MarketplaceManager();
     await manager.initialize();
 
@@ -134,7 +162,7 @@ export default class Marketplace {
     currentVersion?: string;
     newVersion?: string;
   }> {
-    const { MarketplaceManager, readLocalMetadata } = await import('../marketplace-manager.js');
+    const { MarketplaceManager, readLocalMetadata } = await loadMarketplaceManager();
     const manager = new MarketplaceManager();
     await manager.initialize();
 
@@ -188,7 +216,7 @@ export default class Marketplace {
       marketplace: string;
     }>
   > {
-    const { MarketplaceManager, readLocalMetadata } = await import('../marketplace-manager.js');
+    const { MarketplaceManager, readLocalMetadata } = await loadMarketplaceManager();
     const manager = new MarketplaceManager();
     await manager.initialize();
 
@@ -235,7 +263,7 @@ export default class Marketplace {
       photonCount: number;
     }>
   > {
-    const { MarketplaceManager } = await import('../marketplace-manager.js');
+    const { MarketplaceManager } = await loadMarketplaceManager();
     const manager = new MarketplaceManager();
     await manager.initialize();
 
@@ -266,7 +294,7 @@ export default class Marketplace {
   }: {
     source: string;
   }): Promise<{ name: string; added: boolean }> {
-    const { MarketplaceManager } = await import('../marketplace-manager.js');
+    const { MarketplaceManager } = await loadMarketplaceManager();
     const manager = new MarketplaceManager();
     await manager.initialize();
 
@@ -284,7 +312,7 @@ export default class Marketplace {
    * @param name Name of the marketplace source to remove
    */
   static async removeSource({ name }: { name: string }): Promise<{ removed: boolean }> {
-    const { MarketplaceManager } = await import('../marketplace-manager.js');
+    const { MarketplaceManager } = await loadMarketplaceManager();
     const manager = new MarketplaceManager();
     await manager.initialize();
 

@@ -1584,9 +1584,15 @@ export class PhotonLoader {
         // declared class — and silently left `this.memory` undefined. That
         // turned every `.memory.set(...)` call into a data-loss bug that
         // only surfaced on daemon cold start.
-        // User-defined memory wins; `in` walks the prototype chain
-        // so Photon-base getters aren't silently shadowed.
-        if (!('memory' in instance)) {
+        // User-defined memory wins; `in` walks the prototype chain so
+        // Photon-base getters aren't silently shadowed. TS declaration fields
+        // like `memory!` compile to an own `memory: undefined` value, though;
+        // that is not a user provider and still needs runtime injection.
+        const ownMemory = Object.getOwnPropertyDescriptor(instance, 'memory');
+        if (
+          !('memory' in instance) ||
+          (ownMemory && 'value' in ownMemory && ownMemory.value == null)
+        ) {
           const memoryBaseDir = this.baseDir;
           Object.defineProperty(instance, 'memory', {
             get() {
@@ -2294,7 +2300,11 @@ export class PhotonLoader {
       }
 
       // Always-inject memory (see primary load path for rationale).
-      if (!('memory' in instance)) {
+      const ownMemory = Object.getOwnPropertyDescriptor(instance, 'memory');
+      if (
+        !('memory' in instance) ||
+        (ownMemory && 'value' in ownMemory && ownMemory.value == null)
+      ) {
         const memoryBaseDir = this.baseDir;
         Object.defineProperty(instance, 'memory', {
           get() {
