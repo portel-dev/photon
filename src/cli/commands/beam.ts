@@ -314,6 +314,12 @@ export function registerBeamCommand(program: Command): void {
             if (err) logger.debug(`Could not auto-open browser: ${err.message}`);
           });
         }
+
+        // Bun does not reliably keep this CLI process alive from the Node
+        // HTTP server handle alone. Keep an explicit event-loop handle so
+        // `photon beam` continues serving after startBeam() completes.
+        const keepAlive = setInterval(() => {}, 2147483647);
+        process.once('exit', () => clearInterval(keepAlive));
       } catch (error) {
         logger.error(`Error: ${getErrorMessage(error)}`);
         process.exit(1);

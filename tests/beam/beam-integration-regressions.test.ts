@@ -7,8 +7,9 @@
  * 2. Cross-client state sync: CLI mutation → Beam MCP returns fresh data
  * 3. Dynamic photon subscription: photons added after startup get state-changed events
  * 4. State-changed events include the photon name for frontend routing
+ * 5. Bun-launched Beam CLI stays alive after printing the URL
  *
- * Run: npx tsx tests/beam/beam-integration-regressions.test.ts
+ * Run: bunx tsx tests/beam/beam-integration-regressions.test.ts
  */
 
 import { spawn, ChildProcess, execSync } from 'child_process';
@@ -21,6 +22,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const BEAM_PORT = 3850 + Math.floor(Math.random() * 100);
+const BUN_BEAM_PORT = BEAM_PORT + 500;
 const BEAM_URL = `http://localhost:${BEAM_PORT}`;
 
 let beamProcess: ChildProcess | null = null;
@@ -120,6 +122,54 @@ function cleanup() {
   if (beamProcess) {
     beamProcess.kill('SIGTERM');
     beamProcess = null;
+  }
+}
+
+async function assertBunBeamCliStaysAlive(): Promise<void> {
+  const cliPath = path.join(__dirname, '../../dist/cli.js');
+  const proc = spawn('bun', [cliPath, 'beam', '--port', String(BUN_BEAM_PORT), '--no-open'], {
+    cwd: tmpDir,
+    env: { ...process.env, PHOTON_DIR: tmpDir, NODE_ENV: 'test' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let output = '';
+  let exited = false;
+  proc.stdout?.on('data', (chunk) => {
+    output += chunk.toString();
+  });
+  proc.stderr?.on('data', (chunk) => {
+    output += chunk.toString();
+  });
+  proc.on('exit', (code, signal) => {
+    exited = true;
+    output += `\n[exit ${code ?? ''} ${signal ?? ''}]`;
+  });
+
+  try {
+    const deadline = Date.now() + 15000;
+    let served = false;
+    while (Date.now() < deadline) {
+      if (exited) break;
+      try {
+        const res = await fetch(`http://127.0.0.1:${BUN_BEAM_PORT}/`, {
+          signal: AbortSignal.timeout(1000),
+        });
+        const html = await res.text();
+        if (res.ok && html.includes('Photon Beam')) {
+          served = true;
+          break;
+        }
+      } catch {
+        // Not ready yet.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    assert(served, `Bun-launched Beam did not serve HTTP. Output:\n${output}`);
+    assert(!exited, `Bun-launched Beam exited after startup. Output:\n${output}`);
+  } finally {
+    proc.kill('SIGTERM');
   }
 }
 
@@ -282,6 +332,8 @@ async function run() {
 
   await setup();
   console.log(`  tmpDir: ${tmpDir}`);
+
+  await test('Bun-launched Beam CLI stays alive after startup', assertBunBeamCliStaysAlive);
 
   try {
     await startBeam();
