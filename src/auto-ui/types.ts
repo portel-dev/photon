@@ -120,6 +120,36 @@ export interface MethodInfo {
   hasGeneratorAsks?: boolean;
 }
 
+export const PHOTON_RENDER_META_KEY = 'photon/render';
+
+export type PhotonRenderMode = 'auto' | 'custom';
+
+export interface PhotonRenderMeta {
+  /** Renderer contract version for Photon clients. */
+  version: 1;
+  /** Whether the client should auto-render structured data or load a custom UI resource. */
+  mode: PhotonRenderMode;
+  /** Auto UI renderer hint: table, list, chart:bar, dashboard, markdown, etc. */
+  format?: string;
+  /** Field mappings and layout hints such as title/subtitle/value fields. */
+  layoutHints?: Record<string, string>;
+  /** Optional command button label for the client shell. */
+  buttonLabel?: string;
+  /** Optional emoji/icon hint for the client shell. */
+  icon?: string;
+  /** Whether this tool should run when selected. */
+  autorun?: boolean;
+  /** True when this tool is a prompt/template-style MCP entry point. */
+  isTemplate?: boolean;
+  /** MCP Apps UI visibility for model/app callers. */
+  visibility?: ('model' | 'app')[];
+  /** MCP resource references needed by the renderer. */
+  resources?: {
+    /** Custom UI resource URI, usually ui://... */
+    ui?: string;
+  };
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // PHOTON INFO
 // ════════════════════════════════════════════════════════════════════════════════
@@ -612,6 +642,62 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
   return extensions;
 }
 
+export function buildPhotonRenderMeta(
+  method: Partial<MethodInfo> | undefined,
+  options: { uiResourceUri?: string } = {}
+): PhotonRenderMeta | undefined {
+  if (!method) return undefined;
+
+  const render: PhotonRenderMeta = {
+    version: 1,
+    mode: options.uiResourceUri || method.linkedUi ? 'custom' : 'auto',
+  };
+
+  if (method.outputFormat) render.format = method.outputFormat;
+  if (method.layoutHints) render.layoutHints = method.layoutHints;
+  if (method.buttonLabel) render.buttonLabel = method.buttonLabel;
+  if (method.icon) render.icon = method.icon;
+  if (method.autorun) render.autorun = true;
+  if (method.isTemplate) render.isTemplate = true;
+  if (method.visibility) render.visibility = method.visibility;
+  if (options.uiResourceUri) {
+    render.resources = { ui: options.uiResourceUri };
+  }
+
+  const hasRenderableHints =
+    render.mode === 'custom' ||
+    !!render.format ||
+    !!render.layoutHints ||
+    !!render.buttonLabel ||
+    !!render.icon ||
+    !!render.autorun ||
+    !!render.isTemplate ||
+    !!render.visibility;
+
+  return hasRenderableHints ? render : undefined;
+}
+
+export function buildToolMCPMeta(
+  method: MethodInfo,
+  options: { uiResourceUri?: string; includeUi?: boolean } = {}
+): Record<string, unknown> {
+  const meta: Record<string, unknown> = {};
+  const render = buildPhotonRenderMeta(method, { uiResourceUri: options.uiResourceUri });
+
+  if (render) {
+    meta[PHOTON_RENDER_META_KEY] = render;
+  }
+
+  if (options.includeUi !== false && (options.uiResourceUri || method.visibility)) {
+    meta.ui = {
+      ...(options.uiResourceUri ? { resourceUri: options.uiResourceUri } : {}),
+      ...(method.visibility ? { visibility: method.visibility } : {}),
+    };
+  }
+
+  return meta;
+}
+
 /**
  * Build UI metadata for tool response (MCP Apps Extension)
  *
@@ -632,6 +718,15 @@ export function buildResponseUIMetadata(
   }
   if (method.layoutHints) {
     metadata['x-layout-hints'] = method.layoutHints;
+  }
+
+  const render = buildPhotonRenderMeta(method, {
+    uiResourceUri: method.linkedUi ? `ui://${photonName}/${method.linkedUi}` : undefined,
+  });
+  if (render) {
+    metadata._meta = {
+      [PHOTON_RENDER_META_KEY]: render,
+    };
   }
 
   return metadata;

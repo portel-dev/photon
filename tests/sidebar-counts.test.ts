@@ -68,16 +68,30 @@ function toolsToPhotons(tools: MCPTool[]) {
       });
     }
 
+    const renderMeta = tool._meta?.['photon/render'] as
+      | {
+          format?: string;
+          layoutHints?: Record<string, string>;
+          buttonLabel?: string;
+          icon?: string;
+          autorun?: boolean;
+          isTemplate?: boolean;
+          resources?: { ui?: string };
+        }
+      | undefined;
+    const uiResourceUri = renderMeta?.resources?.ui ?? tool._meta?.ui?.resourceUri;
+
     photonMap.get(photonName).methods.push({
       name: methodName,
       description: tool.description || '',
       params: tool.inputSchema || { type: 'object', properties: {} },
-      icon: tool['x-icon'],
-      autorun: tool['x-autorun'],
-      outputFormat: tool['x-output-format'],
-      layoutHints: tool['x-layout-hints'],
-      buttonLabel: tool['x-button-label'],
-      linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
+      icon: renderMeta?.icon ?? tool['x-icon'],
+      autorun: renderMeta?.autorun ?? tool['x-autorun'],
+      outputFormat: renderMeta?.format ?? tool['x-output-format'],
+      layoutHints: renderMeta?.layoutHints ?? tool['x-layout-hints'],
+      buttonLabel: renderMeta?.buttonLabel ?? tool['x-button-label'],
+      linkedUi: uiResourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
+      ...(renderMeta?.isTemplate || tool['x-is-template'] ? { isTemplate: true } : {}),
     });
   }
 
@@ -234,6 +248,32 @@ async function testMethodMetadata() {
     const serum = photons.find((p) => p.name === 'serum');
     assert.equal(serum.methods[0].outputFormat, 'markdown');
     assert.equal(serum.methods[1].outputFormat, undefined);
+  });
+
+  await test('prefers photon/render metadata over legacy x-* aliases', () => {
+    const photons = toolsToPhotons([
+      {
+        name: 'reports/list',
+        description: 'List reports',
+        inputSchema: { type: 'object', properties: {} },
+        'x-output-format': 'markdown',
+        'x-layout-hints': { title: 'legacyTitle' },
+        _meta: {
+          'photon/render': {
+            version: 1,
+            mode: 'auto',
+            format: 'table',
+            layoutHints: { title: 'name' },
+            resources: { ui: 'ui://reports/table.html' },
+          },
+        },
+      },
+    ]);
+
+    const method = photons[0].methods[0];
+    assert.equal(method.outputFormat, 'table');
+    assert.deepEqual(method.layoutHints, { title: 'name' });
+    assert.equal(method.linkedUi, 'table.html');
   });
 
   await test('detects app photons with main + linkedUi', () => {

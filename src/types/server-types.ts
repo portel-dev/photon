@@ -49,6 +49,8 @@ export interface MCPToolDefinition {
   outputSchema?: Record<string, unknown>;
   icons?: Array<{ src: string; mimeType?: string; sizes?: string; theme?: string }>;
   _meta?: Record<string, unknown>;
+  /** Allow MCP extension properties such as x-output-format during migration. */
+  [key: string]: unknown;
 }
 
 /**

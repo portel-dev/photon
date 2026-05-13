@@ -50,6 +50,85 @@ function post(port: number, agent: http.Agent, id: number): Promise<number> {
   });
 }
 
+function postJSON(
+  port: number,
+  body: Record<string, unknown>,
+  agent = new http.Agent({ keepAlive: false })
+): Promise<{ status: number; body: any }> {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/mcp',
+        method: 'POST',
+        agent,
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let responseBody = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          responseBody += chunk;
+        });
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: responseBody ? JSON.parse(responseBody) : null,
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
+function createTestContext(overrides: Record<string, unknown> = {}) {
+  return {
+    photons: [],
+    photonMCPs: new Map(),
+    externalMCPs: [],
+    externalMCPClients: new Map(),
+    externalMCPSDKClients: new Map(),
+    reconnectExternalMCP: async () => false,
+    loadUIAsset: async () => null,
+    configurePhoton: async () => ({ success: false, error: 'not configured in test' }),
+    reloadPhoton: async () => ({ success: false, error: 'not configured in test' }),
+    removePhoton: async () => ({ success: false, error: 'not configured in test' }),
+    updateMetadata: () => undefined,
+    generatePhotonHelp: () => '',
+    loader: undefined,
+    broadcast: () => undefined,
+    workingDir: process.cwd(),
+    ...overrides,
+  } as any;
+}
+
+async function withServer(context: any, fn: (port: number) => Promise<void>): Promise<void> {
+  const server = http.createServer(async (req, res) => {
+    const handled = await handleStreamableHTTP(req, res, context);
+    if (!handled) {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    assert(address && typeof address === 'object', 'server should listen on an ephemeral port');
+    await fn(address.port);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
 async function runTests(): Promise<void> {
   console.log('\nStreamable HTTP Transport:');
 
@@ -120,6 +199,125 @@ async function runTests(): Promise<void> {
       process.off('warning', onWarning);
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+
+  await test('tools/list exposes photon/render metadata and legacy aliases', async () => {
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'demo-id',
+          name: 'demo',
+          path: `${process.cwd()}/demo.photon.ts`,
+          configured: true,
+          methods: [
+            {
+              name: 'rows',
+              description: 'List rows',
+              params: { type: 'object', properties: {} },
+              returns: { type: 'object' },
+              outputFormat: 'table',
+              layoutHints: { title: 'name' },
+              outputSchema: {
+                type: 'object',
+                properties: {
+                  rows: { type: 'array' },
+                },
+              },
+            },
+          ],
+        },
+      ],
+      photonMCPs: new Map([
+        [
+          'demo',
+          {
+            instance: {
+              rows: () => ({ rows: [{ name: 'alpha' }] }),
+            },
+          },
+        ],
+      ]),
+    });
+
+    await withServer(context, async (port) => {
+      const response = await postJSON(port, {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+        params: {},
+      });
+
+      assert.equal(response.status, 200);
+      const tool = response.body.result.tools.find((entry: any) => entry.name === 'demo/rows');
+      assert(tool, 'expected demo/rows tool');
+      assert.equal(tool['x-output-format'], 'table');
+      assert.deepEqual(tool['x-layout-hints'], { title: 'name' });
+      assert.deepEqual(tool._meta['photon/render'], {
+        version: 1,
+        mode: 'auto',
+        format: 'table',
+        layoutHints: { title: 'name' },
+      });
+    });
+  });
+
+  await test('tools/call returns structuredContent with photon/render metadata', async () => {
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'demo-id',
+          name: 'demo',
+          path: `${process.cwd()}/demo.photon.ts`,
+          configured: true,
+          methods: [
+            {
+              name: 'rows',
+              description: 'List rows',
+              params: { type: 'object', properties: {} },
+              returns: { type: 'object' },
+              outputFormat: 'table',
+              layoutHints: { title: 'name' },
+              outputSchema: {
+                type: 'object',
+                properties: {
+                  rows: { type: 'array' },
+                },
+              },
+            },
+          ],
+        },
+      ],
+      photonMCPs: new Map([
+        [
+          'demo',
+          {
+            instance: {
+              rows: () => ({ rows: [{ name: 'alpha' }] }),
+            },
+          },
+        ],
+      ]),
+    });
+
+    await withServer(context, async (port) => {
+      const response = await postJSON(port, {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'demo/rows', arguments: {} },
+      });
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body.result.structuredContent, { rows: [{ name: 'alpha' }] });
+      assert.equal(response.body.result['x-output-format'], 'table');
+      assert.deepEqual(response.body.result['x-layout-hints'], { title: 'name' });
+      assert.deepEqual(response.body.result._meta['photon/render'], {
+        version: 1,
+        mode: 'auto',
+        format: 'table',
+        layoutHints: { title: 'name' },
+      });
+    });
   });
 
   console.log(`\n${passed} passed, ${failed} failed\n`);

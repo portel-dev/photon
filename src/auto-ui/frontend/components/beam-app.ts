@@ -7439,6 +7439,28 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
   }
 
+  private _applyRenderMetaFromResult(result: {
+    'x-output-format'?: string;
+    'x-layout-hints'?: Record<string, string>;
+    _meta?: Record<string, any>;
+  }): void {
+    if (!this._selectedMethod) return;
+
+    const renderMeta = result._meta?.['photon/render'];
+    const outputFormat = renderMeta?.format ?? result['x-output-format'];
+    const layoutHints = renderMeta?.layoutHints ?? result['x-layout-hints'];
+    const buttonLabel = renderMeta?.buttonLabel;
+
+    if (!outputFormat && !layoutHints && !buttonLabel) return;
+
+    this._selectedMethod = {
+      ...this._selectedMethod,
+      ...(outputFormat ? { outputFormat } : {}),
+      ...(layoutHints ? { layoutHints } : {}),
+      ...(buttonLabel ? { buttonLabel } : {}),
+    };
+  }
+
   private async _handleExecute(e: CustomEvent) {
     const args = e.detail.args;
     this._lastFormParams = args; // Store for sharing
@@ -7471,6 +7493,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             this._lastResult = { _error: true, message: errorText };
           }
         } else {
+          this._applyRenderMetaFromResult(result);
           this._lastResult = mcpClient.parseToolResult(result);
 
           // Auto-wrap array results with pagination metadata if needed
@@ -7544,6 +7567,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       const result = await mcpClient.callTool(toolName, this._lastFormParams || {});
 
       if (!result.isError) {
+        this._applyRenderMetaFromResult(result);
         this._lastResult = mcpClient.parseToolResult(result);
 
         // Auto-wrap array results with pagination metadata if needed

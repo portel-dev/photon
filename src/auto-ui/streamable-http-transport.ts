@@ -49,7 +49,7 @@ import type {
   PhotonInstance,
   ExternalMCPInfo,
 } from './types.js';
-import { buildToolMetadataExtensions } from './types.js';
+import { buildResponseUIMetadata, buildToolMCPMeta, buildToolMetadataExtensions } from './types.js';
 import { generateServerCard } from '../server-card.js';
 import { audit } from '../shared/audit.js';
 import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
@@ -1222,6 +1222,10 @@ const handlers: Record<string, RequestHandler> = {
       const webUrl = webRootRoute ? `/web/${photon.name}/` : undefined;
 
       for (const method of photon.methods) {
+        const uiResourceUri = method.linkedUi
+          ? `ui://${photon.name}/${method.linkedUi}`
+          : undefined;
+        const meta = buildToolMCPMeta(method, { uiResourceUri });
         tools.push({
           name: `${photon.name}/${method.name}`,
           description: method.description || `Execute ${method.name}`,
@@ -1250,19 +1254,7 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-resource-count': photon.resourceCount ?? 0,
           ...(webUrl ? { 'x-web-url': webUrl, 'x-web-description': photon.description } : {}),
           ...buildToolMetadataExtensions(method),
-          // MCP Apps standard: _meta.ui for linked UI resources and visibility
-          ...(method.linkedUi || method.visibility
-            ? {
-                _meta: {
-                  ui: {
-                    ...(method.linkedUi
-                      ? { resourceUri: `ui://${photon.name}/${method.linkedUi}` }
-                      : {}),
-                    ...(method.visibility ? { visibility: method.visibility } : {}),
-                  },
-                },
-              }
-            : {}),
+          ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
         });
       }
     }
@@ -1314,6 +1306,7 @@ const handlers: Record<string, RequestHandler> = {
         if (!mcp.connected || !mcp.methods) continue;
 
         for (const method of mcp.methods) {
+          const meta = buildToolMCPMeta(method, { uiResourceUri: method.linkedUi });
           tools.push({
             name: `${mcp.name}/${method.name}`,
             description: method.description || `Execute ${method.name}`,
@@ -1328,17 +1321,7 @@ const handlers: Record<string, RequestHandler> = {
             'x-mcp-app-uri': mcp.appResourceUri, // MCP App resource URI (default/first)
             'x-mcp-app-uris': mcp.appResourceUris || [], // All MCP App resource URIs
             ...buildToolMetadataExtensions(method),
-            // MCP Apps standard: _meta.ui for linked UI resources and visibility
-            ...(method.linkedUi || method.visibility
-              ? {
-                  _meta: {
-                    ui: {
-                      ...(method.linkedUi ? { resourceUri: method.linkedUi } : {}),
-                      ...(method.visibility ? { visibility: method.visibility } : {}),
-                    },
-                  },
-                }
-              : {}),
+            ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
           });
         }
       }
@@ -1792,11 +1775,7 @@ const handlers: Record<string, RequestHandler> = {
       ? photonInfo.methods?.find((m) => m.name === methodName)
       : undefined;
 
-    // Build UI metadata
-    const uiMetadata: Record<string, any> = {};
-    if (methodInfo?.outputFormat) {
-      uiMetadata['x-output-format'] = methodInfo.outputFormat;
-    }
+    const uiMetadata = buildResponseUIMetadata(photonName, methodInfo);
 
     // Auto-confirm @destructive operations before execution (any transport path)
     if (methodInfo?.destructiveHint) {

@@ -49,6 +49,11 @@ import {
   hasExtension,
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
+import {
+  PHOTON_RENDER_META_KEY,
+  buildPhotonRenderMeta,
+  buildToolMCPMeta,
+} from './auto-ui/types.js';
 import { pingDaemon } from './daemon/client.js';
 import { ensureDaemon } from './daemon/manager.js';
 import {
@@ -335,8 +340,11 @@ class BeamCompatTransport implements Transport {
             'x-photon-has-settings': sub.hasSettings,
           };
           // Add UI linking metadata if this tool has a linked UI
-          if (tool.linkedUi) {
-            def._meta = { ui: { resourceUri: `ui://${sub.name}/${tool.linkedUi}` } };
+          const meta = buildToolMCPMeta(tool, {
+            uiResourceUri: tool.linkedUi ? `ui://${sub.name}/${tool.linkedUi}` : undefined,
+          });
+          if (Object.keys(meta).length > 0) {
+            def._meta = { ...def._meta, ...meta };
           }
           return def;
         });
@@ -1139,6 +1147,7 @@ export class PhotonServer {
     if (!this.mcp) {
       return { tools: [] };
     }
+    const mcpName = this.mcp.name;
 
     const tools = this.mcp.tools.map((tool) => {
       // Append deprecation notice to tool description if tagged
@@ -1177,8 +1186,23 @@ export class PhotonServer {
       const linkedUI = this.mcp?.assets?.ui.find(
         (u) => u.linkedTool === tool.name || u.linkedTools?.includes(tool.name)
       );
+      if (schema.outputFormat) toolDef['x-output-format'] = schema.outputFormat;
+      if (schema.layoutHints) toolDef['x-layout-hints'] = schema.layoutHints;
+      if (schema.buttonLabel) toolDef['x-button-label'] = schema.buttonLabel;
+      if (schema.icon) toolDef['x-icon'] = schema.icon;
+      if (schema.autorun) toolDef['x-autorun'] = true;
+
+      const renderMeta = buildPhotonRenderMeta(schema, {
+        uiResourceUri: linkedUI ? `ui://${mcpName}/${linkedUI.id}` : undefined,
+      });
+      if (renderMeta) {
+        toolDef._meta = { ...toolDef._meta, [PHOTON_RENDER_META_KEY]: renderMeta };
+      }
       if (linkedUI && this.capabilityNegotiator.supportsUI(ctx.server)) {
-        toolDef._meta = this.resourceServer.buildUIToolMeta(this.mcp!.name, linkedUI.id);
+        toolDef._meta = {
+          ...toolDef._meta,
+          ...this.resourceServer.buildUIToolMeta(this.mcp!.name, linkedUI.id),
+        };
       }
 
       return toolDef;
@@ -1533,9 +1557,24 @@ export class PhotonServer {
       response.structuredContent = actualResult;
     }
 
-    // Add x-output-format for format-aware clients
+    const linkedUI = this.mcp?.assets?.ui.find(
+      (u) => u.linkedTool === toolName || u.linkedTools?.includes(toolName)
+    );
+    const supportsLinkedUI = !!linkedUI && this.capabilityNegotiator.supportsUI(ctx.server);
+
+    // Add x-output-format for legacy format-aware clients
     if (outputFormat) {
       response['x-output-format'] = outputFormat;
+    }
+    if (schema?.layoutHints) {
+      response['x-layout-hints'] = schema.layoutHints;
+    }
+
+    const renderMeta = buildPhotonRenderMeta(schema, {
+      uiResourceUri: supportsLinkedUI ? `ui://${this.mcp.name}/${linkedUI.id}` : undefined,
+    });
+    if (renderMeta) {
+      response._meta = { ...response._meta, [PHOTON_RENDER_META_KEY]: renderMeta };
     }
 
     // Add stateful workflow metadata (machine-readable _meta)
@@ -1544,10 +1583,7 @@ export class PhotonServer {
     }
 
     // Enrich response with structuredContent + _meta for tools with linked UIs
-    const linkedUI = this.mcp?.assets?.ui.find(
-      (u) => u.linkedTool === toolName || u.linkedTools?.includes(toolName)
-    );
-    if (linkedUI && this.capabilityNegotiator.supportsUI(ctx.server)) {
+    if (supportsLinkedUI) {
       if (actualResult !== undefined && actualResult !== null) {
         response.structuredContent =
           typeof actualResult === 'string' ? { text: actualResult } : actualResult;

@@ -11,6 +11,23 @@
 import { MCPClientSDK } from './mcp-client-sdk.js';
 import { getGlobalSessionManager } from './photon-instance-manager.js';
 
+const PHOTON_RENDER_META_KEY = 'photon/render';
+
+interface PhotonRenderMeta {
+  version?: number;
+  mode?: 'auto' | 'custom';
+  format?: string;
+  layoutHints?: Record<string, string>;
+  buttonLabel?: string;
+  icon?: string;
+  autorun?: boolean;
+  isTemplate?: boolean;
+  visibility?: string[];
+  resources?: {
+    ui?: string;
+  };
+}
+
 interface MCPTool {
   name: string;
   description?: string;
@@ -49,7 +66,22 @@ interface MCPTool {
   'x-has-mcp-app'?: boolean;
   'x-mcp-app-uri'?: string;
   'x-mcp-app-uris'?: string[];
-  _meta?: { ui?: { resourceUri?: string; visibility?: string[] } };
+  _meta?: {
+    ui?: { resourceUri?: string; visibility?: string[] };
+    [PHOTON_RENDER_META_KEY]?: PhotonRenderMeta;
+  };
+}
+
+interface MCPToolResult {
+  content: Array<{ type: string; text?: string }>;
+  structuredContent?: unknown;
+  isError?: boolean;
+  'x-output-format'?: string;
+  'x-layout-hints'?: Record<string, string>;
+  _meta?: {
+    [PHOTON_RENDER_META_KEY]?: PhotonRenderMeta;
+    [key: string]: unknown;
+  };
 }
 
 interface MCPResource {
@@ -425,20 +457,12 @@ class MCPClientService {
     name: string,
     args: Record<string, unknown>,
     progressToken?: string | number
-  ): Promise<{
-    content: Array<{ type: string; text?: string }>;
-    structuredContent?: unknown;
-    isError?: boolean;
-  }> {
+  ): Promise<MCPToolResult> {
     const sdk = this.requireSdk();
     try {
       return (await sdk.callTool(name, args, {
         progressToken,
-      })) as {
-        content: Array<{ type: string; text?: string }>;
-        structuredContent?: unknown;
-        isError?: boolean;
-      };
+      })) as MCPToolResult;
     } catch (error) {
       if (this.isConnectionError(error)) {
         return this.queueOperation(name, args, progressToken);
@@ -643,7 +667,31 @@ class MCPClientService {
     }
   }
 
-  parseToolResult(result: { content: Array<{ type: string; text?: string }> }): unknown {
+  getRenderMeta(source: { _meta?: Record<string, unknown> } | MCPTool | MCPToolResult | undefined) {
+    return source?._meta?.[PHOTON_RENDER_META_KEY] as PhotonRenderMeta | undefined;
+  }
+
+  private getOutputFormat(tool: MCPTool): string | undefined {
+    return this.getRenderMeta(tool)?.format ?? tool['x-output-format'];
+  }
+
+  private getLayoutHints(tool: MCPTool): Record<string, string> | undefined {
+    return this.getRenderMeta(tool)?.layoutHints ?? tool['x-layout-hints'];
+  }
+
+  private getLinkedUi(tool: MCPTool): string | undefined {
+    const resourceUri = this.getRenderMeta(tool)?.resources?.ui ?? tool._meta?.ui?.resourceUri;
+    return resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1];
+  }
+
+  private getVisibility(tool: MCPTool): string[] | undefined {
+    return this.getRenderMeta(tool)?.visibility ?? tool._meta?.ui?.visibility;
+  }
+
+  parseToolResult(result: MCPToolResult): unknown {
+    if (result.structuredContent !== undefined) {
+      return result.structuredContent;
+    }
     if (result.content && result.content.length > 0) {
       const textContent = result.content.find((c) => c.type === 'text');
       if (textContent?.text) {
@@ -734,9 +782,12 @@ class MCPClientService {
           name: methodName,
           description: tool.description || '',
           params: tool.inputSchema || { type: 'object', properties: {} },
-          icon: tool['x-icon'],
-          linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
-          visibility: tool._meta?.ui?.visibility,
+          icon: this.getRenderMeta(tool)?.icon ?? tool['x-icon'],
+          outputFormat: this.getOutputFormat(tool),
+          layoutHints: this.getLayoutHints(tool),
+          buttonLabel: this.getRenderMeta(tool)?.buttonLabel ?? tool['x-button-label'],
+          linkedUi: this.getLinkedUi(tool),
+          visibility: this.getVisibility(tool),
         });
       } else {
         if (!photonMap.has(serverName)) {
@@ -773,17 +824,19 @@ class MCPClientService {
             name: methodName,
             description: tool.description || '',
             params: tool.inputSchema || { type: 'object', properties: {} },
-            icon: tool['x-icon'],
-            autorun: tool['x-autorun'],
-            outputFormat: tool['x-output-format'],
-            layoutHints: tool['x-layout-hints'],
-            buttonLabel: tool['x-button-label'],
-            linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
-            visibility: tool._meta?.ui?.visibility,
+            icon: this.getRenderMeta(tool)?.icon ?? tool['x-icon'],
+            autorun: this.getRenderMeta(tool)?.autorun ?? tool['x-autorun'],
+            outputFormat: this.getOutputFormat(tool),
+            layoutHints: this.getLayoutHints(tool),
+            buttonLabel: this.getRenderMeta(tool)?.buttonLabel ?? tool['x-button-label'],
+            linkedUi: this.getLinkedUi(tool),
+            visibility: this.getVisibility(tool),
             webhook: tool['x-webhook'],
             scheduled: tool['x-scheduled'],
             locked: tool['x-locked'],
-            ...(tool['x-is-template'] ? { isTemplate: true } : {}),
+            ...(this.getRenderMeta(tool)?.isTemplate || tool['x-is-template']
+              ? { isTemplate: true }
+              : {}),
           });
         }
       }
@@ -893,11 +946,7 @@ class MCPClientService {
     name: string,
     args: Record<string, unknown>,
     progressToken?: string | number
-  ): Promise<{
-    content: Array<{ type: string; text?: string }>;
-    structuredContent?: unknown;
-    isError?: boolean;
-  }> {
+  ): Promise<MCPToolResult> {
     return new Promise((resolve, reject) => {
       const op: PendingOperation = {
         id: ++this.nextOpId,
