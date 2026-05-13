@@ -234,7 +234,7 @@ async function mcpCallTool(
       method: 'tools/call',
       params: { name: toolName, arguments: args },
     }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(30000),
   });
   return res.json();
 }

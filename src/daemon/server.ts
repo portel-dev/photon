@@ -4974,7 +4974,7 @@ async function applyPatchToInstance(
   if (keys.length === 0) return;
 
   // Get current state as plain JSON
-  const snapshot = await snapshotState(instance, photonName);
+  const snapshot = await snapshotState(instance, photonName, workingDir);
   if (!snapshot) return;
 
   // Apply patch operations

@@ -118,7 +118,10 @@ await test('/api/platform-bridge has correct content-type', async () => {
   const res = await fetch(`${BASE_URL}/api/platform-bridge?photon=test&method=main`);
   const contentType = res.headers.get('content-type');
 
-  assert(contentType?.includes('text/html'), `Content-Type should be text/html, got ${contentType}`);
+  assert(
+    contentType?.includes('text/html'),
+    `Content-Type should be text/html, got ${contentType}`
+  );
 });
 
 await test('/api/platform-bridge includes window.photon API', async () => {
@@ -238,8 +241,10 @@ await test('/api/platform-bridge response is reasonably sized', async () => {
   const res = await fetch(`${BASE_URL}/api/platform-bridge?photon=test&method=main`);
   const body = await res.text();
 
-  // Bridge script should be under 50KB (it's mostly inline JS)
-  assert(body.length < 50000, `Response too large: ${body.length} bytes`);
+  // The bridge includes MCP Apps compatibility, theme tokens, render helpers,
+  // and custom UI bindings. Keep this as a regression guard against accidental
+  // runaway growth rather than a tight bundle budget.
+  assert(body.length < 100000, `Response too large: ${body.length} bytes`);
   assert(body.length > 5000, `Response too small: ${body.length} bytes`);
 });
 

@@ -2532,7 +2532,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // finishes. Without this, file changes that arrive mid-load are silently dropped.
           if (activeLoads.has(photonName)) {
             pendingAfterLoad.add(photonName);
-            resolvePendingReload(photonName);
             return;
           }
           activeLoads.add(photonName);
