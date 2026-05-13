@@ -23,6 +23,24 @@ Desktop, Cursor, the CLI).
 > (e.g. the connected client didn't declare `sampling`), you get a
 > clear error, never a silent default.
 
+## Runtime MCP Compliance
+
+Photon keeps runtime discovery and UI attachment on MCP primitives:
+
+- Tools are discovered through paginated `tools/list`.
+- Static and custom UI assets are discovered through paginated
+  `resources/list` / `resources/templates/list` and loaded with
+  `resources/read`.
+- Prompts are discovered through paginated `prompts/list`.
+- Interactive asks use `elicitation/create` when the connected client declares
+  elicitation support; clients without that capability get a clear tool error.
+- Auto UI render hints live under `_meta["photon/render"]`; legacy
+  `x-output-format` and `x-layout-hints` fields are compatibility aliases.
+
+Beam follows every `nextCursor` until discovery is complete, so large local
+workspaces render the same complete tool/resource surface as external MCP
+clients.
+
 ---
 
 ## `this.sample` — delegate LLM calls to the caller's agent

@@ -77,6 +77,62 @@ import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from '../t
 import { generateAgentCard } from '../a2a/card-generator.js';
 import { isPathInScope } from '../daemon/claims.js';
 
+const MCP_LIST_PAGE_SIZE = 100;
+
+class InvalidCursorError extends Error {
+  constructor(cursor: unknown) {
+    super(`Invalid pagination cursor: ${String(cursor)}`);
+  }
+}
+
+function encodeListCursor(offset: number): string {
+  return Buffer.from(JSON.stringify({ offset }), 'utf8').toString('base64url');
+}
+
+function decodeListCursor(cursor: unknown): number {
+  if (cursor == null || cursor === '') return 0;
+  if (typeof cursor !== 'string') throw new InvalidCursorError(cursor);
+
+  // Accept the old task-style numeric cursor shape defensively, but emit opaque
+  // base64url cursors for all new paginated list results.
+  if (/^\d+$/.test(cursor)) return Number(cursor);
+
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      offset?: unknown;
+    };
+    if (!Number.isInteger(decoded.offset) || (decoded.offset as number) < 0) {
+      throw new Error('cursor offset must be a non-negative integer');
+    }
+    return decoded.offset as number;
+  } catch {
+    throw new InvalidCursorError(cursor);
+  }
+}
+
+function paginateMCPList<T>(
+  items: T[],
+  cursor: unknown,
+  pageSize = MCP_LIST_PAGE_SIZE
+): { items: T[]; nextCursor?: string } {
+  const offset = decodeListCursor(cursor);
+  if (offset > items.length) throw new InvalidCursorError(cursor);
+  const page = items.slice(offset, offset + pageSize);
+  const nextOffset = offset + pageSize;
+  return {
+    items: page,
+    ...(nextOffset < items.length ? { nextCursor: encodeListCursor(nextOffset) } : {}),
+  };
+}
+
+function invalidCursorResponse(id: unknown, error: Error): JSONRPCResponse {
+  return {
+    jsonrpc: '2.0',
+    id: id as any,
+    error: { code: -32602, message: error.message },
+  };
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // JWT HELPERS
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1703,7 +1759,23 @@ const handlers: Record<string, RequestHandler> = {
           return true;
         });
 
-    return { jsonrpc: '2.0', id: req.id, result: { tools: visibleTools } };
+    try {
+      const page = paginateMCPList(
+        visibleTools,
+        (req.params as { cursor?: unknown } | undefined)?.cursor
+      );
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          tools: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+      };
+    } catch (error) {
+      if (error instanceof InvalidCursorError) return invalidCursorResponse(req.id, error);
+      throw error;
+    }
   },
 
   'tools/call': async (req, session, ctx) => {
@@ -2760,7 +2832,23 @@ const handlers: Record<string, RequestHandler> = {
       });
     }
 
-    return { jsonrpc: '2.0', id: req.id, result: { resources } };
+    try {
+      const page = paginateMCPList(
+        resources,
+        (req.params as { cursor?: unknown } | undefined)?.cursor
+      );
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          resources: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+      };
+    } catch (error) {
+      if (error instanceof InvalidCursorError) return invalidCursorResponse(req.id, error);
+      throw error;
+    }
   },
 
   'resources/templates/list': async (req, _session, ctx) => {
@@ -2786,7 +2874,23 @@ const handlers: Record<string, RequestHandler> = {
       }
     }
 
-    return { jsonrpc: '2.0', id: req.id, result: { resourceTemplates } };
+    try {
+      const page = paginateMCPList(
+        resourceTemplates,
+        (req.params as { cursor?: unknown } | undefined)?.cursor
+      );
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          resourceTemplates: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+      };
+    } catch (error) {
+      if (error instanceof InvalidCursorError) return invalidCursorResponse(req.id, error);
+      throw error;
+    }
   },
 
   'resources/read': async (req, session, ctx) => {
@@ -2965,7 +3069,23 @@ const handlers: Record<string, RequestHandler> = {
         });
       }
     }
-    return { jsonrpc: '2.0', id: req.id, result: { prompts } };
+    try {
+      const page = paginateMCPList(
+        prompts,
+        (req.params as { cursor?: unknown } | undefined)?.cursor
+      );
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          prompts: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+      };
+    } catch (error) {
+      if (error instanceof InvalidCursorError) return invalidCursorResponse(req.id, error);
+      throw error;
+    }
   },
 
   'prompts/get': async (req, _session, ctx) => {

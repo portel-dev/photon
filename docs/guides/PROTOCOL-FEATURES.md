@@ -2,6 +2,28 @@
 
 Seven protocol features that make your photons discoverable, observable, and interoperable with external agents and UIs.
 
+## MCP Discovery Pagination
+
+Photon exposes large workspaces through the standard MCP list operations:
+`tools/list`, `resources/list`, `resources/templates/list`, `prompts/list`, and
+`tasks/list`. These methods support MCP cursor pagination.
+
+Clients should treat `nextCursor` as opaque and keep requesting the same method
+with `params.cursor` until the response omits `nextCursor`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/list",
+  "params": { "cursor": "opaque-server-token" }
+}
+```
+
+Beam does this automatically. Custom MCP clients should do the same so every
+tool, resource, template, prompt, and task remains visible in large photon
+installations.
+
 ## AG-UI Events
 
 AG-UI (Agent-to-UI) maps photon yields to a standard event protocol that external UIs can consume.

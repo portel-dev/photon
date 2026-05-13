@@ -319,13 +319,31 @@ export class MCPClientSDK {
   }
 
   async listTools(): Promise<unknown[]> {
-    const res = await this.request<{ tools?: unknown[] }>('tools/list', {});
-    return res?.tools ?? [];
+    const tools: unknown[] = [];
+    let cursor: string | undefined;
+    do {
+      const res = await this.request<{ tools?: unknown[]; nextCursor?: unknown }>(
+        'tools/list',
+        cursor ? { cursor } : {}
+      );
+      tools.push(...(res?.tools ?? []));
+      cursor = typeof res?.nextCursor === 'string' ? res.nextCursor : undefined;
+    } while (cursor);
+    return tools;
   }
 
   async listResources(): Promise<unknown[]> {
-    const res = await this.request<{ resources?: unknown[] }>('resources/list', {});
-    return res?.resources ?? [];
+    const resources: unknown[] = [];
+    let cursor: string | undefined;
+    do {
+      const res = await this.request<{ resources?: unknown[]; nextCursor?: unknown }>(
+        'resources/list',
+        cursor ? { cursor } : {}
+      );
+      resources.push(...(res?.resources ?? []));
+      cursor = typeof res?.nextCursor === 'string' ? res.nextCursor : undefined;
+    } while (cursor);
+    return resources;
   }
 
   async readResource(uri: string): Promise<unknown> {

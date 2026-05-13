@@ -104,6 +104,27 @@ Just as Claude Desktop is an MCP client for AI, Beam gives humans the same inter
 | **Beam** | Humans in browser | MCP Streamable HTTP |
 | **PWA** | End users | Standalone app (MCP + UI bundled) |
 
+### Client-First UI Contract
+
+Beam is an MCP client, not a parallel UI protocol. Server code owns business logic,
+tool/resource discovery, permissions, and notifications. Browser code owns DOM
+creation, renderer selection, interaction binding, and hydration.
+
+Auto UI must therefore flow through MCP primitives:
+
+- `tools/list` exposes tool schemas, annotations, output schemas, and
+  `_meta["photon/render"]` render hints.
+- `tools/call` returns `content` for model-visible compatibility and
+  `structuredContent` for client renderers.
+- `resources/list`, `resources/templates/list`, and `resources/read` expose custom
+  UI assets as MCP resources such as `ui://...`.
+- Custom or generated HTML always runs as a sandboxed MCP Apps resource, never as
+  direct Beam DOM.
+
+Compatibility aliases such as `x-output-format` and `x-layout-hints` may remain
+on the wire during migration, but `_meta["photon/render"]` is the authoritative
+render contract.
+
 ---
 
 ## Design Philosophy: Simplest Path to Best Practice
@@ -511,6 +532,21 @@ This makes it easy to develop and test photons locally without installing them g
 | CLI ↔ Photon (`@stateful`) | Daemon Unix Socket | Shared session via daemon |
 | Beam ↔ Photon (`@stateful`) | Daemon Unix Socket | Routed through daemon for shared instance |
 | External Agent ↔ Beam | AG-UI over MCP | `ag-ui/run` + `ag-ui/event` notifications |
+
+### MCP List Pagination
+
+MCP list operations that can grow with a workspace must honor cursor pagination:
+
+- `tools/list`
+- `resources/list`
+- `resources/templates/list`
+- `prompts/list`
+- `tasks/list`
+
+Servers choose the page size and emit an opaque `nextCursor` when more results
+exist. Clients must keep requesting with `params.cursor` until `nextCursor` is
+absent. Beam's browser client follows this flow so large photon workspaces do
+not silently hide tools or resources after the first page.
 
 ### Real-Time Flow
 

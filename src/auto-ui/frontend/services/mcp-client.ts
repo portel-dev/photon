@@ -427,8 +427,14 @@ class MCPClientService {
 
   async listTools(): Promise<MCPTool[]> {
     const sdk = this.requireSdk();
-    const result = await sdk.request('tools/list', {});
-    return result.tools || [];
+    const tools: MCPTool[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = await sdk.request('tools/list', cursor ? { cursor } : {});
+      tools.push(...((result.tools || []) as MCPTool[]));
+      cursor = typeof result.nextCursor === 'string' ? result.nextCursor : undefined;
+    } while (cursor);
+    return tools;
   }
 
   /**
@@ -473,8 +479,14 @@ class MCPClientService {
 
   async listResources(): Promise<MCPResource[]> {
     const sdk = this.requireSdk();
-    const result = await sdk.request('resources/list', {});
-    return result.resources || [];
+    const resources: MCPResource[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = await sdk.request('resources/list', cursor ? { cursor } : {});
+      resources.push(...((result.resources || []) as MCPResource[]));
+      cursor = typeof result.nextCursor === 'string' ? result.nextCursor : undefined;
+    } while (cursor);
+    return resources;
   }
 
   async readResource(uri: string): Promise<MCPResourceContent | null> {

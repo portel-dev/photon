@@ -261,6 +261,116 @@ async function runTests(): Promise<void> {
     });
   });
 
+  await test('MCP list endpoints paginate with nextCursor', async () => {
+    const methods = Array.from({ length: 105 }, (_, index) => ({
+      name: `method${index}`,
+      description: `Method ${index}`,
+      params: { type: 'object', properties: {} },
+      returns: { type: 'object' },
+    }));
+    const uiAssets = Array.from({ length: 105 }, (_, index) => ({
+      id: `view${index}`,
+      uri: `ui://demo/view${index}`,
+      mimeType: 'text/html;profile=mcp-app',
+    }));
+    const statics = Array.from({ length: 105 }, (_, index) => ({
+      uri: `demo://items/${index}/{id}`,
+      name: `item${index}`,
+      mimeType: 'application/json',
+    }));
+    const templates = Array.from({ length: 105 }, (_, index) => ({
+      name: `prompt${index}`,
+      description: `Prompt ${index}`,
+      inputSchema: { type: 'object', properties: {} },
+    }));
+
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'demo-id',
+          name: 'demo',
+          path: `${process.cwd()}/demo.photon.ts`,
+          configured: true,
+          methods,
+          assets: { ui: uiAssets },
+        },
+      ],
+      photonMCPs: new Map([
+        [
+          'demo',
+          {
+            instance: {},
+            statics,
+            templates,
+          },
+        ],
+      ]),
+    });
+
+    await withServer(context, async (port) => {
+      const toolPage1 = await postJSON(port, {
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'tools/list',
+        params: {},
+      });
+      assert.equal(toolPage1.status, 200);
+      assert.equal(toolPage1.body.result.tools.length, 100);
+      assert.equal(typeof toolPage1.body.result.nextCursor, 'string');
+
+      const toolPage2 = await postJSON(port, {
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'tools/list',
+        params: { cursor: toolPage1.body.result.nextCursor },
+      });
+      assert.equal(toolPage2.status, 200);
+      assert(toolPage2.body.result.tools.some((tool: any) => tool.name === 'demo/method100'));
+
+      for (const [method, collection] of [
+        ['resources/list', 'resources'],
+        ['resources/templates/list', 'resourceTemplates'],
+        ['prompts/list', 'prompts'],
+      ] as const) {
+        const page1 = await postJSON(port, {
+          jsonrpc: '2.0',
+          id: `${method}-1`,
+          method,
+          params: {},
+        });
+        assert.equal(page1.status, 200);
+        assert.equal(page1.body.result[collection].length, 100);
+        assert.equal(typeof page1.body.result.nextCursor, 'string');
+
+        const page2 = await postJSON(port, {
+          jsonrpc: '2.0',
+          id: `${method}-2`,
+          method,
+          params: { cursor: page1.body.result.nextCursor },
+        });
+        assert.equal(page2.status, 200);
+        assert(page2.body.result[collection].length > 0);
+      }
+    });
+  });
+
+  await test('MCP list endpoints reject malformed cursors as invalid params', async () => {
+    const context = createTestContext();
+
+    await withServer(context, async (port) => {
+      const response = await postJSON(port, {
+        jsonrpc: '2.0',
+        id: 12,
+        method: 'tools/list',
+        params: { cursor: 'not-a-valid-cursor' },
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.body.error.code, -32602);
+      assert.match(response.body.error.message, /Invalid pagination cursor/);
+    });
+  });
+
   await test('tools/call returns structuredContent with photon/render metadata', async () => {
     const context = createTestContext({
       photons: [
