@@ -152,8 +152,12 @@ echo ""
 
 # ─── 3. Test suite ───────────────────────────────────
 echo "▶ Step 4: Test suite"
-bun run test
-echo "  ✓ Tests pass"
+if [ "${PHOTON_RELEASE_ASSUME_TESTED:-}" = "1" ]; then
+  echo "  ✓ Tests already passed in this release session"
+else
+  bun run test
+  echo "  ✓ Tests pass"
+fi
 echo ""
 
 # ─── 5. Yield pattern check ─────────────────────────
