@@ -263,6 +263,7 @@ const workingDirs = new Map<PhotonCompositeKey, string>(); // compositeKey -> wo
 // Keyed by resolved file path (realpathSync), not composite key.
 const fileWatchers = new Map<string, SafeWatcher>();
 const watchDebounce = new Map<string, NodeJS.Timeout>(); // keyed by base:filename, not photon
+const activeFileWatcherReloads = new Set<string>(); // resolved file paths currently being reloaded
 const HOT_RELOAD_DEBOUNCE_MS = parseNonNegativeEnvInt('PHOTON_DAEMON_HOT_RELOAD_DEBOUNCE_MS', 1000);
 const PROACTIVE_METADATA_DEBOUNCE_MS = parseNonNegativeEnvInt(
   'PHOTON_PROACTIVE_METADATA_DEBOUNCE_MS',
@@ -303,6 +304,25 @@ function recordPhotonSourceStat(key: PhotonCompositeKey, photonPath: string | un
   if (s) photonSourceStats.set(key, s);
 }
 
+function samePhotonSourceStat(
+  a: PhotonSourceStat | null | undefined,
+  b: PhotonSourceStat
+): boolean {
+  return !!a && a.mtimeMs === b.mtimeMs && a.size === b.size && a.ino === b.ino;
+}
+
+function photonSourceAlreadyLoaded(photonName: string, photonPath: string): boolean {
+  const current = statOrNull(photonPath);
+  if (!current) return false;
+
+  for (const [key, storedPath] of photonPaths.entries()) {
+    if (!key.endsWith(`::${photonName}`) || storedPath !== photonPath) continue;
+    if (samePhotonSourceStat(photonSourceStats.get(key), current)) return true;
+  }
+
+  return false;
+}
+
 /**
  * Compare the current file stat against the last-recorded stat. If the
  * file has changed since the cached photon was loaded, trigger a
@@ -326,11 +346,7 @@ async function statGate(
   }
   const current = statOrNull(photonPath);
   if (!current) return;
-  if (
-    current.mtimeMs === cached.mtimeMs &&
-    current.size === cached.size &&
-    current.ino === cached.ino
-  ) {
+  if (samePhotonSourceStat(cached, current)) {
     return;
   }
   logger.info('stat-gate: source changed since last load, syncing reload', {
@@ -5224,6 +5240,20 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
           }
 
           if (!fs.existsSync(photonPath)) return;
+          if (activeFileWatcherReloads.has(watchPath)) {
+            logger.debug('Coalescing file watcher event during active reload', {
+              photonName,
+              path: photonPath,
+            });
+            return;
+          }
+          if (photonSourceAlreadyLoaded(photonName, photonPath)) {
+            logger.debug('Ignoring file watcher event for already-loaded source', {
+              photonName,
+              path: photonPath,
+            });
+            return;
+          }
 
           logger.info('File changed, auto-reloading', { photonName, path: photonPath });
 
@@ -5231,6 +5261,7 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
           stateKeysCache.delete(photonName);
 
           try {
+            activeFileWatcherReloads.add(watchPath);
             await reloadPhoton(photonName, photonPath);
           } catch (err) {
             logger.error('Hot-reload crashed — old instance preserved', {
@@ -5242,6 +5273,8 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
               timestamp: Date.now(),
               error: getErrorMessage(err),
             });
+          } finally {
+            activeFileWatcherReloads.delete(watchPath);
           }
         })();
       }, HOT_RELOAD_DEBOUNCE_MS);

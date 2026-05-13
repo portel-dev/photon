@@ -852,7 +852,9 @@ async function testWatcherSurvivesReloadCycle() {
     fs.appendFileSync(PHOTON_FILE, '\n// resilience-test\n');
 
     const reloadLog = await waitForDaemonLog(
-      (log) => log.includes('File changed, auto-reloading'),
+      (log) =>
+        log.includes('File changed, auto-reloading') &&
+        log.includes('Photon reloaded successfully'),
       'File edit should trigger reload'
     );
     assert.ok(
