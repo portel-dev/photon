@@ -17,8 +17,6 @@ import {
   getDataRoot,
   getCacheDir,
   getDaemonSocketPath,
-  getDaemonPidPath,
-  getDaemonLogPath,
   listPhotonFilesWithNamespace,
   resolvePhotonPath,
   DEFAULT_PHOTON_DIR as HOME_PHOTON_DIR,
@@ -46,6 +44,10 @@ export interface PhotonContext {
 // HOME_PHOTON_DIR is the user's global ~/.photon directory — the default
 // PHOTON_DIR when no explicit override is set. Imported from photon-core
 // as the canonical DEFAULT_PHOTON_DIR constant; aliased for local clarity.
+
+function getPhotonHomeDir(): string {
+  return process.env.PHOTON_HOME ? path.resolve(process.env.PHOTON_HOME) : HOME_PHOTON_DIR;
+}
 
 /**
  * Check whether a directory is a photon marketplace — i.e. the user has
@@ -105,6 +107,7 @@ function isPhotonDirectory(dir: string): boolean {
 export function getDefaultContext(): PhotonContext {
   const cwd = process.cwd();
   let baseDir: string;
+  const photonHomeDir = getPhotonHomeDir();
 
   if (process.env.PHOTON_DIR) {
     // Explicit PHOTON_DIR always wins — once set, all downstream code respects it
@@ -114,7 +117,7 @@ export function getDefaultContext(): PhotonContext {
     baseDir = cwd;
     process.env.PHOTON_DIR = cwd;
   } else {
-    baseDir = HOME_PHOTON_DIR;
+    baseDir = photonHomeDir;
   }
 
   // Data/cache/state live under the resolved PHOTON_DIR (baseDir).
@@ -126,9 +129,12 @@ export function getDefaultContext(): PhotonContext {
     dataDir: getDataRoot(baseDir),
     cacheDir: getCacheDir(baseDir),
     configFile: path.join(baseDir, 'config.json'),
-    socketPath: getDaemonSocketPath(),
-    pidFile: getDaemonPidPath(),
-    logFile: getDaemonLogPath(),
+    socketPath:
+      process.platform === 'win32'
+        ? getDaemonSocketPath()
+        : path.join(photonHomeDir, '.data', 'daemon.sock'),
+    pidFile: path.join(photonHomeDir, '.data', 'daemon.pid'),
+    logFile: path.join(photonHomeDir, '.data', 'daemon.log'),
   });
 }
 
@@ -140,7 +146,7 @@ export function getDefaultContext(): PhotonContext {
  * Returns null when no extra workspace applies.
  */
 export function getLocalWorkspace(): string | null {
-  const homeResolved = path.resolve(HOME_PHOTON_DIR);
+  const homeResolved = path.resolve(getPhotonHomeDir());
 
   // PHOTON_DIR takes precedence — explicit override always wins
   if (process.env.PHOTON_DIR) {

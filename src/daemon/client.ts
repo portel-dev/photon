@@ -23,6 +23,7 @@ const SESSION_ID =
 const logger = createLogger({ component: 'daemon-client', minimal: true });
 const cliProgress = new ProgressRenderer();
 const DEFAULT_DAEMON_READY_TIMEOUT_MS = 30_000;
+const DEFAULT_DAEMON_COMMAND_RETRIES = 3;
 
 function getDaemonReadyTimeoutMs(): number {
   const parsed = Number(process.env.PHOTON_DAEMON_READY_TIMEOUT_MS);
@@ -259,6 +260,11 @@ async function ensureDaemonReady(): Promise<void> {
   await waitForDaemon();
 }
 
+async function waitBeforeDaemonRetry(attempt: number): Promise<void> {
+  const delay = Math.min(100 * Math.pow(2, attempt), 1_000);
+  await new Promise((resolve) => setTimeout(resolve, delay));
+}
+
 /**
  * Send command to daemon with auto-restart on connection failure.
  * Retries on connection errors (restart daemon + retry) and on transient
@@ -278,11 +284,12 @@ export async function sendCommand(
     clientType?: DaemonRequest['clientType'];
   }
 ): Promise<any> {
-  const maxRetries = options?.maxRetries ?? 1;
+  const maxRetries = options?.maxRetries ?? DEFAULT_DAEMON_COMMAND_RETRIES;
   const isRetryable = RETRYABLE_METHODS.has(method);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      await ensureDaemonReady();
       return await sendCommandDirect(
         photonName,
         method,
@@ -297,6 +304,7 @@ export async function sendCommand(
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
         logger.info(`Daemon unreachable (${photonName}/${method}), waiting for daemon...`);
+        await waitBeforeDaemonRetry(attempt);
         await ensureDaemonReady();
         continue;
       }
@@ -321,7 +329,7 @@ export async function reloadDaemonPhoton(
   photonPath: string,
   workingDir?: string
 ): Promise<void> {
-  const maxRetries = 1;
+  const maxRetries = DEFAULT_DAEMON_COMMAND_RETRIES;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       await ensureDaemonReady();
@@ -329,6 +337,7 @@ export async function reloadDaemonPhoton(
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
         logger.info(`Daemon unreachable during reload (${photonName}), waiting for daemon...`);
+        await waitBeforeDaemonRetry(attempt);
         await ensureDaemonReady();
         continue;
       }
@@ -975,7 +984,7 @@ export interface PsSnapshot {
 async function sendSimpleDaemonRequest<T = unknown>(
   req: Omit<DaemonRequest, 'id'> & { id?: string }
 ): Promise<T> {
-  const maxRetries = 1;
+  const maxRetries = DEFAULT_DAEMON_COMMAND_RETRIES;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       await ensureDaemonReady();
@@ -983,6 +992,7 @@ async function sendSimpleDaemonRequest<T = unknown>(
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
         logger.info(`Daemon unreachable during ${req.type}, waiting for daemon...`);
+        await waitBeforeDaemonRetry(attempt);
         await ensureDaemonReady();
         continue;
       }
@@ -1307,7 +1317,7 @@ export async function getEventsSince(
   channel: string,
   lastEventId: string
 ): Promise<{ events: Array<{ eventId: string; message: unknown }>; refreshNeeded: boolean }> {
-  const maxRetries = 1;
+  const maxRetries = DEFAULT_DAEMON_COMMAND_RETRIES;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       await ensureDaemonReady();
@@ -1317,6 +1327,7 @@ export async function getEventsSince(
         logger.info(
           `Daemon unreachable during get_events_since (${channel}), waiting for daemon...`
         );
+        await waitBeforeDaemonRetry(attempt);
         await ensureDaemonReady();
         continue;
       }

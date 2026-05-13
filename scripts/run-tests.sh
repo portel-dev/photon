@@ -45,6 +45,7 @@ SUITES=(
   "daemon-pubsub:$RUN tests/daemon-pubsub.test.ts"
   "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
   "instance-drift:$RUN tests/instance-drift.test.ts"
+  "daemon-stale-binary:$RUN tests/daemon-stale-binary-restart.test.ts"
   "daemon-watcher:$RUN tests/daemon-watcher.test.ts"
   "execution-history:$RUN tests/execution-history.test.ts"
   "beam-daemon-routes:$RUN tests/beam-daemon-routes.test.ts"
