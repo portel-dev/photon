@@ -2504,7 +2504,12 @@ export class PhotonLoader {
   private extractClassDocblock(source: string): string {
     // Match the JSDoc comment immediately preceding `export default class`
     const match = source.match(/\/\*\*([\s\S]*?)\*\/\s*export\s+default\s+class\b/);
-    return match ? match[1] : '';
+    if (match) return match[1];
+
+    // Many photons use a file-level JSDoc block, followed by interfaces/types,
+    // as the photon metadata block. Preserve support for that layout.
+    const leadingMatch = source.match(/^\s*\/\*\*([\s\S]*?)\*\//);
+    return leadingMatch ? leadingMatch[1] : '';
   }
 
   private extractAuthTag(source: string): string | undefined {

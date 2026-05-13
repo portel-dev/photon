@@ -422,7 +422,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   // Capture base URL once at init, before any pushState navigation changes pathname.
   // Trailing slash stripped: '/web/port/' → 'http://localhost:3000/web/port'
   //                          '/'          → 'https://port.workers.dev'
-  var _photonBaseUrl = window.location.origin + window.location.pathname.replace(/\/$/, '');
+  var _photonBaseUrl = window.location.origin + window.location.pathname.replace(/\\/$/, '');
 
   window.photon = {
     get toolOutput() { return toolOutput; },

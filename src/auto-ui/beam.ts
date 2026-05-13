@@ -1132,7 +1132,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       // Extract class-level JSDoc block to avoid matching @tags inside template literals
       const classDocblock =
-        schemaSource?.match(/\/\*\*[\s\S]*?\*\/\s*(?:export\s+)?(?:default\s+)?class\b/)?.[0] ?? '';
+        schemaSource?.match(/\/\*\*([\s\S]*?)\*\/\s*(?:export\s+)?(?:default\s+)?class\b/)?.[1] ??
+        schemaSource?.match(/^\s*\/\*\*([\s\S]*?)\*\//)?.[1] ??
+        '';
       const isStateful = classDocblock ? /@stateful\b/.test(classDocblock) : false;
       const authMatch = classDocblock?.match(/@auth\b(?:\s+(\S+))?/i);
       const authValue = authMatch ? authMatch[1]?.trim() || 'required' : undefined;

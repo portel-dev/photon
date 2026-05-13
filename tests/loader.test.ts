@@ -70,6 +70,42 @@ async function runTests() {
       console.log('✅ Load MCP with mixed types');
     }
 
+    // Test 1b: File-level metadata docblock with declarations before class
+    {
+      const testFile = path.join(testDir, 'test-file-docblock.photon.ts');
+      const content = `
+        /**
+         * Board Photon
+         *
+         * @icon 📋
+         * @stateful
+         */
+        interface Task {
+          title: string;
+        }
+
+        export default class FileDocblockMCP {
+          tasks: Task[] = [];
+
+          /**
+           * List tasks
+           */
+          async list() {
+            return this.tasks;
+          }
+        }
+      `;
+
+      await fs.writeFile(testFile, content, 'utf-8');
+
+      const result = await loader.loadFile(testFile);
+
+      assert.equal(result.stateful, true, 'Should read @stateful from leading photon docblock');
+      assert.equal(result.icon, '📋', 'Should read @icon from leading photon docblock');
+
+      console.log('✅ File-level metadata docblock before declarations');
+    }
+
     // Test 2: Load MCP with parameterized static
     {
       const testFile = path.join(testDir, 'test-params.photon.ts');
