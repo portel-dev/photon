@@ -5,7 +5,7 @@
  * defined in docs/PROMISES.md and reports coverage against the full contract.
  * Tests across four targets: CLI, MCP, Beam (visual), and Runtime.
  *
- * Run: npm run test:promises
+ * Run: bun run test:promises
  *
  * This suite is intentionally explicit about scope. It should never imply that
  * unexercised promises are validated.
@@ -22,6 +22,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const CLI_PATH = path.join(__dirname, '..', 'dist', 'cli.js');
+const PHOTON_CLI = `${JSON.stringify(process.execPath)} ${JSON.stringify(CLI_PATH)}`;
 const FIXTURES = path.join(__dirname, 'fixtures');
 const PROMISE_PHOTON = path.join(FIXTURES, 'promise-test.photon.ts');
 const PROMISE_DOC = path.join(__dirname, '..', 'docs', 'PROMISES.md');
@@ -216,7 +217,7 @@ let _lookoutReady: boolean | null = null;
 async function lookoutAvailable(): Promise<boolean> {
   if (_lookoutReady !== null) return _lookoutReady;
   try {
-    const out = execSync('photon lookout status --json -y', {
+    const out = execSync(`${PHOTON_CLI} lookout status --json -y`, {
       timeout: 15_000,
       encoding: 'utf-8',
       env: { ...process.env, NO_COLOR: '1' },
@@ -233,7 +234,7 @@ async function lookoutValidate(
   promises: string[]
 ): Promise<{ passed: number; failed: number; results: any[] }> {
   const out = execSync(
-    `photon lookout validate --image "${imagePath}" --promises '${JSON.stringify(promises)}' -y`,
+    `${PHOTON_CLI} lookout validate --image "${imagePath}" --promises '${JSON.stringify(promises)}' -y`,
     {
       timeout: 120_000,
       encoding: 'utf-8',
