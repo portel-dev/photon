@@ -23,6 +23,13 @@ import { getOwnerFilePath, isPidAlive as checkPidAlive, readOwnerRecord } from '
 import { createLogger } from '../shared/logger.js';
 import { getDefaultContext, type PhotonContext } from '../context.js';
 
+const DEFAULT_DAEMON_READY_TIMEOUT_MS = 30_000;
+
+function getDaemonReadyTimeoutMs(): number {
+  const parsed = Number(process.env.PHOTON_DAEMON_READY_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DAEMON_READY_TIMEOUT_MS;
+}
+
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -633,7 +640,7 @@ export class DaemonManager {
    *
    * Polls until the socket comes up OR the lock-holding process dies.
    *
-   * IMPORTANT: maxWait must exceed spawnDaemon's own timeout (10 s).
+   * IMPORTANT: maxWait must exceed spawnDaemon's own readiness timeout.
    * If we time out faster than the lock holder can finish a healthy
    * spawn, we'll force-spawn a second daemon — both daemons race to
    * bind the socket, the loser is detected by the imposter scan and
@@ -646,7 +653,7 @@ export class DaemonManager {
    * where two processes both think they hold the lock.
    */
   private async waitForDaemon(quiet: boolean): Promise<void> {
-    const maxWait = 15_000;
+    const maxWait = getDaemonReadyTimeoutMs() + 5_000;
     const interval = 200;
     let waited = 0;
 
@@ -722,17 +729,7 @@ export class DaemonManager {
     const isPipe = process.platform === 'win32' && this.ctx.socketPath.startsWith('\\\\.\\pipe\\');
     if (!isPipe && !fs.existsSync(this.ctx.socketPath)) return false;
     return new Promise((resolve) => {
-      let sock: net.Socket;
-      try {
-        // TOCTOU vs. existsSync above: file may vanish, and Bun can throw
-        // synchronously on a missing unix socket before any 'error' listener
-        // attaches. Catch and resolve(false) to keep this defensive helper
-        // from crashing the process.
-        sock = net.createConnection(this.ctx.socketPath);
-      } catch {
-        resolve(false);
-        return;
-      }
+      const sock = new net.Socket();
       let buf = '';
       const id = `health-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
       const finish = (alive: boolean): void => {
@@ -741,6 +738,7 @@ export class DaemonManager {
         resolve(alive);
       };
       const timer = setTimeout(() => finish(false), 2_000);
+      sock.on('error', () => finish(false));
       sock.on('connect', () => {
         try {
           sock.write(JSON.stringify({ type: 'ping', id }) + '\n');
@@ -762,7 +760,11 @@ export class DaemonManager {
           finish(false);
         }
       });
-      sock.on('error', () => finish(false));
+      try {
+        sock.connect(this.ctx.socketPath);
+      } catch {
+        finish(false);
+      }
     });
   }
 
@@ -928,7 +930,7 @@ export class DaemonManager {
     }
 
     // Wait for socket to actually accept connections (not just file existence)
-    const maxWait = 10_000;
+    const maxWait = getDaemonReadyTimeoutMs();
     const interval = 100;
     let waited = 0;
     while (waited < maxWait) {
@@ -940,7 +942,9 @@ export class DaemonManager {
     }
 
     await this.cleanupStaleAsync();
-    throw new Error('Daemon started but socket was not ready within 10s');
+    throw new Error(
+      `Daemon started but socket was not ready within ${Math.round(maxWait / 1000)}s`
+    );
   }
 
   /**

@@ -97,34 +97,34 @@ let daemonOwnershipConfirmed = false;
 
 async function isSocketResponsive(target: string): Promise<boolean> {
   // Windows named pipes have no filesystem entry; skip the FS gate on
-  // win32 and let net.createConnection probe the pipe directly. The
-  // 'error' handler below resolves false on failure; the try/catch
-  // wrapper guards against sync throws.
+  // win32 and let the socket probe the pipe directly. Register the
+  // error handler before connect() so Bun cannot surface ENOENT before
+  // listeners exist.
   const isPipe = process.platform === 'win32' && target.startsWith('\\\\.\\pipe\\');
   if (!isPipe && !fs.existsSync(target)) return false;
   return new Promise((resolve) => {
-    let client: net.Socket;
-    try {
-      // Bun can throw synchronously on a missing/unreachable unix socket
-      // before the 'error' listener attaches — TOCTOU vs. existsSync above.
-      client = net.createConnection(target);
-    } catch {
-      resolve(false);
-      return;
-    }
+    const client = new net.Socket();
     const timer = setTimeout(() => {
       client.destroy();
       resolve(false);
     }, 1000);
+    client.on('error', () => {
+      clearTimeout(timer);
+      client.destroy();
+      resolve(false);
+    });
     client.on('connect', () => {
       clearTimeout(timer);
       client.destroy();
       resolve(true);
     });
-    client.on('error', () => {
+    try {
+      client.connect(target);
+    } catch {
       clearTimeout(timer);
+      client.destroy();
       resolve(false);
-    });
+    }
   });
 }
 

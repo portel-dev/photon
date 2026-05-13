@@ -22,6 +22,12 @@ const SESSION_ID =
   process.env.PHOTON_SESSION_ID || `cli-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const logger = createLogger({ component: 'daemon-client', minimal: true });
 const cliProgress = new ProgressRenderer();
+const DEFAULT_DAEMON_READY_TIMEOUT_MS = 30_000;
+
+function getDaemonReadyTimeoutMs(): number {
+  const parsed = Number(process.env.PHOTON_DAEMON_READY_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DAEMON_READY_TIMEOUT_MS;
+}
 
 /**
  * Render a generator emit yield in the CLI (mirrors loader's createOutputHandler)
@@ -174,15 +180,19 @@ function connectToDaemon(socketPath: string): net.Socket {
     process.nextTick(() => dummy.emit('error', err));
     return dummy;
   }
-  try {
-    return net.createConnection(socketPath);
-  } catch (syncErr: any) {
-    // TOCTOU: file vanished between existsSync and createConnection.
-    // Emit asynchronously for the same reason as above.
-    const dummy = new net.Socket();
-    process.nextTick(() => dummy.emit('error', syncErr));
-    return dummy;
-  }
+
+  const socket = new net.Socket();
+  // Give callers one tick to attach error/data/connect handlers before
+  // Bun can report ENOENT/ECONNREFUSED for a socket that vanished after
+  // the existsSync guard.
+  process.nextTick(() => {
+    try {
+      socket.connect(socketPath);
+    } catch (syncErr: any) {
+      socket.emit('error', syncErr);
+    }
+  });
+  return socket;
 }
 
 /**
@@ -233,7 +243,7 @@ const RETRYABLE_METHODS = new Set(['_instances', '_use', '_settings', '_runs', '
  * Called after ensureDaemon() so sendCommand retries land on a ready socket,
  * not on a socket that exists on disk but the daemon hasn't bound yet.
  */
-async function waitForDaemon(timeoutMs = 10_000): Promise<void> {
+async function waitForDaemon(timeoutMs = getDaemonReadyTimeoutMs()): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let delay = 100;
   while (Date.now() < deadline) {
@@ -241,7 +251,7 @@ async function waitForDaemon(timeoutMs = 10_000): Promise<void> {
     await new Promise<void>((r) => setTimeout(r, delay));
     delay = Math.min(delay * 2, 1000);
   }
-  throw new Error('Daemon did not become ready within timeout');
+  throw new Error(`Daemon did not become ready within ${Math.round(timeoutMs / 1000)}s`);
 }
 
 async function ensureDaemonReady(): Promise<void> {
