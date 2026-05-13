@@ -5,6 +5,12 @@
 
 set -o pipefail
 
+# macOS GUI-launched shells can inherit a very low soft descriptor limit even
+# when interactive shells report a higher value. The full suite starts many
+# short-lived Bun/Vitest processes and writes per-suite logs, so raise the soft
+# limit before the runner begins.
+ulimit -n 4096 2>/dev/null || ulimit -n 2048 2>/dev/null || true
+
 if ! command -v bun &>/dev/null; then
   echo "❌ Bun is required. Install Bun, then run: bun install"
   exit 1

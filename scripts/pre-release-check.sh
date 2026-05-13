@@ -4,6 +4,10 @@
 # Exit on any failure
 set -e
 
+# release-it can run hooks from environments with macOS's low GUI soft
+# descriptor limit. Raise it before build/test/fresh-install checks.
+ulimit -n 4096 2>/dev/null || ulimit -n 2048 2>/dev/null || true
+
 echo "═══════════════════════════════════════════════════"
 echo "  Pre-Release Verification"
 echo "═══════════════════════════════════════════════════"
