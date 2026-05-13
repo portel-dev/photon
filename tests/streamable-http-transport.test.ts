@@ -320,6 +320,56 @@ async function runTests(): Promise<void> {
     });
   });
 
+  await test('tools/call requiring elicitation fails fast when client lacks capability', async () => {
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'shop-id',
+          name: 'shop',
+          path: `${process.cwd()}/shop.photon.ts`,
+          configured: true,
+          methods: [
+            {
+              name: 'browse',
+              description: 'Browse menu',
+              params: { type: 'object', properties: {} },
+              returns: { type: 'object' },
+              hasGeneratorAsks: true,
+            },
+          ],
+        },
+      ],
+      photonMCPs: new Map([['shop', { instance: { browse: () => null } }]]),
+      loader: {
+        executeTool: async (_mcp: any, _method: string, _args: any, options: any) => {
+          await options.inputProvider({
+            ask: 'select',
+            message: 'Pick a pizza',
+            options: [{ value: 'margherita', label: 'Margherita' }],
+            multi: true,
+          });
+          return { ok: true };
+        },
+      },
+    });
+
+    await withServer(context, async (port) => {
+      const response = await postJSON(port, {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'shop/browse', arguments: {} },
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.body.result.isError, true);
+      assert.match(
+        response.body.result.content[0].text,
+        /requires MCP elicitation, but this client did not advertise the elicitation capability/
+      );
+    });
+  });
+
   console.log(`\n${passed} passed, ${failed} failed\n`);
   if (failed > 0) process.exit(1);
 }

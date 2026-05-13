@@ -117,6 +117,7 @@ interface MCPSession {
   sseResponse?: ServerResponse; // For server-to-client notifications
   isBeam?: boolean; // True if client is Beam UI
   clientInfo?: { name: string; version: string };
+  clientCapabilities?: Record<string, unknown>;
   /** Tracked instance name for daemon drift recovery */
   instanceName?: string;
   /**
@@ -264,6 +265,130 @@ function requestSession(
       reject(err instanceof Error ? err : new Error(String(err)));
     }
   });
+}
+
+function sessionSupportsFormElicitation(session: MCPSession): boolean {
+  const elicitation = session.clientCapabilities?.elicitation;
+  if (!elicitation || typeof elicitation !== 'object' || Array.isArray(elicitation)) {
+    return false;
+  }
+  return Object.keys(elicitation).length === 0 || 'form' in elicitation;
+}
+
+function buildMcpElicitParamsFromAsk(ask: any): {
+  mode: 'form';
+  message: string;
+  requestedSchema: {
+    type: 'object';
+    properties: Record<string, any>;
+    required?: string[];
+  };
+} {
+  const message = ask.message || 'Please provide input';
+  switch (ask.ask) {
+    case 'confirm':
+      return {
+        mode: 'form',
+        message,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            confirmed: {
+              type: 'boolean',
+              title: ask.label || 'Confirm',
+              description: ask.hint || ask.message,
+              default: ask.default ?? false,
+            },
+          },
+          required: ['confirmed'],
+        },
+      };
+    case 'number':
+      return {
+        mode: 'form',
+        message,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            value: {
+              type: 'number',
+              title: ask.label || 'Number',
+              description: ask.hint || ask.message,
+              default: ask.default,
+              minimum: ask.min,
+              maximum: ask.max,
+            },
+          },
+          required: ask.required !== false ? ['value'] : [],
+        },
+      };
+    case 'select': {
+      const options = ask.options || [];
+      const optionItems = options.map((option: any) =>
+        typeof option === 'string'
+          ? { const: option, title: option }
+          : {
+              const: option.value,
+              title: option.label || String(option.value),
+              ...(option.description ? { description: option.description } : {}),
+            }
+      );
+      return {
+        mode: 'form',
+        message,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            selection: ask.multi
+              ? {
+                  type: 'array',
+                  title: ask.label || 'Selection',
+                  description: ask.hint || ask.message,
+                  items: { anyOf: optionItems },
+                  default: ask.default,
+                }
+              : {
+                  type: 'string',
+                  title: ask.label || 'Selection',
+                  description: ask.hint || ask.message,
+                  anyOf: optionItems,
+                  default: ask.default,
+                },
+          },
+          required: ask.required !== false ? ['selection'] : [],
+        },
+      };
+    }
+    case 'text':
+    case 'password':
+    default:
+      return {
+        mode: 'form',
+        message,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            value: {
+              type: 'string',
+              title: ask.label || 'Input',
+              description: ask.hint || ask.message,
+              default: ask.default,
+            },
+          },
+          required: ask.required !== false ? ['value'] : [],
+        },
+      };
+  }
+}
+
+function extractMcpElicitValue(ask: any, result: any): any {
+  if (result?.action !== 'accept') {
+    return ask.multi ? [] : ask.ask === 'confirm' ? false : null;
+  }
+  const content = result.content || {};
+  if (ask.ask === 'confirm') return content.confirmed ?? false;
+  if (ask.ask === 'select') return content.selection;
+  return content.value;
 }
 
 /**
@@ -840,6 +965,8 @@ const handlers: Record<string, RequestHandler> = {
       session.clientInfo = clientInfo;
       session.isBeam = clientInfo.name === 'beam';
     }
+    session.clientCapabilities =
+      (req.params?.capabilities as Record<string, unknown> | undefined) || {};
 
     // Generate configuration schema for unconfigured photons
     const configurationSchema = generateConfigurationSchema(ctx.photons);
@@ -2264,8 +2391,29 @@ const handlers: Record<string, RequestHandler> = {
       // Create inputProvider to handle ask yields (elicitation)
       // Supports persistent: true for durable approvals that survive navigation/restart
       const inputProvider = async (ask: any): Promise<any> => {
+        if (!session.isBeam) {
+          if (!sessionSupportsFormElicitation(session)) {
+            throw new Error(
+              `Tool ${photonName}/${methodName} requires MCP elicitation, but this client did not advertise the elicitation capability. ` +
+                'Call it from an MCP client that supports elicitation/create, or use the Beam UI.'
+            );
+          }
+          if (!session.sseResponse || session.sseResponse.writableEnded) {
+            throw new Error(
+              `Tool ${photonName}/${methodName} requires MCP elicitation, but this session has no live SSE stream for server-initiated requests.`
+            );
+          }
+          const result = await requestSession(
+            session.id,
+            'elicitation/create',
+            buildMcpElicitParamsFromAsk(ask),
+            300000
+          );
+          return extractMcpElicitValue(ask, result);
+        }
+
         if (!ctx.broadcast) {
-          throw new Error('No broadcast connection for elicitation');
+          throw new Error('No broadcast connection for Beam elicitation');
         }
 
         // Generate unique elicitation ID
