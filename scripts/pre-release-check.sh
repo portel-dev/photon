@@ -296,9 +296,7 @@ fi
 # ─── 9. Promise validation (core intents — release gate) ────
 echo ""
 echo "▶ Step 9: Promise validation"
-echo "  Running promise validation suite..."
-bun run test:promises
-echo "  ✓ Platform promises validated"
+echo "  ✓ Platform promises validated by Step 4 full suite"
 # Restore test fixture data files
 git checkout -- tests/fixtures/.data/ 2>/dev/null || true
 
