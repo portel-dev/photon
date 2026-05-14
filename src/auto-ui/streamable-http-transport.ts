@@ -171,6 +171,9 @@ interface MCPSession {
   createdAt: Date;
   lastActivity: Date;
   sseResponse?: ServerResponse; // For server-to-client notifications
+  sseOpenedAt?: Date;
+  remoteAddress?: string;
+  userAgent?: string;
   isBeam?: boolean; // True if client is Beam UI
   clientInfo?: { name: string; version: string };
   clientCapabilities?: Record<string, unknown>;
@@ -205,6 +208,10 @@ interface MCPResource {
 // ════════════════════════════════════════════════════════════════════════════════
 
 const sessions = new Map<string, MCPSession>();
+const MAX_SSE_SESSIONS_PER_CLIENT = Math.max(
+  4,
+  Number.parseInt(process.env.PHOTON_MAX_SSE_SESSIONS_PER_CLIENT || '12', 10) || 12
+);
 
 // Pending elicitations - waiting for user input
 interface PendingElicitation {
@@ -753,6 +760,41 @@ function getOrCreateSession(sessionId?: string): MCPSession {
   };
   sessions.set(newSession.id, newSession);
   return newSession;
+}
+
+function closeSessionSSE(session: MCPSession, reason: string): void {
+  const response = session.sseResponse;
+  session.sseResponse = undefined;
+  session.sseOpenedAt = undefined;
+  if (!response) return;
+  try {
+    if (!response.writableEnded && !response.destroyed) {
+      response.end();
+    }
+  } catch {
+    try {
+      response.destroy(new Error(reason));
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+function enforceSSESessionBudget(session: MCPSession): void {
+  const key = `${session.remoteAddress || 'unknown'}\n${session.userAgent || ''}`;
+  const open = Array.from(sessions.values())
+    .filter((candidate) => {
+      if (!candidate.sseResponse || candidate.sseResponse.writableEnded) return false;
+      const candidateKey = `${candidate.remoteAddress || 'unknown'}\n${candidate.userAgent || ''}`;
+      return candidateKey === key;
+    })
+    .sort((a, b) => (a.sseOpenedAt?.getTime() || 0) - (b.sseOpenedAt?.getTime() || 0));
+
+  const overflow = open.length - MAX_SSE_SESSIONS_PER_CLIENT;
+  if (overflow <= 0) return;
+  for (const stale of open.slice(0, overflow)) {
+    closeSessionSSE(stale, 'sse-session-budget-exceeded');
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -4711,6 +4753,8 @@ export async function handleStreamableHTTP(
     sessionId = url.searchParams.get('sessionId') || undefined;
   }
   const session = getOrCreateSession(sessionId);
+  session.remoteAddress = req.socket?.remoteAddress || 'unknown';
+  session.userAgent = req.headers['user-agent'] || '';
 
   // Claim-code scoping: if the client presents `Mcp-Claim-Code` (header
   // or query param for SSE), validate it on EVERY request and stamp
@@ -4769,7 +4813,10 @@ export async function handleStreamableHTTP(
     res.socket?.setKeepAlive(true, 60000);
 
     // Store SSE response for server-initiated messages
+    closeSessionSSE(session, 'sse-replaced');
     session.sseResponse = res;
+    session.sseOpenedAt = new Date();
+    enforceSSESessionBudget(session);
 
     // Keep connection alive with SSE comments (every 15s). Comments are
     // silently dropped by all spec-compliant parsers including the MCP
@@ -4783,7 +4830,7 @@ export async function handleStreamableHTTP(
         } catch (err) {
           // If write fails, connection is dead - clean up
           clearInterval(keepAlive);
-          session.sseResponse = undefined;
+          closeSessionSSE(session, 'sse-keepalive-failed');
         }
       } else {
         clearInterval(keepAlive);
@@ -4793,7 +4840,10 @@ export async function handleStreamableHTTP(
     // Handle client disconnect
     const cleanup = () => {
       clearInterval(keepAlive);
-      session.sseResponse = undefined;
+      if (session.sseResponse === res) {
+        session.sseResponse = undefined;
+        session.sseOpenedAt = undefined;
+      }
       // Reject any server→client requests still waiting on this
       // session. Without this, a disconnect during `sampling/createMessage`
       // leaves the pending entry alive until the 5-minute timeout,
@@ -5047,7 +5097,7 @@ export function broadcastNotification(
   for (const sessionId of deadSessions) {
     const session = sessions.get(sessionId);
     if (session) {
-      session.sseResponse = undefined;
+      closeSessionSSE(session, 'sse-dead-session');
     }
   }
 }
@@ -5105,7 +5155,7 @@ export function sendToSession(
     return true;
   } catch (err) {
     // Write failed - connection is dead
-    session.sseResponse = undefined;
+    closeSessionSSE(session, 'sse-notification-failed');
     return false;
   }
 }

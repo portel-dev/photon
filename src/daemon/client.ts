@@ -670,6 +670,7 @@ export async function subscribeChannel(
             reject(new Error(`Connection error: ${getErrorMessage(error)}`));
           }
         } else if (options?.reconnect && !cancelled) {
+          if (!client.destroyed) client.destroy();
           scheduleReconnect();
         }
       });
@@ -685,6 +686,7 @@ export async function subscribeChannel(
             reject(new Error('Connection closed before subscription confirmed'));
           }
         } else if (options?.reconnect && !cancelled) {
+          if (!client.destroyed) client.destroy();
           scheduleReconnect();
         }
       });

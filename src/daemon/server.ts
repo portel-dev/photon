@@ -382,6 +382,9 @@ const stateDirWatchers = new Map<string, SafeWatcher>();
 // @scheduled cron changes and @webhook additions reach the declared-set
 // without a daemon restart. See watchBaseForProactiveMetadata().
 const baseDirWatchers = new Map<string, SafeWatcher>();
+// photonDir -> SafeWatcher: startup watcher for new .photon.ts files in each
+// active base. Tracked separately so Bun poll timers are closed on shutdown.
+const startupPhotonDirWatchers = new Map<string, SafeWatcher>();
 
 import {
   compositeKey as _compositeKey,
@@ -5892,6 +5895,7 @@ function startupWatchPhotons(): void {
   const defaultBase = getDefaultContext().baseDir;
   const bases = new Set<string>([defaultBase]);
   for (const base of listActiveBases()) {
+    if (!shouldStartupWatchBase(base.path, defaultBase)) continue;
     bases.add(base.path);
   }
   for (const photonDir of bases) {
@@ -5899,8 +5903,24 @@ function startupWatchPhotons(): void {
   }
 }
 
+function shouldStartupWatchBase(basePath: string, defaultBase: string): boolean {
+  const resolved = path.resolve(basePath);
+  if (resolved === path.resolve(defaultBase)) return true;
+
+  // Temporary directories are common in Beam and daemon regression tests. The
+  // bases registry keeps them while the OS temp cleaner has not removed them,
+  // but a production daemon should not spend long-lived watchers on them at
+  // every startup. If a user actively invokes a temp photon later, the normal
+  // request path still loads it and registers on-demand watchers.
+  const tmpRoot = path.resolve(os.tmpdir());
+  if (resolved === tmpRoot || resolved.startsWith(tmpRoot + path.sep)) return false;
+
+  return true;
+}
+
 function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
   if (!fs.existsSync(photonDir)) return;
+  if (startupPhotonDirWatchers.has(photonDir)) return;
 
   // Host mode: when the default base is host-disabled, skip the file
   // watcher, the eager onInitialize loader, and the directory watcher
@@ -6029,6 +6049,7 @@ function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
     if (typeof dirWatcher.on === 'function') {
       dirWatcher.on('error', () => {}); // Non-fatal
     }
+    startupPhotonDirWatchers.set(photonDir, dirWatcher);
   } catch {
     logger.warn('Failed to watch photon directory for new files', { dir: photonDir });
   }
@@ -6444,6 +6465,22 @@ function shutdown(): void {
     for (const photonPath of fileWatchers.keys()) {
       unwatchPhotonFile(photonPath);
     }
+    for (const watcher of startupPhotonDirWatchers.values()) {
+      watcher.close();
+    }
+    startupPhotonDirWatchers.clear();
+    for (const watcher of baseDirWatchers.values()) {
+      watcher.close();
+    }
+    baseDirWatchers.clear();
+    for (const watcher of parentDirWatchers.values()) {
+      watcher.close();
+    }
+    parentDirWatchers.clear();
+    for (const watcher of stateDirWatchers.values()) {
+      watcher.close();
+    }
+    stateDirWatchers.clear();
 
     // Clean up poll-based watchers (bun fallback)
     for (const timer of pollTimers) {
