@@ -11,6 +11,20 @@ interface MethodInfo {
   description: string;
   params: { type?: string; properties?: Record<string, any>; required?: string[] };
   icon?: string;
+  intent?: {
+    action?: string;
+    input?: {
+      requiresInput?: boolean;
+      requiredFields?: string[];
+      optionalFields?: string[];
+    };
+    safety?: {
+      destructive?: boolean;
+      readOnly?: boolean;
+    };
+  };
+  destructiveHint?: boolean;
+  readOnlyHint?: boolean;
   isTemplate?: boolean;
   autorun?: boolean;
   webhook?: string | boolean;
@@ -299,6 +313,17 @@ export class MethodCard extends LitElement {
         color: hsl(180, 60%, 65%);
       }
 
+      .badge.intent {
+        background: hsla(210, 55%, 52%, 0.14);
+        color: hsl(210, 70%, 68%);
+        text-transform: capitalize;
+      }
+
+      .badge.danger {
+        background: hsla(0, 70%, 50%, 0.14);
+        color: hsl(0, 80%, 68%);
+      }
+
       .param-tags {
         display: flex;
         flex-wrap: wrap;
@@ -510,6 +535,12 @@ export class MethodCard extends LitElement {
     const isQueued = !!this.method.queued;
     const emitsEvent = !!this.method.emitsEvent;
     const isTyped = isAutorun || isWebhook || isCron || isLocked || isDeprecated;
+    const intentAction = this.method.intent?.action;
+    const requiresInput = this._requiresInput();
+    const isDestructive =
+      this.method.destructiveHint ||
+      this.method.intent?.safety?.destructive ||
+      intentAction === 'delete';
 
     // Determine accent color for typed methods
     const typeAccent = isDeprecated
@@ -581,6 +612,10 @@ export class MethodCard extends LitElement {
                 >`
               : ''}
             ${isDeprecated ? html`<span class="badge deprecated">Deprecated</span>` : ''}
+            ${isDestructive ? html`<span class="badge danger">Confirm</span>` : ''}
+            ${intentAction && !isDestructive
+              ? html`<span class="badge intent">${intentAction}</span>`
+              : ''}
             ${isCached ? html`<span class="badge cached">Cached</span>` : ''}
             ${isThrottled ? html`<span class="badge throttled">Throttled</span>` : ''}
             ${isQueued ? html`<span class="badge queued">Queued</span>` : ''}
@@ -658,9 +693,13 @@ export class MethodCard extends LitElement {
           const hasParams = paramCount > 0;
           return html`<div
             class="action-icon"
-            title="${hasParams ? 'Requires parameters' : 'Click to execute'}"
+            title="${requiresInput
+              ? 'Requires input'
+              : hasParams
+                ? 'Can run with defaults'
+                : 'Click to execute'}"
           >
-            ${hasParams ? formInput : play}
+            ${requiresInput ? formInput : play}
           </div>`;
         })()}
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
@@ -681,6 +720,13 @@ export class MethodCard extends LitElement {
     const visible = paramNames.slice(0, 3).join(', ');
     return html`<span class="method-params method-params-trunc">(${visible}, </span
       ><span class="method-params method-params-suffix">+${paramNames.length - 3})</span>`;
+  }
+
+  private _requiresInput(): boolean {
+    if (this.method.intent?.input?.requiresInput !== undefined) {
+      return !!this.method.intent.input.requiresInput;
+    }
+    return Array.isArray(this.method.params?.required) && this.method.params.required.length > 0;
   }
 
   private _renderEmojiPicker() {

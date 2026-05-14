@@ -6253,6 +6253,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
   }) {
     const hasParams =
       !!opts.method?.params?.properties && Object.keys(opts.method.params.properties).length > 0;
+    const requiresInput = this._methodRequiresInput(opts.method);
+    const outputFormat = this._getMethodOutputFormat(opts.method);
     return html`
       <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
         ${opts.appSurface ? '' : this._renderDescription(opts.method.description)}
@@ -6272,7 +6274,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               ${this._viewMode === 'full'
                 ? html`
                     <div class="form-chrome">
-                      ${hasParams
+                      ${requiresInput
                         ? html`<button
                             class="btn-secondary"
                             @click=${(e: Event) => {
@@ -6298,9 +6300,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                           ? html`<span class="btn-loading"
                               ><span class="spinner"></span>Executing...</span
                             >`
-                          : hasParams
-                            ? 'Execute'
-                            : 'Re-execute'}
+                          : this._getMethodActionLabel(opts.method, hasParams)}
                       </button>
                     </div>
                   `
@@ -6349,9 +6349,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     `}
               `
             : html`
-                ${this._viewMode === 'full' &&
-                opts.method?.outputFormat !== 'slides' &&
-                !opts.appSurface
+                ${this._viewMode === 'full' && outputFormat !== 'slides' && !opts.appSurface
                   ? html`<div class="result-chrome">
                       <span class="result-chrome-title"></span>
                       <div class="result-chrome-actions">
@@ -6399,7 +6397,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     ></canvas-renderer>`
                   : html`<result-viewer
                       .result=${opts.result}
-                      .outputFormat=${opts.method?.outputFormat}
+                      .outputFormat=${outputFormat}
                       .layoutHints=${opts.method?.layoutHints}
                       .photonName=${opts.photon?.name}
                       .theme=${this._theme}
@@ -6478,6 +6476,17 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private async _executePanelMethod(panelId: string, args: Record<string, any>) {
     const panel = this._splitPanels.find((p) => p.id === panelId);
     if (!panel || panel.type !== 'method' || !panel.method) return;
+
+    if (this._isDestructiveMethod(panel.method)) {
+      const confirmed = await confirmElicit(
+        `Run ${this._selectedPhoton.name}/${panel.method.name}? This action may change or remove data.`,
+        {
+          confirm: panel.method?.buttonLabel || 'Run',
+          destructive: true,
+        }
+      );
+      if (!confirmed) return;
+    }
 
     this._updatePanel(panelId, { executing: true, result: null, progress: null, formParams: args });
 
@@ -6764,13 +6773,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
    */
   private _willAutoInvoke(method: any): boolean {
     if (!method || !this._mcpReady) return false;
-    // Never auto-invoke destructive methods — require explicit user action
-    if (method.destructiveHint) return false;
+    // Never auto-invoke destructive methods — require explicit user action.
+    if (this._isDestructiveMethod(method)) return false;
     const shouldAutorun = method.autorun === true;
-    const params = method.params || {};
-    const properties = params.properties || {};
-    const hasNoParams = Object.keys(properties).length === 0;
-    return shouldAutorun || hasNoParams;
+    return shouldAutorun || !this._methodRequiresInput(method);
   }
 
   /**
@@ -6784,6 +6790,40 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Auto-invoke with shared params or empty args
     const args = this._sharedFormParams ?? {};
     void this._handleExecute(new CustomEvent('execute', { detail: { args } }));
+  }
+
+  private _methodRequiresInput(method: any): boolean {
+    if (!method) return false;
+    if (method.intent?.input?.requiresInput !== undefined) {
+      return method.intent.input.requiresInput;
+    }
+    const params = method.params || {};
+    return Array.isArray(params.required) && params.required.length > 0;
+  }
+
+  private _isDestructiveMethod(method: any): boolean {
+    return (
+      method?.destructiveHint === true ||
+      method?.intent?.safety?.destructive === true ||
+      method?.intent?.action === 'delete'
+    );
+  }
+
+  private _getMethodOutputFormat(method: any): string | undefined {
+    return method?.outputFormat ?? method?.intent?.output?.format;
+  }
+
+  private _getMethodActionLabel(method: any, hasAnyParams = false): string {
+    if (method?.buttonLabel) return method.buttonLabel;
+    if (this._isExecuting) return 'Executing...';
+    if (this._isDestructiveMethod(method)) return 'Confirm';
+    if (this._methodRequiresInput(method)) return 'Execute';
+    if (hasAnyParams) return 'Run with defaults';
+    const action = method?.intent?.action;
+    if (action === 'list' || action === 'view' || action === 'search' || action === 'monitor') {
+      return this._lastResult === null ? 'Load' : 'Refresh';
+    }
+    return this._lastResult === null ? 'Run' : 'Re-run';
   }
 
   private async _handleBackFromMethod() {
@@ -7465,6 +7505,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   private async _handleExecute(e: CustomEvent) {
     const args = e.detail.args;
+    if (this._isDestructiveMethod(this._selectedMethod)) {
+      const confirmed = await confirmElicit(
+        `Run ${this._selectedPhoton.name}/${this._selectedMethod.name}? This action may change or remove data.`,
+        {
+          confirm: this._selectedMethod?.buttonLabel || 'Run',
+          destructive: true,
+        }
+      );
+      if (!confirmed) return;
+    }
     this._lastFormParams = args; // Store for sharing
     this._sharedFormParams = null; // Clear shared params after use
     this._sidebar?.trackRecentPhoton(this._selectedPhoton.name);

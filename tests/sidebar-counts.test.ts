@@ -74,6 +74,7 @@ function toolsToPhotons(tools: MCPTool[]) {
           layoutHints?: Record<string, string>;
           buttonLabel?: string;
           icon?: string;
+          intent?: Record<string, unknown>;
           autorun?: boolean;
           isTemplate?: boolean;
           resources?: { ui?: string };
@@ -85,7 +86,13 @@ function toolsToPhotons(tools: MCPTool[]) {
       name: methodName,
       description: tool.description || '',
       params: tool.inputSchema || { type: 'object', properties: {} },
+      title: (tool.annotations as any)?.title,
       icon: renderMeta?.icon ?? tool['x-icon'],
+      intent: renderMeta?.intent,
+      readOnlyHint: (tool.annotations as any)?.readOnlyHint,
+      destructiveHint: (tool.annotations as any)?.destructiveHint,
+      idempotentHint: (tool.annotations as any)?.idempotentHint,
+      openWorldHint: (tool.annotations as any)?.openWorldHint,
       autorun: renderMeta?.autorun ?? tool['x-autorun'],
       outputFormat: renderMeta?.format ?? tool['x-output-format'],
       layoutHints: renderMeta?.layoutHints ?? tool['x-layout-hints'],
@@ -274,6 +281,48 @@ async function testMethodMetadata() {
     assert.equal(method.outputFormat, 'table');
     assert.deepEqual(method.layoutHints, { title: 'name' });
     assert.equal(method.linkedUi, 'table.html');
+  });
+
+  await test('preserves photon/render intent and MCP annotations on methods', () => {
+    const photons = toolsToPhotons([
+      {
+        name: 'tasks/deleteTask',
+        description: 'Delete task',
+        inputSchema: {
+          type: 'object',
+          properties: { id: { type: 'string' } },
+          required: ['id'],
+        },
+        annotations: {
+          title: 'Delete Task',
+          destructiveHint: true,
+          idempotentHint: true,
+        },
+        _meta: {
+          'photon/render': {
+            version: 1,
+            mode: 'auto',
+            intent: {
+              action: 'delete',
+              subject: 'task',
+              input: { requiresInput: true, requiredFields: ['id'] },
+              safety: { destructive: true, idempotent: true },
+            },
+          },
+        },
+      },
+    ]);
+
+    const method = photons[0].methods[0];
+    assert.equal(method.title, 'Delete Task');
+    assert.equal(method.destructiveHint, true);
+    assert.equal(method.idempotentHint, true);
+    assert.deepEqual(method.intent, {
+      action: 'delete',
+      subject: 'task',
+      input: { requiresInput: true, requiredFields: ['id'] },
+      safety: { destructive: true, idempotent: true },
+    });
   });
 
   await test('detects app photons with main + linkedUi', () => {

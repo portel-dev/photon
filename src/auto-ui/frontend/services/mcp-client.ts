@@ -50,6 +50,8 @@ interface PhotonRenderMeta {
   };
 }
 
+type PhotonIntentMeta = NonNullable<PhotonRenderMeta['intent']>;
+
 interface MCPTool {
   name: string;
   description?: string;
@@ -65,6 +67,13 @@ interface MCPTool {
   'x-scheduled'?: string;
   'x-locked'?: string | boolean;
   'x-is-template'?: boolean;
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
   // Photon-server extensions (set on the per-server marker tool emitted by
   // streamable-http-transport.ts when listing aggregated tools).
   'x-photon-short-name'?: string;
@@ -761,7 +770,13 @@ class MCPClientService {
         description: string;
         params: Record<string, unknown>;
         icon?: string;
+        title?: string;
         autorun?: boolean;
+        intent?: PhotonIntentMeta;
+        readOnlyHint?: boolean;
+        destructiveHint?: boolean;
+        idempotentHint?: boolean;
+        openWorldHint?: boolean;
         outputFormat?: string;
         layoutHints?: Record<string, string>;
         buttonLabel?: string;
@@ -820,7 +835,13 @@ class MCPClientService {
           name: methodName,
           description: tool.description || '',
           params: tool.inputSchema || { type: 'object', properties: {} },
+          title: tool.annotations?.title,
           icon: this.getRenderMeta(tool)?.icon ?? tool['x-icon'],
+          intent: this.getIntent(tool),
+          readOnlyHint: tool.annotations?.readOnlyHint,
+          destructiveHint: tool.annotations?.destructiveHint,
+          idempotentHint: tool.annotations?.idempotentHint,
+          openWorldHint: tool.annotations?.openWorldHint,
           outputFormat: this.getOutputFormat(tool),
           layoutHints: this.getLayoutHints(tool),
           buttonLabel: this.getRenderMeta(tool)?.buttonLabel ?? tool['x-button-label'],
@@ -862,8 +883,14 @@ class MCPClientService {
             name: methodName,
             description: tool.description || '',
             params: tool.inputSchema || { type: 'object', properties: {} },
+            title: tool.annotations?.title,
             icon: this.getRenderMeta(tool)?.icon ?? tool['x-icon'],
             autorun: this.getRenderMeta(tool)?.autorun ?? tool['x-autorun'],
+            intent: this.getIntent(tool),
+            readOnlyHint: tool.annotations?.readOnlyHint,
+            destructiveHint: tool.annotations?.destructiveHint,
+            idempotentHint: tool.annotations?.idempotentHint,
+            openWorldHint: tool.annotations?.openWorldHint,
             outputFormat: this.getOutputFormat(tool),
             layoutHints: this.getLayoutHints(tool),
             buttonLabel: this.getRenderMeta(tool)?.buttonLabel ?? tool['x-button-label'],
