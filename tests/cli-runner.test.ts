@@ -8,7 +8,13 @@
  */
 
 import { strict as assert } from 'assert';
-import { parseCliArgs, type MethodInfo } from '../src/photon-cli-runner.js';
+import {
+  getMethodFormatHint,
+  isDestructiveMethod,
+  methodRequiresInput,
+  parseCliArgs,
+  type MethodInfo,
+} from '../src/photon-cli-runner.js';
 
 let passed = 0;
 let failed = 0;
@@ -495,6 +501,70 @@ async function run() {
 
   await test('cells with whitespace are trimmed', () => {
     assert.deepEqual(parseMarkdownTableRow('|  foo  |  bar  |'), ['foo', 'bar']);
+  });
+
+  console.log('\n-- intent helpers --');
+
+  await test('methodRequiresInput prefers intent input metadata', () => {
+    const method: MethodInfo = {
+      name: 'status',
+      params: [{ name: 'verbose', type: 'boolean', optional: false }],
+      intent: {
+        action: 'monitor',
+        confidence: 0.9,
+        sources: ['schema'],
+        input: { requiresInput: false },
+      },
+    };
+
+    assert.equal(methodRequiresInput(method), false);
+  });
+
+  await test('methodRequiresInput falls back to required params', () => {
+    const method: MethodInfo = {
+      name: 'create',
+      params: [{ name: 'title', type: 'string', optional: false }],
+    };
+
+    assert.equal(methodRequiresInput(method), true);
+  });
+
+  await test('isDestructiveMethod reads annotations and intent', () => {
+    assert.equal(
+      isDestructiveMethod({
+        name: 'remove',
+        params: [],
+        destructiveHint: true,
+      }),
+      true
+    );
+    assert.equal(
+      isDestructiveMethod({
+        name: 'deleteTask',
+        params: [],
+        intent: {
+          action: 'delete',
+          confidence: 0.9,
+          sources: ['methodName'],
+        },
+      }),
+      true
+    );
+  });
+
+  await test('getMethodFormatHint falls back to intent output format', () => {
+    const method: MethodInfo = {
+      name: 'rows',
+      params: [],
+      intent: {
+        action: 'list',
+        confidence: 0.9,
+        sources: ['format'],
+        output: { structured: true, format: 'table' },
+      },
+    };
+
+    assert.equal(getMethodFormatHint(method), 'table');
   });
 
   // ── Summary ─────────────────────────────────────────────────────────

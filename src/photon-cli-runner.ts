@@ -58,6 +58,7 @@ import {
   formatKey,
 } from './cli-formatter.js';
 import { resultToA2UIMessages, looksLikeA2UIStream } from './a2ui/mapper.js';
+import { buildPhotonRenderMeta, type PhotonIntentMeta } from './auto-ui/types.js';
 
 const BASE_FORMATS = new Set([
   'primitive',
@@ -144,6 +145,11 @@ export interface MethodInfo {
   }[];
   description?: string;
   format?: OutputFormat;
+  intent?: PhotonIntentMeta;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
   buttonLabel?: string; // Custom button label from @returns {@label}
   scheduled?: string; // Cron expression for scheduled methods
   webhook?: boolean; // Whether this is a webhook handler
@@ -297,11 +303,33 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       }
     }
 
+    const renderMeta = buildPhotonRenderMeta({
+      name: tool.name,
+      description: tool.description,
+      params: schema || {},
+      returns: tool.outputSchema || {},
+      outputFormat: tool.outputFormat,
+      layoutHints: tool.layoutHints,
+      buttonLabel: tool.buttonLabel,
+      readOnlyHint: tool.readOnlyHint,
+      destructiveHint: tool.destructiveHint,
+      idempotentHint: tool.idempotentHint,
+      openWorldHint: tool.openWorldHint,
+      outputSchema: tool.outputSchema,
+    });
+
     return {
       name: tool.name,
       params,
       description: tool.description !== 'No description' ? tool.description : undefined,
-      ...(tool.outputFormat ? { format: tool.outputFormat } : {}),
+      ...(tool.outputFormat || renderMeta?.intent?.output?.format
+        ? { format: (tool.outputFormat || renderMeta?.intent?.output?.format) as OutputFormat }
+        : {}),
+      ...(renderMeta?.intent ? { intent: renderMeta.intent } : {}),
+      ...(tool.readOnlyHint ? { readOnlyHint: true } : {}),
+      ...(tool.destructiveHint ? { destructiveHint: true } : {}),
+      ...(tool.idempotentHint ? { idempotentHint: true } : {}),
+      ...(tool.openWorldHint !== undefined ? { openWorldHint: tool.openWorldHint } : {}),
       ...(tool.buttonLabel ? { buttonLabel: tool.buttonLabel } : {}),
       ...(tool.scheduled ? { scheduled: tool.scheduled } : {}),
       ...(tool.webhook !== undefined ? { webhook: true } : {}),
@@ -817,6 +845,25 @@ export function parseCliArgs(args: string[], params: MethodInfo['params']): Reco
   }
 
   return result;
+}
+
+export function methodRequiresInput(method: MethodInfo): boolean {
+  if (method.intent?.input?.requiresInput !== undefined) {
+    return method.intent.input.requiresInput;
+  }
+  return method.params.some((param) => !param.optional);
+}
+
+export function isDestructiveMethod(method: MethodInfo): boolean {
+  return (
+    method.destructiveHint === true ||
+    method.intent?.safety?.destructive === true ||
+    method.intent?.action === 'delete'
+  );
+}
+
+export function getMethodFormatHint(method: MethodInfo): OutputFormat | undefined {
+  return method.format || (method.intent?.output?.format as OutputFormat | undefined);
 }
 
 /**
@@ -1658,6 +1705,35 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
   }
 }
 
+async function confirmDestructiveMethod(
+  method: MethodInfo,
+  nonInteractive: boolean
+): Promise<void> {
+  if (!isDestructiveMethod(method) || nonInteractive) return;
+
+  if (!process.stdin.isTTY) {
+    exitWithError(`Method '${method.name}' is destructive and requires confirmation`, {
+      exitCode: ExitCode.INVALID_ARGUMENT,
+      suggestion: `Pass -y to confirm in non-interactive mode.`,
+    });
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(`Run destructive method '${method.name}'? Type yes to continue: `, (ans) => {
+      rl.close();
+      resolve(ans.trim().toLowerCase());
+    });
+  });
+
+  if (answer !== 'yes' && answer !== 'y') {
+    process.exit(130);
+  }
+}
+
 /**
  * List all methods in a photon (standard CLI help format)
  */
@@ -1891,9 +1967,11 @@ export async function runMethod(
 
     // Validate required parameters
     const missing: string[] = [];
-    for (const param of method.params) {
-      if (!param.optional && !(param.name in parsedArgs)) {
-        missing.push(param.name);
+    if (methodRequiresInput(method)) {
+      for (const param of method.params) {
+        if (!param.optional && !(param.name in parsedArgs)) {
+          missing.push(param.name);
+        }
       }
     }
 
@@ -1973,6 +2051,8 @@ export async function runMethod(
         suggestion: validationErrors.join('\n'),
       });
     }
+
+    await confirmDestructiveMethod(method, nonInteractive);
 
     // Check if photon is stateful
     const extractor = new PhotonDocExtractor(resolvedPath);
@@ -2064,7 +2144,7 @@ export async function runMethod(
       }
     } else {
       const formatHint =
-        method.format || (looksLikeMarkdown(actualResult) ? 'markdown' : undefined);
+        getMethodFormatHint(method) || (looksLikeMarkdown(actualResult) ? 'markdown' : undefined);
       const success = formatOutput(actualResult, formatHint);
       if (!success) {
         process.exit(1);
