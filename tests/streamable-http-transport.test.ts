@@ -255,6 +255,14 @@ async function runTests(): Promise<void> {
       assert.deepEqual(tool._meta['photon/render'], {
         version: 1,
         mode: 'auto',
+        intent: {
+          action: 'list',
+          subject: 'rows',
+          confidence: 0.85,
+          sources: ['description', 'format', 'schema'],
+          input: { requiresInput: false },
+          output: { structured: true, format: 'table' },
+        },
         format: 'table',
         layoutHints: { title: 'name' },
       });
@@ -354,6 +362,69 @@ async function runTests(): Promise<void> {
     });
   });
 
+  await test('tools/list exposes intent metadata without explicit render hints', async () => {
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'tasks-id',
+          name: 'tasks',
+          path: `${process.cwd()}/tasks.photon.ts`,
+          configured: true,
+          methods: [
+            {
+              name: 'createTask',
+              description: 'Create task',
+              params: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string' },
+                  notes: { type: 'string' },
+                },
+                required: ['title'],
+              },
+              returns: { type: 'object' },
+              readOnlyHint: false,
+              outputSchema: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  title: { type: 'string' },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    await withServer(context, async (port) => {
+      const response = await postJSON(port, {
+        jsonrpc: '2.0',
+        id: 13,
+        method: 'tools/list',
+        params: {},
+      });
+
+      assert.equal(response.status, 200);
+      const tool = response.body.result.tools.find(
+        (entry: any) => entry.name === 'tasks/createTask'
+      );
+      assert(tool, 'expected tasks/createTask tool');
+      assert.deepEqual(tool._meta['photon/render'].intent, {
+        action: 'create',
+        subject: 'task',
+        confidence: 0.9,
+        sources: ['description', 'methodName', 'schema'],
+        input: {
+          requiresInput: true,
+          requiredFields: ['title'],
+          optionalFields: ['notes'],
+        },
+        output: { structured: true },
+      });
+    });
+  });
+
   await test('MCP list endpoints reject malformed cursors as invalid params', async () => {
     const context = createTestContext();
 
@@ -424,6 +495,14 @@ async function runTests(): Promise<void> {
       assert.deepEqual(response.body.result._meta['photon/render'], {
         version: 1,
         mode: 'auto',
+        intent: {
+          action: 'list',
+          subject: 'rows',
+          confidence: 0.85,
+          sources: ['description', 'format', 'schema'],
+          input: { requiresInput: false },
+          output: { structured: true, format: 'table' },
+        },
         format: 'table',
         layoutHints: { title: 'name' },
       });

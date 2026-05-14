@@ -16,6 +16,28 @@ const PHOTON_RENDER_META_KEY = 'photon/render';
 interface PhotonRenderMeta {
   version?: number;
   mode?: 'auto' | 'custom';
+  intent?: {
+    action: string;
+    subject?: string;
+    confidence?: number;
+    sources?: string[];
+    safety?: {
+      readOnly?: boolean;
+      destructive?: boolean;
+      idempotent?: boolean;
+      openWorld?: boolean;
+    };
+    input?: {
+      requiresInput: boolean;
+      requiredFields?: string[];
+      optionalFields?: string[];
+    };
+    output?: {
+      structured: boolean;
+      format?: string;
+      layout?: string;
+    };
+  };
   format?: string;
   layoutHints?: Record<string, string>;
   buttonLabel?: string;
@@ -681,6 +703,10 @@ class MCPClientService {
 
   getRenderMeta(source: { _meta?: Record<string, unknown> } | MCPTool | MCPToolResult | undefined) {
     return source?._meta?.[PHOTON_RENDER_META_KEY] as PhotonRenderMeta | undefined;
+  }
+
+  getIntent(source: { _meta?: Record<string, unknown> } | MCPTool | MCPToolResult | undefined) {
+    return this.getRenderMeta(source)?.intent;
   }
 
   private getOutputFormat(tool: MCPTool): string | undefined {

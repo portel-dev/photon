@@ -124,11 +124,59 @@ export const PHOTON_RENDER_META_KEY = 'photon/render';
 
 export type PhotonRenderMode = 'auto' | 'custom';
 
+export type PhotonIntentAction =
+  | 'view'
+  | 'list'
+  | 'search'
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'configure'
+  | 'navigate'
+  | 'ask'
+  | 'export'
+  | 'monitor'
+  | 'run';
+
+export type PhotonIntentSource = 'methodName' | 'description' | 'annotations' | 'format' | 'schema';
+
+export interface PhotonIntentMeta {
+  /** Surface-neutral action Photon inferred from the method contract. */
+  action: PhotonIntentAction;
+  /** Domain noun the action operates on, derived from description or method name. */
+  subject?: string;
+  /** Confidence of the inferred action/subject pair, from 0.0 to 1.0. */
+  confidence: number;
+  /** Metadata sources that contributed to the inference. */
+  sources: PhotonIntentSource[];
+  /** MCP annotation-derived safety signals for client surfaces. */
+  safety?: {
+    readOnly?: boolean;
+    destructive?: boolean;
+    idempotent?: boolean;
+    openWorld?: boolean;
+  };
+  /** Input shape summary for surfaces that need forms, menus, or direct launch. */
+  input?: {
+    requiresInput: boolean;
+    requiredFields?: string[];
+    optionalFields?: string[];
+  };
+  /** Output shape summary for surface-specific renderers. */
+  output?: {
+    structured: boolean;
+    format?: string;
+    layout?: string;
+  };
+}
+
 export interface PhotonRenderMeta {
   /** Renderer contract version for Photon clients. */
   version: 1;
   /** Whether the client should auto-render structured data or load a custom UI resource. */
   mode: PhotonRenderMode;
+  /** Surface-neutral user intent inferred from method name, docs, schema, and MCP annotations. */
+  intent?: PhotonIntentMeta;
   /** Auto UI renderer hint: table, list, chart:bar, dashboard, markdown, etc. */
   format?: string;
   /** Field mappings and layout hints such as title/subtitle/value fields. */
@@ -653,6 +701,8 @@ export function buildPhotonRenderMeta(
     mode: options.uiResourceUri || method.linkedUi ? 'custom' : 'auto',
   };
 
+  const intent = buildPhotonIntentMeta(method);
+  if (intent) render.intent = intent;
   if (method.outputFormat) render.format = method.outputFormat;
   if (method.layoutHints) render.layoutHints = method.layoutHints;
   if (method.buttonLabel) render.buttonLabel = method.buttonLabel;
@@ -666,6 +716,7 @@ export function buildPhotonRenderMeta(
 
   const hasRenderableHints =
     render.mode === 'custom' ||
+    !!render.intent ||
     !!render.format ||
     !!render.layoutHints ||
     !!render.buttonLabel ||
@@ -675,6 +726,226 @@ export function buildPhotonRenderMeta(
     !!render.visibility;
 
   return hasRenderableHints ? render : undefined;
+}
+
+const ACTION_PATTERNS: Array<{
+  action: PhotonIntentAction;
+  words: string[];
+}> = [
+  { action: 'delete', words: ['delete', 'remove', 'destroy', 'clear', 'reset', 'purge'] },
+  { action: 'create', words: ['create', 'add', 'new', 'insert', 'register', 'import', 'upload'] },
+  {
+    action: 'update',
+    words: ['update', 'edit', 'set', 'save', 'configure', 'rename', 'move', 'toggle', 'mark'],
+  },
+  { action: 'search', words: ['search', 'find', 'query', 'lookup', 'filter'] },
+  { action: 'list', words: ['list', 'browse', 'index'] },
+  { action: 'view', words: ['get', 'show', 'read', 'load', 'fetch', 'open', 'view'] },
+  { action: 'navigate', words: ['go', 'navigate'] },
+  { action: 'ask', words: ['ask', 'prompt', 'choose', 'select'] },
+  { action: 'export', words: ['export', 'download'] },
+  { action: 'monitor', words: ['watch', 'monitor', 'status', 'metrics', 'health'] },
+  {
+    action: 'run',
+    words: [
+      'run',
+      'start',
+      'stop',
+      'restart',
+      'execute',
+      'generate',
+      'build',
+      'publish',
+      'send',
+      'sync',
+    ],
+  },
+];
+
+const VERB_PATTERN = ACTION_PATTERNS.flatMap((entry) => entry.words).join('|');
+
+function buildPhotonIntentMeta(method: Partial<MethodInfo>): PhotonIntentMeta | undefined {
+  const sources: PhotonIntentSource[] = [];
+  const actionFromDescription = inferActionAndSubjectFromDescription(method.description);
+  const actionFromName = inferActionAndSubjectFromName(method.name);
+  const formatAction = inferActionFromFormat(method.outputFormat);
+
+  const action =
+    actionFromDescription?.action ??
+    actionFromName?.action ??
+    formatAction ??
+    (method.destructiveHint ? 'delete' : undefined) ??
+    'run';
+
+  const subject = actionFromDescription?.subject ?? actionFromName?.subject;
+  const input = summarizeInput(method.params);
+  const output = summarizeOutput(method);
+  const safety = summarizeSafety(method);
+
+  if (actionFromDescription) sources.push('description');
+  if (actionFromName) sources.push('methodName');
+  if (
+    method.readOnlyHint ||
+    method.destructiveHint ||
+    method.idempotentHint ||
+    method.openWorldHint !== undefined
+  ) {
+    sources.push('annotations');
+  }
+  if (method.outputFormat) sources.push('format');
+  if (input || output) sources.push('schema');
+
+  const intent: PhotonIntentMeta = {
+    action,
+    ...(subject ? { subject } : {}),
+    confidence: scoreIntentConfidence({
+      hasDescriptionAction: !!actionFromDescription,
+      hasNameAction: !!actionFromName,
+      hasFormat: !!method.outputFormat,
+      hasSchema: !!input || !!output,
+    }),
+    sources: [...new Set(sources)],
+    ...(safety ? { safety } : {}),
+    ...(input ? { input } : {}),
+    ...(output ? { output } : {}),
+  };
+
+  return intent;
+}
+
+function inferActionAndSubjectFromDescription(
+  description: string | undefined
+): { action: PhotonIntentAction; subject?: string } | undefined {
+  if (!description) return undefined;
+  const normalized = description.trim().toLowerCase();
+  if (!normalized) return undefined;
+
+  for (const entry of ACTION_PATTERNS) {
+    for (const word of entry.words) {
+      const match = normalized.match(new RegExp(`^${word}\\s+(.+)$`, 'i'));
+      if (match) {
+        return { action: entry.action, subject: cleanSubject(match[1]) };
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function inferActionAndSubjectFromName(
+  name: string | undefined
+): { action: PhotonIntentAction; subject?: string } | undefined {
+  if (!name) return undefined;
+  const normalized = splitIdentifier(name).toLowerCase();
+  if (!normalized) return undefined;
+
+  for (const entry of ACTION_PATTERNS) {
+    for (const word of entry.words) {
+      const match = normalized.match(new RegExp(`^${word}(?:\\s+(.+))?$`, 'i'));
+      if (match) {
+        return { action: entry.action, subject: cleanSubject(match[1]) };
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function inferActionFromFormat(format: string | undefined): PhotonIntentAction | undefined {
+  if (!format) return undefined;
+  if (
+    format === 'dashboard' ||
+    format.startsWith('chart:') ||
+    format === 'metric' ||
+    format === 'timeline'
+  ) {
+    return 'monitor';
+  }
+  if (format === 'table' || format === 'list' || format === 'checklist') return 'list';
+  if (format === 'markdown' || format === 'article' || format === 'slides') return 'view';
+  return undefined;
+}
+
+function summarizeInput(
+  params: Record<string, unknown> | undefined
+): PhotonIntentMeta['input'] | undefined {
+  if (!params || params.type !== 'object') return undefined;
+  const properties = isRecord(params.properties) ? params.properties : {};
+  const requiredFields = Array.isArray(params.required)
+    ? params.required.filter((field): field is string => typeof field === 'string')
+    : [];
+  const optionalFields = Object.keys(properties).filter((field) => !requiredFields.includes(field));
+
+  return {
+    requiresInput: requiredFields.length > 0,
+    ...(requiredFields.length > 0 ? { requiredFields } : {}),
+    ...(optionalFields.length > 0 ? { optionalFields } : {}),
+  };
+}
+
+function summarizeOutput(method: Partial<MethodInfo>): PhotonIntentMeta['output'] | undefined {
+  const returns = method.returns;
+  const structured = !!(
+    !!method.outputSchema ||
+    (isRecord(returns) && (returns.type === 'object' || returns.type === 'array')) ||
+    method.outputFormat === 'table' ||
+    method.outputFormat === 'list' ||
+    method.outputFormat?.startsWith('chart:') ||
+    method.outputFormat === 'dashboard'
+  );
+
+  if (!structured && !method.outputFormat && !method.layoutHints) return undefined;
+
+  return {
+    structured,
+    ...(method.outputFormat ? { format: method.outputFormat } : {}),
+    ...(method.layoutHints?.container ? { layout: method.layoutHints.container } : {}),
+  };
+}
+
+function summarizeSafety(method: Partial<MethodInfo>): PhotonIntentMeta['safety'] | undefined {
+  const safety: PhotonIntentMeta['safety'] = {};
+  if (method.readOnlyHint) safety.readOnly = true;
+  if (method.destructiveHint) safety.destructive = true;
+  if (method.idempotentHint) safety.idempotent = true;
+  if (method.openWorldHint !== undefined) safety.openWorld = method.openWorldHint;
+  return Object.keys(safety).length > 0 ? safety : undefined;
+}
+
+function scoreIntentConfidence(input: {
+  hasDescriptionAction: boolean;
+  hasNameAction: boolean;
+  hasFormat: boolean;
+  hasSchema: boolean;
+}): number {
+  let score = 0.45;
+  if (input.hasDescriptionAction) score += 0.25;
+  if (input.hasNameAction) score += 0.15;
+  if (input.hasFormat) score += 0.1;
+  if (input.hasSchema) score += 0.05;
+  return Math.min(0.95, Number(score.toFixed(2)));
+}
+
+function splitIdentifier(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanSubject(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value
+    .replace(new RegExp(`^(${VERB_PATTERN})\\s+`, 'i'), '')
+    .replace(/[.;:!?]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized || undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function buildToolMCPMeta(

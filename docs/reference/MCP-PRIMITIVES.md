@@ -34,8 +34,35 @@ Photon keeps runtime discovery and UI attachment on MCP primitives:
 - Prompts are discovered through paginated `prompts/list`.
 - Interactive asks use `elicitation/create` when the connected client declares
   elicitation support; clients without that capability get a clear tool error.
-- Auto UI render hints live under `_meta["photon/render"]`; legacy
-  `x-output-format` and `x-layout-hints` fields are compatibility aliases.
+- Auto UI render hints and inferred method intent live under
+  `_meta["photon/render"]`; legacy `x-output-format` and `x-layout-hints`
+  fields are compatibility aliases.
+
+`_meta["photon/render"].intent` is surface-neutral. Photon infers it from the
+method name, JSDoc description, MCP annotations, input schema, output schema,
+and `@format` hints. Beam can use it to pick web controls, the CLI can use it
+to decide whether a command needs prompts, and desktop surfaces can map methods
+to menus or settings panels without adding a non-MCP discovery path.
+
+```json
+{
+  "_meta": {
+    "photon/render": {
+      "version": 1,
+      "mode": "auto",
+      "intent": {
+        "action": "list",
+        "subject": "rows",
+        "confidence": 0.85,
+        "sources": ["description", "format", "schema"],
+        "input": { "requiresInput": false },
+        "output": { "structured": true, "format": "table" }
+      },
+      "format": "table"
+    }
+  }
+}
+```
 
 Beam follows every `nextCursor` until discovery is complete, so large local
 workspaces render the same complete tool/resource surface as external MCP

@@ -113,7 +113,7 @@ creation, renderer selection, interaction binding, and hydration.
 Auto UI must therefore flow through MCP primitives:
 
 - `tools/list` exposes tool schemas, annotations, output schemas, and
-  `_meta["photon/render"]` render hints.
+  `_meta["photon/render"]` render hints plus inferred intent.
 - `tools/call` returns `content` for model-visible compatibility and
   `structuredContent` for client renderers.
 - `resources/list`, `resources/templates/list`, and `resources/read` expose custom
@@ -124,6 +124,11 @@ Auto UI must therefore flow through MCP primitives:
 Compatibility aliases such as `x-output-format` and `x-layout-hints` may remain
 on the wire during migration, but `_meta["photon/render"]` is the authoritative
 render contract.
+
+The render contract carries `intent` as a surface-neutral summary of what the
+method does: action, subject, safety, input requirements, and output shape. The
+server derives that from MCP-visible method metadata; clients decide how the
+intent should look on their surface.
 
 ---
 
