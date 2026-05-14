@@ -274,6 +274,18 @@ const PROACTIVE_METADATA_DEBOUNCE_MS = parseNonNegativeEnvInt(
   'PHOTON_PROACTIVE_METADATA_DEBOUNCE_MS',
   1000
 );
+const EAGER_LIFECYCLE_LOAD_DELAY_MS = parseNonNegativeEnvInt(
+  'PHOTON_DAEMON_EAGER_LOAD_DELAY_MS',
+  750
+);
+const EAGER_LIFECYCLE_RSS_LIMIT_MB = parseNonNegativeEnvInt(
+  'PHOTON_DAEMON_EAGER_LOAD_RSS_LIMIT_MB',
+  768
+);
+const EAGER_LIFECYCLE_MAX = parseNonNegativeEnvInt('PHOTON_DAEMON_EAGER_LOAD_MAX', 0);
+const EAGER_LIFECYCLE_DISABLED =
+  process.env.PHOTON_DAEMON_DISABLE_EAGER_LOAD === '1' ||
+  process.env.PHOTON_DAEMON_DISABLE_EAGER_LOAD === 'true';
 
 function parseNonNegativeEnvInt(name: string, fallback: number): number {
   const parsed = Number(process.env[name]);
@@ -385,6 +397,13 @@ const baseDirWatchers = new Map<string, SafeWatcher>();
 // photonDir -> SafeWatcher: startup watcher for new .photon.ts files in each
 // active base. Tracked separately so Bun poll timers are closed on shutdown.
 const startupPhotonDirWatchers = new Map<string, SafeWatcher>();
+let eagerLifecycleLoadQueue: Promise<void> = Promise.resolve();
+
+function enqueueEagerLifecycleLoad(task: () => Promise<void>): void {
+  eagerLifecycleLoadQueue = eagerLifecycleLoadQueue
+    .then(task)
+    .catch((err) => logger.debug('Eager load failed', { error: String(err) }));
+}
 
 import {
   compositeKey as _compositeKey,
@@ -5847,38 +5866,41 @@ function collectHealthSnapshot(): HealthSnapshot {
   };
 }
 
+function warnOnHealthAnomalies(snap: HealthSnapshot): void {
+  if (snap.cpuPercent > 50) {
+    logger.warn('HIGH CPU detected', {
+      cpuPercent: snap.cpuPercent,
+      hint: 'Possible fs.watch loop or runaway handler',
+    });
+  }
+  if (snap.heapMB > 512 || snap.rssMB > 768) {
+    logger.warn('HIGH MEMORY detected', {
+      heapMB: snap.heapMB,
+      rssMB: snap.rssMB,
+      eventBuffers: snap.eventBuffers,
+      pendingPrompts: snap.pendingPrompts,
+      hint: 'Check loaded photons, workers, event buffers, and pending prompts',
+    });
+  }
+  if (snap.pendingPrompts > 10) {
+    logger.warn('Pending prompts accumulating — possible socket leak', {
+      count: snap.pendingPrompts,
+    });
+  }
+}
+
 function startHealthMonitor(): void {
   // Log initial state at startup
   const initial = collectHealthSnapshot();
   logger.info('Daemon health monitor started', { ...initial });
+  warnOnHealthAnomalies(initial);
 
   const timer = setInterval(() => {
     const snap = collectHealthSnapshot();
 
     // Always log vitals
     logger.info('Health check', { ...snap });
-
-    // Flag anomalies
-    if (snap.cpuPercent > 50) {
-      logger.warn('HIGH CPU detected', {
-        cpuPercent: snap.cpuPercent,
-        hint: 'Possible fs.watch loop or runaway handler',
-      });
-    }
-    if (snap.heapMB > 512) {
-      logger.warn('HIGH MEMORY detected', {
-        heapMB: snap.heapMB,
-        rssMB: snap.rssMB,
-        eventBuffers: snap.eventBuffers,
-        pendingPrompts: snap.pendingPrompts,
-        hint: 'Check event buffers and pending prompts for leaks',
-      });
-    }
-    if (snap.pendingPrompts > 10) {
-      logger.warn('Pending prompts accumulating — possible socket leak', {
-        count: snap.pendingPrompts,
-      });
-    }
+    warnOnHealthAnomalies(snap);
   }, HEALTH_INTERVAL_MS);
   timer.unref();
 }
@@ -5959,22 +5981,33 @@ function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
 
   // Eagerly load photons with onInitialize — they may need to auto-resume
   const toEagerLoad: Array<{ name: string; path: string }> = [];
-  for (const entry of entries) {
-    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-    const ext = extensions.find((e) => entry.name.endsWith(e));
-    if (!ext) continue;
+  if (EAGER_LIFECYCLE_DISABLED) {
+    logger.info('Eager lifecycle loading disabled', { dir: photonDir });
+  } else {
+    for (const entry of entries) {
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+      const ext = extensions.find((e) => entry.name.endsWith(e));
+      if (!ext) continue;
 
-    const pName = entry.name.slice(0, -ext.length);
-    const pPath = path.join(photonDir, entry.name);
-    try {
-      const source = fs.readFileSync(pPath, 'utf-8');
-      const hasPersistedState =
-        photonDir === defaultBase || fs.existsSync(path.join(photonDir, '.data', pName));
-      if (hasPersistedState && /\bonInitialize\s*\(/.test(source)) {
-        toEagerLoad.push({ name: pName, path: pPath });
+      const pName = entry.name.slice(0, -ext.length);
+      const pPath = path.join(photonDir, entry.name);
+      try {
+        const source = fs.readFileSync(pPath, 'utf-8');
+        const hasPersistedState =
+          photonDir === defaultBase || fs.existsSync(path.join(photonDir, '.data', pName));
+        if (hasPersistedState && /\bonInitialize\s*\(/.test(source)) {
+          toEagerLoad.push({ name: pName, path: pPath });
+          if (EAGER_LIFECYCLE_MAX > 0 && toEagerLoad.length >= EAGER_LIFECYCLE_MAX) {
+            logger.warn('Eager lifecycle load cap reached; remaining photons will lazy-load', {
+              dir: photonDir,
+              cap: EAGER_LIFECYCLE_MAX,
+            });
+            break;
+          }
+        }
+      } catch {
+        /* skip unreadable files */
       }
-    } catch {
-      /* skip unreadable files */
     }
   }
 
@@ -5986,6 +6019,16 @@ function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
     // Defer to after server starts listening (so deps can be resolved)
     const eagerLoad = async (): Promise<void> => {
       for (const p of toEagerLoad) {
+        const rssMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
+        if (EAGER_LIFECYCLE_RSS_LIMIT_MB > 0 && rssMB > EAGER_LIFECYCLE_RSS_LIMIT_MB) {
+          logger.warn('Skipping remaining eager lifecycle loads due to daemon RSS guard', {
+            rssMB,
+            limitMB: EAGER_LIFECYCLE_RSS_LIMIT_MB,
+            skippedFrom: p.name,
+            remaining: toEagerLoad.slice(toEagerLoad.indexOf(p)).map((entry) => entry.name),
+          });
+          break;
+        }
         try {
           const manager = await getOrCreateSessionManager(p.name, p.path, photonDir);
           if (manager) {
@@ -6002,6 +6045,9 @@ function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
             error: getErrorMessage(err),
           });
         }
+        if (EAGER_LIFECYCLE_LOAD_DELAY_MS > 0) {
+          await new Promise((resolve) => setTimeout(resolve, EAGER_LIFECYCLE_LOAD_DELAY_MS));
+        }
       }
     };
     setTimeout(() => {
@@ -6012,7 +6058,7 @@ function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
         });
         return;
       }
-      eagerLoad().catch((err) => logger.debug('Eager load failed', { error: String(err) }));
+      enqueueEagerLifecycleLoad(eagerLoad);
     }, 1000);
   }
 

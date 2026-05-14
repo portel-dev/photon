@@ -1326,6 +1326,22 @@ async function testSourcePatterns() {
     );
   });
 
+  await test('eager lifecycle loading is queued and resource guarded', async () => {
+    const source = await fsPromises.readFile(
+      path.join(process.cwd(), 'src/daemon/server.ts'),
+      'utf-8'
+    );
+    assert.ok(source.includes('enqueueEagerLifecycleLoad'), 'Expected queued eager loads');
+    assert.ok(
+      source.includes('PHOTON_DAEMON_EAGER_LOAD_RSS_LIMIT_MB'),
+      'Expected RSS guard env var'
+    );
+    assert.ok(
+      source.includes('Skipping remaining eager lifecycle loads due to daemon RSS guard'),
+      'Expected high-RSS skip path'
+    );
+  });
+
   await test('compiler uses content-addressed caching (hash in filename)', async () => {
     // Try sibling repo first (dev), fall back to installed package (CI)
     const candidates = [
