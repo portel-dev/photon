@@ -9,8 +9,24 @@ import type { Command } from 'commander';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs/promises';
+import { fileURLToPath } from 'url';
 import { getErrorMessage } from '../../shared/error-handler.js';
 import { getDefaultContext } from '../../context.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function getPhotonLauncherPath(): string {
+  return path.resolve(__dirname, '..', '..', '..', 'bin', 'photon');
+}
+
+function quoteForSh(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function quoteForPowerShell(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // COMMANDS
@@ -72,6 +88,7 @@ export function registerInitCommands(program: Command): void {
       let rcFile: string;
       let evalLine: string;
       const marker = '# photon shell integration';
+      const photonLauncherPath = getPhotonLauncherPath();
 
       if (shellType === 'powershell') {
         // PowerShell profile path: cross-platform
@@ -79,11 +96,30 @@ export function registerInitCommands(program: Command): void {
           process.platform === 'win32'
             ? path.join(os.homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1')
             : path.join(os.homedir(), '.config', 'powershell', 'Microsoft.PowerShell_profile.ps1');
-        evalLine = 'Invoke-Expression (& photon init cli --hook)';
+        evalLine = `Invoke-Expression (& ${quoteForPowerShell(photonLauncherPath)} init cli --hook)`;
       } else {
         rcFile = isZsh ? path.join(os.homedir(), '.zshrc') : path.join(os.homedir(), '.bashrc');
-        evalLine = 'eval "$(photon init cli --hook)"';
+        evalLine = `eval "$(${quoteForSh(photonLauncherPath)} init cli --hook)"`;
       }
+
+      const legacyEvalLines = [
+        'eval "$(photon shell init --hook)"',
+        'eval "$(photon init cli --hook)"',
+        'Invoke-Expression (& photon shell init --hook)',
+        'Invoke-Expression (& photon init cli --hook)',
+      ];
+
+      const migrateLegacyEvalLines = (content: string): { content: string; changed: boolean } => {
+        let changed = false;
+        const lines = content.split('\n').map((line) => {
+          if (legacyEvalLines.includes(line.trim())) {
+            changed = true;
+            return evalLine;
+          }
+          return line;
+        });
+        return { content: lines.join('\n'), changed };
+      };
 
       // Build the shell hook script. Extracted so the install path can also
       // emit it on stdout when invoked via `eval "$(photon init cli)"`.
@@ -510,15 +546,18 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
         const alreadyInstalled = rcContent.includes(marker) || rcContent.includes(evalLine);
 
         if (alreadyInstalled) {
-          sayInfo(`Shell integration already installed in ${rcFile}`);
+          const migrated = migrateLegacyEvalLines(rcContent);
+          if (migrated.changed) {
+            await fs.writeFile(rcFile, migrated.content, 'utf-8');
+            rcContent = migrated.content;
+            sayOk(`Updated shell integration in ${rcFile}`);
+          } else {
+            sayInfo(`Shell integration already installed in ${rcFile}`);
+          }
         } else {
-          // Remove old eval line if migrating from `photon shell init`
-          const oldEvalLines = [
-            'eval "$(photon shell init --hook)"',
-            'Invoke-Expression (& photon shell init --hook)',
-          ];
+          // Remove old eval lines before appending the current marked block.
           let cleaned = rcContent;
-          for (const old of oldEvalLines) {
+          for (const old of legacyEvalLines) {
             cleaned = cleaned
               .split('\n')
               .filter((l) => !l.includes(old))

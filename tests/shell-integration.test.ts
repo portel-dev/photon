@@ -11,6 +11,8 @@
 import { execSync } from 'child_process';
 import { strict as assert } from 'assert';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -93,6 +95,24 @@ async function runTests() {
       hookScript.includes('compdef') || hookScript.includes('complete -F'),
       'Expected completion registration'
     );
+  });
+
+  test('Installed shell hook uses absolute launcher path', () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-shell-'));
+    try {
+      execSync(`node ${CLI_PATH} init cli`, {
+        encoding: 'utf-8',
+        env: { ...process.env, HOME: tempHome, SHELL: '/bin/zsh' },
+        timeout: 15000,
+      });
+
+      const zshrc = fs.readFileSync(path.join(tempHome, '.zshrc'), 'utf-8');
+      assert.ok(zshrc.includes('# photon shell integration'), 'Expected shell marker');
+      assert.match(zshrc, /eval "\$\('\/.+\/bin\/photon' init cli --hook\)"/);
+      assert.ok(!zshrc.includes('eval "$(photon init cli --hook)"'), 'Expected no PATH lookup');
+    } finally {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
