@@ -2391,6 +2391,32 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const symlinkWatchedDirs = new Set<string>(); // Track which source dirs already have watchers (prevents duplicates on re-setup)
   const autoRetried = new Set<string>(); // Photons that have already had one auto-retry after a load failure
 
+  const shouldIgnoreAssetWatcherEvent = (
+    photonName: string,
+    assetFolder: string,
+    filename: string | Buffer
+  ): boolean => {
+    const raw = String(filename);
+    if (!raw) return true;
+    const normalized = raw.replace(/\\/g, '/').replace(/^\.?\//, '');
+    if (
+      normalized.endsWith('.json') ||
+      normalized.startsWith('boards/') ||
+      normalized === 'data.json'
+    ) {
+      return true;
+    }
+
+    // macOS/Bun recursive fs.watch can emit a spurious event named after the
+    // watched directory itself, e.g. watching `.../canvas` emits `canvas`.
+    // That path is not an asset and causes a hot-reload loop on startup.
+    const changedPath = path.join(assetFolder, ...normalized.split('/'));
+    return (
+      (normalized === photonName || normalized === path.basename(assetFolder)) &&
+      !existsSync(changedPath)
+    );
+  };
+
   // Set up file watchers for a symlinked photon's real source directory and asset folder.
   // Called both at startup and after a previously-errored symlinked photon recovers.
   const setupSymlinkWatcher = (photonName: string, photonPath: string): void => {
@@ -2426,11 +2452,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         try {
           const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
             if (filename) {
-              if (
-                filename.endsWith('.json') ||
-                filename.startsWith('boards/') ||
-                filename === 'data.json'
-              ) {
+              if (shouldIgnoreAssetWatcherEvent(photonName, assetFolder, filename)) {
                 return;
               }
               logger.info(`📁 Asset change detected: ${photonName}/${filename}`);
@@ -3311,11 +3333,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 { recursive: true },
                 (eventType, filename) => {
                   if (filename) {
-                    if (
-                      filename.endsWith('.json') ||
-                      filename.startsWith('boards/') ||
-                      filename === 'data.json'
-                    ) {
+                    if (shouldIgnoreAssetWatcherEvent(photon.name, assetFolder, filename)) {
                       return;
                     }
                     logger.info(`📁 Asset change detected: ${photon.name}/${filename}`);
@@ -3374,12 +3392,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     try {
       const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
         if (filename) {
-          if (
-            filename.endsWith('.json') ||
-            filename.startsWith('boards/') ||
-            filename === 'data.json'
-          ) {
-            logger.debug(`⏭️ Ignoring data file change: ${photonName}/${filename}`);
+          if (shouldIgnoreAssetWatcherEvent(photonName, assetFolder, filename)) {
+            logger.debug(`⏭️ Ignoring asset watcher event: ${photonName}/${filename}`);
             return;
           }
           logger.info(`📁 Asset change detected: ${photonName}/${filename}`);
