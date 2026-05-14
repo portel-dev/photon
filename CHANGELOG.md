@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.32.4](https://github.com/portel-dev/photon/compare/v1.32.3...v1.32.4) (2026-05-14)
+
+### Bug Fixes
+
+* cap Beam daemon connection pressure ([33617d1](https://github.com/portel-dev/photon/commit/33617d1e8bf7d89066d57d179efabdb621741c49))
+* harden daemon health recovery ([b45b0cb](https://github.com/portel-dev/photon/commit/b45b0cbf40cb828da34440d19f3f55d3ccb9826a))
+* ignore phantom Beam asset watcher events ([c34778a](https://github.com/portel-dev/photon/commit/c34778af502fb51df240d866d10a68ac638744ab))
+
 ## [1.32.3](https://github.com/portel-dev/photon/compare/v1.32.2...v1.32.3) (2026-05-13)
 
 ### Features
