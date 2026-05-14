@@ -32,7 +32,7 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { DaemonManager } from '../dist/daemon/manager.js';
 import { spawnDaemonPG, stopDaemonPG } from './helpers/daemon-pg.js';
 
@@ -89,6 +89,7 @@ async function tailLog(
 
 let passed = 0;
 let failed = 0;
+const serverSockets = new WeakMap<net.Server, Set<net.Socket>>();
 
 async function test(name: string, fn: () => Promise<void>): Promise<void> {
   try {
@@ -109,15 +110,65 @@ async function test(name: string, fn: () => Promise<void>): Promise<void> {
  */
 function startSilentDaemon(socketPath: string): Promise<net.Server> {
   return new Promise((resolve, reject) => {
+    const sockets = new Set<net.Socket>();
     const server = net.createServer((sock) => {
+      sockets.add(sock);
+      sock.on('close', () => sockets.delete(sock));
       // Accept and hold the connection. Don't read, don't write.
+      setTimeout(() => sock.destroy(), 2_500).unref();
       sock.on('error', () => {
         /* drop ECONNRESET on probe disconnect */
       });
     });
+    serverSockets.set(server, sockets);
     server.on('error', reject);
     server.listen(socketPath, () => resolve(server));
   });
+}
+
+function startFlakyPingDaemon(socketPath: string): Promise<net.Server> {
+  let connections = 0;
+  const sockets = new Set<net.Socket>();
+  return new Promise((resolve, reject) => {
+    const server = net.createServer((sock) => {
+      connections++;
+      sockets.add(sock);
+      sock.on('close', () => sockets.delete(sock));
+      sock.on('error', () => {
+        /* first probe times out and resets; that's the behavior under test */
+      });
+
+      if (connections === 1) {
+        // Simulate a transiently busy daemon: accepts the socket but does
+        // not get to the ping handler before the client's health timeout.
+        setTimeout(() => sock.destroy(), 2_500).unref();
+        return;
+      }
+
+      sock.on('data', (chunk) => {
+        const line = chunk.toString().split('\n')[0];
+        try {
+          const req = JSON.parse(line) as { id?: string; type?: string };
+          if (req.type === 'ping') {
+            sock.write(JSON.stringify({ type: 'pong', id: req.id }) + '\n');
+          }
+        } catch {
+          /* ignore malformed health probe input */
+        }
+      });
+    });
+    serverSockets.set(server, sockets);
+    server.on('error', reject);
+    server.listen(socketPath, () => resolve(server));
+  });
+}
+
+async function closeTestServer(server: net.Server): Promise<void> {
+  const sockets = serverSockets.get(server);
+  if (sockets) {
+    for (const sock of sockets) sock.destroy();
+  }
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
 async function main(): Promise<void> {
@@ -148,7 +199,7 @@ async function main(): Promise<void> {
       // Should time out around 2s, not hang indefinitely.
       assert.ok(elapsed < 4_000, `probe should give up within 2s budget, took ${elapsed}ms`);
     } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await closeTestServer(server);
       try {
         fs.unlinkSync(sock);
       } catch {
@@ -182,6 +233,53 @@ async function main(): Promise<void> {
       assert.equal(reachable, true, 'real daemon must answer ping within 2s');
     } finally {
       if (daemon) await stopDaemonPG(daemon);
+    }
+  });
+
+  await test('ensure() retries a failed health probe before stale cleanup', async () => {
+    // Beam can ask the manager to ensure the daemon while the daemon is
+    // temporarily busy loading photons or servicing scheduled work. One
+    // missed ping must not be enough to kill a daemon whose next ping
+    // succeeds.
+    const sock = path.join(tmpDir, 'flaky.sock');
+    const pidFile = path.join(tmpDir, 'flaky.pid');
+    const ownerFile = path.join(tmpDir, 'daemon.owner.json');
+    const logFile = path.join(tmpDir, 'flaky.log');
+    const server = await startFlakyPingDaemon(sock);
+    const pidHolder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+    });
+
+    try {
+      assert.ok(pidHolder.pid, 'pid holder process should have a pid');
+      fs.writeFileSync(pidFile, String(pidHolder.pid));
+      fs.writeFileSync(
+        ownerFile,
+        JSON.stringify({ pid: pidHolder.pid, socketPath: sock, claimedAt: Date.now() })
+      );
+
+      const ctx = {
+        baseDir: tmpDir,
+        socketPath: sock,
+        pidFile,
+        logFile,
+      };
+      const mgr = new DaemonManager(ctx as any);
+
+      await mgr.ensure(true);
+
+      assert.equal(fs.existsSync(pidFile), true, 'pid file should not be removed');
+      assert.equal(fs.existsSync(ownerFile), true, 'owner file should not be removed');
+      assert.equal(fs.existsSync(sock), true, 'socket should not be removed');
+      assert.doesNotThrow(() => process.kill(pidHolder.pid!, 0), 'daemon pid should stay alive');
+    } finally {
+      pidHolder.kill('SIGKILL');
+      await closeTestServer(server);
+      try {
+        fs.unlinkSync(sock);
+      } catch {
+        /* ignore */
+      }
     }
   });
 

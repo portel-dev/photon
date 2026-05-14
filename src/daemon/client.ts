@@ -1141,10 +1141,21 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
 
   return new Promise((resolve) => {
     const client = tryConnectToDaemon(socketPath);
+    let done = false;
+    const finish = (alive: boolean): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      if (alive) {
+        client.end();
+      } else {
+        client.destroy();
+      }
+      resolve(alive);
+    };
 
     const timeout = setTimeout(() => {
-      client.destroy();
-      resolve(false);
+      finish(false);
     }, 5000);
 
     client.on('connect', () => {
@@ -1162,9 +1173,7 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
         const response: DaemonResponse = JSON.parse(chunk.toString().trim());
 
         if (response.id === requestId && response.type === 'pong') {
-          clearTimeout(timeout);
-          client.destroy();
-          resolve(true);
+          finish(true);
         }
       } catch (error) {
         // Ignore parse errors
@@ -1172,15 +1181,11 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
     });
 
     client.on('error', () => {
-      clearTimeout(timeout);
-      client.destroy();
-      resolve(false);
+      finish(false);
     });
 
     client.on('end', () => {
-      clearTimeout(timeout);
-      client.destroy();
-      resolve(false);
+      finish(false);
     });
   });
 }

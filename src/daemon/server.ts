@@ -104,26 +104,31 @@ async function isSocketResponsive(target: string): Promise<boolean> {
   if (!isPipe && !fs.existsSync(target)) return false;
   return new Promise((resolve) => {
     const client = new net.Socket();
+    let done = false;
+    const finish = (alive: boolean): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (alive) {
+        client.end();
+      } else {
+        client.destroy();
+      }
+      resolve(alive);
+    };
     const timer = setTimeout(() => {
-      client.destroy();
-      resolve(false);
+      finish(false);
     }, 1000);
     client.on('error', () => {
-      clearTimeout(timer);
-      client.destroy();
-      resolve(false);
+      finish(false);
     });
     client.on('connect', () => {
-      clearTimeout(timer);
-      client.destroy();
-      resolve(true);
+      finish(true);
     });
     try {
       client.connect(target);
     } catch {
-      clearTimeout(timer);
-      client.destroy();
-      resolve(false);
+      finish(false);
     }
   });
 }
@@ -6083,7 +6088,12 @@ function startServer(): void {
     });
 
     socket.on('error', (error) => {
-      logger.warn('Socket error', { error: getErrorMessage(error) });
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code === 'ECONNRESET' || code === 'EPIPE') {
+        logger.debug('Socket closed by client', { error: getErrorMessage(error) });
+      } else {
+        logger.warn('Socket error', { error: getErrorMessage(error) });
+      }
       connectedSockets.delete(socket);
       cleanupSocketSubscriptions(socket);
     });

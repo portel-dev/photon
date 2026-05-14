@@ -23,6 +23,9 @@ import { createLogger } from '../shared/logger.js';
 import { getDefaultContext, type PhotonContext } from '../context.js';
 
 const DEFAULT_DAEMON_READY_TIMEOUT_MS = 30_000;
+const DAEMON_HEALTH_PING_TIMEOUT_MS = 2_000;
+const DAEMON_HEALTH_CONFIRM_ATTEMPTS = 2;
+const DAEMON_HEALTH_CONFIRM_DELAY_MS = 100;
 
 function getDaemonReadyTimeoutMs(): number {
   const parsed = Number(process.env.PHOTON_DAEMON_READY_TIMEOUT_MS);
@@ -104,7 +107,7 @@ export class DaemonManager {
 
   private async _ensureImpl(quiet: boolean): Promise<void> {
     if (this.fsm.state === 'running') {
-      if (!(await this.isSocketAlive())) {
+      if (await this.isSocketConfirmedUnreachable()) {
         this.logger.warn('Daemon marked running but socket is unreachable, recovering stale state');
         await this.cleanupStaleAsync();
         this.resyncFromDisk();
@@ -144,9 +147,14 @@ export class DaemonManager {
         if (!quiet) this.logger.debug('Global daemon already running');
         return;
       }
-      this.logger.warn('Daemon marked running but socket is unreachable, recovering stale state');
-      await this.cleanupStaleAsync();
-      this.resyncFromDisk();
+      if (await this.isSocketConfirmedUnreachable()) {
+        this.logger.warn('Daemon marked running but socket is unreachable, recovering stale state');
+        await this.cleanupStaleAsync();
+        this.resyncFromDisk();
+      } else if (this.hasExclusiveOwner()) {
+        if (!quiet) this.logger.debug('Global daemon already running after health retry');
+        return;
+      }
     }
 
     // If somehow stuck in starting/stopping, re-sync from disk
@@ -708,7 +716,7 @@ export class DaemonManager {
 
   private async isSocketAlive(): Promise<boolean> {
     // Health check: open a connection AND send a `ping` RPC, waiting up to
-    // 2s for a `pong` reply. The previous version did a TCP connect plus
+    // DAEMON_HEALTH_PING_TIMEOUT_MS for a `pong` reply. The previous version did a TCP connect plus
     // immediate disconnect — which would pass against a daemon stuck in
     // an infinite loop on user code, because the listener thread accepts
     // the connection independent of whether the request handler is alive.
@@ -716,9 +724,9 @@ export class DaemonManager {
     // leaked test daemon spinning at 100% CPU) would have looked "alive"
     // by the old probe even though it was not servicing requests.
     //
-    // ping is the cheapest possible RPC — handler at server.ts:3101
-    // returns { type: 'pong', id } with no I/O, so a healthy daemon
-    // round-trips in <1ms. If the handler doesn't reply within 2s the
+    // ping is the cheapest possible RPC — handler in server.ts returns
+    // { type: 'pong', id } with no I/O, so a healthy daemon usually
+    // round-trips in <1ms. If the handler doesn't reply within the timeout the
     // daemon is treated as unreachable; cleanupStale() then SIGTERMs +
     // SIGKILLs and the caller spawns a fresh process.
     //
@@ -730,13 +738,20 @@ export class DaemonManager {
     return new Promise((resolve) => {
       const sock = new net.Socket();
       let buf = '';
+      let done = false;
       const id = `health-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
       const finish = (alive: boolean): void => {
+        if (done) return;
+        done = true;
         clearTimeout(timer);
-        sock.destroy();
+        if (alive) {
+          sock.end();
+        } else {
+          sock.destroy();
+        }
         resolve(alive);
       };
-      const timer = setTimeout(() => finish(false), 2_000);
+      const timer = setTimeout(() => finish(false), DAEMON_HEALTH_PING_TIMEOUT_MS);
       sock.on('error', () => finish(false));
       sock.on('connect', () => {
         try {
@@ -765,6 +780,16 @@ export class DaemonManager {
         finish(false);
       }
     });
+  }
+
+  private async isSocketConfirmedUnreachable(): Promise<boolean> {
+    for (let attempt = 0; attempt < DAEMON_HEALTH_CONFIRM_ATTEMPTS; attempt++) {
+      if (await this.isSocketAlive()) return false;
+      if (attempt < DAEMON_HEALTH_CONFIRM_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, DAEMON_HEALTH_CONFIRM_DELAY_MS));
+      }
+    }
+    return true;
   }
 
   private async cleanupStaleAsync(): Promise<void> {
