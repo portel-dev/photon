@@ -575,6 +575,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | [Getting Started](./docs/getting-started.md) | Install, build, and run your first photon in 5 minutes |
 | [Core Concepts](./docs/concepts.md) | The 6 ideas behind Photon |
 | [Output Formats](./docs/formats.md) | Visual gallery of every `@format` type |
+| [Intent Metadata](./docs/reference/INTENT-METADATA.md) | How comments, schemas, annotations, and formats map to native surfaces |
 | [Settings](./docs/GUIDE.md#settings-user-configurable-knobs) | Declare runtime knobs with `protected settings` (the canonical config pattern) |
 | [Troubleshooting](./docs/TROUBLESHOOTING.md) | Common issues and solutions |
 

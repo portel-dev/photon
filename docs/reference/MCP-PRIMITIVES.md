@@ -68,6 +68,9 @@ Beam follows every `nextCursor` until discovery is complete, so large local
 workspaces render the same complete tool/resource surface as external MCP
 clients.
 
+For the full authoring and surface-consumption contract, see
+[Intent Metadata](INTENT-METADATA.md).
+
 ---
 
 ## `this.sample` — delegate LLM calls to the caller's agent

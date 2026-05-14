@@ -45,6 +45,7 @@ import { ViewportAwareProxy } from '../services/viewport-aware-proxy.js';
 import { ViewportManager, getPageSizeForClient } from '../services/viewport-manager.js';
 import { buildBeamRoutePath, parseBeamRoutePath } from '../utils/beam-route.js';
 import { formatLabel } from '../utils/format-label.js';
+import { getIntentOutputFormat, isDestructiveIntent, methodRequiresInput } from '../../intent.js';
 
 // Browser-side libraries loaded from script tags (vendored / CDN). Declared
 // here so beam-app can call them without `as any`. Signatures match
@@ -6793,24 +6794,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
   }
 
   private _methodRequiresInput(method: any): boolean {
-    if (!method) return false;
-    if (method.intent?.input?.requiresInput !== undefined) {
-      return method.intent.input.requiresInput;
-    }
-    const params = method.params || {};
-    return Array.isArray(params.required) && params.required.length > 0;
+    return methodRequiresInput(method);
   }
 
   private _isDestructiveMethod(method: any): boolean {
-    return (
-      method?.destructiveHint === true ||
-      method?.intent?.safety?.destructive === true ||
-      method?.intent?.action === 'delete'
-    );
+    return isDestructiveIntent(method);
   }
 
   private _getMethodOutputFormat(method: any): string | undefined {
-    return method?.outputFormat ?? method?.intent?.output?.format;
+    return getIntentOutputFormat(method);
   }
 
   private _getMethodActionLabel(method: any, hasAnyParams = false): string {

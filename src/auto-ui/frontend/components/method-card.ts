@@ -4,6 +4,7 @@ import { theme, badges, motion } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { pencil, formInput, play, user, bot, users, sizedIcon } from '../icons.js';
 import { formatLabel } from '../utils/format-label.js';
+import { isDestructiveIntent, methodRequiresInput } from '../../intent.js';
 
 interface MethodInfo {
   name: string;
@@ -537,10 +538,7 @@ export class MethodCard extends LitElement {
     const isTyped = isAutorun || isWebhook || isCron || isLocked || isDeprecated;
     const intentAction = this.method.intent?.action;
     const requiresInput = this._requiresInput();
-    const isDestructive =
-      this.method.destructiveHint ||
-      this.method.intent?.safety?.destructive ||
-      intentAction === 'delete';
+    const isDestructive = isDestructiveIntent(this.method);
 
     // Determine accent color for typed methods
     const typeAccent = isDeprecated
@@ -723,10 +721,7 @@ export class MethodCard extends LitElement {
   }
 
   private _requiresInput(): boolean {
-    if (this.method.intent?.input?.requiresInput !== undefined) {
-      return !!this.method.intent.input.requiresInput;
-    }
-    return Array.isArray(this.method.params?.required) && this.method.params.required.length > 0;
+    return methodRequiresInput(this.method);
   }
 
   private _renderEmojiPicker() {

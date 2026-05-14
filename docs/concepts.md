@@ -172,8 +172,17 @@ The three surfaces share:
 - **Same logic** — one method implementation, not three
 - **Same data** — `@stateful` state is shared across all access paths
 - **Same formatting** — `@format table` renders appropriately on each surface
+- **Same intent** — method names, comments, schemas, annotations, and formats
+  become `_meta["photon/render"].intent` so every surface can choose native
+  controls without server-side UI code
 
 When you add a `@cached 5m` tag, all three surfaces cache. When you add `@throttled 10/min`, all three enforce the rate limit. The annotations are surface-agnostic.
+
+Intent is inferred, not declared through a new tag. `List tasks` plus
+`@format table` becomes a direct table view. `Create task` with a required
+`title` becomes a form/dialog. `Delete task` plus `@destructive` becomes a
+confirmed action. See [Intent Metadata](reference/INTENT-METADATA.md) for the
+stable contract used by Beam, CLI, MCP clients, and desktop surfaces.
 
 ---
 

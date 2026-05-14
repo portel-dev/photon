@@ -58,6 +58,11 @@ import {
   formatKey,
 } from './cli-formatter.js';
 import { resultToA2UIMessages, looksLikeA2UIStream } from './a2ui/mapper.js';
+import {
+  getIntentOutputFormat,
+  isDestructiveIntent,
+  methodRequiresInput as sharedMethodRequiresInput,
+} from './auto-ui/intent.js';
 import { buildPhotonRenderMeta, type PhotonIntentMeta } from './auto-ui/types.js';
 
 const BASE_FORMATS = new Set([
@@ -848,22 +853,15 @@ export function parseCliArgs(args: string[], params: MethodInfo['params']): Reco
 }
 
 export function methodRequiresInput(method: MethodInfo): boolean {
-  if (method.intent?.input?.requiresInput !== undefined) {
-    return method.intent.input.requiresInput;
-  }
-  return method.params.some((param) => !param.optional);
+  return sharedMethodRequiresInput(method);
 }
 
 export function isDestructiveMethod(method: MethodInfo): boolean {
-  return (
-    method.destructiveHint === true ||
-    method.intent?.safety?.destructive === true ||
-    method.intent?.action === 'delete'
-  );
+  return isDestructiveIntent(method);
 }
 
 export function getMethodFormatHint(method: MethodInfo): OutputFormat | undefined {
-  return method.format || (method.intent?.output?.format as OutputFormat | undefined);
+  return getIntentOutputFormat(method) as OutputFormat | undefined;
 }
 
 /**
