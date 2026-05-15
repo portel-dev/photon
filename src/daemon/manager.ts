@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
 import { spawn, execFileSync } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { DaemonStateMachine, type DaemonState } from './state-machine.js';
@@ -935,12 +936,17 @@ export class DaemonManager {
     const env: NodeJS.ProcessEnv = { ...process.env, PHOTON_DAEMON: 'true' };
     delete env.PHOTON_DIR;
 
-    const child = spawn(process.execPath, [daemonScript, this.ctx.socketPath], {
-      detached: true,
-      stdio: ['ignore', logStream, logStream],
-      env,
-      cwd: this.ctx.baseDir,
-    });
+    let child: ChildProcess;
+    try {
+      child = spawn(process.execPath, [daemonScript, this.ctx.socketPath], {
+        detached: true,
+        stdio: ['ignore', logStream, logStream],
+        env,
+        cwd: this.ctx.baseDir,
+      });
+    } finally {
+      fs.closeSync(logStream);
+    }
     const childPid = child.pid;
     if (childPid === undefined) {
       throw new Error('Daemon process started without a PID');

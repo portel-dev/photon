@@ -242,7 +242,25 @@ import { getOwnerFilePath, writeOwnerRecord } from '../src/daemon/ownership.js';
   }
 
   // ─────────────────────────────────────────────────────────────────
-  // Test 6: Zombie process regression — a process that has been killed
+  // Test 6: parent closes daemon log fd after spawn.
+  // The daemon inherits stdout/stderr handles, but the Beam/CLI parent must
+  // not keep its own copy or every restart leaks daemon.log descriptors.
+  // ─────────────────────────────────────────────────────────────────
+  {
+    const managerSource = fs.readFileSync(
+      path.join(process.cwd(), 'src', 'daemon', 'manager.ts'),
+      'utf-8'
+    );
+    const spawnBlock = managerSource.slice(
+      managerSource.indexOf('private async spawnDaemon'),
+      managerSource.indexOf('    const childPid = child.pid;')
+    );
+    assert.match(spawnBlock, /fs\.closeSync\(logStream\)/);
+    console.log('  ✅ Parent closes daemon log fd after spawn');
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Test 7: Zombie process regression — a process that has been killed
   // (SIGKILL) but not yet reaped by its parent appears alive to
   // kill(pid, 0) on POSIX. cleanupStale must detect the zombie via
   // ps state='Z' and treat it as dead so cleanup proceeds without
