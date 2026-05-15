@@ -408,7 +408,7 @@ export class PhotonDocExtractor {
       const methodSignatureParams = member.parameters
         .map((param) => param.getText(sourceFile))
         .join(', ');
-      const methodIndex = member.getFullStart();
+      const methodIndex = member.getStart(sourceFile);
       const isGenerator = Boolean(member.asteriskToken);
       const isPrivateOrProtected = member.modifiers?.some(
         (modifier) =>
