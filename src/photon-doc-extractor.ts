@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as ts from 'typescript';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
 
@@ -377,18 +378,44 @@ export class PhotonDocExtractor {
    */
   private async extractTools(): Promise<Tool[]> {
     const tools: Tool[] = [];
+    const sourceFile = ts.createSourceFile(
+      this.filePath,
+      this.content,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
 
-    // Find all public methods: sync, async, and async generators
-    // Matches: "  methodName(", "  async methodName(", "  async *methodName("
-    // Excludes: "function ", "=> {", and non-indented lines (not class methods)
-    const methodRegex = /^[ \t]+(async\s+)?(\*?)\s*(\w+)\s*\(([^)]*)\)/gm;
-    let match;
+    const photonClass =
+      sourceFile.statements.find(
+        (statement): statement is ts.ClassDeclaration =>
+          ts.isClassDeclaration(statement) &&
+          Boolean(
+            statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
+          )
+      ) ??
+      sourceFile.statements.find((statement): statement is ts.ClassDeclaration =>
+        ts.isClassDeclaration(statement)
+      );
 
-    while ((match = methodRegex.exec(this.content)) !== null) {
-      const isGenerator = match[2] === '*';
-      const methodName = match[3];
-      const methodSignatureParams = match[4] || '';
-      const methodIndex = match.index;
+    if (!photonClass) return tools;
+
+    for (const member of photonClass.members) {
+      if (!ts.isMethodDeclaration(member)) continue;
+      if (!member.name || !ts.isIdentifier(member.name)) continue;
+
+      const methodName = member.name.text;
+      const methodSignatureParams = member.parameters
+        .map((param) => param.getText(sourceFile))
+        .join(', ');
+      const methodIndex = member.getFullStart();
+      const isGenerator = Boolean(member.asteriskToken);
+      const isPrivateOrProtected = member.modifiers?.some(
+        (modifier) =>
+          modifier.kind === ts.SyntaxKind.PrivateKeyword ||
+          modifier.kind === ts.SyntaxKind.ProtectedKeyword
+      );
+      if (isPrivateOrProtected) continue;
 
       // Skip constructor, property assignments, and non-method patterns
       if (
