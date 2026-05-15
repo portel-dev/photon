@@ -1,5 +1,5 @@
 import { strict as assert } from 'assert';
-import { findBeamWebRoute } from '../src/auto-ui/beam.js';
+import { findBeamWebRoute, shouldServeLinkedAppForWebPath } from '../src/auto-ui/beam.js';
 
 let passed = 0;
 let failed = 0;
@@ -45,6 +45,17 @@ async function run() {
   await test('does not match wrong method or segment count', () => {
     assert.equal(findBeamWebRoute(routes, 'GET', '/api/threads/t_123/stdin'), undefined);
     assert.equal(findBeamWebRoute(routes, 'GET', '/api/threads/t_123/stream/extra'), undefined);
+  });
+
+  await test('serves linked app for non-API web paths only', () => {
+    assert.equal(shouldServeLinkedAppForWebPath('/', new URLSearchParams()), true);
+    assert.equal(shouldServeLinkedAppForWebPath('/threads/t_123', new URLSearchParams()), true);
+    assert.equal(shouldServeLinkedAppForWebPath('/api/threads/list', new URLSearchParams()), false);
+    assert.equal(shouldServeLinkedAppForWebPath('/sw.js', new URLSearchParams()), false);
+    assert.equal(
+      shouldServeLinkedAppForWebPath('/threads', new URLSearchParams('legacy=1')),
+      false
+    );
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

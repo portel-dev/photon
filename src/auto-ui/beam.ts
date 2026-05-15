@@ -108,6 +108,17 @@ function beamWebRouteScore(routePath: string): number {
   );
 }
 
+export function shouldServeLinkedAppForWebPath(
+  pathname: string,
+  searchParams: URLSearchParams
+): boolean {
+  if (searchParams.get('legacy') === '1') return false;
+  if (pathname === '/sw.js') return false;
+  if (pathname === '/pair') return false;
+  if (pathname.startsWith('/api/')) return false;
+  return true;
+}
+
 export function findBeamWebRoute(
   routes: BeamWebRouteDef[] | undefined,
   method: string,
@@ -1085,8 +1096,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Apply @visibility annotations from source to methods
       applyMethodVisibility(schemaSource, methods);
 
-      // Check if this is an App (has main() method with @ui)
-      const mainMethod = methods.find((m) => m.name === 'main');
+      // Check if this is an App. Prefer main(), but any linked UI method can
+      // be the app entry for photons that expose a named dashboard method.
+      const mainMethod = methods.find((m) => m.name === 'main') ?? methods.find((m) => m.linkedUi);
 
       // Extract class-level metadata — reuse source already read
       const classMetadata = extractClassMetadataFromSource(schemaSource);
@@ -2250,6 +2262,52 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         const [, , photonName, ...pathParts] = url.pathname.split('/');
         const photonPath = '/' + pathParts.join('/') || '/';
         const photonClass = photonName ? photonMCPs.get(photonName) : undefined;
+        const photonInfo = photonName ? photons.find((p) => p.name === photonName) : undefined;
+        const linkedAppUi =
+          photonInfo?.configured &&
+          (photonInfo.appEntry?.linkedUi ||
+            (photonInfo.assets?.ui?.length === 1 ? photonInfo.assets.ui[0]?.id : undefined));
+
+        if (
+          req.method === 'GET' &&
+          photonName &&
+          photonInfo?.configured &&
+          linkedAppUi &&
+          shouldServeLinkedAppForWebPath(photonPath, url.searchParams)
+        ) {
+          const appAsset = await loadUIAsset(photonName, linkedAppUi);
+          if (appAsset) {
+            let body = appAsset.content;
+            const prefix = `/web/${photonName}`;
+            const interceptor = `<script>
+(function(){
+  const _prefix="${prefix}";
+  const _origFetch=window.fetch;
+  window.fetch=function(input,init){
+    if(typeof input==='string'&&input.startsWith('/')&&!input.startsWith(_prefix))
+      input=_prefix+input;
+    return _origFetch(input,init);
+  };
+  const _origOpen=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(m,u,...a){
+    if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith(_prefix))u=_prefix+u;
+    return _origOpen.call(this,m,u,...a);
+  };
+})();
+</script>`;
+            body = body.includes('<head>')
+              ? body.replace('<head>', '<head>' + interceptor)
+              : interceptor + body;
+            res.writeHead(200, {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Content-Length': Buffer.byteLength(body).toString(),
+            });
+            res.end(body);
+            return;
+          }
+        }
+
         const httpRoutes: BeamWebRouteDef[] | undefined = photonClass?._httpRoutes;
         const route = findBeamWebRoute(httpRoutes, req.method || 'GET', photonPath);
 
