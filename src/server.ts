@@ -2965,7 +2965,13 @@ export class PhotonServer {
             }
             if (ui?.resolvedPath) {
               try {
-                const content = await readText(ui.resolvedPath);
+                let content: string;
+                if (ui.resolvedPath.endsWith('.tsx')) {
+                  const { compileTsxCached } = await import('./tsx-compiler.js');
+                  content = await compileTsxCached(ui.resolvedPath);
+                } else {
+                  content = await readText(ui.resolvedPath);
+                }
                 const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
                 if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
                 // Track D2: cross-origin isolation for standalone tabs so

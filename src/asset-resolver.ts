@@ -11,6 +11,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 import { discoverAssets as sharedDiscoverAssets, type PhotonAssets } from '@portel/photon-core';
 
 type LogFn = (message: string, meta?: Record<string, any>) => void;
@@ -30,6 +31,7 @@ export class AssetResolver {
       return undefined;
     }
 
+    this.resolveDeclaredPaths(photonPath, assets);
     this.applyMethodUILinks(source, assets);
     this.generateAssetURIs(basename, assets);
 
@@ -83,12 +85,30 @@ export class AssetResolver {
     }
   }
 
+  private resolveDeclaredPaths(photonPath: string, assets: PhotonAssets): void {
+    const baseDir = path.dirname(photonPath);
+    const resolveAsset = (asset: { path?: string; resolvedPath?: string }) => {
+      if (!asset.path || asset.resolvedPath) return;
+      const resolvedPath = path.isAbsolute(asset.path)
+        ? asset.path
+        : path.resolve(baseDir, asset.path);
+      if (fs.existsSync(resolvedPath)) {
+        asset.resolvedPath = resolvedPath;
+      }
+    };
+
+    for (const ui of assets.ui) resolveAsset(ui);
+    for (const prompt of assets.prompts) resolveAsset(prompt);
+    for (const resource of assets.resources) resolveAsset(resource);
+  }
+
   /**
    * Apply method-level `@ui` annotations to link UI assets to tools.
    * Called after auto-discovery so all UI assets are available to look up.
    */
   private applyMethodUILinks(source: string, assets: PhotonAssets): void {
-    const methodUiRegex = /\/\*\*[\s\S]*?@ui\s+(\w[\w-]*)[\s\S]*?\*\/\s*(?:async\s+)?\*?\s*(\w+)/g;
+    const methodUiRegex =
+      /\/\*\*[\s\S]*?@ui\s+(\w[\w-]*)[\s\S]*?\*\/\s*(?:(?:public|private|protected|static|async)\s+)*\*?\s*(\w+)\s*\(/g;
 
     let match;
     while ((match = methodUiRegex.exec(source)) !== null) {

@@ -618,7 +618,20 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
     async function loadTools() {
       const res = await fetch('/api/photons', { signal: AbortSignal.timeout(10000) });
       const data = await res.json();
-      photons = data.photons;
+      photons = data.photons || [];
+      if (photons.length === 0) {
+        const [toolsRes, statusRes] = await Promise.all([
+          fetch('/api/tools', { signal: AbortSignal.timeout(10000) }),
+          fetch('/api/status', { signal: AbortSignal.timeout(5000) }).catch(() => null),
+        ]);
+        const toolsData = await toolsRes.json();
+        const statusData = statusRes?.ok ? await statusRes.json() : {};
+        photons = [{
+          name: statusData.photon || 'current',
+          file: '',
+          tools: toolsData.tools || [],
+        }];
+      }
       // Flatten all tools from all photons
       tools = photons.flatMap(p => p.tools.map(t => ({
         ...t,
