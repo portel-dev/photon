@@ -612,8 +612,7 @@ export class PhotonLoader {
       value: {
         get(key: string): string | undefined {
           const stored = read();
-          if (stored[key] !== undefined) return stored[key];
-          return process.env[key];
+          return stored[key];
         },
         require(key: string): string {
           const value = this.get(key);

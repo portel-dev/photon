@@ -1421,7 +1421,7 @@ Declare config keys that must be resolvable before a scheduled method is armed:
 async remind() {}
 ```
 
-Photon checks the runtime config store first, then the environment fallback. Missing keys block `photon ps enable` and daemon auto-registration for that schedule.
+Photon checks the runtime config store only for this tag. Missing keys block `photon ps enable` and daemon auto-registration for that schedule.
 
 ## Scoped Memory (`this.memory`)
 

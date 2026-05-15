@@ -3,7 +3,7 @@
  *
  * Daemon-hosted photons cannot safely depend on the interactive shell's
  * environment. These tests pin config values to PHOTON_DIR/.data and verify
- * both constructor injection and `this.config` read from that store first.
+ * constructor injection reads the store first and `this.config` is store-only.
  */
 
 import { strict as assert } from 'assert';
@@ -72,6 +72,24 @@ await test('this.config reads daemon-safe config values from Photon config store
   const result = await loader.executeTool(photon, 'requiredEmail', {});
 
   assert.equal(result, 'kit@example.com');
+});
+
+await test('this.config does not read ambient process.env', async () => {
+  process.env.KITH_USER_EMAIL = 'ambient@example.com';
+
+  const isolatedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-runtime-config-empty-'));
+  const isolatedPhotonPath = path.join(isolatedDir, `${photonName}.photon.ts`);
+  fs.copyFileSync(photonPath, isolatedPhotonPath);
+  new EnvStore(isolatedDir).write(photonName, { CONFIG_RUNTIME_API_KEY: 'stored-key' });
+
+  const loader = new PhotonLoader(false, undefined, isolatedDir);
+  const photon = await loader.loadFile(isolatedPhotonPath);
+
+  await assert.rejects(
+    () => loader.executeTool(photon, 'requiredEmail', {}),
+    /Missing Photon config "KITH_USER_EMAIL"/
+  );
+  delete process.env.KITH_USER_EMAIL;
 });
 
 if (failed > 0) {

@@ -81,41 +81,6 @@ const jsonPatchCompare = fastJsonPatch.compare;
 // Command line args: socketPath (global daemon only needs socket path)
 const socketPath = process.argv[2];
 
-function loadDaemonEnvFile(): void {
-  const photonHome = process.env.PHOTON_HOME
-    ? path.resolve(process.env.PHOTON_HOME)
-    : path.join(os.homedir(), '.photon');
-  for (const filePath of [path.join(photonHome, 'env'), path.join(photonHome, '.env')]) {
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      for (const line of content.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const eqIdx = trimmed.indexOf('=');
-        if (eqIdx <= 0) continue;
-        const key = trimmed.slice(0, eqIdx).trim();
-        let value = trimmed.slice(eqIdx + 1).trim();
-        if (
-          (value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))
-        ) {
-          value = value.slice(1, -1);
-        }
-        if (process.env[key] === undefined) process.env[key] = value;
-      }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        // Logger is not initialized yet; keep startup resilient.
-        console.warn(
-          `[photon] Failed to load daemon env file ${filePath}: ${getErrorMessage(err)}`
-        );
-      }
-    }
-  }
-}
-
-loadDaemonEnvFile();
-
 const logger: Logger = createLogger({
   component: 'daemon-server',
   scope: 'global',
@@ -2966,9 +2931,7 @@ function missingRequiredConfig(
   if (!requiredConfig || requiredConfig.length === 0) return [];
   const store = new EnvStore(workingDir || getDefaultContext().baseDir);
   const values = store.read(photonName);
-  return requiredConfig.filter(
-    (key) => values[key] === undefined && process.env[key] === undefined
-  );
+  return requiredConfig.filter((key) => values[key] === undefined);
 }
 
 /**

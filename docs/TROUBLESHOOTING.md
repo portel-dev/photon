@@ -205,7 +205,7 @@ photon mcp github-issues --config
    photon mcp github-issues --dev
    ```
 
-Shell exports are still supported as a fallback, but daemon-hosted photons should not depend on `.zshrc` or other interactive shell startup files.
+Shell exports are still supported as a constructor-injection compatibility fallback, but daemon-hosted photons should not depend on `.zshrc` or other interactive shell startup files. `this.config` and `@requiresConfig` intentionally read Photon config only.
 
 ### Environment Variable Naming
 

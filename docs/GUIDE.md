@@ -238,7 +238,7 @@ photon config set filesystem FILESYSTEM_WORKDIR=/Users/me/Documents
 photon config get filesystem FILESYSTEM_WORKDIR
 ```
 
-For backwards compatibility, Photon still falls back to `process.env.FILESYSTEM_WORKDIR` when no stored config exists. Daemon-safe photons should use `photon config set` or `this.config.get(...)` instead of relying on `.zshrc` exports.
+For backwards compatibility, constructor injection still falls back to `process.env.FILESYSTEM_WORKDIR` when no stored config exists. `this.config` is store-only by design, so daemon-safe photons should use `photon config set` and `this.config.get(...)` instead of relying on `.zshrc` exports.
 
 Scheduled methods can declare config that must exist before the daemon arms the schedule:
 
@@ -253,7 +253,7 @@ async remind() {
 }
 ```
 
-If `KITH_USER_EMAIL` is missing from Photon config and the environment fallback, Photon refuses to enable the schedule and logs the missing key.
+If `KITH_USER_EMAIL` is missing from Photon config, Photon refuses to enable the schedule and logs the missing key.
 
 ### Type Conversion
 
