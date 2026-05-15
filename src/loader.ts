@@ -704,10 +704,12 @@ export class PhotonLoader {
   public onProgress?: (phase: string) => void;
 
   constructor(verbose: boolean = false, logger?: Logger, baseDir?: string) {
-    this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
     this.logger = logger ?? createLogger({ component: 'photon-loader', minimal: true });
     this.baseDir = baseDir || getDefaultContext().baseDir;
+    this.dependencyManager = new DependencyManager(
+      path.join(getCacheDir(this.baseDir), 'dependencies')
+    );
     this.settingsPersistence = new SettingsPersistence(this.baseDir, (msg, meta) =>
       this.log(msg, meta)
     );
