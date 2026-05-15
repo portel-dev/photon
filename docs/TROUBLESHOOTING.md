@@ -178,7 +178,13 @@ photon mcp github-issues --config
 
 **Solution**:
 
-1. **For Claude Desktop**: Edit `claude_desktop_config.json`
+1. **For Photon daemon, Beam, and scheduled jobs**: store config in Photon:
+   ```bash
+   photon config set github-issues GITHUB_ISSUES_TOKEN=your-token
+   photon config get github-issues GITHUB_ISSUES_TOKEN
+   ```
+
+2. **For Claude Desktop**: Edit `claude_desktop_config.json`
    ```json
    {
      "mcpServers": {
@@ -193,11 +199,13 @@ photon mcp github-issues --config
    }
    ```
 
-2. **For Development**:
+3. **For Development**:
    ```bash
    export GITHUB_ISSUES_TOKEN="your-token"
    photon mcp github-issues --dev
    ```
+
+Shell exports are still supported as a fallback, but daemon-hosted photons should not depend on `.zshrc` or other interactive shell startup files.
 
 ### Environment Variable Naming
 

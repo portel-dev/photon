@@ -23,13 +23,13 @@ export default class Dashboard {
 
 | # | Type | Trigger | Managed by | Source |
 |---|------|---------|------------|--------|
-| 1 | **Environment** | Primitive, no default | `photon set` | `~/.photon/.data/{photon}/env.json` or `process.env` |
+| 1 | **Config** | Primitive, no default | `photon config set` or `photon set` | `~/.photon/.data/{photon}/env.json`, then `process.env` |
 | 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/.data/{photon}/context.json` |
 | 3 | **MCP client** | Name matches `@mcp` declaration | Runtime | Proxy to running MCP server |
 | 4 | **Photon instance** | Name matches `@photon` declaration | Runtime | Loaded photon class instance |
 | 5 | **Persisted state** | Non-primitive with default, on `@stateful` photon | Runtime | `~/.photon/.data/{photon}/state/` |
 
-> **See [CONSTRUCTOR-CONTEXT.md](CONSTRUCTOR-CONTEXT.md)** for full details on `photon use` and `photon set` commands, including context-based state partitioning for `@stateful` photons.
+> **See [CONSTRUCTOR-CONTEXT.md](CONSTRUCTOR-CONTEXT.md)** for full details on `photon config`, `photon set`, and `photon use`, including context-based state partitioning for `@stateful` photons.
 
 ### Resolution Order
 
@@ -37,7 +37,7 @@ For each constructor parameter, the runtime resolves in this order:
 
 1. **Matches `@mcp` tag?** → Create/reuse MCP client proxy
 2. **Matches `@photon` tag?** → Load/reuse photon instance
-3. **Primitive, no default?** → Environment variable (`~/.photon/.data/{photon}/env.json` then `process.env`)
+3. **Primitive, no default?** → Photon config (`~/.photon/.data/{photon}/env.json` by param name or env-style key, then `process.env`)
 4. **Primitive, has default?** → Context value (`~/.photon/.data/{photon}/context.json`, falls back to default)
 5. **Non-primitive with default on `@stateful`?** → Restore from state snapshot
 6. **Fallback** → `undefined` (constructor default applies)
@@ -46,7 +46,7 @@ For each constructor parameter, the runtime resolves in this order:
 
 ## 1. Environment Variables
 
-Primitive constructor parameters are automatically mapped to environment variables.
+Primitive constructor parameters are automatically mapped to Photon config keys and then environment variables.
 
 ```typescript
 export default class Mailer {

@@ -10,6 +10,7 @@
 import type { Command } from 'commander';
 import { getErrorMessage } from '../../shared/error-handler.js';
 import { getDefaultContext } from '../../context.js';
+import { toEnvVarName } from '../../shared/config-docs.js';
 
 /**
  * Register config-related commands: use, instances, set
@@ -123,18 +124,23 @@ export function registerConfigCommands(program: Command): void {
           return;
         }
 
-        const store = new EnvStore();
+        const store = new EnvStore(workingDir);
 
         // Parse name=value pairs from args
         const values: Record<string, string> = {};
-        const paramNames = new Set(envParams.map((p: { name: string }) => p.name));
+        const allowedKeys = new Set<string>();
+        for (const p of envParams as Array<{ name: string; envVar?: string }>) {
+          allowedKeys.add(p.name);
+          allowedKeys.add(toEnvVarName(photonName, p.name));
+          if (p.envVar) allowedKeys.add(p.envVar);
+        }
 
         for (const arg of args) {
           const eqIdx = arg.indexOf('=');
           if (eqIdx > 0) {
             const key = arg.slice(0, eqIdx);
             const val = arg.slice(eqIdx + 1);
-            if (paramNames.has(key)) {
+            if (allowedKeys.has(key)) {
               values[key] = val;
             }
           } else if (envParams.length === 1) {
@@ -144,7 +150,10 @@ export function registerConfigCommands(program: Command): void {
         }
 
         // Find params that still need values
-        const remaining = envParams.filter((p: { name: string }) => !(p.name in values));
+        const remaining = envParams.filter((p: { name: string; envVar?: string }) => {
+          const envKey = p.envVar || toEnvVarName(photonName, p.name);
+          return !(p.name in values) && !(envKey in values);
+        });
 
         if (remaining.length > 0) {
           // Interactive mode for remaining params
@@ -175,6 +184,79 @@ export function registerConfigCommands(program: Command): void {
         } else {
           printInfo('No changes.');
         }
+      } catch (error) {
+        const { printError } = await import('../../cli-formatter.js');
+        printError(getErrorMessage(error));
+        process.exit(1);
+      }
+    });
+
+  const config = program.command('config').description('Manage runtime-owned photon config');
+
+  config
+    .command('set')
+    .argument('<photon>', 'Photon name')
+    .argument('<values...>', 'Config values (KEY=value pairs)')
+    .description('Set daemon-safe config values for a photon')
+    .action(async (photonName: string, args: string[]) => {
+      try {
+        const { printSuccess, printError } = await import('../../cli-formatter.js');
+        const { EnvStore } = await import('../../context-store.js');
+        const workingDir = getDefaultContext().baseDir;
+        const values: Record<string, string> = {};
+
+        for (const arg of args) {
+          const eqIdx = arg.indexOf('=');
+          if (eqIdx <= 0) {
+            printError(`Expected KEY=value, got "${arg}"`);
+            process.exit(1);
+          }
+          values[arg.slice(0, eqIdx)] = arg.slice(eqIdx + 1);
+        }
+
+        new EnvStore(workingDir).write(photonName, values);
+        printSuccess(`Config saved for ${photonName}: ${Object.keys(values).join(', ')}`);
+      } catch (error) {
+        const { printError } = await import('../../cli-formatter.js');
+        printError(getErrorMessage(error));
+        process.exit(1);
+      }
+    });
+
+  config
+    .command('get')
+    .argument('<photon>', 'Photon name')
+    .argument('[key]', 'Config key')
+    .description('Read runtime-owned config for a photon')
+    .action(async (photonName: string, key?: string) => {
+      try {
+        const { EnvStore } = await import('../../context-store.js');
+        const workingDir = getDefaultContext().baseDir;
+        const values = new EnvStore(workingDir).read(photonName);
+        if (key) {
+          const value = values[key];
+          if (value === undefined) process.exit(1);
+          process.stdout.write(value + '\n');
+          return;
+        }
+        process.stdout.write(JSON.stringify(values, null, 2) + '\n');
+      } catch (error) {
+        const { printError } = await import('../../cli-formatter.js');
+        printError(getErrorMessage(error));
+        process.exit(1);
+      }
+    });
+
+  config
+    .command('list')
+    .argument('<photon>', 'Photon name')
+    .description('List masked runtime-owned config for a photon')
+    .action(async (photonName: string) => {
+      try {
+        const { EnvStore } = await import('../../context-store.js');
+        const workingDir = getDefaultContext().baseDir;
+        const values = new EnvStore(workingDir).getMasked(photonName);
+        process.stdout.write(JSON.stringify(values, null, 2) + '\n');
       } catch (error) {
         const { printError } = await import('../../cli-formatter.js');
         printError(getErrorMessage(error));

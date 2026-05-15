@@ -56,6 +56,11 @@ function tilde(p: string | undefined): string {
   return home && p.startsWith(home) ? '~' + p.slice(home.length) : p;
 }
 
+function compactError(message: string | null | undefined): string {
+  if (!message) return '-';
+  return message.length > 48 ? message.slice(0, 45) + '...' : message;
+}
+
 function renderTable(header: string[], rows: string[][]): string {
   if (rows.length === 0) return '  (none)\n';
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
@@ -112,7 +117,18 @@ export function registerPsCommands(program: Command): void {
           process.stdout.write(`\nACTIVE SCHEDULES (${active.length})\n`);
           process.stdout.write(
             renderTable(
-              ['PHOTON_DIR', 'PHOTON', 'METHOD', 'CRON', 'NEXT RUN', 'LAST RUN', 'RUNS'],
+              [
+                'PHOTON_DIR',
+                'PHOTON',
+                'METHOD',
+                'CRON',
+                'NEXT RUN',
+                'LAST RUN',
+                'STATUS',
+                'FAILS',
+                'LAST ERROR',
+                'RUNS',
+              ],
               active.map((a) => [
                 tilde(a.workingDir),
                 a.photon,
@@ -120,6 +136,9 @@ export function registerPsCommands(program: Command): void {
                 a.cron,
                 fmtWhen(a.nextRun),
                 fmtWhen(a.lastRun),
+                a.lastStatus ?? '-',
+                String(a.consecutiveFailures ?? 0),
+                compactError(a.lastError),
                 String(a.runCount),
               ])
             )

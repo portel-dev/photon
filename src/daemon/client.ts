@@ -929,8 +929,13 @@ export async function listJobs(photonName: string): Promise<
     id: string;
     method: string;
     cron: string;
+    requiredConfig?: string[];
     nextRun?: number;
     lastRun?: number;
+    lastAttempt?: number;
+    lastStatus?: 'success' | 'error';
+    lastError?: string;
+    consecutiveFailures?: number;
     runCount: number;
   }>
 > {
@@ -939,8 +944,13 @@ export async function listJobs(photonName: string): Promise<
       id: string;
       method: string;
       cron: string;
+      requiredConfig?: string[];
       nextRun?: number;
       lastRun?: number;
+      lastAttempt?: number;
+      lastStatus?: 'success' | 'error';
+      lastError?: string;
+      consecutiveFailures?: number;
       runCount: number;
     }>;
   }>({
@@ -963,6 +973,10 @@ export interface PsSnapshot {
     cron: string;
     nextRun: number | null;
     lastRun: number | null;
+    lastAttempt: number | null;
+    lastStatus: 'success' | 'error' | null;
+    lastError: string | null;
+    consecutiveFailures: number;
     runCount: number;
     photonPath?: string;
     workingDir?: string;
@@ -973,6 +987,7 @@ export interface PsSnapshot {
     photon: string;
     method: string;
     cron: string;
+    requiredConfig: string[];
     photonPath: string;
     workingDir?: string;
     active: boolean;

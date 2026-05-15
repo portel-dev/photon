@@ -864,6 +864,11 @@ async function testWatcherSurvivesReloadCycle() {
   });
 
   await test('multiple rapid edits are debounced into single reload', async () => {
+    // Let any delayed fs.watch delivery from the previous edit drain before
+    // measuring this burst. Under full-suite load macOS can deliver the
+    // prior change just as this test starts, which makes the log count race
+    // the debounce behavior this assertion is meant to pin down.
+    await sleep(1500);
     clearDaemonLog();
 
     // Rapid-fire 5 edits inside the debounce window

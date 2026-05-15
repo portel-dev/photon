@@ -103,9 +103,18 @@ declare class ScheduleProvider {
   cancelAll(): Promise<number>;
 }
 
+interface PhotonConfigStore {
+  get(key: string): string | undefined;
+  require(key: string): string;
+  has(key: string): boolean;
+  all(): Record<string, string>;
+  set(key: string, value: string): void;
+}
+
 declare class Photon {
   get caller(): CallerInfo;
   get memory(): MemoryProvider;
+  get config(): PhotonConfigStore;
   get schedule(): ScheduleProvider;
   protected storage(subpath: string): string;
   protected assets(subpath: string): string;

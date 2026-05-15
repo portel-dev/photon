@@ -263,7 +263,11 @@ export class CLISessionStore {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Environment Store — for `photon set` (primitive params without defaults)
+// Environment Store — runtime-owned photon config.
+//
+// Historically this backed `photon set` for primitive constructor params.
+// It now also stores arbitrary photon config/secrets so daemon-hosted photons
+// do not depend on the shell environment that happened to launch the daemon.
 // ══════════════════════════════════════════════════════════════════════════════
 
 export class EnvStore {
@@ -319,6 +323,7 @@ export class EnvStore {
   ): string | undefined {
     const stored = this.read(photonName, namespace);
     if (stored[paramName] !== undefined) return stored[paramName];
+    if (stored[envVarName] !== undefined) return stored[envVarName];
     return process.env[envVarName];
   }
 

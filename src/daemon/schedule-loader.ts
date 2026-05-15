@@ -29,6 +29,7 @@ export interface PersistedScheduleJob {
   method: string;
   args: Record<string, unknown>;
   cron: string;
+  requiredConfig?: string[];
   runCount: number;
   createdAt: number;
   createdBy: string;
@@ -49,6 +50,10 @@ export interface PersistedScheduleJob {
    * catch-up run for the most recent missed occurrence.
    */
   lastRun?: number;
+  lastAttempt?: number;
+  lastStatus?: 'success' | 'error';
+  lastError?: string;
+  consecutiveFailures?: number;
 }
 
 export interface LoadScheduleCallbacks {
@@ -137,6 +142,7 @@ export function loadPersistedSchedulesFromDir(
       const jobId = isIpc ? task.id : `${photonName}:sched:${task.id}`;
       const jobArgs = isIpc ? task.args || {} : task.params || {};
       const jobWorkingDir = task.workingDir || workingDirHint;
+      const lastAttempt = task.lastAttemptAt ? new Date(task.lastAttemptAt).getTime() : 0;
 
       if (cb.alreadyRegistered(jobId)) continue;
 
@@ -145,6 +151,7 @@ export function loadPersistedSchedulesFromDir(
         method: task.method,
         args: jobArgs,
         cron: task.cron,
+        requiredConfig: Array.isArray(task.requiredConfig) ? task.requiredConfig : undefined,
         runCount: task.executionCount || 0,
         createdAt: created || Date.now(),
         createdBy: task.createdBy || (isIpc ? 'ipc' : 'schedule-provider'),
@@ -152,6 +159,14 @@ export function loadPersistedSchedulesFromDir(
         workingDir: jobWorkingDir,
         sourceFile: filePath,
         lastRun: lastExec > 0 ? lastExec : undefined,
+        lastAttempt: lastAttempt > 0 ? lastAttempt : undefined,
+        lastStatus:
+          task.lastStatus === 'success' || task.lastStatus === 'error'
+            ? task.lastStatus
+            : undefined,
+        lastError: typeof task.lastError === 'string' ? task.lastError : undefined,
+        consecutiveFailures:
+          typeof task.consecutiveFailures === 'number' ? task.consecutiveFailures : undefined,
       };
 
       if (cb.register(job)) {

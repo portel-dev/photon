@@ -585,6 +585,58 @@ export class PhotonLoader {
   getLoadedPhotons(): Map<string, PhotonClassExtended> {
     return this.loadedPhotons;
   }
+
+  private async attachRuntimeConfigApi(
+    instance: Record<string, unknown>,
+    photonName: string,
+    namespace?: string
+  ): Promise<void> {
+    const target = instance as Record<string, unknown> & {
+      config?: {
+        get(key: string): string | undefined;
+        require(key: string): string;
+        has(key: string): boolean;
+        all(): Record<string, string>;
+        set(key: string, value: string): void;
+      };
+    };
+    if (target.config) return;
+
+    const { EnvStore } = await import('./context-store.js');
+    const store = new EnvStore(this.baseDir);
+    const read = (): Record<string, string> => store.read(photonName, namespace);
+
+    Object.defineProperty(target, 'config', {
+      configurable: true,
+      enumerable: false,
+      value: {
+        get(key: string): string | undefined {
+          const stored = read();
+          if (stored[key] !== undefined) return stored[key];
+          return process.env[key];
+        },
+        require(key: string): string {
+          const value = this.get(key);
+          if (value === undefined || value === '') {
+            throw new Error(
+              `Missing Photon config "${key}". Set it with: photon config set ${photonName} ${key}=...`
+            );
+          }
+          return value;
+        },
+        has(key: string): boolean {
+          const value = this.get(key);
+          return value !== undefined && value !== '';
+        },
+        all(): Record<string, string> {
+          return read();
+        },
+        set(key: string, value: string): void {
+          store.write(photonName, { [key]: value }, namespace);
+        },
+      },
+    });
+  }
   /** In-flight Photon load promises — dedup concurrent loads of the same path */
   private loadedPhotonPromises: Map<string, Promise<any>> = new Map();
   /** MCP clients cache - reuse connections */
@@ -1335,6 +1387,11 @@ export class PhotonLoader {
       // Without this, MemoryProvider falls through to getDefaultContext()
       // and drifts between cwd-derived locations across daemon restarts.
       instance._baseDir = this.baseDir;
+      await this.attachRuntimeConfigApi(
+        instance,
+        name,
+        instance._photonNamespace as string | undefined
+      );
 
       // Inject instance name for named instances (runtime concept, not code)
       instance.instanceName = options?.instanceName ?? '';
@@ -2142,6 +2199,11 @@ export class PhotonLoader {
     // Same pin as the file-load path above — see that comment for why
     // this.memory drifts without it.
     instance._baseDir = this.baseDir;
+    await this.attachRuntimeConfigApi(
+      instance,
+      name,
+      instance._photonNamespace as string | undefined
+    );
     instance.instanceName = options?.instanceName ?? '';
 
     // Inject file path for storage()/assets() resolution.

@@ -152,7 +152,12 @@ export interface ScheduledJob {
   method: string;
   args?: Record<string, unknown>;
   cron: string;
+  requiredConfig?: string[];
   lastRun?: number;
+  lastAttempt?: number;
+  lastStatus?: 'success' | 'error';
+  lastError?: string;
+  consecutiveFailures?: number;
   nextRun?: number;
   runCount: number;
   createdAt: number;

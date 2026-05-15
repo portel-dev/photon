@@ -68,6 +68,7 @@ Configuration:
   use <photon> [instance]  Switch to a named instance of a stateful photon
   instances <photon>       List all instances of a stateful photon
   set <photon> [values]    Configure environment for a photon
+  config <command>          Manage daemon-safe photon config/secrets
 
 Hosting:
   host <command>          Manage cloud hosting (preview, deploy)

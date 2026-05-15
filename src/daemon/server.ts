@@ -47,6 +47,7 @@ import type {
   Subscription,
 } from '@portel/photon-core';
 import { getDefaultContext } from '../context.js';
+import { EnvStore } from '../context-store.js';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import {
@@ -79,6 +80,41 @@ const jsonPatchCompare = fastJsonPatch.compare;
 
 // Command line args: socketPath (global daemon only needs socket path)
 const socketPath = process.argv[2];
+
+function loadDaemonEnvFile(): void {
+  const photonHome = process.env.PHOTON_HOME
+    ? path.resolve(process.env.PHOTON_HOME)
+    : path.join(os.homedir(), '.photon');
+  for (const filePath of [path.join(photonHome, 'env'), path.join(photonHome, '.env')]) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      for (const line of content.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx <= 0) continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        let value = trimmed.slice(eqIdx + 1).trim();
+        if (
+          (value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))
+        ) {
+          value = value.slice(1, -1);
+        }
+        if (process.env[key] === undefined) process.env[key] = value;
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        // Logger is not initialized yet; keep startup resilient.
+        console.warn(
+          `[photon] Failed to load daemon env file ${filePath}: ${getErrorMessage(err)}`
+        );
+      }
+    }
+  }
+}
+
+loadDaemonEnvFile();
 
 const logger: Logger = createLogger({
   component: 'daemon-server',
@@ -851,6 +887,17 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
       }
     }
     if (!sessionManager) {
+      const errorMessage = 'Photon not initialized';
+      job.lastAttempt = Date.now();
+      job.lastStatus = 'error';
+      job.lastError = errorMessage;
+      job.consecutiveFailures = (job.consecutiveFailures ?? 0) + 1;
+      updatePersistedSchedule(jobId, job.photonName, {
+        lastAttemptAt: new Date(job.lastAttempt).toISOString(),
+        lastStatus: job.lastStatus,
+        lastError: errorMessage,
+        consecutiveFailures: job.consecutiveFailures,
+      });
       logger.warn('Cannot run job - photon not initialized', { jobId, photon: job.photonName });
       scheduleJob(job); // Reschedule anyway
       return;
@@ -870,12 +917,20 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
     result = await sessionManager.loader.executeTool(session.instance, job.method, job.args || {});
 
     job.lastRun = Date.now();
+    job.lastAttempt = job.lastRun;
+    job.lastStatus = 'success';
+    job.lastError = undefined;
+    job.consecutiveFailures = 0;
     job.runCount++;
 
     // Update persisted schedule file if this came from ScheduleProvider
     updatePersistedSchedule(jobId, job.photonName, {
       executionCount: job.runCount,
       lastExecutionAt: new Date().toISOString(),
+      lastAttemptAt: new Date(job.lastAttempt).toISOString(),
+      lastStatus: job.lastStatus,
+      lastError: null,
+      consecutiveFailures: 0,
     });
 
     publishToChannel(`jobs:${job.photonName}`, {
@@ -890,6 +945,16 @@ async function runJob(jobId: ScheduleKey): Promise<void> {
   } catch (error) {
     status = 'error';
     errorMessage = getErrorMessage(error);
+    job.lastAttempt = Date.now();
+    job.lastStatus = 'error';
+    job.lastError = errorMessage;
+    job.consecutiveFailures = (job.consecutiveFailures ?? 0) + 1;
+    updatePersistedSchedule(jobId, job.photonName, {
+      lastAttemptAt: new Date(job.lastAttempt).toISOString(),
+      lastStatus: job.lastStatus,
+      lastError: errorMessage,
+      consecutiveFailures: job.consecutiveFailures,
+    });
     logger.error('Job failed', { jobId, method: job.method, error: errorMessage });
 
     publishToChannel(`jobs:${job.photonName}`, {
@@ -1221,7 +1286,14 @@ function findPersistedScheduleFile(
 function updatePersistedSchedule(
   jobId: string,
   photonName: string,
-  updates: { executionCount?: number; lastExecutionAt?: string }
+  updates: {
+    executionCount?: number;
+    lastExecutionAt?: string;
+    lastAttemptAt?: string;
+    lastStatus?: 'success' | 'error';
+    lastError?: string | null;
+    consecutiveFailures?: number;
+  }
 ): void {
   // Handle both ScheduleProvider jobs (photonName:sched:uuid) and IPC jobs (photonName:*:ipc:uuid)
   const schedMatch = jobId.match(/^[^:]+:sched:(.+)$/);
@@ -1238,6 +1310,12 @@ function updatePersistedSchedule(
     const task = JSON.parse(content);
     if (updates.executionCount !== undefined) task.executionCount = updates.executionCount;
     if (updates.lastExecutionAt !== undefined) task.lastExecutionAt = updates.lastExecutionAt;
+    if (updates.lastAttemptAt !== undefined) task.lastAttemptAt = updates.lastAttemptAt;
+    if (updates.lastStatus !== undefined) task.lastStatus = updates.lastStatus;
+    if (updates.lastError !== undefined) task.lastError = updates.lastError;
+    if (updates.consecutiveFailures !== undefined) {
+      task.consecutiveFailures = updates.consecutiveFailures;
+    }
     fs.writeFileSync(filePath, JSON.stringify(task, null, 2));
   } catch {
     // File may have been removed — ignore
@@ -1266,6 +1344,7 @@ function persistIpcSchedule(
     method: job.method,
     args: job.args || {},
     cron: job.cron,
+    requiredConfig: job.requiredConfig ?? [],
     photonName: job.photonName,
     workingDir: job.workingDir,
     source: 'ipc',
@@ -1274,6 +1353,10 @@ function persistIpcSchedule(
     createdBy: job.createdBy,
     executionCount: job.runCount,
     lastExecutionAt: job.lastRun ? new Date(job.lastRun).toISOString() : null,
+    lastAttemptAt: job.lastAttempt ? new Date(job.lastAttempt).toISOString() : null,
+    lastStatus: job.lastStatus ?? null,
+    lastError: job.lastError ?? null,
+    consecutiveFailures: job.consecutiveFailures ?? 0,
   };
 
   try {
@@ -1660,6 +1743,7 @@ async function scanOneForProactiveMetadata(
   // See src/daemon/registry-keys.ts for the branded-key rationale.
   const nextSchedules = new Map<ScheduleKey, DeclaredSchedule>();
   const nextRoutes = new Map<string, string>(); // routePath → methodName
+  const requiredConfigByMethod = extractRequiredConfigByMethod(source);
 
   for (const tool of meta.tools) {
     if (tool.scheduled) {
@@ -1669,6 +1753,7 @@ async function scanOneForProactiveMetadata(
         cron: tool.scheduled,
         photonPath: filePath,
         workingDir,
+        requiredConfig: requiredConfigByMethod.get(tool.name),
       });
     }
     if (tool.webhook !== undefined) {
@@ -1993,6 +2078,7 @@ function syncActiveSchedulesAtBoot(): void {
             method: decl.method,
             enabledAt: now,
             enabledBy: 'auto-migrate',
+            requiredConfig: decl.requiredConfig,
           });
           dirty = true;
         }
@@ -2037,11 +2123,22 @@ function syncActiveSchedulesAtBoot(): void {
           continue;
         }
         if (scheduledJobs.has(key)) continue;
+        const missingConfig = missingRequiredConfig(entry.photon, entry.requiredConfig, basePath);
+        if (missingConfig.length > 0) {
+          logger.warn('Manual schedule has missing required config — skipping', {
+            base: basePath,
+            photon: entry.photon,
+            method: entry.method,
+            missingConfig,
+          });
+          continue;
+        }
         const ok = scheduleJob({
           id: key,
           method: entry.method,
           args: {},
           cron: entry.cron,
+          requiredConfig: entry.requiredConfig,
           runCount: 0,
           createdAt: Date.now(),
           createdBy: 'manual',
@@ -2064,6 +2161,17 @@ function syncActiveSchedulesAtBoot(): void {
         continue;
       }
       if (scheduledJobs.has(key)) continue;
+      const missingConfig = missingRequiredConfig(decl.photon, decl.requiredConfig, basePath);
+      if (missingConfig.length > 0) {
+        logger.warn('Active schedule has missing required config — skipping', {
+          base: basePath,
+          photon: decl.photon,
+          method: decl.method,
+          missingConfig,
+          hint: `photon config set ${decl.photon} ${missingConfig.map((k) => `${k}=...`).join(' ')}`,
+        });
+        continue;
+      }
       // Boot-time annotation-vs-provider dedup: a photon that uses both
       // `@scheduled` AND `this.schedule.create()` for the same method ends
       // up with both a persisted ScheduleProvider file and an annotation
@@ -2102,6 +2210,7 @@ function syncActiveSchedulesAtBoot(): void {
         method: decl.method,
         args: {},
         cron: decl.cron,
+        requiredConfig: decl.requiredConfig,
         runCount: 0,
         createdAt: Date.now(),
         createdBy: 'active-list',
@@ -2824,8 +2933,43 @@ interface DeclaredSchedule {
   cron: string;
   photonPath: string;
   workingDir?: string;
+  requiredConfig?: string[];
 }
 const declaredSchedules = new Map<ScheduleKey, DeclaredSchedule>();
+
+function extractRequiredConfigByMethod(source: string): Map<string, string[]> {
+  const required = new Map<string, string[]>();
+  const methodRegex =
+    /\/\*\*([\s\S]*?)\*\/\s*(?:public\s+|private\s+|protected\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/g;
+  for (const match of source.matchAll(methodRegex)) {
+    const jsdoc = match[1] ?? '';
+    const method = match[2];
+    const keys = new Set<string>();
+    for (const tag of jsdoc.matchAll(/@requiresConfig\s+([^\n\r*]+)/g)) {
+      for (const key of tag[1]
+        .split(/[,\s]+/)
+        .map((part) => part.trim())
+        .filter(Boolean)) {
+        keys.add(key);
+      }
+    }
+    if (keys.size > 0) required.set(method, [...keys]);
+  }
+  return required;
+}
+
+function missingRequiredConfig(
+  photonName: string,
+  requiredConfig: string[] | undefined,
+  workingDir?: string
+): string[] {
+  if (!requiredConfig || requiredConfig.length === 0) return [];
+  const store = new EnvStore(workingDir || getDefaultContext().baseDir);
+  const values = store.read(photonName);
+  return requiredConfig.filter(
+    (key) => values[key] === undefined && process.env[key] === undefined
+  );
+}
 
 /**
  * Identity key for declared schedules and scheduled jobs. Delegates to
@@ -2871,6 +3015,7 @@ interface ActiveScheduleEntry {
    * directly from this field.
    */
   cron?: string;
+  requiredConfig?: string[];
 }
 interface SuppressedEntry {
   photon: string;
@@ -2969,6 +3114,18 @@ async function autoRegisterFromMetadata(
     // Get a session to access the loaded photon's tools
     const session = await manager.getOrCreateSession('__autoregister', 'system');
     const tools: any[] = session.instance?.tools || [];
+    let requiredConfigByMethod = new Map<string, string[]>();
+    const sourcePath = (session.instance as { _photonFilePath?: string } | undefined)
+      ?._photonFilePath;
+    if (sourcePath && fs.existsSync(sourcePath)) {
+      try {
+        requiredConfigByMethod = extractRequiredConfigByMethod(
+          fs.readFileSync(sourcePath, 'utf-8')
+        );
+      } catch {
+        requiredConfigByMethod = new Map();
+      }
+    }
 
     // Auto-register @scheduled jobs. Use the same base-scoped key format as
     // declaredKey so a photon enabled via `photon ps enable` doesn't end up
@@ -2995,11 +3152,27 @@ async function autoRegisterFromMetadata(
             });
             continue;
           }
+          const requiredConfig = requiredConfigByMethod.get(tool.name);
+          const missingConfig = missingRequiredConfig(
+            photonName,
+            requiredConfig,
+            sessionWorkingDir
+          );
+          if (missingConfig.length > 0) {
+            logger.warn('Skipping @scheduled auto-registration — required config is missing', {
+              photon: photonName,
+              method: tool.name,
+              missingConfig,
+              hint: `photon config set ${photonName} ${missingConfig.map((k) => `${k}=...`).join(' ')}`,
+            });
+            continue;
+          }
           const job = {
             id: jobId,
             method: tool.name,
             args: {},
             cron: tool.scheduled,
+            requiredConfig,
             runCount: 0,
             createdAt: Date.now(),
             createdBy: 'auto',
@@ -3088,6 +3261,14 @@ async function autoRegisterFromMetadata(
             createdAt: new Date(task.createdAt).getTime(),
             createdBy: 'schedule-provider',
             photonName,
+            lastAttempt: task.lastAttemptAt ? new Date(task.lastAttemptAt).getTime() : undefined,
+            lastStatus:
+              task.lastStatus === 'success' || task.lastStatus === 'error'
+                ? task.lastStatus
+                : undefined,
+            lastError: typeof task.lastError === 'string' ? task.lastError : undefined,
+            consecutiveFailures:
+              typeof task.consecutiveFailures === 'number' ? task.consecutiveFailures : undefined,
           };
           const ok = scheduleJob(job);
           if (ok) {
@@ -3585,6 +3766,10 @@ async function handleRequest(
       cron: j.cron,
       nextRun: j.nextRun ?? null,
       lastRun: j.lastRun ?? null,
+      lastAttempt: j.lastAttempt ?? null,
+      lastStatus: j.lastStatus ?? null,
+      lastError: j.lastError ?? null,
+      consecutiveFailures: j.consecutiveFailures ?? 0,
       runCount: j.runCount,
       photonPath: j.photonPath,
       workingDir: j.workingDir ?? defaultBase,
@@ -3619,6 +3804,7 @@ async function handleRequest(
         photon: d.photon,
         method: d.method,
         cron: d.cron,
+        requiredConfig: d.requiredConfig ?? [],
         photonPath: d.photonPath,
         workingDir: d.workingDir ?? defaultBase,
         active: isActive,
@@ -3841,6 +4027,16 @@ async function handleRequest(
           `(remove ${base}/.photon-no-host to allow scheduling).`,
       };
     }
+    const missingConfig = missingRequiredConfig(photon, decl.requiredConfig, base);
+    if (missingConfig.length > 0) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Cannot enable ${photon}:${method} — missing required config: ${missingConfig.join(', ')}. ` +
+          `Set it with: photon config set ${photon} ${missingConfig.map((k) => `${k}=...`).join(' ')}`,
+      };
+    }
     const file = readActiveSchedulesFile(base);
     const existing = file.active.find((e) => e.photon === photon && e.method === method);
     if (existing) {
@@ -3851,6 +4047,7 @@ async function handleRequest(
         method,
         enabledAt: new Date().toISOString(),
         enabledBy: (request as { source?: string }).source || 'rpc',
+        requiredConfig: decl.requiredConfig,
       });
     }
     // Clear any suppression entry so the schedule auto-registers on the next restart.
@@ -3872,6 +4069,7 @@ async function handleRequest(
         method: decl.method,
         args: {},
         cron: decl.cron,
+        requiredConfig: decl.requiredConfig,
         runCount: 0,
         createdAt: Date.now(),
         createdBy: 'ps-enable',
@@ -5229,83 +5427,124 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
   if (fileWatchers.has(watchPath)) return;
 
   try {
-    const watcher = safeWatchFile(watchPath, (eventType) => {
-      // Trailing debounce: wait for write bursts to settle before reloading.
-      const existing = watchDebounce.get(watchPath);
+    const debounceKey = path.resolve(photonPath);
+    let lastEventAt = 0;
+    let cooldownUntil = 0;
+    const scheduleReload = (eventType: string, markEvent = true) => {
+      if (markEvent) lastEventAt = Date.now();
+      const existing = watchDebounce.get(debounceKey);
       if (existing) clearTimeout(existing);
 
       const timer = setTimeout(() => {
-        void (async () => {
-          const currentTimer = watchDebounce.get(watchPath);
-          if (currentTimer === timer) watchDebounce.delete(watchPath);
-
-          // On macOS, editors like sed -i and some IDEs replace the file (new inode),
-          // which kills the watcher. Re-watch via original path (symlink) so we
-          // re-resolve to the new real path. Don't return — fall through to reload,
-          // because the new watcher won't fire (file was already written before it was set up).
-          if (eventType === 'rename') {
-            unwatchPhotonFile(watchPath);
-            if (fs.existsSync(photonPath)) {
-              watchPhotonFile(photonName, photonPath);
-            } else {
-              // Photon file deleted (uninstalled) — unload all session managers for it
-              logger.info('Photon file deleted — unloading', { photonName, path: photonPath });
-              // Collect keys first — mutating Maps during a live async iterator is unsafe
-              const keysToDelete = Array.from(photonPaths.entries())
-                .filter(([, storedPath]) => storedPath === photonPath)
-                .map(([key]) => key);
-              for (const key of keysToDelete) {
-                const manager = sessionManagers.get(key);
-                if (manager) await manager.clearInstances();
-                sessionManagers.delete(key);
-                photonPaths.delete(key);
-                workingDirs.delete(key);
-              }
-              stateKeysCache.delete(photonName);
-              return;
-            }
-          }
-
-          if (!fs.existsSync(photonPath)) return;
-          if (activeFileWatcherReloads.has(watchPath)) {
-            logger.debug('Coalescing file watcher event during active reload', {
-              photonName,
-              path: photonPath,
-            });
-            return;
-          }
-          if (photonSourceAlreadyLoaded(photonName, photonPath)) {
-            logger.debug('Ignoring file watcher event for already-loaded source', {
-              photonName,
-              path: photonPath,
-            });
-            return;
-          }
-
-          logger.info('File changed, auto-reloading', { photonName, path: photonPath });
-
-          // Invalidate cached state keys so they're re-extracted from fresh source
-          stateKeysCache.delete(photonName);
-
-          try {
-            activeFileWatcherReloads.add(watchPath);
-            await reloadPhoton(photonName, photonPath);
-          } catch (err) {
-            logger.error('Hot-reload crashed — old instance preserved', {
-              photonName,
-              error: getErrorMessage(err),
-            });
-            publishToChannel(`system:${photonName}`, {
-              event: 'photon-reload-failed',
-              timestamp: Date.now(),
-              error: getErrorMessage(err),
-            });
-          } finally {
-            activeFileWatcherReloads.delete(watchPath);
-          }
-        })();
+        void runDebouncedReload(eventType, timer);
       }, HOT_RELOAD_DEBOUNCE_MS);
-      watchDebounce.set(watchPath, timer);
+      watchDebounce.set(debounceKey, timer);
+    };
+
+    const runDebouncedReload = async (eventType: string, timer: NodeJS.Timeout) => {
+      const currentTimer = watchDebounce.get(debounceKey);
+      if (currentTimer === timer) watchDebounce.delete(debounceKey);
+
+      const quietForMs = Date.now() - lastEventAt;
+      if (quietForMs < HOT_RELOAD_DEBOUNCE_MS) {
+        scheduleReload(eventType, false);
+        return;
+      }
+
+      const cooldownRemainingMs = cooldownUntil - Date.now();
+      if (cooldownRemainingMs > 0) {
+        const existing = watchDebounce.get(debounceKey);
+        if (existing) clearTimeout(existing);
+        const cooldownTimer = setTimeout(() => {
+          void runDebouncedReload(eventType, cooldownTimer);
+        }, cooldownRemainingMs);
+        watchDebounce.set(debounceKey, cooldownTimer);
+        return;
+      }
+
+      // fs.watch can deliver an older event just as a new write burst starts.
+      // Confirm the file has been quiet briefly before reloading so one burst
+      // still maps to one reload under CPU or filesystem pressure.
+      const beforeSettle = statOrNull(photonPath);
+      if (beforeSettle) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const afterSettle = statOrNull(photonPath);
+        if (afterSettle && !samePhotonSourceStat(beforeSettle, afterSettle)) {
+          scheduleReload(eventType);
+          return;
+        }
+      }
+
+      // On macOS, editors like sed -i and some IDEs replace the file (new inode),
+      // which kills the watcher. Re-watch via original path (symlink) so we
+      // re-resolve to the new real path. Don't return — fall through to reload,
+      // because the new watcher won't fire (file was already written before it was set up).
+      if (eventType === 'rename') {
+        unwatchPhotonFile(watchPath);
+        if (fs.existsSync(photonPath)) {
+          watchPhotonFile(photonName, photonPath);
+        } else {
+          // Photon file deleted (uninstalled) — unload all session managers for it
+          logger.info('Photon file deleted — unloading', { photonName, path: photonPath });
+          // Collect keys first — mutating Maps during a live async iterator is unsafe
+          const keysToDelete = Array.from(photonPaths.entries())
+            .filter(([, storedPath]) => storedPath === photonPath)
+            .map(([key]) => key);
+          for (const key of keysToDelete) {
+            const manager = sessionManagers.get(key);
+            if (manager) await manager.clearInstances();
+            sessionManagers.delete(key);
+            photonPaths.delete(key);
+            workingDirs.delete(key);
+          }
+          stateKeysCache.delete(photonName);
+          return;
+        }
+      }
+
+      if (!fs.existsSync(photonPath)) return;
+      if (activeFileWatcherReloads.has(debounceKey)) {
+        logger.debug('Coalescing file watcher event during active reload', {
+          photonName,
+          path: photonPath,
+        });
+        return;
+      }
+      if (photonSourceAlreadyLoaded(photonName, photonPath)) {
+        logger.debug('Ignoring file watcher event for already-loaded source', {
+          photonName,
+          path: photonPath,
+        });
+        return;
+      }
+
+      logger.info('File changed, auto-reloading', { photonName, path: photonPath });
+
+      // Invalidate cached state keys so they're re-extracted from fresh source
+      stateKeysCache.delete(photonName);
+
+      try {
+        activeFileWatcherReloads.add(debounceKey);
+        await reloadPhoton(photonName, photonPath);
+      } catch (err) {
+        logger.error('Hot-reload crashed — old instance preserved', {
+          photonName,
+          error: getErrorMessage(err),
+        });
+        publishToChannel(`system:${photonName}`, {
+          event: 'photon-reload-failed',
+          timestamp: Date.now(),
+          error: getErrorMessage(err),
+        });
+      } finally {
+        activeFileWatcherReloads.delete(debounceKey);
+        cooldownUntil = Date.now() + HOT_RELOAD_DEBOUNCE_MS;
+      }
+    };
+
+    const watcher = safeWatchFile(watchPath, (eventType) => {
+      // Trailing debounce: wait for write bursts to settle before reloading.
+      scheduleReload(eventType);
     });
 
     if (typeof watcher.on === 'function') {

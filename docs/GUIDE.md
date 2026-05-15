@@ -200,11 +200,11 @@ If you find yourself writing `process.env.SOMETHING` in a method body, that is a
 
 ## Constructor Configuration (for secrets)
 
-Constructor parameters are the right tool when a value is a primitive secret that should be set once via `.env` and never exposed in the runtime UI. For everything else, prefer [Settings](#settings-user-configurable-knobs).
+Constructor parameters are the right tool when a value is a primitive secret that should be set once and never exposed in the runtime UI. Prefer Photon-owned config over shell exports so daemon-hosted photons keep working after reboots and background restarts. For everything else, prefer [Settings](#settings-user-configurable-knobs).
 
 ### Basic Pattern
 
-Constructor parameters automatically map to **environment variables**:
+Constructor parameters automatically map to **Photon config keys** and environment variables:
 
 ```typescript
 export default class Filesystem {
@@ -230,6 +230,30 @@ Pattern: `{MCP_NAME}_{PARAM_NAME}` in SCREAMING_SNAKE_CASE
 | `workdir` | `FILESYSTEM_WORKDIR` |
 | `maxFileSize` | `FILESYSTEM_MAX_FILE_SIZE` |
 | `allowHidden` | `FILESYSTEM_ALLOW_HIDDEN` |
+
+Set these values with the runtime-owned config store:
+
+```bash
+photon config set filesystem FILESYSTEM_WORKDIR=/Users/me/Documents
+photon config get filesystem FILESYSTEM_WORKDIR
+```
+
+For backwards compatibility, Photon still falls back to `process.env.FILESYSTEM_WORKDIR` when no stored config exists. Daemon-safe photons should use `photon config set` or `this.config.get(...)` instead of relying on `.zshrc` exports.
+
+Scheduled methods can declare config that must exist before the daemon arms the schedule:
+
+```typescript
+/**
+ * Send the daily reminder.
+ * @scheduled 0 9 * * *
+ * @requiresConfig KITH_USER_EMAIL
+ */
+async remind() {
+  const email = this.config.require('KITH_USER_EMAIL');
+}
+```
+
+If `KITH_USER_EMAIL` is missing from Photon config and the environment fallback, Photon refuses to enable the schedule and logs the missing key.
 
 ### Type Conversion
 

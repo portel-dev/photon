@@ -1392,7 +1392,14 @@ Browse the filesystem for path selection:
 
 ### Environment Variables
 
-Configuration can also be set via environment variables:
+Configuration can be set via Photon-owned config, which is preferred for Beam, daemon, and scheduled jobs:
+
+```bash
+photon config set myphoton PHOTON_MYPHOTON_APIKEY=sk-xxx
+photon config set myphoton PHOTON_MYPHOTON_DATAPATH=/data
+```
+
+Photon still falls back to environment variables for compatibility:
 
 ```bash
 export PHOTON_MYPHOTON_APIKEY="sk-xxx"
@@ -1401,6 +1408,20 @@ photon beam
 ```
 
 The naming convention is: `PHOTON_<PHOTONNAME>_<PARAMNAME>` (uppercase, no hyphens).
+
+### `@requiresConfig`
+
+Declare config keys that must be resolvable before a scheduled method is armed:
+
+```typescript
+/**
+ * @scheduled 0 9 * * *
+ * @requiresConfig KITH_USER_EMAIL
+ */
+async remind() {}
+```
+
+Photon checks the runtime config store first, then the environment fallback. Missing keys block `photon ps enable` and daemon auto-registration for that schedule.
 
 ## Scoped Memory (`this.memory`)
 

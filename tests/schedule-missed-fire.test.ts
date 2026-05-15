@@ -143,6 +143,44 @@ await test('lastExecutionAt is parsed into lastRun on the job object', () => {
   assert.equal(registered[0].lastRun, new Date(lastExec).getTime());
 });
 
+await test('last failure status is parsed into the job object', () => {
+  const failedDir = join(workDir, 'failed');
+  mkdirSync(failedDir, { recursive: true });
+  const lastAttempt = new Date(Date.now() - 60_000).toISOString();
+  writeFileSync(
+    join(failedDir, 'task-failed.json'),
+    JSON.stringify({
+      id: 'task-failed',
+      method: 'digest',
+      params: {},
+      cron: '0 9 * * *',
+      photonName: 'demo',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      executionCount: 7,
+      lastAttemptAt: lastAttempt,
+      lastStatus: 'error',
+      lastError: 'fetch failed',
+      consecutiveFailures: 3,
+    })
+  );
+
+  const registered: PersistedScheduleJob[] = [];
+  loadPersistedSchedulesFromDir(failedDir, 30 * 86_400_000, 'demo', workDir, {
+    alreadyRegistered: () => false,
+    register: (job) => {
+      registered.push(job);
+      return true;
+    },
+  });
+
+  assert.equal(registered.length, 1);
+  assert.equal(registered[0].lastAttempt, new Date(lastAttempt).getTime());
+  assert.equal(registered[0].lastStatus, 'error');
+  assert.equal(registered[0].lastError, 'fetch failed');
+  assert.equal(registered[0].consecutiveFailures, 3);
+});
+
 await test('lastRun is undefined when no lastExecutionAt has been persisted', () => {
   const freshDir = join(workDir, 'fresh');
   mkdirSync(freshDir, { recursive: true });

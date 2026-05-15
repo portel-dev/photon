@@ -1,4 +1,4 @@
-# Constructor Context: `photon use` and `photon set`
+# Constructor Context: `photon use`, `photon set`, and `photon config`
 
 Constructor parameters serve three distinct purposes based on their signature. Two CLI commands — `use` and `set` — manage them.
 
@@ -12,7 +12,7 @@ Constructor parameters serve three distinct purposes based on their signature. T
  */
 export default class Tracker {
   constructor(
-    private apiKey: string,              // 1. Environment — no default → `photon set`
+    private apiKey: string,              // 1. Config — no default → `photon config set`
     private region: string = 'us-east',  // 2. Context — has default → `photon use`
     private incidents: Incident[] = []   // 3. Dependency — non-primitive → auto-injected
   ) {}
@@ -21,7 +21,7 @@ export default class Tracker {
 
 | # | Type | Trigger | Managed by | Storage |
 |---|------|---------|------------|---------|
-| 1 | **Environment** | Primitive, no default | `photon set` | `~/.photon/.data/{photon}/env.json` |
+| 1 | **Config** | Primitive, no default | `photon config set` or `photon set` | `~/.photon/.data/{photon}/env.json` |
 | 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/.data/{photon}/context.json` |
 | 3 | **Dependency** | Non-primitive (or matches `@mcp`/`@photon`) | Runtime | MCP client / photon instance / state snapshot |
 
@@ -31,14 +31,32 @@ For each constructor parameter, the runtime resolves:
 
 1. **Matches `@mcp` tag?** → MCP client proxy
 2. **Matches `@photon` tag?** → Photon instance
-3. **Primitive, no default?** → Environment variable (`~/.photon/.data/{photon}/env.json` or `process.env`)
+3. **Primitive, no default?** → Photon config (`~/.photon/.data/{photon}/env.json`, then `process.env`)
 4. **Primitive, has default?** → Context value (`~/.photon/.data/{photon}/context.json`, falls back to default)
 5. **Non-primitive with default on `@stateful`?** → Persisted state snapshot
 6. **Fallback** → `undefined` (constructor default applies)
 
 ---
 
-## `photon set` — Configure Environment Variables
+## `photon config` — Daemon-Safe Runtime Config
+
+Use `photon config` for values that must be available to background daemon work regardless of which shell launched the daemon:
+
+```bash
+photon config set kith-remind KITH_USER_EMAIL=you@example.com
+photon config get kith-remind KITH_USER_EMAIL
+photon config list kith-remind
+```
+
+Photon instances can read the same store at runtime:
+
+```typescript
+const email = this.config.require('KITH_USER_EMAIL');
+```
+
+The store is under Photon data, not `.zshrc`, so scheduled jobs and daemon sessions see the same values after restart.
+
+## `photon set` — Configure Constructor Params
 
 For constructor params without defaults (required config like API keys, tokens).
 
@@ -85,7 +103,7 @@ Values without a param name are mapped positionally to constructor parameter ord
 }
 ```
 
-The loader reads from this file first, falls back to `process.env.TRACKER_API_KEY`. This means `photon set` values take precedence over shell environment variables. (Legacy path `~/.photon/env/tracker.json` is also checked as a fallback for migration.)
+The loader reads from this file first by constructor param name (`apiKey`), then by env-style key (`TRACKER_API_KEY`), then falls back to `process.env.TRACKER_API_KEY`. This means Photon config values take precedence over shell environment variables. (Legacy path `~/.photon/env/tracker.json` is also checked as a fallback for migration.)
 
 ---
 

@@ -49,6 +49,7 @@ export const RESERVED_COMMANDS = [
   'use',
   'instances',
   'set',
+  'config',
   // Aliases
   'cli',
   'alias',
@@ -107,6 +108,7 @@ const knownCommands = [
   'use',
   'instances',
   'set',
+  'config',
   'cli',
   'alias',
   'unalias',
@@ -131,6 +133,7 @@ const knownSubcommands: Record<string, string[]> = {
   init: ['cli', 'completions'],
   uninit: ['cli'],
   cf: ['bindings', 'set', 'reset'],
+  config: ['set', 'get', 'list'],
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
