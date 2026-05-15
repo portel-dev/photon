@@ -100,6 +100,68 @@ function findTsconfig(startDir: string): string | undefined {
   return undefined;
 }
 
+function stripJsonComments(text: string): string {
+  let out = '';
+  let inString = false;
+  let stringQuote = '';
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (inString) {
+      out += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === stringQuote) {
+        inString = false;
+        stringQuote = '';
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      inString = true;
+      stringQuote = char;
+      out += char;
+      continue;
+    }
+
+    if (char === '/' && next === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+      out += '\n';
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      i += 2;
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
+      i++;
+      continue;
+    }
+
+    out += char;
+  }
+
+  return out;
+}
+
+function tsconfigHasJsxOverride(tsconfigPath: string): boolean {
+  try {
+    const text = stripJsonComments(fs.readFileSync(tsconfigPath, 'utf8'));
+    const compilerOptionsMatch = text.match(/["']compilerOptions["']\s*:\s*\{([\s\S]*?)\}/);
+    const compilerOptions = compilerOptionsMatch?.[1] ?? text;
+    return /["'](?:jsx|jsxFactory|jsxFragmentFactory|jsxImportSource)["']\s*:/.test(
+      compilerOptions
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Build esbuild options for a TSX file.
  * Uses built-in DOM-based JSX runtime by default.
@@ -108,9 +170,7 @@ function findTsconfig(startDir: string): string | undefined {
 function buildOptions(filePath: string, tsconfigPath?: string): esbuild.BuildOptions {
   const uiDir = path.dirname(filePath);
 
-  // If user has a tsconfig, let it control JSX settings
-  // Otherwise use our built-in runtime via inject
-  const hasUserTsconfig = !!tsconfigPath;
+  const hasJsxOverride = tsconfigPath ? tsconfigHasJsxOverride(tsconfigPath) : false;
 
   return {
     entryPoints: [filePath],
@@ -119,8 +179,9 @@ function buildOptions(filePath: string, tsconfigPath?: string): esbuild.BuildOpt
     format: 'esm',
     platform: 'browser',
     target: 'es2020',
+    ...(tsconfigPath ? { tsconfig: tsconfigPath } : {}),
     // Built-in runtime: classic transform with injected h/Fragment
-    ...(!hasUserTsconfig
+    ...(!hasJsxOverride
       ? {
           jsx: 'transform',
           jsxFactory: 'h',
@@ -128,8 +189,7 @@ function buildOptions(filePath: string, tsconfigPath?: string): esbuild.BuildOpt
           inject: [getRuntimePath()],
         }
       : {
-          // Let tsconfig control jsx mode and import source
-          tsconfig: tsconfigPath,
+          // Let explicit tsconfig JSX settings control jsx mode and import source
         }),
     nodePaths: [
       path.join(uiDir, 'node_modules'),
