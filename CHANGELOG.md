@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.32.5](https://github.com/portel-dev/photon/compare/v1.32.4...v1.32.5) (2026-05-16)
+
+### Features
+
+* add surface intent metadata ([e34e383](https://github.com/portel-dev/photon/commit/e34e383f2066704944de46f0a3c8107a371b4b4d))
+* use intent metadata in Beam ([02139d7](https://github.com/portel-dev/photon/commit/02139d79e76f4eaccb5cb7207ee178e3ab23698f))
+* use intent metadata in CLI ([68536f3](https://github.com/portel-dev/photon/commit/68536f3d7098a12d94e7f0df5df98a25131452ef))
+
+### Bug Fixes
+
+* add daemon-safe photon config ([444c13b](https://github.com/portel-dev/photon/commit/444c13bc19c53a6a90c3bac7c9feb9e5de2fca60))
+* close daemon log handle after spawn ([cb4b40f](https://github.com/portel-dev/photon/commit/cb4b40f5b27b5472f0ee8584da5e2cc9519e72e3))
+* guard daemon eager lifecycle loading ([2b84628](https://github.com/portel-dev/photon/commit/2b846282d5c9b8402e5fa50a593b63308597bdd5))
+* keep daemon config scoped to photon dirs ([c33b9c3](https://github.com/portel-dev/photon/commit/c33b9c3a74eaaed67e7f5727bf93e23c626ad4f1))
+* make bun release publish from package root ([cf653b0](https://github.com/portel-dev/photon/commit/cf653b0ce4699502c14199519feebd1d475d79c8))
+* make shell hook independent of PATH shim ([e6ef947](https://github.com/portel-dev/photon/commit/e6ef947f2879f2231d81affc3f087deb13a33cb7))
+* replay constructor env across daemon restarts ([55bc12a](https://github.com/portel-dev/photon/commit/55bc12a195e7e1bba6900e833740be4e577cd3da))
+
 ## [1.32.4](https://github.com/portel-dev/photon/compare/v1.32.3...v1.32.4) (2026-05-14)
 
 ### Bug Fixes
