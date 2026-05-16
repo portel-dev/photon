@@ -47,7 +47,7 @@ import type {
   Subscription,
 } from '@portel/photon-core';
 import { getDefaultContext } from '../context.js';
-import { EnvStore } from '../context-store.js';
+import { EnvStore, resolvePhotonNamespace } from '../context-store.js';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import {
@@ -2934,6 +2934,17 @@ function missingRequiredConfig(
   return requiredConfig.filter((key) => values[key] === undefined);
 }
 
+function persistConstructorEnvFromRequest(request: DaemonRequest): void {
+  if (!request.photonName || !request.constructorEnv) return;
+  if (Object.keys(request.constructorEnv).length === 0) return;
+
+  const baseDir = request.workingDir || getDefaultContext().baseDir;
+  const namespace = request.photonPath
+    ? resolvePhotonNamespace(baseDir, path.resolve(request.photonPath))
+    : undefined;
+  new EnvStore(baseDir).write(request.photonName, request.constructorEnv, namespace);
+}
+
 /**
  * Identity key for declared schedules and scheduled jobs. Delegates to
  * registry-keys.ts — see that module for the key-shape rationale.
@@ -3366,6 +3377,7 @@ async function handleRequest(
       };
     }
 
+    persistConstructorEnvFromRequest(request);
     const result = await reloadPhoton(photonName, photonPath, request.workingDir);
     return {
       type: 'result',
@@ -4336,6 +4348,8 @@ async function handleRequest(
         suggestion: 'Include photonName in the request payload',
       };
     }
+
+    persistConstructorEnvFromRequest(request);
 
     // Runtime-injected instance tools must be handled by the daemon,
     // not forwarded to worker threads (workers don't know about _use etc.)

@@ -10,11 +10,12 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
+import * as path from 'path';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
 import { getGlobalSocketPath, ensureDaemon } from './manager.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
-import { ProgressRenderer } from '@portel/photon-core';
+import { ProgressRenderer, SchemaExtractor } from '@portel/photon-core';
 
 // Generate session ID for this process
 // This ensures all commands from the same terminal session share the same photon instance
@@ -28,6 +29,38 @@ const DEFAULT_DAEMON_COMMAND_RETRIES = 3;
 function getDaemonReadyTimeoutMs(): number {
   const parsed = Number(process.env.PHOTON_DAEMON_READY_TIMEOUT_MS);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DAEMON_READY_TIMEOUT_MS;
+}
+
+export function captureConstructorEnvForPhoton(
+  photonName: string,
+  photonPath?: string
+): Record<string, string> | undefined {
+  if (!photonPath) return undefined;
+
+  try {
+    const absolutePath = path.resolve(photonPath);
+    const source = fs.readFileSync(absolutePath, 'utf-8');
+    const cleanedSource = source
+      .replace(/@photon\s+(\w+)\s+(\S+)\?/g, '@photon $1 $2')
+      .replace(/@mcp\s+(\w+)\s+(\S+)\?/g, '@mcp $1 $2');
+    const extractor = new SchemaExtractor();
+    const env: Record<string, string> = {};
+
+    for (const injection of extractor.resolveInjections(cleanedSource, photonName)) {
+      if (injection.injectionType !== 'env' || !injection.envVarName) continue;
+      const value = process.env[injection.envVarName];
+      if (value !== undefined) env[injection.envVarName] = value;
+    }
+
+    return Object.keys(env).length > 0 ? env : undefined;
+  } catch (error) {
+    logger.debug('Failed to capture constructor env for daemon request', {
+      photonName,
+      photonPath,
+      error: getErrorMessage(error),
+    });
+    return undefined;
+  }
 }
 
 /**
@@ -369,6 +402,7 @@ async function reloadDaemonPhotonDirect(
         photonName,
         photonPath,
         workingDir,
+        constructorEnv: captureConstructorEnvForPhoton(photonName, photonPath),
       };
       client.write(JSON.stringify(request) + '\n');
     });
@@ -450,6 +484,7 @@ async function sendCommandDirect(
         instanceName,
         targetInstance,
         workingDir,
+        constructorEnv: captureConstructorEnvForPhoton(photonName, photonPath),
       };
 
       client.write(JSON.stringify(request) + '\n');

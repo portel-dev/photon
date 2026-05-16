@@ -3114,8 +3114,10 @@ export class PhotonLoader {
     const injections = extractor.resolveInjections(cleanedSource, mcpName);
 
     // Lazy-load env store and instance state path
-    const { EnvStore, getInstanceStatePath } = await import('./context-store.js');
+    const { EnvStore, getInstanceStatePath, resolvePhotonNamespace } =
+      await import('./context-store.js');
     const envStore = new EnvStore(this.baseDir);
+    const namespace = resolvePhotonNamespace(this.baseDir, photonPath);
 
     const values: any[] = [];
     const missingEnvVars: Array<{ paramName: string; envVarName: string; type: string }> = [];
@@ -3128,14 +3130,23 @@ export class PhotonLoader {
 
       switch (injectionType) {
         case 'env': {
-          // All primitive params are env: check EnvStore first, then process.env
+          // All primitive params are env: if the caller supplied the mapped
+          // env var for this load, capture that constructor input into the
+          // workdir-scoped store so daemon restarts can replay the same value.
           const envVarName = injection.envVarName!;
-          const storedValue = envStore.resolve(mcpName, param.name, envVarName);
+          const processValue = process.env[envVarName];
+          const storedValue =
+            processValue !== undefined
+              ? processValue
+              : envStore.resolve(mcpName, param.name, envVarName, namespace);
 
           if (storedValue !== undefined) {
+            if (processValue !== undefined) {
+              envStore.write(mcpName, { [envVarName]: processValue }, namespace);
+            }
             values.push(this.parseEnvValue(storedValue, param.type));
             this.log(
-              `  ✅ Env: ${param.name} (from ${storedValue === process.env[envVarName] ? 'process.env' : 'env store'})`
+              `  ✅ Env: ${param.name} (from ${processValue !== undefined ? 'process.env' : 'env store'})`
             );
           } else if (param.hasDefault || param.isOptional) {
             values.push(undefined); // constructor default applies

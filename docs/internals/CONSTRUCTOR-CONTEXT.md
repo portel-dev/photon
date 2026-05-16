@@ -1,8 +1,8 @@
-# Constructor Context: `photon use`, `photon set`, and `photon config`
+# Constructor Context: Env Capture, Instances, and Config
 
-Constructor parameters serve three distinct purposes based on their signature. Two CLI commands — `use` and `set` — manage them.
+Constructor parameters are Photon’s runtime contract. Photon resolves them when a photon is loaded, stores the values it owns under the current `PHOTON_DIR`, and replays those values when daemon-hosted photons are reconstructed after restart.
 
-## The Three Injection Types
+## Injection Types
 
 ```typescript
 /**
@@ -12,275 +12,111 @@ Constructor parameters serve three distinct purposes based on their signature. T
  */
 export default class Tracker {
   constructor(
-    private apiKey: string,              // 1. Config — no default → `photon config set`
-    private region: string = 'us-east',  // 2. Context — has default → `photon use`
-    private incidents: Incident[] = []   // 3. Dependency — non-primitive → auto-injected
+    private apiKey: string,              // 1. Constructor env -> captured on load
+    private region: string = 'us-east',  // 2. Constructor env with default
+    private slack: any,                  // 3. MCP dependency
+    private incidents: Incident[] = []   // 4. Stateful snapshot
   ) {}
 }
 ```
 
-| # | Type | Trigger | Managed by | Storage |
-|---|------|---------|------------|---------|
-| 1 | **Config** | Primitive, no default | `photon config set` or `photon set` | `~/.photon/.data/{photon}/env.json` |
-| 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/.data/{photon}/context.json` |
-| 3 | **Dependency** | Non-primitive (or matches `@mcp`/`@photon`) | Runtime | MCP client / photon instance / state snapshot |
+| Type | Trigger | Managed by | Storage |
+|------|---------|------------|---------|
+| Constructor env | Primitive constructor param | Existing env-var mapping, captured by loader | `.data/{ns}/{photon}/env.json` |
+| Constructor env with default | Primitive constructor param with default | Same mapping; default applies when unset | `.data/{ns}/{photon}/env.json` when captured |
+| MCP / photon dependency | Matches `@mcp` or `@photon` | Runtime | Proxy / loaded photon instance |
+| Stateful snapshot | Non-primitive with default on `@stateful` photon | Runtime | `.data/{ns}/{photon}/state/{instance}/state.json` |
 
-### Resolution Order (updated)
+## Resolution Order
 
 For each constructor parameter, the runtime resolves:
 
-1. **Matches `@mcp` tag?** → MCP client proxy
-2. **Matches `@photon` tag?** → Photon instance
-3. **Primitive, no default?** → Photon config (`~/.photon/.data/{photon}/env.json`, then `process.env`)
-4. **Primitive, has default?** → Context value (`~/.photon/.data/{photon}/context.json`, falls back to default)
-5. **Non-primitive with default on `@stateful`?** → Persisted state snapshot
-6. **Fallback** → `undefined` (constructor default applies)
+1. Matches `@mcp` tag -> MCP client proxy.
+2. Matches `@photon` tag -> Photon instance.
+3. Primitive constructor param -> current `process.env` when present, captured into `.data`, otherwise stored value from `.data`.
+4. Non-primitive with default on `@stateful` -> persisted state snapshot.
+5. Fallback -> `undefined`, so the TypeScript constructor default applies.
 
----
+Current process env wins during a load because it is the operator’s explicit current input. The loader captures that value so later daemon restarts can replay the same constructor input even when the shell environment is gone.
 
-## `photon config` — Daemon-Safe Runtime Config
+## Constructor Env Capture
 
-Use `photon config` for values that must be available to background daemon work regardless of which shell launched the daemon:
+Set constructor environment values normally before first loading the photon:
 
 ```bash
-photon config set kith-remind KITH_USER_EMAIL=you@example.com
-photon config get kith-remind KITH_USER_EMAIL
-photon config list kith-remind
+export KITH_REMIND_KITH_USER_EMAIL=you@example.com
+photon beam
 ```
 
-Photon instances can read the same store at runtime:
+When Photon resolves that constructor injection, it writes the declared env value under the current `PHOTON_DIR`, namespace, and photon name:
 
-```typescript
-const email = this.config.require('KITH_USER_EMAIL');
+```text
+{PHOTON_DIR}/.data/{namespace-or-local}/{photon}/env.json
 ```
 
-The store is under Photon data, not `.zshrc`, so scheduled jobs and daemon sessions see the same values after restart.
+On daemon restart, the loader replays the stored constructor values if the original shell environment is unavailable. This is what makes stateful photons and scheduled jobs daemon-safe without requiring users to maintain daemon-specific shell startup files.
 
-## `photon set` — Configure Constructor Params
+Daemon IPC also carries a narrow constructor env snapshot from the caller to the daemon. It includes only env vars declared by primitive constructor parameters for that photon, not the caller’s whole environment. This handles the case where a daemon is already running and a later CLI or Beam process has the required env values.
 
-For constructor params without defaults (required config like API keys, tokens).
+## Manual Repair: `photon config`
 
-### Interactive Mode
+`photon config` writes to the same runtime-owned store. It is a repair or override surface, not the normal setup path:
 
-```
-$ photon set tracker
-
-  tracker — Environment
-
-  apiKey (required)
-  API key for authentication
-  Current: sk-***456
-  > sk-new-key-789
-
-  ✓ Environment saved
+```bash
+photon config get kith-remind KITH_REMIND_KITH_USER_EMAIL
+photon config set kith-remind KITH_REMIND_KITH_USER_EMAIL=you@example.com
 ```
 
-Prompts for ALL environment params. Blank input keeps the current value. Sensitive values are masked in display.
+Use it when a captured value needs to be corrected without restarting from an environment that contains the desired variable.
 
-### Direct Mode
+## Named Instances: `photon use`
 
-```
-$ photon set tracker apiKey sk-new-key-789
-✓ Environment saved: apiKey
-```
+`photon use` does not configure primitive constructor defaults. It selects the named runtime instance for a stateful photon session.
 
-When some values are given directly, prompts for the remaining unset ones.
+```bash
+photon use todo-list work
+photon cli todo-list add "Review release notes"
 
-### Positional Args
-
-```
-$ photon set tracker sk-new-key-789
+photon use todo-list personal
+photon cli todo-list add "Buy milk"
 ```
 
-Values without a param name are mapped positionally to constructor parameter order.
+The instance name scopes state:
 
-### Storage
-
-```
-~/.photon/.data/tracker/env.json
-{
-  "apiKey": "sk-new-key-789"
-}
+```text
+{PHOTON_DIR}/.data/{namespace-or-local}/todo-list/state/work/state.json
+{PHOTON_DIR}/.data/{namespace-or-local}/todo-list/state/personal/state.json
 ```
 
-The loader reads from this file first by constructor param name (`apiKey`), then by env-style key (`TRACKER_API_KEY`), then falls back to `process.env.TRACKER_API_KEY`. This means Photon config values take precedence over shell environment variables. (Legacy path `~/.photon/env/tracker.json` is also checked as a fallback for migration.)
-
----
-
-## `photon use` — Switch Context
-
-For constructor params with defaults (switchable runtime context).
-
-### Interactive Mode
-
-```
-$ photon use tracker
-
-  tracker — Context
-
-  region (default: 'us-east')
-  Deployment region
-  Current: us-east
-  > eu-west
-
-  ✓ Context switched
-```
-
-Shows all context params with current values pre-filled and editable. Press Enter to keep the current value. Only shown when called with no arguments.
-
-### Direct Mode
-
-```
-$ photon use tracker eu-west
-✓ Context: region=eu-west
-```
-
-Sets only the specified values. Does NOT prompt for the rest — they already have values (either previously set or their defaults).
-
-### Positional Args
-
-Values map to constructor parameter order (context params only):
-
-```typescript
-constructor(
-  private region: string = 'us-east',    // 1st context param
-  private tier: string = 'standard',     // 2nd context param
-) {}
-```
-
-```
-$ photon use tracker eu-west premium
-✓ Context: region=eu-west, tier=premium
-```
-
-### Named Args
-
-If a value matches a known param name, the next value is its value:
-
-```
-$ photon use tracker tier premium
-✓ Context: tier=premium
-```
-
-Detection logic:
-1. Read next arg
-2. Does it match a context param name? → next arg is its value
-3. Doesn't match? → positional value for the next unset param
-
-### Storage
-
-```
-~/.photon/.data/tracker/context.json
-{
-  "region": "eu-west",
-  "tier": "premium"
-}
-```
-
----
-
-## Context + Stateful = State Partitioning
-
-When a `@stateful` photon has context params, the context values determine which state partition to use.
+This keeps the developer contract simple:
 
 ```typescript
 /**
  * @stateful true
  */
 export default class TodoList {
-  constructor(
-    private name: string = 'default',  // Context param → partition key
-    public items: Task[] = []          // Persisted state → per-partition
-  ) {}
+  constructor(public items: string[] = []) {}
 
   add(text: string) {
-    this.items.push({ id: crypto.randomUUID(), text });
+    this.items.push(text);
   }
 }
 ```
 
-### State Directory Structure
+Photon owns the instance switch and state partition. The photon code only declares state through the constructor.
 
-```
-~/.photon/.data/
-  todo-list/
-    state/
-      default/            # default partition
-        state.json        # { "items": [...] }
-      work/               # "work" partition
-        state.json        # { "items": [...] }
-      family/             # "family" partition
-        state.json        # { "items": [...] }
-```
+## `@requiresConfig`
 
-Each partition gets its own subdirectory under `state/`: `.data/{photon}/state/{value}/state.json`. Multiple context params are joined: `.data/{photon}/state/{val1}--{val2}/state.json`.
-
-### Workflow
-
-```
-$ photon use todo-list workouts
-✓ Context: name=workouts
-
-$ photon cli todo-list add "Push-ups"
-# → loads state from ~/.photon/.data/todo-list/state/workouts/state.json
-# → runs add("Push-ups")
-# → persists updated state
-
-$ photon use todo-list groceries
-✓ Context: name=groceries
-
-$ photon cli todo-list add "Milk"
-# → loads state from ~/.photon/.data/todo-list/state/groceries/state.json
-# → completely separate list
-```
-
-### Beam UI
-
-In Beam, context params appear as a selector bar above the method form. Switching the selector re-loads the view with that partition's state. The LIVE indicator and warmth animations work per-partition.
-
----
-
-## Behavior Differences: `set` vs `use`
-
-| Aspect | `photon set` | `photon use` |
-|--------|-------------|-------------|
-| **Purpose** | Configure environment | Switch context |
-| **Target params** | Primitive, no default | Primitive, has default |
-| **Interactive (no args)** | Prompts for ALL params | Prompts for ALL params |
-| **Partial args** | Sets given, prompts for rest | Sets given, skips rest |
-| **Frequency** | Rarely (setup, key rotation) | Often (switching lists, regions) |
-| **Sensitivity** | May contain secrets (masked) | Non-sensitive (shown plainly) |
-| **Effect on @stateful** | None (env config is global) | Switches state partition |
-
----
-
-## Developer Experience
-
-The developer writes standard TypeScript. No new concepts:
+Scheduled methods can declare keys that must be present in the runtime-owned store before Photon arms the schedule:
 
 ```typescript
 /**
- * @stateful true
+ * @scheduled 0 9 * * *
+ * @requiresConfig KITH_USER_EMAIL
  */
-export default class TodoList {
-  constructor(
-    private name: string = 'default',
-    public items: Task[] = []
-  ) {}
-
-  add(text: string) { this.items.push({ id: crypto.randomUUID(), text }); }
-  list() { return this.items; }
-  clear() { this.items.length = 0; }
+async remind() {
+  const email = this.config.require('KITH_USER_EMAIL');
 }
 ```
 
-The user manages partitions:
-
-```
-photon use todo-list work       # switch to "work" list
-photon cli todo-list add "task" # adds to "work" list
-photon use todo-list            # interactive — see/change current context
-photon set todo-list            # interactive — configure env vars (if any)
-```
-
-Zero partitioning code. Zero framework APIs. The constructor signature is the entire contract.
+If the key is missing, the schedule is not enabled. Constructor env capture normally populates the store during first load; `photon config set` remains available for repair.

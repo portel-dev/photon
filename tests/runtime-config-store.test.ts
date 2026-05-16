@@ -3,7 +3,8 @@
  *
  * Daemon-hosted photons cannot safely depend on the interactive shell's
  * environment. These tests pin config values to PHOTON_DIR/.data and verify
- * constructor injection reads the store first and `this.config` is store-only.
+ * constructor injection captures current process env for restart replay while
+ * `this.config` is store-only.
  */
 
 import { strict as assert } from 'assert';
@@ -12,6 +13,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { PhotonLoader } from '../src/loader.js';
 import { EnvStore } from '../src/context-store.js';
+import { captureConstructorEnvForPhoton } from '../src/daemon/client.js';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-runtime-config-'));
 const photonName = 'config-runtime';
@@ -61,6 +63,73 @@ await test('constructor injection reads env-style keys from Photon config store'
   const result = await loader.executeTool(photon, 'constructorKey', {});
 
   assert.equal(result, 'stored-key');
+});
+
+await test('constructor injection persists process env for daemon restart replay', async () => {
+  const replayDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-runtime-config-replay-'));
+  const replayPhotonPath = path.join(replayDir, `${photonName}.photon.ts`);
+  fs.copyFileSync(photonPath, replayPhotonPath);
+
+  process.env.CONFIG_RUNTIME_API_KEY = 'captured-from-env';
+
+  const firstLoader = new PhotonLoader(false, undefined, replayDir);
+  const firstPhoton = await firstLoader.loadFile(replayPhotonPath);
+  assert.equal(
+    await firstLoader.executeTool(firstPhoton, 'constructorKey', {}),
+    'captured-from-env'
+  );
+  assert.equal(
+    new EnvStore(replayDir).read(photonName).CONFIG_RUNTIME_API_KEY,
+    'captured-from-env'
+  );
+
+  delete process.env.CONFIG_RUNTIME_API_KEY;
+
+  const secondLoader = new PhotonLoader(false, undefined, replayDir);
+  const secondPhoton = await secondLoader.loadFile(replayPhotonPath);
+  assert.equal(
+    await secondLoader.executeTool(secondPhoton, 'constructorKey', {}),
+    'captured-from-env'
+  );
+});
+
+await test('daemon requests only capture declared constructor env values', async () => {
+  process.env.CONFIG_RUNTIME_API_KEY = 'caller-env';
+  process.env.UNRELATED_SECRET = 'must-not-travel';
+
+  const captured = captureConstructorEnvForPhoton(photonName, photonPath);
+
+  assert.deepEqual(captured, { CONFIG_RUNTIME_API_KEY: 'caller-env' });
+  delete process.env.CONFIG_RUNTIME_API_KEY;
+  delete process.env.UNRELATED_SECRET;
+});
+
+await test('constructor injection persistence is namespace-scoped', async () => {
+  const namespacedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-runtime-config-ns-'));
+  const namespaceDir = path.join(namespacedDir, 'team');
+  fs.mkdirSync(namespaceDir, { recursive: true });
+  const namespacedPhotonPath = path.join(namespaceDir, `${photonName}.photon.ts`);
+  fs.copyFileSync(photonPath, namespacedPhotonPath);
+
+  process.env.CONFIG_RUNTIME_API_KEY = 'namespaced-env';
+
+  const firstLoader = new PhotonLoader(false, undefined, namespacedDir);
+  const firstPhoton = await firstLoader.loadFile(namespacedPhotonPath);
+  assert.equal(await firstLoader.executeTool(firstPhoton, 'constructorKey', {}), 'namespaced-env');
+  assert.equal(
+    new EnvStore(namespacedDir).read(photonName, 'team').CONFIG_RUNTIME_API_KEY,
+    'namespaced-env'
+  );
+  assert.equal(new EnvStore(namespacedDir).read(photonName).CONFIG_RUNTIME_API_KEY, undefined);
+
+  delete process.env.CONFIG_RUNTIME_API_KEY;
+
+  const secondLoader = new PhotonLoader(false, undefined, namespacedDir);
+  const secondPhoton = await secondLoader.loadFile(namespacedPhotonPath);
+  assert.equal(
+    await secondLoader.executeTool(secondPhoton, 'constructorKey', {}),
+    'namespaced-env'
+  );
 });
 
 await test('this.config reads daemon-safe config values from Photon config store', async () => {

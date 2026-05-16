@@ -200,11 +200,11 @@ If you find yourself writing `process.env.SOMETHING` in a method body, that is a
 
 ## Constructor Configuration (for secrets)
 
-Constructor parameters are the right tool when a value is a primitive secret that should be set once and never exposed in the runtime UI. Prefer Photon-owned config over shell exports so daemon-hosted photons keep working after reboots and background restarts. For everything else, prefer [Settings](#settings-user-configurable-knobs).
+Constructor parameters are the right tool when a value is a primitive secret that should be supplied by the environment and never exposed in the runtime UI. Photon captures the resolved constructor values it injects and stores them under the owning `PHOTON_DIR`, so daemon-hosted photons can be recreated after daemon restarts. For everything else, prefer [Settings](#settings-user-configurable-knobs).
 
 ### Basic Pattern
 
-Constructor parameters automatically map to **Photon config keys** and environment variables:
+Constructor parameters automatically map to **environment variables**:
 
 ```typescript
 export default class Filesystem {
@@ -231,14 +231,14 @@ Pattern: `{MCP_NAME}_{PARAM_NAME}` in SCREAMING_SNAKE_CASE
 | `maxFileSize` | `FILESYSTEM_MAX_FILE_SIZE` |
 | `allowHidden` | `FILESYSTEM_ALLOW_HIDDEN` |
 
-Set these values with the runtime-owned config store:
+Set these values normally in the environment before first loading the photon:
 
 ```bash
-photon config set filesystem FILESYSTEM_WORKDIR=/Users/me/Documents
-photon config get filesystem FILESYSTEM_WORKDIR
+export FILESYSTEM_WORKDIR=/Users/me/Documents
+photon beam
 ```
 
-For backwards compatibility, constructor injection still falls back to `process.env.FILESYSTEM_WORKDIR` when no stored config exists. `this.config` is store-only by design, so daemon-safe photons should use `photon config set` and `this.config.get(...)` instead of relying on `.zshrc` exports.
+When Photon injects that constructor value, it persists the resolved value to `.data/...` for the current `PHOTON_DIR` and photon namespace. If the daemon restarts later without the original shell environment, constructor injection replays the persisted value. `photon config set` remains available as a manual repair or override command, but it is not the normal setup path.
 
 Scheduled methods can declare config that must exist before the daemon arms the schedule:
 

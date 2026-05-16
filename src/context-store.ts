@@ -30,6 +30,21 @@ import {
 } from '@portel/photon-core';
 import { isNodeError, getErrorMessage } from './shared/error-handler.js';
 
+/**
+ * Resolve the namespace for a photon file relative to its PHOTON_DIR/baseDir.
+ *
+ *   {baseDir}/foo.photon.ts            -> ''
+ *   {baseDir}/alice/foo.photon.ts      -> 'alice'
+ *   {baseDir}/org/team/foo.photon.ts   -> 'org/team'
+ */
+export function resolvePhotonNamespace(baseDir: string, absolutePath: string): string {
+  const rel = path.relative(baseDir, absolutePath);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return '';
+  const parts = rel.split(path.sep);
+  if (parts.length < 2) return '';
+  return parts.slice(0, -1).join(path.sep);
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Instance Store — tracks current instance name per photon per client
 // ══════════════════════════════════════════════════════════════════════════════

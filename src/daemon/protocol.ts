@@ -52,6 +52,11 @@ export interface DaemonRequest {
   targetInstance?: string;
   /** Working directory override (base dir for state/config/cache). Defaults to ~/.photon */
   workingDir?: string;
+  /**
+   * Constructor env values captured by the caller for this photon.
+   * Only includes env vars declared by primitive constructor parameters.
+   */
+  constructorEnv?: Record<string, string>;
   method?: string;
   args?: Record<string, unknown>;
   /** Response to a prompt request */

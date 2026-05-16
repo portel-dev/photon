@@ -178,11 +178,12 @@ photon mcp github-issues --config
 
 **Solution**:
 
-1. **For Photon daemon, Beam, and scheduled jobs**: store config in Photon:
+1. **For Photon daemon, Beam, and scheduled jobs**: export the existing constructor env var and load the photon once:
    ```bash
-   photon config set github-issues GITHUB_ISSUES_TOKEN=your-token
-   photon config get github-issues GITHUB_ISSUES_TOKEN
+   export GITHUB_ISSUES_TOKEN=your-token
+   photon beam
    ```
+   Photon captures constructor-injected env values under the current `PHOTON_DIR`, so daemon restarts can replay them even when the original shell env is gone.
 
 2. **For Claude Desktop**: Edit `claude_desktop_config.json`
    ```json
@@ -205,7 +206,7 @@ photon mcp github-issues --config
    photon mcp github-issues --dev
    ```
 
-Shell exports are still supported as a constructor-injection compatibility fallback, but daemon-hosted photons should not depend on `.zshrc` or other interactive shell startup files. `this.config` and `@requiresConfig` intentionally read Photon config only.
+`photon config set github-issues GITHUB_ISSUES_TOKEN=your-token` is available as a manual repair or override, but normal setup should use the same constructor env vars Photon already maps.
 
 ### Environment Variable Naming
 

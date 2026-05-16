@@ -1392,22 +1392,21 @@ Browse the filesystem for path selection:
 
 ### Environment Variables
 
-Configuration can be set via Photon-owned config, which is preferred for Beam, daemon, and scheduled jobs:
+Constructor configuration is supplied with the existing environment-variable mapping:
 
 ```bash
-photon config set myphoton PHOTON_MYPHOTON_APIKEY=sk-xxx
-photon config set myphoton PHOTON_MYPHOTON_DATAPATH=/data
-```
-
-Photon still falls back to environment variables for compatibility:
-
-```bash
-export PHOTON_MYPHOTON_APIKEY="sk-xxx"
-export PHOTON_MYPHOTON_DATAPATH="/data"
+export MYPHOTON_API_KEY="sk-xxx"
+export MYPHOTON_DATA_PATH="/data"
 photon beam
 ```
 
-The naming convention is: `PHOTON_<PHOTONNAME>_<PARAMNAME>` (uppercase, no hyphens).
+When Photon injects those constructor values, it captures them in the current `PHOTON_DIR`'s `.data` store. If the daemon restarts without the original shell environment, the loader replays the captured constructor values from that scoped store.
+
+```bash
+photon config get myphoton MYPHOTON_API_KEY
+```
+
+`photon config set` remains available as a manual repair or override path, but normal setup should use the constructor environment variables. The naming convention is: `<PHOTONNAME>_<PARAMNAME>` in screaming snake case, with hyphens converted to underscores.
 
 ### `@requiresConfig`
 

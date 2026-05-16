@@ -2,7 +2,7 @@
 
 Photon uses a single mechanism for all dependency injection: **constructor parameters**. The runtime inspects each parameter and determines what to inject based on its type and matching docblock declarations.
 
-## The Four Injection Types
+## Injection Types
 
 ```typescript
 /**
@@ -23,13 +23,13 @@ export default class Dashboard {
 
 | # | Type | Trigger | Managed by | Source |
 |---|------|---------|------------|--------|
-| 1 | **Config** | Primitive, no default | `photon config set` or `photon set` | `~/.photon/.data/{photon}/env.json`, then `process.env` |
-| 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/.data/{photon}/context.json` |
+| 1 | **Constructor env** | Primitive constructor param | Existing env-var mapping, captured by loader | Current `process.env`, then `.data/{ns}/{photon}/env.json` |
+| 2 | **Constructor env with default** | Primitive constructor param with default | Same mapping; default applies when unset | Current `process.env`, then captured `.data` value |
 | 3 | **MCP client** | Name matches `@mcp` declaration | Runtime | Proxy to running MCP server |
 | 4 | **Photon instance** | Name matches `@photon` declaration | Runtime | Loaded photon class instance |
-| 5 | **Persisted state** | Non-primitive with default, on `@stateful` photon | Runtime | `~/.photon/.data/{photon}/state/` |
+| 5 | **Persisted state** | Non-primitive with default, on `@stateful` photon | Runtime | `.data/{ns}/{photon}/state/` |
 
-> **See [CONSTRUCTOR-CONTEXT.md](CONSTRUCTOR-CONTEXT.md)** for full details on `photon config`, `photon set`, and `photon use`, including context-based state partitioning for `@stateful` photons.
+> **See [CONSTRUCTOR-CONTEXT.md](CONSTRUCTOR-CONTEXT.md)** for full details on constructor env capture and context-based state partitioning for `@stateful` photons.
 
 ### Resolution Order
 
@@ -37,16 +37,15 @@ For each constructor parameter, the runtime resolves in this order:
 
 1. **Matches `@mcp` tag?** → Create/reuse MCP client proxy
 2. **Matches `@photon` tag?** → Load/reuse photon instance
-3. **Primitive, no default?** → Photon config (`~/.photon/.data/{photon}/env.json` by param name or env-style key, then `process.env`)
-4. **Primitive, has default?** → Context value (`~/.photon/.data/{photon}/context.json`, falls back to default)
-5. **Non-primitive with default on `@stateful`?** → Restore from state snapshot
-6. **Fallback** → `undefined` (constructor default applies)
+3. **Primitive constructor param?** → Current `process.env` when present and captured, otherwise stored value from `.data` by param/env-style key
+4. **Non-primitive with default on `@stateful`?** → Restore from state snapshot
+5. **Fallback** → `undefined` (constructor default applies)
 
 ---
 
 ## 1. Environment Variables
 
-Primitive constructor parameters are automatically mapped to Photon config keys and then environment variables.
+Primitive constructor parameters are automatically mapped to environment variable names. When a value is present in the caller environment, Photon captures it into the runtime-owned `.data` store so daemon restarts and scheduled work can replay the same constructor input.
 
 ```typescript
 export default class Mailer {
@@ -64,7 +63,7 @@ export default class Mailer {
 | `smtpPort` | `MAILER_SMTP_PORT` | `Number("587")` → `587` |
 | `useTls` | `MAILER_USE_TLS` | `"true"` → `true` |
 
-If the env var is not set and the parameter has a default, the default applies. If the env var is not set and the parameter is required (no default), the runtime reports a configuration error.
+If the env var is not set but a captured value exists, the captured value is used. If neither exists and the parameter has a default, the default applies. If neither exists and the parameter is required, the runtime reports a configuration error.
 
 ---
 

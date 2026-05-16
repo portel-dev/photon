@@ -4,7 +4,7 @@
  * Tests for named instance management, environment config, and injection classification.
  * Covers: InstanceStore, EnvStore, getInstanceStatePath.
  *
- * Run: npx tsx tests/constructor-context.test.ts
+ * Run: bunx tsx tests/constructor-context.test.ts
  */
 
 import { strict as assert } from 'assert';
@@ -114,14 +114,20 @@ async function run() {
     console.log('\n\uD83D\uDCE6 Instance State Path\n');
     // ═════════════════════════════════════════════════════════════
 
-    await test('default instance → default.json', () => {
+    await test('default instance -> .data default/state.json', () => {
       const result = getInstanceStatePath('todo-list', '');
-      assert.equal(result, path.join(homedir, '.photon', 'state', 'todo-list', 'default.json'));
+      assert.equal(
+        result,
+        path.join(homedir, '.photon', '.data', 'todo-list', 'state', 'default', 'state.json')
+      );
     });
 
-    await test('named instance → {name}.json', () => {
+    await test('named instance -> .data {name}/state.json', () => {
       const result = getInstanceStatePath('todo-list', 'workouts');
-      assert.equal(result, path.join(homedir, '.photon', 'state', 'todo-list', 'workouts.json'));
+      assert.equal(
+        result,
+        path.join(homedir, '.photon', '.data', 'todo-list', 'state', 'workouts', 'state.json')
+      );
     });
 
     await test('different photons have separate directories', () => {
