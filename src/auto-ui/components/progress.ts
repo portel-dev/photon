@@ -10,7 +10,7 @@ export class ProgressIndicator implements UIComponent {
   private spinner?: Ora;
   private lastMessage?: string;
 
-  supportsFormat(format: 'cli' | 'mcp' | 'web'): boolean {
+  supportsFormat(_format: 'cli' | 'mcp' | 'web'): boolean {
     return true;
   }
 

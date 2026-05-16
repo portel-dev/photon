@@ -8,7 +8,7 @@ import Table from 'cli-table3';
 import chalk from 'chalk';
 
 export class TableComponent implements UIComponent {
-  supportsFormat(format: 'cli' | 'mcp' | 'web'): boolean {
+  supportsFormat(_format: 'cli' | 'mcp' | 'web'): boolean {
     return true;
   }
 

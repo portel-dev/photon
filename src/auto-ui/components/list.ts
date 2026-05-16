@@ -7,7 +7,7 @@ import { UIComponent, ComponentProps } from '../types';
 import chalk from 'chalk';
 
 export class ListComponent implements UIComponent {
-  supportsFormat(format: 'cli' | 'mcp' | 'web'): boolean {
+  supportsFormat(_format: 'cli' | 'mcp' | 'web'): boolean {
     return true;
   }
 

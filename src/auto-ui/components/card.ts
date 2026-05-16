@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import boxen from 'boxen';
 
 export class CardComponent implements UIComponent {
-  supportsFormat(format: 'cli' | 'mcp' | 'web'): boolean {
+  supportsFormat(_format: 'cli' | 'mcp' | 'web'): boolean {
     return true;
   }
 

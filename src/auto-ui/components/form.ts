@@ -7,7 +7,7 @@ import { UIComponent, ComponentProps } from '../types';
 import inquirer from 'inquirer';
 
 export class FormComponent implements UIComponent {
-  supportsFormat(format: 'cli' | 'mcp' | 'web'): boolean {
+  supportsFormat(_format: 'cli' | 'mcp' | 'web'): boolean {
     return true;
   }
 
@@ -23,7 +23,7 @@ export class FormComponent implements UIComponent {
     }
   }
 
-  private renderCLI(schema: any, metadata: any): string {
+  private renderCLI(schema: any, _metadata: any): string {
     return JSON.stringify(schema, null, 2);
   }
 

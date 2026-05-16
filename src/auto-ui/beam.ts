@@ -3561,7 +3561,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             logger.info(`🔌 Removed external MCP: ${name}`);
           }
           // Close SDK clients after all Maps are consistent
-          for (const { name: _name, client } of removedSdkClients) {
+          for (const { client } of removedSdkClients) {
             try {
               await client.close();
             } catch {

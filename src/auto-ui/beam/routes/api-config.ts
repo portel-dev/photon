@@ -395,7 +395,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       const spec = generateOpenAPISpec(state.photons, serverUrl);
       res.writeHead(200);
       res.end(JSON.stringify(spec, null, 2));
-    } catch (err) {
+    } catch {
       res.writeHead(500);
       res.end(JSON.stringify({ error: 'Failed to generate OpenAPI spec' }));
     }
