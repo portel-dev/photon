@@ -70,7 +70,7 @@
     "test:marketplace": "tsx tests/marketplace-manager.test.ts",
     "test:github-ref": "tsx tests/github-ref-install.test.ts",
     "test:loader": "tsx tests/loader.test.ts && tsx tests/runtime-config-store.test.ts",
-    "test:server": "tsx tests/server.test.ts",
+    "test:server": "tsx tests/server.test.ts && tsx tests/sse-client-app-fallback.test.ts",
     "test:integration": "tsx tests/integration.test.ts",
     "test:byte-compat": "RUN_E2E=1 vitest run tests/v128-byte-compat.test.ts",
     "test:format-registry": "vitest run tests/format-registry.test.ts",

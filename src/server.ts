@@ -182,6 +182,110 @@ function uiSiblingMime(ext: string): string {
   }
 }
 
+type ServerHttpRouteDef = {
+  method: string;
+  path: string;
+  handler: string;
+  format?: string;
+};
+
+type ServerUiAssetDef = {
+  id: string;
+  path?: string;
+  resolvedPath?: string;
+};
+
+function splitServerRoutePath(pathname: string): string[] {
+  const normalized = pathname === '/' ? '/' : pathname.replace(/\/+$/, '');
+  if (normalized === '/') return [];
+  return normalized.split('/').filter(Boolean);
+}
+
+function serverWebRouteMatches(routePath: string, requestPath: string): boolean {
+  if (routePath === requestPath) return true;
+  const routeParts = splitServerRoutePath(routePath);
+  const requestParts = splitServerRoutePath(requestPath);
+  if (routeParts.length !== requestParts.length) return false;
+  for (let i = 0; i < routeParts.length; i++) {
+    const routePart = routeParts[i];
+    const requestPart = requestParts[i];
+    if (routePart.startsWith(':')) {
+      if (!requestPart) return false;
+      continue;
+    }
+    if (routePart !== requestPart) return false;
+  }
+  return true;
+}
+
+function serverWebRouteScore(routePath: string): number {
+  return splitServerRoutePath(routePath).reduce(
+    (score, part) => score + (part.startsWith(':') ? 1 : 10),
+    routePath === '/' ? 100 : 0
+  );
+}
+
+function findServerWebRoute(
+  routes: ServerHttpRouteDef[] | undefined,
+  method: string | undefined,
+  requestPath: string
+): ServerHttpRouteDef | undefined {
+  if (!routes?.length || !method) return undefined;
+  const wantedMethod = method.toUpperCase();
+  return routes
+    .filter(
+      (route) =>
+        route.method.toUpperCase() === wantedMethod &&
+        serverWebRouteMatches(route.path, requestPath)
+    )
+    .sort((a, b) => serverWebRouteScore(b.path) - serverWebRouteScore(a.path))[0];
+}
+
+function uiAssetPath(asset: ServerUiAssetDef): string {
+  return asset.resolvedPath || asset.path || '';
+}
+
+function isTsxUiAsset(asset: ServerUiAssetDef): boolean {
+  return uiAssetPath(asset).endsWith('.tsx');
+}
+
+function selectServerClientAppUi(
+  photon:
+    | {
+        configured?: boolean;
+        appEntry?: { linkedUi?: string };
+        assets?: { ui?: ServerUiAssetDef[] };
+      }
+    | null
+    | undefined
+): string | undefined {
+  const uiAssets = photon?.assets?.ui || [];
+  const linkedUi = photon?.appEntry?.linkedUi;
+  if (linkedUi) {
+    const linkedAsset = uiAssets.find((ui) => ui.id === linkedUi);
+    if (!linkedAsset || isTsxUiAsset(linkedAsset)) return linkedUi;
+  }
+
+  const namedApp = uiAssets.find((ui) => ui.id === 'app' && isTsxUiAsset(ui));
+  if (namedApp) return namedApp.id;
+
+  const tsxAssets = uiAssets.filter(isTsxUiAsset);
+  if (tsxAssets.length === 1) return tsxAssets[0].id;
+
+  return undefined;
+}
+
+function shouldFallbackToServerClientApp(
+  pathname: string,
+  searchParams: URLSearchParams,
+  route: unknown
+): boolean {
+  if (route) return false;
+  if (searchParams.get('legacy') === '1') return false;
+  if (pathname === '/mcp' || pathname.startsWith('/mcp/')) return false;
+  return true;
+}
+
 function findFreePort(preferred: number = 0): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -2545,6 +2649,38 @@ export class PhotonServer {
     res.writeHead(404).end('Not Found');
   }
 
+  private async serveTopLevelUiAsset(
+    req: IncomingMessage,
+    res: ServerResponse,
+    uiId: string,
+    corsOrigin?: string
+  ): Promise<boolean> {
+    const ui = this.mcp?.assets?.ui.find((asset) => asset.id === uiId);
+    if (!ui?.resolvedPath) return false;
+
+    try {
+      let content: string;
+      if (ui.resolvedPath.endsWith('.tsx')) {
+        const { compileTsxCached } = await import('./tsx-compiler.js');
+        content = await compileTsxCached(ui.resolvedPath);
+      } else {
+        content = await readText(ui.resolvedPath);
+      }
+
+      const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+      if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+      if (detectIsolationMode(req) === 'standalone') {
+        uiHeaders['Cross-Origin-Opener-Policy'] = 'same-origin';
+        uiHeaders['Cross-Origin-Embedder-Policy'] = 'require-corp';
+      }
+      res.writeHead(200, uiHeaders);
+      res.end(content);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Start server with SSE transport (HTTP)
    */
@@ -2640,6 +2776,16 @@ export class PhotonServer {
 
         const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
         const corsOrigin = getCorsOrigin(req);
+        let matchedRoute: {
+          handler: string;
+          format?: string;
+          expose?: 'private' | 'public';
+        } | null = null;
+        const route = findServerWebRoute(this.mcp?._httpRoutes, req.method, url.pathname);
+        if (route) matchedRoute = { handler: route.handler, format: route.format };
+        const clientAppUi = selectServerClientAppUi(
+          this.mcp as Parameters<typeof selectServerClientAppUi>[0]
+        );
 
         // Handle CORS preflight
         if (req.method === 'OPTIONS') {
@@ -2681,7 +2827,7 @@ export class PhotonServer {
         }
 
         // Health check / info endpoint
-        if (req.method === 'GET' && url.pathname === '/') {
+        if (req.method === 'GET' && url.pathname === '/' && !matchedRoute && !clientAppUi) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           const endpoints: Record<string, string> = {
             sse: `http://localhost:${port}${ssePath}`,
@@ -3170,17 +3316,6 @@ export class PhotonServer {
         // @get / @post HTTP routes — dispatch to photon method, public (no auth).
         // Track C: when none match, fall through to the auto-RPC table built
         // from @expose tags below.
-        const httpRoutes = this.mcp?._httpRoutes;
-        let matchedRoute: {
-          handler: string;
-          format?: string;
-          expose?: 'private' | 'public';
-        } | null = null;
-        if (httpRoutes?.length && req.method) {
-          const route = httpRoutes.find((r) => r.method === req.method && r.path === url.pathname);
-          if (route) matchedRoute = { handler: route.handler, format: route.format };
-        }
-
         // Track C: auto-RPC. POST /api/<kebab-method> dispatches to @expose'd
         // methods. Explicit @get/@post takes precedence (matchedRoute already
         // set above) so a user can override path/verb for any @expose'd
@@ -3319,6 +3454,15 @@ export class PhotonServer {
             }
             return;
           }
+        }
+
+        if (
+          req.method === 'GET' &&
+          clientAppUi &&
+          shouldFallbackToServerClientApp(url.pathname, url.searchParams, matchedRoute ?? undefined)
+        ) {
+          const served = await this.serveTopLevelUiAsset(req, res, clientAppUi, corsOrigin);
+          if (served) return;
         }
 
         res.writeHead(404).end('Not Found');
