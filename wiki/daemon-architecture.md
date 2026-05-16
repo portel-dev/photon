@@ -68,9 +68,11 @@ Stateful photon data is already persisted separately and should stay unchanged. 
 
 When a stateful photon is hosted by the daemon, the daemon may need to reconstruct the class after restart. At that point the original shell environment may not exist, so constructor env values must be replayable.
 
-### Intended mechanism
+### Mechanism (implemented in v1.32.5)
 
-When the daemon successfully constructs a stateful photon for the first time, it should snapshot only the resolved constructor env injections:
+Shipped in v1.32.5 (commits `55bc12a`, `dcb2c68`). Verified end to end on a real deployment: a stateful photon (`kith-remind`) was constructed once with env present, then the daemon was killed and restarted from a fully env-stripped non-interactive shell; the photon still resolved its constructor env from the replayed snapshot and reached its remote backend with zero ambient env. Reproduce with the Phase A / Phase B pattern: (A) start daemon with the env present and exercise the photon once to seed the snapshot, (B) restart the daemon non-interactively with every relevant var unset and confirm the photon still works.
+
+When the daemon successfully constructs a stateful photon for the first time, it snapshots only the resolved constructor env injections:
 
 1. Resolve constructor injections using the existing mapping logic.
 2. Keep MCP, photon, and state injections on their existing paths.
@@ -163,6 +165,18 @@ If replay storage is unavailable or decryption fails:
 ### Why this fits Photon
 
 The constructor is Photon’s dependency-injection boundary. On initial construction the runtime already knows exactly which primitive env values were injected. Capturing only those values, encrypted, gives the daemon enough information to recreate stateful photons after restart while leaving all other runtime concerns on their existing, tested paths.
+
+### Design decision: env is set the normal way, the constructor is the only contract
+
+Constructor env replay is the entire solution. There is deliberately no `photon env set` command and no photon-managed credentials file. Rationale:
+
+- One daemon serves many marketplaces (each project auto-scopes via its `.marketplace` dir / resolved `PHOTON_DIR`). A command or file that sets env at a global or home level would be visible to every photon in that shared daemon, and the same variable name could need different values per marketplace. That breaks the isolation the path-hash-scoped snapshot key already gives.
+- Users already have a normal way to set environment variables (their shell / service launcher). Photon should not add a second, competing mechanism.
+- If a specific environment variable matters to a photon, it is declared as a constructor parameter. That is the contract: it gets prefix-scoped env-var naming (`toEnvVarName(photonName, paramName)`, e.g. `kith-remind` + `userEmail` -> `KITH_REMIND_USER_EMAIL`), per-marketplace-scoped persistence, and replay across restarts. Bare `process.env.X` reads inside method bodies get none of this and are the anti-pattern this replaces.
+
+Resolution order for a constructor env param: explicit constructor argument, then `process.env[scopedName]`, then the scoped EnvStore / replay snapshot, then the param default.
+
+Cold start is normal operations, not a defect to engineer around. "Start the daemon once with your normal environment" is the expected setup step for any service. After that single seeded construction, the encrypted scoped snapshot carries the values across non-interactive restarts. There is intentionally no separate seeding tool: the seeding run is just running the photon once with the env you already set the normal way.
 
 ## Fixed Gaps (closed in v1.30.x)
 
