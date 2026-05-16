@@ -15,6 +15,7 @@
     "publish": true,
     "skipChecks": true,
     "publishPackageManager": "bun",
+    "publishPath": false,
     "versionArgs": "--no-package-lock"
   },
   "hooks": {
