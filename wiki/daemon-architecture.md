@@ -55,6 +55,115 @@ Beam uses this for its real-time channel subscriptions. The subscription survive
 
 `src/server.ts` (the MCP stdio + SSE server) calls `sendCommand` for every tool invocation (lines 1305, 1317). At startup it calls `ensureDaemon(true)` (line 2218). MCP stdio is **not** independent - it depends on the daemon for all photon execution. Losing the daemon during an MCP stdio session will cause tool calls to fail until the daemon restarts and the call retries.
 
+## Constructor Env Replay for Stateful Daemon Photons
+
+### Problem statement
+
+Stateful photon data is already persisted separately and should stay unchanged. The restart problem is specifically constructor environment injection:
+
+- Photon knows which constructor parameters are env injections, dependency injections, photon injections, and state injections.
+- Only primitive constructor params resolved as env injections need daemon replay.
+- MCP/photon dependencies are already re-injected by the runtime.
+- Stateful data is already restored through the existing state system.
+
+When a stateful photon is hosted by the daemon, the daemon may need to reconstruct the class after restart. At that point the original shell environment may not exist, so constructor env values must be replayable.
+
+### Intended mechanism
+
+When the daemon successfully constructs a stateful photon for the first time, it should snapshot only the resolved constructor env injections:
+
+1. Resolve constructor injections using the existing mapping logic.
+2. Keep MCP, photon, and state injections on their existing paths.
+3. For each env injection, capture the resolved env value after validation/type parsing has succeeded.
+4. Encrypt the captured env values.
+5. Store the encrypted constructor-env snapshot in daemon-owned storage keyed by the specific photon identity.
+6. On daemon restart, when that same photon identity is instantiated, decrypt and replay those constructor env values.
+7. If a later run supplies a new valid env value, update the encrypted snapshot so token/config rotation works.
+
+This is dependency-injection replay, not whole-object serialization. The class source supplies methods, the existing state system supplies state, and this snapshot supplies only the constructor env inputs that would otherwise be lost.
+
+### Storage identity
+
+The snapshot key should be specific enough to avoid cross-project leakage:
+
+- resolved `PHOTON_DIR` / working directory
+- photon namespace inside that directory
+- photon name
+- real photon source path hash
+
+The source path hash matters because one global daemon can serve multiple working directories and photons with the same name. A snapshot for one project must never hydrate a photon from another project.
+
+### Storage location
+
+Keep constructor-env replay storage daemon-owned, separate from normal photon state data. The state system already owns:
+
+```text
+{PHOTON_DIR}/.data/{namespace}/{photon}/state/{instance}/state.json
+```
+
+Constructor env replay should use a daemon-specific store, for example:
+
+```text
+{PHOTON_HOME}/.data/daemon/constructor-env/{path-hash}.json
+```
+
+The exact path can change, but the rule is: do not mix encrypted constructor env snapshots with user-visible photon state files.
+
+### Encryption model
+
+Keep the first version portable:
+
+- Generate a local daemon secret on first use.
+- Store that secret in a daemon-owned file with restrictive permissions.
+- Use the secret to encrypt/decrypt constructor-env snapshots.
+- Use standard authenticated encryption, e.g. AES-256-GCM via Node/Bun `crypto`.
+- Store encrypted envelopes, not plaintext values.
+
+Example envelope shape:
+
+```json
+{
+  "version": 1,
+  "identity": {
+    "photon": "kith-remind",
+    "namespace": "local",
+    "pathHash": "..."
+  },
+  "values": {
+    "KITH_REMIND_USER_EMAIL": {
+      "alg": "aes-256-gcm",
+      "iv": "...",
+      "tag": "...",
+      "ciphertext": "..."
+    }
+  }
+}
+```
+
+This is not meant to defend against a user-account compromise where an attacker can read both the encrypted store and daemon secret. It is meant to avoid leaving readable secrets scattered in normal `.data` files and to make daemon resurrection reliable without platform-specific keychain dependencies.
+
+### Non-goals
+
+- Do not serialize the whole photon instance.
+- Do not change state persistence.
+- Do not encrypt ordinary business state as part of this mechanism.
+- Do not store MCP clients, photon instances, sockets, timers, locks, or runtime helpers.
+- Do not change constructor injection classification.
+- Do not make this macOS-only through Keychain as the required path.
+
+### Failure behavior
+
+If replay storage is unavailable or decryption fails:
+
+- fall back to current process env if available
+- otherwise fail loudly with the existing missing-constructor-env error
+- never silently instantiate with wrong or empty secrets
+- never log decrypted values
+
+### Why this fits Photon
+
+The constructor is Photon’s dependency-injection boundary. On initial construction the runtime already knows exactly which primitive env values were injected. Capturing only those values, encrypted, gives the daemon enough information to recreate stateful photons after restart while leaving all other runtime concerns on their existing, tested paths.
+
 ## Fixed Gaps (closed in v1.30.x)
 
 ### Socket error now always handled (was: process crash)
