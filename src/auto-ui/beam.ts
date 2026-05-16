@@ -112,11 +112,48 @@ export function shouldServeLinkedAppForWebPath(
   pathname: string,
   searchParams: URLSearchParams
 ): boolean {
-  if (searchParams.get('legacy') === '1') return false;
-  if (pathname === '/sw.js') return false;
-  if (pathname === '/pair') return false;
-  if (pathname.startsWith('/api/')) return false;
+  void searchParams;
+  if (pathname === '/mcp' || pathname.startsWith('/mcp/')) return false;
   return true;
+}
+
+function uiAssetPath(asset: NonNullable<PhotonInfo['assets']>['ui'][number]): string {
+  return asset.resolvedPath || asset.path || '';
+}
+
+function isTsxUIAsset(asset: NonNullable<PhotonInfo['assets']>['ui'][number]): boolean {
+  return uiAssetPath(asset).endsWith('.tsx');
+}
+
+export function selectClientAppUi(photonInfo: PhotonInfo | undefined): string | undefined {
+  if (!photonInfo?.configured) return undefined;
+  const uiAssets = photonInfo.assets?.ui || [];
+
+  const linkedUi = photonInfo.appEntry?.linkedUi;
+  if (linkedUi) {
+    const linkedAsset = uiAssets.find((ui) => ui.id === linkedUi);
+    if (!linkedAsset || isTsxUIAsset(linkedAsset)) {
+      return linkedUi;
+    }
+  }
+
+  const namedApp = uiAssets.find((ui) => ui.id === 'app' && isTsxUIAsset(ui));
+  if (namedApp) return namedApp.id;
+
+  const tsxAssets = uiAssets.filter(isTsxUIAsset);
+  if (tsxAssets.length === 1) return tsxAssets[0].id;
+
+  return undefined;
+}
+
+export function shouldFallbackToClientAppForWebPath(
+  pathname: string,
+  searchParams: URLSearchParams,
+  route: BeamWebRouteDef | undefined
+): boolean {
+  if (route) return false;
+  if (searchParams.get('legacy') === '1') return false;
+  return shouldServeLinkedAppForWebPath(pathname, searchParams);
 }
 
 export function findBeamWebRoute(
@@ -2263,17 +2300,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         const photonPath = '/' + pathParts.join('/') || '/';
         const photonClass = photonName ? photonMCPs.get(photonName) : undefined;
         const photonInfo = photonName ? photons.find((p) => p.name === photonName) : undefined;
-        const linkedAppUi =
-          photonInfo?.configured &&
-          (photonInfo.appEntry?.linkedUi ||
-            (photonInfo.assets?.ui?.length === 1 ? photonInfo.assets.ui[0]?.id : undefined));
+        const httpRoutes: BeamWebRouteDef[] | undefined = photonClass?._httpRoutes;
+        const route = findBeamWebRoute(httpRoutes, req.method || 'GET', photonPath);
+        const linkedAppUi = photonInfo?.configured ? selectClientAppUi(photonInfo) : undefined;
 
         if (
           req.method === 'GET' &&
           photonName &&
           photonInfo?.configured &&
           linkedAppUi &&
-          shouldServeLinkedAppForWebPath(photonPath, url.searchParams)
+          shouldFallbackToClientAppForWebPath(photonPath, url.searchParams, route)
         ) {
           const appAsset = await loadUIAsset(photonName, linkedAppUi);
           if (appAsset) {
@@ -2307,9 +2343,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             return;
           }
         }
-
-        const httpRoutes: BeamWebRouteDef[] | undefined = photonClass?._httpRoutes;
-        const route = findBeamWebRoute(httpRoutes, req.method || 'GET', photonPath);
 
         if (route && photonClass?.instance) {
           const fn = photonClass.instance[route.handler];

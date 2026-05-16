@@ -37,6 +37,37 @@ describe('AssetResolver', () => {
     expect(assets?.ui[0]?.resolvedPath).toBe(join(photonPath, '..', 'ui', 'app.tsx'));
   });
 
+  test('resolves pathless class-level UI declarations by convention', async () => {
+    const source = `
+      /**
+       * @ui app
+       */
+      export default class Sample {}
+    `;
+    const photonPath = makePhoton(source);
+    const assets = await new AssetResolver(() => {}).discover(photonPath, source);
+
+    expect(assets?.ui[0]?.id).toBe('app');
+    expect(assets?.ui[0]?.path).toBe('./ui/app.tsx');
+    expect(assets?.ui[0]?.resolvedPath).toBe(join(photonPath, '..', 'ui', 'app.tsx'));
+  });
+
+  test('pathless UI prefers TSX app shell over HTML template with the same id', async () => {
+    const source = `
+      /**
+       * @ui app
+       */
+      export default class Sample {}
+    `;
+    const photonPath = makePhoton(source);
+    writeFileSync(join(photonPath, '..', 'ui', 'app.html'), '<main>html</main>');
+    const assets = await new AssetResolver(() => {}).discover(photonPath, source);
+
+    expect(assets?.ui.find((ui) => ui.id === 'app')?.resolvedPath).toBe(
+      join(photonPath, '..', 'ui', 'app.tsx')
+    );
+  });
+
   test('does not link class-level UI declarations to export', async () => {
     const source = `
       /**

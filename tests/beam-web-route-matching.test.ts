@@ -1,5 +1,10 @@
 import { strict as assert } from 'assert';
-import { findBeamWebRoute, shouldServeLinkedAppForWebPath } from '../src/auto-ui/beam.js';
+import {
+  findBeamWebRoute,
+  selectClientAppUi,
+  shouldFallbackToClientAppForWebPath,
+  shouldServeLinkedAppForWebPath,
+} from '../src/auto-ui/beam.js';
 
 let passed = 0;
 let failed = 0;
@@ -47,15 +52,41 @@ async function run() {
     assert.equal(findBeamWebRoute(routes, 'GET', '/api/threads/t_123/stream/extra'), undefined);
   });
 
-  await test('serves linked app for non-API web paths only', () => {
+  await test('reserves only runtime MCP paths before route matching', () => {
     assert.equal(shouldServeLinkedAppForWebPath('/', new URLSearchParams()), true);
     assert.equal(shouldServeLinkedAppForWebPath('/threads/t_123', new URLSearchParams()), true);
-    assert.equal(shouldServeLinkedAppForWebPath('/api/threads/list', new URLSearchParams()), false);
-    assert.equal(shouldServeLinkedAppForWebPath('/sw.js', new URLSearchParams()), false);
+    assert.equal(shouldServeLinkedAppForWebPath('/api/threads/list', new URLSearchParams()), true);
+    assert.equal(shouldServeLinkedAppForWebPath('/sw.js', new URLSearchParams()), true);
+    assert.equal(shouldServeLinkedAppForWebPath('/mcp', new URLSearchParams()), false);
+    assert.equal(shouldServeLinkedAppForWebPath('/mcp/messages', new URLSearchParams()), false);
+  });
+
+  await test('falls back to client app only after declared web routes lose', () => {
     assert.equal(
-      shouldServeLinkedAppForWebPath('/threads', new URLSearchParams('legacy=1')),
+      shouldFallbackToClientAppForWebPath('/threads/t_123', new URLSearchParams(), undefined),
+      true
+    );
+    assert.equal(
+      shouldFallbackToClientAppForWebPath('/api/threads/t_123', new URLSearchParams(), routes[1]),
       false
     );
+    assert.equal(
+      shouldFallbackToClientAppForWebPath('/threads', new URLSearchParams('legacy=1'), undefined),
+      false
+    );
+  });
+
+  await test('selects a TSX UI asset as the route-owning client app', () => {
+    const photon: any = {
+      configured: true,
+      assets: {
+        ui: [
+          { id: 'panel', path: './ui/panel.html' },
+          { id: 'app', path: './ui/app.tsx' },
+        ],
+      },
+    };
+    assert.equal(selectClientAppUi(photon), 'app');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

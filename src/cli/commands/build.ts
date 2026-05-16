@@ -145,7 +145,59 @@ function discoverUITemplates(
       templates.set(id, { id, html, relativePath: uiPath });
     }
   }
+
+  for (const id of extractClassPathlessUIIds(sourceCode)) {
+    if (templates.has(id)) continue;
+    const resolved = resolveConventionUIPath(id, nestedRoot, assetFolder, photonDir);
+    if (!resolved) continue;
+
+    const html = resolved.path.endsWith('.tsx')
+      ? compileTsxSync(resolved.path)
+      : fs.readFileSync(resolved.path, 'utf-8');
+    templates.set(id, { id, html, relativePath: resolved.relativePath });
+  }
   return templates;
+}
+
+function extractClassPathlessUIIds(sourceCode: string): string[] {
+  const classJsdocMatch =
+    sourceCode.match(/\/\*\*[\s\S]*?\*\/\s*(?=export\s+default\s+class)/) ||
+    sourceCode.match(/^\/\*\*[\s\S]*?\*\//);
+  if (!classJsdocMatch) return [];
+
+  const ids: string[] = [];
+  for (const rawLine of classJsdocMatch[0].split(/\r?\n/)) {
+    const line = rawLine
+      .replace(/^\s*\/\*\*\s?/, '')
+      .replace(/^\s*\*\s?/, '')
+      .replace(/\s*\*\/\s*$/, '')
+      .trim();
+    const match = line.match(/^@ui\s+(\w[\w-]*)$/);
+    if (match && !ids.includes(match[1])) {
+      ids.push(match[1]);
+    }
+  }
+  return ids;
+}
+
+function resolveConventionUIPath(
+  id: string,
+  nestedRoot: string,
+  assetFolder: string,
+  photonDir: string
+): { path: string; relativePath: string } | undefined {
+  const roots = [nestedRoot, assetFolder, photonDir];
+  const suffixes = ['.photon.tsx', '.tsx', '.photon.html', '.html'];
+  for (const root of roots) {
+    for (const suffix of suffixes) {
+      const relativePath = `./ui/${id}${suffix}`;
+      const candidate = path.resolve(root, relativePath.replace(/^\.\//, ''));
+      if (fs.existsSync(candidate)) {
+        return { path: candidate, relativePath };
+      }
+    }
+  }
+  return undefined;
 }
 
 /**

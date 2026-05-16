@@ -26,11 +26,14 @@ export class AssetResolver {
   async discover(photonPath: string, source: string): Promise<PhotonAssets | undefined> {
     const basename = path.basename(photonPath, '.photon.ts');
 
-    const assets = await sharedDiscoverAssets(photonPath, source);
+    const assets =
+      (await sharedDiscoverAssets(photonPath, source)) ??
+      this.discoverPathlessUIAssets(photonPath, source);
     if (!assets) {
       return undefined;
     }
 
+    this.applyPathlessUIAssets(photonPath, source, assets);
     this.resolveDeclaredPaths(photonPath, assets);
     this.applyMethodUILinks(source, assets);
     this.generateAssetURIs(basename, assets);
@@ -100,6 +103,83 @@ export class AssetResolver {
     for (const ui of assets.ui) resolveAsset(ui);
     for (const prompt of assets.prompts) resolveAsset(prompt);
     for (const resource of assets.resources) resolveAsset(resource);
+  }
+
+  private discoverPathlessUIAssets(photonPath: string, source: string): PhotonAssets | undefined {
+    const ui = this.resolvePathlessUIAssets(photonPath, source);
+    if (ui.length === 0) {
+      return undefined;
+    }
+    return {
+      ui,
+      prompts: [],
+      resources: [],
+      assetFolder: path.dirname(photonPath),
+    };
+  }
+
+  private applyPathlessUIAssets(photonPath: string, source: string, assets: PhotonAssets): void {
+    for (const ui of this.resolvePathlessUIAssets(photonPath, source)) {
+      const existingIndex = assets.ui.findIndex((existing) => existing.id === ui.id);
+      if (existingIndex >= 0) {
+        assets.ui[existingIndex] = { ...assets.ui[existingIndex], ...ui };
+      } else {
+        assets.ui.push(ui);
+      }
+    }
+  }
+
+  private resolvePathlessUIAssets(
+    photonPath: string,
+    source: string
+  ): Array<{ id: string; path: string; resolvedPath: string }> {
+    const ids = this.extractClassPathlessUIIds(source);
+    if (ids.length === 0) return [];
+
+    const baseDir = path.dirname(photonPath);
+    const basename = path.basename(photonPath, '.photon.ts');
+    const assetFolder = path.join(baseDir, basename);
+    const roots = [path.join(assetFolder, 'assets'), assetFolder, baseDir];
+    const suffixes = ['.photon.tsx', '.tsx', '.photon.html', '.html'];
+    const resolved: Array<{ id: string; path: string; resolvedPath: string }> = [];
+
+    for (const id of ids) {
+      for (const root of roots) {
+        for (const suffix of suffixes) {
+          const relativePath = `./ui/${id}${suffix}`;
+          const candidate = path.resolve(root, relativePath.replace(/^\.\//, ''));
+          if (fs.existsSync(candidate)) {
+            resolved.push({ id, path: relativePath, resolvedPath: candidate });
+            this.log(`  🔎 UI ${id} resolved by convention → ${relativePath}`);
+            break;
+          }
+        }
+        if (resolved.find((ui) => ui.id === id)) break;
+      }
+    }
+
+    return resolved;
+  }
+
+  private extractClassPathlessUIIds(source: string): string[] {
+    const classJsdocMatch =
+      source.match(/\/\*\*[\s\S]*?\*\/\s*(?=export\s+default\s+class)/) ||
+      source.match(/^\/\*\*[\s\S]*?\*\//);
+    if (!classJsdocMatch) return [];
+
+    const ids: string[] = [];
+    for (const rawLine of classJsdocMatch[0].split(/\r?\n/)) {
+      const line = rawLine
+        .replace(/^\s*\/\*\*\s?/, '')
+        .replace(/^\s*\*\s?/, '')
+        .replace(/\s*\*\/\s*$/, '')
+        .trim();
+      const match = line.match(/^@ui\s+(\w[\w-]*)$/);
+      if (match && !ids.includes(match[1])) {
+        ids.push(match[1]);
+      }
+    }
+    return ids;
   }
 
   /**

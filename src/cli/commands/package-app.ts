@@ -227,8 +227,9 @@ async function checkIsAppPhoton(photonDir: string): Promise<boolean> {
 
   for (const file of sourceFiles) {
     const content = await fs.readFile(path.join(photonDir, file), 'utf-8');
-    // Check for class-level @ui asset declaration (e.g. @ui my-view ./ui/view.html)
-    const hasClassUi = /@ui\s+\S+\s+\S+/.test(content);
+    // Check for class-level @ui asset declaration (e.g. @ui app or @ui app ./ui/app.tsx)
+    const hasClassUi =
+      /@ui\s+\S+\s+\S+/.test(content) || /^\s*\*\s*@ui\s+\w[\w-]*\s*$/m.test(content);
     // Check for a main method
     const hasMain = /(?:async\s+)?main\s*\(/.test(content);
     if (hasClassUi && hasMain) return true;

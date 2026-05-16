@@ -1223,6 +1223,7 @@ export class MarketplaceManager {
   /**
    * Parse @ui tags from photon content and return repo-relative asset paths.
    * e.g., "@ui dashboard ./ui/dashboard.html" → "claw/ui/dashboard.html"
+   * or "@ui dashboard" → conventional "claw/ui/dashboard.*" candidates.
    */
   private extractUIAssetPaths(content: string, photonName: string): string[] {
     const paths: string[] = [];
@@ -1237,6 +1238,14 @@ export class MarketplaceManager {
         paths.push(repoPath);
       }
     }
+    for (const id of this.extractPathlessUIIds(content)) {
+      for (const suffix of ['.photon.tsx', '.tsx', '.photon.html', '.html']) {
+        const repoPath = `${photonName}/ui/${id}${suffix}`;
+        if (!paths.includes(repoPath)) {
+          paths.push(repoPath);
+        }
+      }
+    }
     // Also check for this.assets() calls: this.assets('slides.md', ...)
     const assetsRegex = /this\.assets\(\s*['"]([^'"]+)['"]/g;
     while ((match = assetsRegex.exec(content)) !== null) {
@@ -1247,6 +1256,27 @@ export class MarketplaceManager {
       }
     }
     return paths;
+  }
+
+  private extractPathlessUIIds(content: string): string[] {
+    const classJsdocMatch =
+      content.match(/\/\*\*[\s\S]*?\*\/\s*(?=export\s+default\s+class)/) ||
+      content.match(/^\/\*\*[\s\S]*?\*\//);
+    if (!classJsdocMatch) return [];
+
+    const ids: string[] = [];
+    for (const rawLine of classJsdocMatch[0].split(/\r?\n/)) {
+      const line = rawLine
+        .replace(/^\s*\/\*\*\s?/, '')
+        .replace(/^\s*\*\s?/, '')
+        .replace(/\s*\*\/\s*$/, '')
+        .trim();
+      const match = line.match(/^@ui\s+(\w[\w-]*)$/);
+      if (match && !ids.includes(match[1])) {
+        ids.push(match[1]);
+      }
+    }
+    return ids;
   }
 
   /**

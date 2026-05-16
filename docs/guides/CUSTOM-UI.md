@@ -513,7 +513,7 @@ Multiple methods can share the same HTML template by referencing the same `@ui` 
 
 ```typescript
 /**
- * @ui dashboard ./ui/dashboard.html
+ * @ui dashboard
  */
 export default class Analytics {
   /** @ui dashboard */
@@ -528,6 +528,17 @@ export default class Analytics {
 ```
 
 All three methods render inside `dashboard.html`. The UI receives whichever method's result via `onResult` and can distinguish them by shape or by inspecting the data.
+
+Pathless class-level `@ui dashboard` resolves the file by convention:
+
+1. `ui/dashboard.photon.tsx`
+2. `ui/dashboard.tsx`
+3. `ui/dashboard.photon.html`
+4. `ui/dashboard.html`
+
+Use `@ui dashboard ./some/path/index.html` only when the UI is outside the
+conventional `ui/` folder or when a prebuilt bundle needs sibling chunk
+serving from its own directory.
 
 ---
 
@@ -1061,7 +1072,7 @@ Link it in your photon:
 
 ```ts
 /**
- * @ui dashboard ./ui/dashboard.tsx
+ * @ui dashboard
  */
 export default class MyApp {
   /** @ui dashboard */

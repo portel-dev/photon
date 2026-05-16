@@ -55,7 +55,13 @@ If this list is missing behavior you need, add it here before implementing more.
 ## Tags that matter for agent workflows
 
 - `@runtime` pins compatible runtime versions.
-- `@ui <name> <path>` registers a UI template.
+- `@ui <name>` registers a UI asset by convention. Resolution order is
+  `ui/<name>.photon.tsx`, `ui/<name>.tsx`, `ui/<name>.photon.html`,
+  `ui/<name>.html`. Use `@ui <name> <path>` only for non-conventional
+  locations such as prebuilt bundles.
+- A resolved `.tsx` UI is a client application shell. In Beam, `/mcp` runtime
+  paths and declared web routes win; otherwise GET routes fall through to the
+  TSX app so the client router owns navigation.
 - `@readOnly`, `@destructive`, `@idempotent`, `@openWorld`, `@closedWorld`, `@audience`,
   `@title`, `@priority` drive LLM UX behavior in tool listing and execution.
 - Method-level functional tags (`@async`, `@logged`, `@retryable`, `@queued`, `@fallback`, etc.)

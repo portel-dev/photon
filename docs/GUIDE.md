@@ -733,7 +733,7 @@ Use `@ui`, `@prompt`, and `@resource` tags at the class level to link local file
 
 ```typescript
 /**
- * @ui dashboard ./ui/dashboard.html
+ * @ui dashboard
  * @prompt welcome ./prompts/welcome-message.txt
  * @resource data ./assets/data.json
  */
@@ -747,6 +747,19 @@ export default class MyApp {
   }
 }
 ```
+
+Pathless `@ui dashboard` resolves by convention from the photon UI folder:
+
+1. `ui/dashboard.photon.tsx`
+2. `ui/dashboard.tsx`
+3. `ui/dashboard.photon.html`
+4. `ui/dashboard.html`
+
+Use the explicit path form only when the file lives outside the convention,
+for example `@ui dashboard ./dashboard/dist/index.html` for a prebuilt app.
+When the resolved UI is `.tsx`, Photon treats it as the client application
+shell in Beam: runtime paths such as `/mcp` and declared web routes still win,
+and otherwise GET routes fall through to the TSX app for client-side routing.
 
 ### Linking UI to Tools
 Use the method-level `@ui` tag to specify which UI template should be rendered when a tool is invoked in a compatible interface (like the Photon Playground or a custom web UI).
