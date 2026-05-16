@@ -198,6 +198,18 @@ interface DependencySpec {
   optional?: boolean;
 }
 
+export interface ConstructorEnvReplayOptions {
+  currentEnv?: Record<string, string>;
+  resolve(envVarName: string): string | undefined | Promise<string | undefined>;
+  capture(values: Record<string, string>): void | Promise<void>;
+}
+
+interface LoadOptions {
+  instanceName?: string;
+  skipInitialize?: boolean;
+  constructorEnvReplay?: ConstructorEnvReplayOptions;
+}
+
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
 import { PHOTON_VERSION, getResolvedPhotonCoreVersion } from './version.js';
 
@@ -1214,10 +1226,7 @@ export class PhotonLoader {
   /**
    * Load a single Photon MCP file
    */
-  async loadFile(
-    filePath: string,
-    options?: { instanceName?: string; skipInitialize?: boolean }
-  ): Promise<PhotonClassExtended> {
+  async loadFile(filePath: string, options?: LoadOptions): Promise<PhotonClassExtended> {
     // Validate input
     assertString(filePath, 'filePath');
     validateOrThrow(filePath, [
@@ -1333,6 +1342,8 @@ export class PhotonLoader {
 
       // Get MCP name
       const name = this.getMCPName(MCPClass);
+      const classDocblockForReplay = this.extractClassDocblock(tsContent || '');
+      const isStatefulSource = /@stateful\b/.test(classDocblockForReplay);
 
       // Discover custom middleware exports (export const middleware = [...])
       // Must come after getMCPName since we key by the resolved photon name
@@ -1345,12 +1356,14 @@ export class PhotonLoader {
       // Use the file-name-derived mcpName (e.g. 'kanban') for state path resolution,
       // not the class-name-derived name (e.g. 'kanban-photon'), so that state files
       // written by the daemon (keyed by file name) are correctly found.
-      const { values, configError, injectedPhotonNames } = await this.resolveAllInjections(
-        tsContent || '',
-        mcpName || name,
-        absolutePath,
-        options?.instanceName ?? ''
-      );
+      const { values, configError, injectedPhotonNames, constructorEnvValues } =
+        await this.resolveAllInjections(
+          tsContent || '',
+          mcpName || name,
+          absolutePath,
+          options?.instanceName ?? '',
+          isStatefulSource ? options?.constructorEnvReplay : undefined
+        );
 
       // Create instance with injected dependencies
       let instance: Record<string, unknown>;
@@ -1359,6 +1372,12 @@ export class PhotonLoader {
           string,
           unknown
         >;
+        if (isStatefulSource && options?.constructorEnvReplay) {
+          await this.captureConstructorEnvReplay(
+            options.constructorEnvReplay,
+            constructorEnvValues
+          );
+        }
       } catch (error) {
         // Constructor threw an error (likely validation failure)
         const constructorParams = await this.extractConstructorParams(absolutePath);
@@ -2133,7 +2152,7 @@ export class PhotonLoader {
     module: { default: any; middleware?: any[] },
     filePath: string,
     sourceCode: string,
-    options?: { instanceName?: string; skipInitialize?: boolean }
+    options?: LoadOptions
   ): Promise<PhotonClassExtended> {
     const absolutePath = path.resolve(filePath);
     const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
@@ -2152,6 +2171,8 @@ export class PhotonLoader {
     // File path names are canonical in the photon ecosystem.
     const classNameDerived = this.getMCPName(MCPClass);
     const name = mcpName || classNameDerived;
+    const classDocblockForReplay = this.extractClassDocblock(tsContent);
+    const isStatefulSource = /@stateful\b/.test(classDocblockForReplay);
 
     // Register custom middleware if exported
     if (module.middleware && Array.isArray(module.middleware)) {
@@ -2160,12 +2181,14 @@ export class PhotonLoader {
     }
 
     // Resolve constructor injections (env vars, persisted state, etc.)
-    const { values, configError, injectedPhotonNames } = await this.resolveAllInjections(
-      tsContent,
-      name,
-      absolutePath,
-      options?.instanceName ?? ''
-    );
+    const { values, configError, injectedPhotonNames, constructorEnvValues } =
+      await this.resolveAllInjections(
+        tsContent,
+        name,
+        absolutePath,
+        options?.instanceName ?? '',
+        isStatefulSource ? options?.constructorEnvReplay : undefined
+      );
 
     // Create instance
     let instance: Record<string, unknown>;
@@ -2174,6 +2197,9 @@ export class PhotonLoader {
         string,
         unknown
       >;
+      if (isStatefulSource && options?.constructorEnvReplay) {
+        await this.captureConstructorEnvReplay(options.constructorEnvReplay, constructorEnvValues);
+      }
     } catch (error) {
       let constructorParams: any[] = [];
       try {
@@ -2596,10 +2622,7 @@ export class PhotonLoader {
   /**
    * Reload a Photon MCP file (for hot reload)
    */
-  async reloadFile(
-    filePath: string,
-    options?: { instanceName?: string; skipInitialize?: boolean }
-  ): Promise<PhotonClassExtended> {
+  async reloadFile(filePath: string, options?: LoadOptions): Promise<PhotonClassExtended> {
     // Invalidate the cache for this file
     const absolutePath = path.resolve(filePath);
 
@@ -3091,8 +3114,14 @@ export class PhotonLoader {
     source: string,
     mcpName: string,
     photonPath: string,
-    instanceName: string = ''
-  ): Promise<{ values: any[]; configError: string | null; injectedPhotonNames: string[] }> {
+    instanceName: string = '',
+    constructorEnvReplay?: ConstructorEnvReplayOptions
+  ): Promise<{
+    values: any[];
+    configError: string | null;
+    injectedPhotonNames: string[];
+    constructorEnvValues: Record<string, string>;
+  }> {
     // Detect optional dependencies: @photon name source? or @mcp name source?
     // The ? suffix on the source marks the dependency as optional — inject null on failure
     const optionalPhotons = new Set<string>();
@@ -3124,29 +3153,48 @@ export class PhotonLoader {
     const missingMCPs: MissingMCPInfo[] = [];
     const missingPhotons: string[] = [];
     const injectedPhotonNames: string[] = [];
+    const constructorEnvValues: Record<string, string> = {};
 
     for (const injection of injections) {
       const { param, injectionType } = injection;
 
       switch (injectionType) {
         case 'env': {
-          // All primitive params are env: if the caller supplied the mapped
-          // env var for this load, capture that constructor input into the
-          // workdir-scoped store so daemon restarts can replay the same value.
+          // All primitive params are env. The daemon replay path receives
+          // caller-supplied env separately from process.env so daemon restarts
+          // can decrypt the same constructor inputs without touching state.
           const envVarName = injection.envVarName!;
-          const processValue = process.env[envVarName];
+          const processValue =
+            constructorEnvReplay?.currentEnv?.[envVarName] ?? process.env[envVarName];
+          const replayValue =
+            processValue === undefined && constructorEnvReplay
+              ? await constructorEnvReplay.resolve(envVarName)
+              : undefined;
           const storedValue =
             processValue !== undefined
               ? processValue
-              : envStore.resolve(mcpName, param.name, envVarName, namespace);
+              : replayValue !== undefined
+                ? replayValue
+                : constructorEnvReplay
+                  ? undefined
+                  : envStore.resolve(mcpName, param.name, envVarName, namespace);
 
           if (storedValue !== undefined) {
-            if (processValue !== undefined) {
+            if (!constructorEnvReplay && processValue !== undefined) {
               envStore.write(mcpName, { [envVarName]: processValue }, namespace);
             }
             values.push(this.parseEnvValue(storedValue, param.type));
+            if (constructorEnvReplay && param.isPrimitive) {
+              constructorEnvValues[envVarName] = storedValue;
+            }
             this.log(
-              `  ✅ Env: ${param.name} (from ${processValue !== undefined ? 'process.env' : 'env store'})`
+              `  ✅ Env: ${param.name} (from ${
+                processValue !== undefined
+                  ? 'process.env'
+                  : replayValue !== undefined
+                    ? 'constructor env replay'
+                    : 'env store'
+              })`
             );
           } else if (param.hasDefault || param.isOptional) {
             values.push(undefined); // constructor default applies
@@ -3272,7 +3320,21 @@ export class PhotonLoader {
       configError = parts.join('\n\n');
     }
 
-    return { values, configError, injectedPhotonNames };
+    return { values, configError, injectedPhotonNames, constructorEnvValues };
+  }
+
+  private async captureConstructorEnvReplay(
+    replay: ConstructorEnvReplayOptions,
+    values: Record<string, string>
+  ): Promise<void> {
+    if (Object.keys(values).length === 0) return;
+    try {
+      await replay.capture(values);
+    } catch (error) {
+      this.logger.warn('Failed to capture constructor env replay snapshot', {
+        error: getErrorMessage(error),
+      });
+    }
   }
 
   /**

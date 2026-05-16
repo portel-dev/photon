@@ -23,6 +23,10 @@ import { resolveWithGlobalFallback } from './session-resolver.js';
 import { loadPersistedSchedulesFromDir } from './schedule-loader.js';
 import { parseCron, computeMissedRun } from './cron.js';
 import {
+  ConstructorEnvReplayStore,
+  createConstructorEnvReplayIdentity,
+} from './constructor-env-replay.js';
+import {
   DaemonRequest,
   DaemonResponse,
   isValidDaemonRequest,
@@ -200,6 +204,7 @@ class InProcessBroker implements ChannelBroker {
 // Set the in-process broker so all photons use it for pub/sub
 const inProcessBroker = new InProcessBroker();
 setBroker(inProcessBroker);
+const constructorEnvReplayStore = new ConstructorEnvReplayStore();
 
 // Worker manager for @worker-tagged photons (isolated in worker threads)
 const workerManager = new WorkerManager(logger);
@@ -352,7 +357,8 @@ async function statGate(
   key: PhotonCompositeKey,
   photonName: string,
   photonPath: string | undefined,
-  workingDir: string | undefined
+  workingDir: string | undefined,
+  constructorEnv?: Record<string, string>
 ): Promise<void> {
   if (!photonPath) return;
   const cached = photonSourceStats.get(key);
@@ -374,7 +380,7 @@ async function statGate(
     newMtime: current.mtimeMs,
   });
   try {
-    const result = await reloadPhoton(photonName, photonPath, workingDir);
+    const result = await reloadPhoton(photonName, photonPath, workingDir, constructorEnv);
     if (result.success) {
       photonSourceStats.set(key, current);
     }
@@ -2694,7 +2700,15 @@ async function getOrCreateSessionManager(
       photonName,
       idleTimeout,
       logger.child({ scope: photonName }),
-      workingDir
+      workingDir,
+      {
+        store: constructorEnvReplayStore,
+        identity: createConstructorEnvReplayIdentity(
+          workingDir || getDefaultContext().baseDir,
+          photonName,
+          pathToUse
+        ),
+      }
     );
 
     // Wire @photon dependency resolver: when this photon's loader encounters
@@ -2923,6 +2937,13 @@ function extractRequiredConfigByMethod(source: string): Map<string, string[]> {
   return required;
 }
 
+function extractPhotonClassDocblock(source: string): string {
+  const match = source.match(/\/\*\*([\s\S]*?)\*\/\s*export\s+default\s+class\b/);
+  if (match) return match[1];
+  const leadingMatch = source.match(/^\s*\/\*\*([\s\S]*?)\*\//);
+  return leadingMatch ? leadingMatch[1] : '';
+}
+
 function missingRequiredConfig(
   photonName: string,
   requiredConfig: string[] | undefined,
@@ -2934,15 +2955,58 @@ function missingRequiredConfig(
   return requiredConfig.filter((key) => values[key] === undefined);
 }
 
-function persistConstructorEnvFromRequest(request: DaemonRequest): void {
+async function persistConstructorEnvSnapshotFromRequest(request: DaemonRequest): Promise<void> {
   if (!request.photonName || !request.constructorEnv) return;
   if (Object.keys(request.constructorEnv).length === 0) return;
+  if (!request.photonPath) return;
 
   const baseDir = request.workingDir || getDefaultContext().baseDir;
-  const namespace = request.photonPath
-    ? resolvePhotonNamespace(baseDir, path.resolve(request.photonPath))
-    : undefined;
-  new EnvStore(baseDir).write(request.photonName, request.constructorEnv, namespace);
+  const photonPath = path.resolve(request.photonPath);
+
+  let source = '';
+  try {
+    source = fs.readFileSync(photonPath, 'utf-8');
+  } catch (err) {
+    logger.debug('Constructor env snapshot skipped; source unavailable', {
+      photonName: request.photonName,
+      error: getErrorMessage(err),
+    });
+    return;
+  }
+
+  const classDocblock = extractPhotonClassDocblock(source);
+  if (!/@stateful\b/.test(classDocblock)) {
+    const namespace = resolvePhotonNamespace(baseDir, photonPath);
+    new EnvStore(baseDir).write(request.photonName, request.constructorEnv, namespace);
+    return;
+  }
+
+  try {
+    const { SchemaExtractor, parseEnvValue } = await import('@portel/photon-core');
+    const cleanedSource = source
+      .replace(/@photon\s+(\w+)\s+(\S+)\?/g, '@photon $1 $2')
+      .replace(/@mcp\s+(\w+)\s+(\S+)\?/g, '@mcp $1 $2');
+    const extractor = new SchemaExtractor();
+    const values: Record<string, string> = {};
+    for (const injection of extractor.resolveInjections(cleanedSource, request.photonName)) {
+      if (injection.injectionType !== 'env' || !injection.envVarName) continue;
+      if (!injection.param.isPrimitive) continue;
+      const value = request.constructorEnv[injection.envVarName];
+      if (value === undefined) continue;
+      parseEnvValue(value, injection.param.type);
+      values[injection.envVarName] = value;
+    }
+    if (Object.keys(values).length === 0) return;
+    constructorEnvReplayStore.write(
+      createConstructorEnvReplayIdentity(baseDir, request.photonName, photonPath),
+      values
+    );
+  } catch (err) {
+    logger.warn('Constructor env snapshot skipped; supplied value failed validation', {
+      photonName: request.photonName,
+      error: getErrorMessage(err),
+    });
+  }
 }
 
 /**
@@ -3377,8 +3441,12 @@ async function handleRequest(
       };
     }
 
-    persistConstructorEnvFromRequest(request);
-    const result = await reloadPhoton(photonName, photonPath, request.workingDir);
+    const result = await reloadPhoton(
+      photonName,
+      photonPath,
+      request.workingDir,
+      request.constructorEnv
+    );
     return {
       type: 'result',
       id: request.id,
@@ -4349,14 +4417,13 @@ async function handleRequest(
       };
     }
 
-    persistConstructorEnvFromRequest(request);
-
     // Runtime-injected instance tools must be handled by the daemon,
     // not forwarded to worker threads (workers don't know about _use etc.)
     const runtimeTools = ['_use', '_instances', '_undo', '_redo'];
     const cmdKey = compositeKey(photonName, request.workingDir);
     const readyWorker = workerManager.get(cmdKey);
     if (readyWorker?.ready && !runtimeTools.includes(request.method)) {
+      await persistConstructorEnvSnapshotFromRequest(request);
       const startMs = Date.now();
       const result = await workerManager.call(
         cmdKey,
@@ -4411,6 +4478,7 @@ async function handleRequest(
     // Re-check: might have spawned a worker
     const readyWorkerAfterInit = workerManager.get(cmdKey);
     if (readyWorkerAfterInit?.ready && !runtimeTools.includes(request.method)) {
+      await persistConstructorEnvSnapshotFromRequest(request);
       const startMs = Date.now();
       const result = await workerManager.call(
         cmdKey,
@@ -4471,17 +4539,29 @@ async function handleRequest(
       };
     }
 
+    const hadLoadedInstances = sessionManager.getLoadedInstances().length > 0;
+    sessionManager.setConstructorEnv(request.constructorEnv);
+
     // Stat-gate: if the source file has changed since we last loaded it,
     // synchronously reload before dispatching. Closes the race window where
     // a request arrives between a file write and the watcher's debounce.
     const dispatchPhotonPath = request.photonPath || photonPaths.get(cmdKey);
-    await statGate(cmdKey, photonName, dispatchPhotonPath, request.workingDir);
+    await statGate(
+      cmdKey,
+      photonName,
+      dispatchPhotonPath,
+      request.workingDir,
+      request.constructorEnv
+    );
 
     try {
       const session = await sessionManager.getOrCreateSession(
         request.sessionId,
         request.clientType
       );
+      if (hadLoadedInstances) {
+        await persistConstructorEnvSnapshotFromRequest(request);
+      }
 
       // ── Auto-recover from instance drift ─────────────────────────
       // If the client tells us which instance it expects but the daemon
@@ -5776,7 +5856,8 @@ function watchStateDir(workingDir: string): void {
 async function reloadPhoton(
   photonName: string,
   newPhotonPath: string,
-  workingDir?: string
+  workingDir?: string,
+  constructorEnv?: Record<string, string>
 ): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
   const key = compositeKey(photonName, workingDir);
 
@@ -5795,7 +5876,7 @@ async function reloadPhoton(
   reloadMutex.set(key, mutexPromise);
 
   try {
-    return await doReloadPhoton(photonName, newPhotonPath, workingDir, key);
+    return await doReloadPhoton(photonName, newPhotonPath, workingDir, key, constructorEnv);
   } finally {
     reloadMutex.delete(key);
     mutexResolve!();
@@ -5806,7 +5887,8 @@ async function doReloadPhoton(
   photonName: string,
   newPhotonPath: string,
   workingDir: string | undefined,
-  key: PhotonCompositeKey
+  key: PhotonCompositeKey,
+  constructorEnv?: Record<string, string>
 ): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
   try {
     logger.info('Hot-reloading photon', { photonName, key, path: newPhotonPath });
@@ -5848,9 +5930,12 @@ async function doReloadPhoton(
       watchPhotonFile(photonName, newPhotonPath);
       return { success: true, sessionsUpdated: 0 };
     }
+    sessionManager.setConstructorEnv(constructorEnv);
 
     try {
-      await sessionManager.loader.reloadFile(newPhotonPath);
+      await sessionManager.loader.reloadFile(newPhotonPath, {
+        constructorEnvReplay: sessionManager.getConstructorEnvReplayOptions(),
+      });
     } catch (err) {
       const errorMessage = getErrorMessage(err);
       logger.error('Failed to reload photon file — keeping old instances', {
@@ -5900,6 +5985,7 @@ async function doReloadPhoton(
         // Skip onInitialize during load — we'll call it after state transfer
         const newMcp = await sessionManager.loader.loadFile(newPhotonPath, {
           skipInitialize: true,
+          constructorEnvReplay: sessionManager.getConstructorEnvReplayOptions(),
         });
         const oldMcp = session.instance;
 

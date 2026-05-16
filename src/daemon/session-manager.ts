@@ -9,10 +9,14 @@
  * the runtime handles everything via _use/_instances tools.
  */
 
-import { PhotonLoader } from '../loader.js';
+import { PhotonLoader, type ConstructorEnvReplayOptions } from '../loader.js';
 import { PhotonSession } from './protocol.js';
 import { Logger, createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
+import type {
+  ConstructorEnvReplayIdentity,
+  ConstructorEnvReplayStore,
+} from './constructor-env-replay.js';
 
 const DEFAULT_INSTANCE = '';
 
@@ -28,13 +32,22 @@ export class SessionManager {
   private sessionTimeout: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
   private logger: Logger;
+  private constructorEnv?: Record<string, string>;
+  private constructorEnvReplay?: {
+    store: ConstructorEnvReplayStore;
+    identity: ConstructorEnvReplayIdentity;
+  };
 
   constructor(
     photonPath: string,
     photonName: string,
     sessionTimeout: number = 600000,
     logger?: Logger,
-    workingDir?: string
+    workingDir?: string,
+    constructorEnvReplay?: {
+      store: ConstructorEnvReplayStore;
+      identity: ConstructorEnvReplayIdentity;
+    }
   ) {
     this.photonPath = photonPath;
     this.photonName = photonName;
@@ -46,8 +59,13 @@ export class SessionManager {
       this.logger.child({ component: 'photon-loader', scope: photonName }),
       workingDir
     );
+    this.constructorEnvReplay = constructorEnvReplay;
 
     this.startCleanup();
+  }
+
+  setConstructorEnv(values: Record<string, string> | undefined): void {
+    this.constructorEnv = values && Object.keys(values).length > 0 ? { ...values } : undefined;
   }
 
   /**
@@ -142,17 +160,22 @@ export class SessionManager {
       photon: this.photonName,
     });
 
-    const promise = this.loader.loadFile(this.photonPath, { instanceName }).then(
-      (instance) => {
-        this.inflightLoads.delete(key);
-        this.instances.set(key, instance);
-        return instance;
-      },
-      (error) => {
-        this.inflightLoads.delete(key);
-        throw error;
-      }
-    );
+    const replayOptions = this.getConstructorEnvReplayOptions();
+    const promise = this.loader
+      .loadFile(this.photonPath, { instanceName, constructorEnvReplay: replayOptions })
+      .then(
+        (instance) => {
+          this.inflightLoads.delete(key);
+          this.instances.set(key, instance);
+          this.constructorEnv = undefined;
+          return instance;
+        },
+        (error) => {
+          this.inflightLoads.delete(key);
+          this.constructorEnv = undefined;
+          throw error;
+        }
+      );
 
     this.inflightLoads.set(key, promise);
     return promise;
@@ -213,6 +236,7 @@ export class SessionManager {
       try {
         const newInstance = await this.loader.loadFile(this.photonPath, {
           instanceName: session.instanceName || 'default',
+          constructorEnvReplay: this.getConstructorEnvReplayOptions(),
         });
         // Re-check session still exists after await
         if (this.sessions.has(session.id)) {
@@ -369,5 +393,15 @@ export class SessionManager {
       }
     }
     return latest;
+  }
+
+  getConstructorEnvReplayOptions(): ConstructorEnvReplayOptions | undefined {
+    if (!this.constructorEnvReplay) return undefined;
+    const { store, identity } = this.constructorEnvReplay;
+    return {
+      currentEnv: this.constructorEnv,
+      resolve: (envVarName) => store.resolve(identity, envVarName),
+      capture: (values) => store.write(identity, values),
+    };
   }
 }
