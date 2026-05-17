@@ -269,6 +269,50 @@ async function runTests(): Promise<void> {
     });
   });
 
+  await test('tools/list advertises TSX app entries as web apps', async () => {
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'demo-id',
+          name: 'demo',
+          path: `${process.cwd()}/demo.photon.ts`,
+          configured: true,
+          isApp: true,
+          appEntry: { name: 'main', linkedUi: 'app' },
+          assets: {
+            ui: [{ id: 'app', path: `${process.cwd()}/ui/app.tsx` }],
+          },
+          description: 'Demo app',
+          methods: [
+            {
+              name: 'main',
+              description: 'Open the demo app',
+              params: { type: 'object', properties: {} },
+              returns: { type: 'object' },
+              linkedUi: 'app',
+            },
+          ],
+        },
+      ],
+      photonMCPs: new Map([['demo', { instance: { main: () => ({ app: 'demo' }) } }]]),
+    });
+
+    await withServer(context, async (port) => {
+      const response = await postJSON(port, {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+        params: {},
+      });
+
+      assert.equal(response.status, 200);
+      const tool = response.body.result.tools.find((entry: any) => entry.name === 'demo/main');
+      assert(tool, 'expected demo/main tool');
+      assert.equal(tool['x-web-url'], '/web/demo/');
+      assert.equal(tool['x-web-description'], 'Demo app');
+    });
+  });
+
   await test('MCP list endpoints paginate with nextCursor', async () => {
     const methods = Array.from({ length: 105 }, (_, index) => ({
       name: `method${index}`,

@@ -275,6 +275,23 @@ function selectServerClientAppUi(
   return undefined;
 }
 
+function selectServerWebAppUrl(
+  photon:
+    | ({
+        name?: string;
+        _httpRoutes?: ServerHttpRouteDef[];
+      } & Parameters<typeof selectServerClientAppUi>[0])
+    | null
+    | undefined
+): string | undefined {
+  if (!photon?.name) return undefined;
+  const hasWebRoot = photon._httpRoutes?.some(
+    (route) => route.method === 'GET' && route.path === '/'
+  );
+  if (!hasWebRoot && !selectServerClientAppUi(photon)) return undefined;
+  return `/web/${photon.name}/`;
+}
+
 function shouldFallbackToServerClientApp(
   pathname: string,
   searchParams: URLSearchParams,
@@ -378,6 +395,8 @@ interface SubPhotonInfo {
   icon: string;
   stateful: boolean;
   hasSettings: boolean;
+  webUrl?: string;
+  webDescription?: string;
   tools: any[]; // MCP tool definitions (name, description, inputSchema)
 }
 
@@ -402,6 +421,8 @@ class BeamCompatTransport implements Transport {
       icon?: string;
       stateful?: boolean;
       hasSettings?: boolean;
+      webUrl?: string;
+      webDescription?: string;
     }
   ) {}
 
@@ -429,6 +450,13 @@ class BeamCompatTransport implements Transport {
         'x-photon-icon': this.photonMeta.icon || '⚡',
         'x-photon-stateful': this.photonMeta.stateful || false,
         'x-photon-has-settings': this.photonMeta.hasSettings || false,
+        ...(this.photonMeta.webUrl
+          ? {
+              'x-web-url': this.photonMeta.webUrl,
+              'x-web-description':
+                this.photonMeta.webDescription || this.photonMeta.description || '',
+            }
+          : {}),
       }));
 
       // Append sub-photon tools (each with their own x-photon-* metadata)
@@ -442,6 +470,12 @@ class BeamCompatTransport implements Transport {
             'x-photon-icon': sub.icon,
             'x-photon-stateful': sub.stateful,
             'x-photon-has-settings': sub.hasSettings,
+            ...(sub.webUrl
+              ? {
+                  'x-web-url': sub.webUrl,
+                  'x-web-description': sub.webDescription || sub.description,
+                }
+              : {}),
           };
           // Add UI linking metadata if this tool has a linked UI
           const meta = buildToolMCPMeta(tool, {
@@ -2698,11 +2732,17 @@ export class PhotonServer {
     let beamTransport: BeamCompatTransport | null = null;
     {
       const photonName = this.mcp?.name || 'photon';
+      const photonWebUrl = selectServerWebAppUrl(
+        this.mcp as Parameters<typeof selectServerWebAppUrl>[0]
+      );
       beamTransport = new BeamCompatTransport(photonName, {
         description: this.mcp?.description,
         icon: this.mcp?.icon,
         stateful: !!this.mcp?.stateful,
         hasSettings: !!this.mcp?.hasSettings,
+        ...(photonWebUrl
+          ? { webUrl: photonWebUrl, webDescription: this.mcp?.description || `${photonName} MCP` }
+          : {}),
       });
       this.capabilityNegotiator.interceptTransportForRawCapabilities(
         beamTransport,
@@ -2722,6 +2762,9 @@ export class PhotonServer {
         // these two callsites still need the narrower runtime cast until
         // the loader's return type widens to PhotonClassWithMeta.
         const hasSettings = !!loaded.settingsSchema?.hasSettings;
+        const webUrl = selectServerWebAppUrl(
+          loaded as PhotonClassWithMeta & Parameters<typeof selectServerWebAppUrl>[0]
+        );
         // Convert PhotonTool[] to MCP tool format with UI linking
         const uiAssets = loaded.assets?.ui || [];
         const tools = (loaded.tools as Array<ExtractedSchema & { internal?: boolean }>)
@@ -2743,6 +2786,7 @@ export class PhotonServer {
           icon,
           stateful,
           hasSettings,
+          ...(webUrl ? { webUrl, webDescription: loaded.description || `${loaded.name} MCP` } : {}),
           tools,
         });
       }

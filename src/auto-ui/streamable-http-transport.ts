@@ -73,6 +73,42 @@ import {
   taskEvents,
 } from '../tasks/store.js';
 import { toWireFormat, relatedTaskMeta, TERMINAL_STATES, type Task } from '../tasks/types.js';
+
+function uiAssetPath(asset: { path?: string; resolvedPath?: string }): string {
+  return asset.resolvedPath || asset.path || '';
+}
+
+function isTsxUiAsset(asset: { path?: string; resolvedPath?: string }): boolean {
+  return uiAssetPath(asset).endsWith('.tsx');
+}
+
+function selectClientAppUi(photon: PhotonInfo | undefined): string | undefined {
+  const uiAssets = photon?.assets?.ui || [];
+  const linkedUi = photon?.appEntry?.linkedUi;
+  if (linkedUi) {
+    const linkedAsset = uiAssets.find((ui) => ui.id === linkedUi);
+    if (!linkedAsset || isTsxUiAsset(linkedAsset)) return linkedUi;
+  }
+
+  const namedApp = uiAssets.find((ui) => ui.id === 'app' && isTsxUiAsset(ui));
+  if (namedApp) return namedApp.id;
+
+  const tsxAssets = uiAssets.filter(isTsxUiAsset);
+  if (tsxAssets.length === 1) return tsxAssets[0].id;
+
+  return undefined;
+}
+
+function selectWebAppUrl(
+  photon: PhotonInfo,
+  photonClass: { _httpRoutes?: Array<{ method: string; path: string }> } | undefined
+): string | undefined {
+  const hasWebRoot = photonClass?._httpRoutes?.some(
+    (route) => route.method === 'GET' && route.path === '/'
+  );
+  if (!hasWebRoot && !selectClientAppUi(photon)) return undefined;
+  return `/web/${photon.name}/`;
+}
 import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from '../tasks/executor.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
 import { isPathInScope } from '../daemon/claims.js';
@@ -1441,12 +1477,10 @@ const handlers: Record<string, RequestHandler> = {
     for (const photon of visiblePhotons) {
       if (!photon.configured || !photon.methods) continue;
 
-      // Check if this photon has a @get / web root so we can advertise a web URL.
+      // Advertise web-app routing for either an explicit @get / route or a
+      // TSX client app entry; both are served by /web/{photon}/.
       const photonClass = ctx.photonMCPs.get(photon.name) as any;
-      const httpRoutes: Array<{ method: string; path: string }> | undefined =
-        photonClass?._httpRoutes;
-      const webRootRoute = httpRoutes?.find((r) => r.method === 'GET' && r.path === '/');
-      const webUrl = webRootRoute ? `/web/${photon.name}/` : undefined;
+      const webUrl = selectWebAppUrl(photon, photonClass);
 
       for (const method of photon.methods) {
         const uiResourceUri = method.linkedUi
