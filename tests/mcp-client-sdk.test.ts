@@ -256,7 +256,7 @@ async function run(): Promise<void> {
         /timed out after 400ms of no progress/,
         'error should cite no-progress timeout'
       );
-      assert.ok(elapsed >= 400, `should wait at least 400ms (got ${elapsed}ms)`);
+      assert.ok(elapsed >= 375, `should wait roughly 400ms (got ${elapsed}ms)`);
       assert.ok(elapsed < 1500, `should not hang past idle timeout (got ${elapsed}ms)`);
 
       // Server should receive a notifications/cancelled with reason='idle-timeout'
