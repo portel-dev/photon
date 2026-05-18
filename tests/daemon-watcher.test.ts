@@ -864,11 +864,11 @@ async function testWatcherSurvivesReloadCycle() {
   });
 
   await test('multiple rapid edits are debounced into single reload', async () => {
-    // Let any delayed fs.watch delivery from the previous edit drain before
-    // measuring this burst. Under full-suite load macOS can deliver the
-    // prior change just as this test starts, which makes the log count race
-    // the debounce behavior this assertion is meant to pin down.
-    await sleep(1500);
+    // Let delayed fs.watch delivery from the previous edit drain before
+    // measuring this burst. Under full-suite load macOS can deliver prior
+    // changes well after the reload log, which makes the log count race the
+    // debounce behavior this assertion is meant to pin down.
+    await sleep(3500);
     clearDaemonLog();
 
     // Rapid-fire 5 edits inside the debounce window
@@ -881,7 +881,7 @@ async function testWatcherSurvivesReloadCycle() {
       (current) => current.includes('File changed, auto-reloading'),
       'Expected one debounced reload after rapid edits'
     );
-    await sleep(300);
+    await sleep(1500);
     const log = getDaemonLog().join('\n');
     const reloadCount = (log.match(/File changed, auto-reloading/g) || []).length;
     assert.equal(reloadCount, 1, `Expected one debounced reload, got ${reloadCount}`);
@@ -953,10 +953,13 @@ async function testSymlinkWatching() {
     // Edit the REAL file — NOT the symlink
     fs.writeFileSync(REAL_PHOTON_FILE, SYMTEST_SOURCE_V2);
 
-    // Wait for daemon hot-reload debounce + reload
-    await new Promise((r) => setTimeout(r, 1500));
-
-    const log = getDaemonLog().join('\n');
+    const log = await waitForDaemonLog(
+      (current) =>
+        current.includes('File changed, auto-reloading') &&
+        current.includes('Photon reloaded successfully'),
+      'Expected successful auto-reload when editing real file',
+      8000
+    );
     assert.ok(
       log.includes('File changed, auto-reloading'),
       `Expected auto-reload when editing real file. Log:\n${log}`
