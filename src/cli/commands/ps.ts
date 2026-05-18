@@ -30,8 +30,12 @@ async function ensureDaemonRunning(): Promise<void> {
   await ensureDaemon(false);
 }
 
-function parseTarget(target: string): { photon: string; method: string } {
-  const idx = target.indexOf(':');
+export function parseTarget(target: string): { photon: string; method: string } {
+  // Split on the LAST colon: method names are JS identifiers (no colons),
+  // but a photon id may be instance-qualified (`photon:hash`). Splitting on
+  // the first colon turned `photon:hash:method` into method=`hash:method`,
+  // which matched no enrollment and made `ps disable` a silent no-op.
+  const idx = target.lastIndexOf(':');
   if (idx <= 0 || idx === target.length - 1) {
     throw new Error(`Expected <photon>:<method>, got "${target}"`);
   }
@@ -242,9 +246,22 @@ export function registerPsCommands(program: Command): void {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
         const { disableSchedule } = await import('../../daemon/client.js');
-        await disableSchedule(photon, method, opts.base);
-        const { printSuccess } = await import('../../cli-formatter.js');
-        printSuccess(`Disabled ${photon}:${method}`);
+        const res = (await disableSchedule(photon, method, opts.base)) as {
+          removed?: boolean;
+        } | null;
+        const { printSuccess, printWarning } = await import('../../cli-formatter.js');
+        if (res?.removed) {
+          printSuccess(`Disabled ${photon}:${method}`);
+        } else {
+          // The daemon dropped nothing: no active row, timer, or persisted
+          // file matched. Reporting "Disabled" here is a lie that hid an
+          // instance-id mistarget for a long time - say so instead.
+          printWarning(
+            `No active schedule matched ${photon}:${method} - nothing was disabled. ` +
+              `Check 'photon ps' for the exact <photon>:<method> (instance ids look like photon:hash).`
+          );
+          process.exit(1);
+        }
       } catch (error) {
         const { printError } = await import('../../cli-formatter.js');
         printError(`photon ps disable failed: ${getErrorMessage(error)}`);

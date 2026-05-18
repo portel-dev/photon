@@ -57,7 +57,7 @@
     "test:bridge:generation": "tsx tests/bridge/bridge-generation.test.ts",
     "test:bridge:protocol": "tsx tests/bridge/protocol.test.ts",
     "test:bridge:beam": "tsx tests/bridge/beam-integration.test.ts",
-    "test:cli": "tsx tests/cli-runner.test.ts",
+    "test:cli": "tsx tests/cli-runner.test.ts && tsx tests/ps-parse-target.test.ts",
     "test:intent": "tsx tests/intent-contract.test.ts",
     "test:logger": "tsx tests/logger.test.ts",
     "test:error-handler": "tsx tests/error-handler.test.ts",
