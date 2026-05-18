@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.32.6](https://github.com/portel-dev/photon/compare/v1.32.5...v1.32.6) (2026-05-18)
+
+### Bug Fixes
+
+* clean CI unused variable warnings ([b988320](https://github.com/portel-dev/photon/commit/b9883207d051a47f5df5a49810a2dba4b47ad044))
+* **ps:** split disable/pause target on last colon so instance ids work ([d807b80](https://github.com/portel-dev/photon/commit/d807b80e487284b267a56f3fad35d37a5617cdf5))
+
 ## [1.32.5](https://github.com/portel-dev/photon/compare/v1.32.4...v1.32.5) (2026-05-16)
 
 ### Features
