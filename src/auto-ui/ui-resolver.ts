@@ -101,12 +101,31 @@ export async function upgradeToSibling(resolvedPath: string): Promise<ResolvedUI
 }
 
 /**
- * Read a UI file, compiling TSX if needed.
+ * Read a UI file, compiling TSX if needed. Returns a self-contained
+ * document for .tsx (bundle inlined). Use this for auxiliary surfaces
+ * that have no sibling-asset route (format renderers, api-browse).
  */
 export async function readUIContent(filePath: string): Promise<string> {
   if (filePath.endsWith('.tsx')) {
-    const { compileTsxCached } = await import('../tsx-compiler.js');
-    return compileTsxCached(filePath);
+    const { compileTsxCached, inlineHtml } = await import('../tsx-compiler.js');
+    const compiled = await compileTsxCached(filePath);
+    return compiled.js ? inlineHtml(compiled.js) : compiled.html;
   }
   return fs.readFile(filePath, 'utf-8');
+}
+
+/**
+ * Read a UI file for an app mount that CAN serve sibling assets. For
+ * .tsx this returns the tiny cache-busting shell plus the compiled
+ * descriptor so the caller can serve `<base>.<hash>.js` immutably.
+ */
+export async function readUICompiled(
+  filePath: string
+): Promise<{ content: string; compiled?: import('../tsx-compiler.js').CompiledTsx }> {
+  if (filePath.endsWith('.tsx')) {
+    const { compileTsxCached } = await import('../tsx-compiler.js');
+    const compiled = await compileTsxCached(filePath);
+    return { content: compiled.html, compiled };
+  }
+  return { content: await fs.readFile(filePath, 'utf-8') };
 }

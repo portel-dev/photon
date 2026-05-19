@@ -265,7 +265,8 @@ import {
 import { ensureDaemon } from '../daemon/manager.js';
 import { SchemaExtractor, type ConstructorParam } from '@portel/photon-core';
 import { generateServerCard } from '../server-card.js';
-import { resolveUIAssetPath, readUIContent } from './ui-resolver.js';
+import { resolveUIAssetPath, readUIContent, readUICompiled } from './ui-resolver.js';
+import type { CompiledTsx } from '../tsx-compiler.js';
 import {
   handleStreamableHTTP,
   broadcastNotification,
@@ -1253,7 +1254,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const loadUIAsset = async (
     photonName: string,
     uiId: string
-  ): Promise<{ content: string; isPhotonTemplate: boolean } | null> => {
+  ): Promise<{ content: string; isPhotonTemplate: boolean; compiled?: CompiledTsx } | null> => {
     const photon = photons.find((p) => p.name === photonName);
     if (!photon || !photon.configured) return null;
 
@@ -1277,8 +1278,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     const isPhotonTemplate = resolved.isPhotonTemplate || resolved.isPhotonMarkdown;
 
     try {
-      const content = await readUIContent(resolved.path);
-      return { content, isPhotonTemplate };
+      const { content, compiled } = await readUICompiled(resolved.path);
+      return { content, isPhotonTemplate, compiled };
     } catch {
       // Fall through to check custom format renderers
     }
@@ -2304,6 +2305,29 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         const route = findBeamWebRoute(httpRoutes, req.method || 'GET', photonPath);
         const linkedAppUi = photonInfo?.configured ? selectClientAppUi(photonInfo) : undefined;
 
+        // Compiled .tsx bundle for the linked app UI. The shell references
+        // `./<base>.<hash>.js`, which arrives here as a /web sub-path. Serve
+        // it from the compile cache with an immutable policy — the hash in
+        // the filename is the cache key, so a source change yields a new URL
+        // and the browser never runs a stale bundle.
+        if (req.method === 'GET' && photonName && photonInfo?.configured && linkedAppUi) {
+          const lastSeg = decodeURIComponent(pathParts[pathParts.length - 1] ?? '');
+          if (/^[\w-]+\.[0-9a-f]{12}\.js$/.test(lastSeg)) {
+            const appAsset = await loadUIAsset(photonName, linkedAppUi);
+            if (appAsset?.compiled && lastSeg === appAsset.compiled.jsFileName) {
+              const js = appAsset.compiled.js;
+              res.writeHead(200, {
+                'Content-Type': 'text/javascript; charset=utf-8',
+                'Cache-Control': 'public, max-age=31536000, immutable',
+                'Cross-Origin-Resource-Policy': 'same-origin',
+                'Content-Length': Buffer.byteLength(js).toString(),
+              });
+              res.end(js);
+              return;
+            }
+          }
+        }
+
         if (
           req.method === 'GET' &&
           photonName &&
@@ -2314,6 +2338,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           const appAsset = await loadUIAsset(photonName, linkedAppUi);
           if (appAsset) {
             let body = appAsset.content;
+            const shellEtag = appAsset.compiled?.hash ? `"${appAsset.compiled.hash}"` : undefined;
+            const inm = req.headers['if-none-match'];
+            if (shellEtag && inm && inm === shellEtag) {
+              res.writeHead(304, { ETag: shellEtag });
+              res.end();
+              return;
+            }
             const prefix = `/web/${photonName}`;
             const interceptor = `<script>
 (function(){
@@ -2334,11 +2365,24 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             body = body.includes('<head>')
               ? body.replace('<head>', '<head>' + interceptor)
               : interceptor + body;
-            res.writeHead(200, {
+            // The compiled shell references the bundle relatively
+            // (`./<base>.<hash>.js`). Under the /web/<photon> mount the
+            // document URL has no trailing slash, so a relative resolve
+            // would miss; pin it to the absolute prefixed path that the
+            // hashed-JS handler above serves.
+            if (appAsset.compiled?.jsFileName) {
+              const jf = appAsset.compiled.jsFileName;
+              body = body.replace(`src="./${jf}"`, `src="${prefix}/${jf}"`);
+            }
+            const shellHeaders: Record<string, string> = {
               'Content-Type': 'text/html; charset=utf-8',
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              // Revalidate every load; ETag makes that a cheap 304 when the
+              // compiled bundle (and thus the referenced hash) is unchanged.
+              'Cache-Control': 'no-cache',
               'Content-Length': Buffer.byteLength(body).toString(),
-            });
+            };
+            if (shellEtag) shellHeaders['ETag'] = shellEtag;
+            res.writeHead(200, shellHeaders);
             res.end(body);
             return;
           }

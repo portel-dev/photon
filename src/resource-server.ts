@@ -436,8 +436,11 @@ export class ResourceServer {
         throw new Error(`UI asset not found: ${uri}`);
       }
       if (ui.resolvedPath.endsWith('.tsx')) {
-        const { compileTsxCached } = await import('./tsx-compiler.js');
-        content = await compileTsxCached(ui.resolvedPath);
+        // MCP-app webview renders this HTML with no HTTP origin, so the
+        // bundle must be inlined rather than referenced as a sibling.
+        const { compileTsxCached, inlineHtml } = await import('./tsx-compiler.js');
+        const compiled = await compileTsxCached(ui.resolvedPath);
+        content = compiled.js ? inlineHtml(compiled.js) : compiled.html;
       } else {
         content = await readText(ui.resolvedPath);
       }

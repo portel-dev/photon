@@ -947,7 +947,11 @@ interface HandlerContext {
   loadUIAsset: (
     photonName: string,
     uiId: string
-  ) => Promise<{ content: string; isPhotonTemplate: boolean } | null>;
+  ) => Promise<{
+    content: string;
+    isPhotonTemplate: boolean;
+    compiled?: import('../tsx-compiler.js').CompiledTsx;
+  } | null>;
   /** Working directory override (base dir for state/config/cache) */
   workingDir?: string;
   /** Authenticated caller from MCP OAuth (JWT) */
@@ -3011,10 +3015,18 @@ const handlers: Record<string, RequestHandler> = {
       const mimeType = result.isPhotonTemplate
         ? 'text/html;profile=mcp-app;photon-template=true'
         : 'text/html;profile=mcp-app';
+      // An MCP-app webview renders this text with no HTTP origin, so the
+      // compiled .tsx bundle must be inlined rather than referenced as a
+      // hashed sibling (which only the HTTP serving paths can resolve).
+      let text = result.content;
+      if (result.compiled?.js) {
+        const { inlineHtml } = await import('../tsx-compiler.js');
+        text = inlineHtml(result.compiled.js);
+      }
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: { contents: [{ uri, mimeType, text: result.content }] },
+        result: { contents: [{ uri, mimeType, text }] },
       };
     }
 
@@ -4687,7 +4699,11 @@ export interface StreamableHTTPOptions {
   loadUIAsset: (
     photonName: string,
     uiId: string
-  ) => Promise<{ content: string; isPhotonTemplate: boolean } | null>;
+  ) => Promise<{
+    content: string;
+    isPhotonTemplate: boolean;
+    compiled?: import('../tsx-compiler.js').CompiledTsx;
+  } | null>;
   /** Working directory override (base dir for state/config/cache) */
   workingDir?: string;
   configurePhoton?: (

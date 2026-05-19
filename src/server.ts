@@ -2693,22 +2693,50 @@ export class PhotonServer {
     if (!ui?.resolvedPath) return false;
 
     try {
-      let content: string;
-      if (ui.resolvedPath.endsWith('.tsx')) {
-        const { compileTsxCached } = await import('./tsx-compiler.js');
-        content = await compileTsxCached(ui.resolvedPath);
-      } else {
-        content = await readText(ui.resolvedPath);
+      // Non-.tsx assets: serve the file as-is (unchanged behaviour).
+      if (!ui.resolvedPath.endsWith('.tsx')) {
+        const content = await readText(ui.resolvedPath);
+        const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+        if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+        if (detectIsolationMode(req) === 'standalone') {
+          uiHeaders['Cross-Origin-Opener-Policy'] = 'same-origin';
+          uiHeaders['Cross-Origin-Embedder-Policy'] = 'require-corp';
+        }
+        res.writeHead(200, uiHeaders);
+        res.end(content);
+        return true;
       }
 
-      const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+      const { compileTsxCached, tsxHttpResponse } = await import('./tsx-compiler.js');
+      const compiled = await compileTsxCached(ui.resolvedPath);
+
+      // This mount doubles as the SPA fallback (any unmatched GET), so the
+      // browser's relative `./<hash>.js` request may arrive at an arbitrary
+      // depth. The hashed filename is unique, so match it by basename to
+      // serve the immutable bundle; everything else gets the shell.
+      const reqPath = (req.url ?? '').split('?')[0];
+      const lastSeg = decodeURIComponent(reqPath.slice(reqPath.lastIndexOf('/') + 1));
+      const restPath = compiled.jsFileName && lastSeg === compiled.jsFileName ? lastSeg : '';
+
+      const r = tsxHttpResponse(compiled, restPath);
+      // Cheap revalidation: 304 when the shell hash is unchanged.
+      const inm = req.headers['if-none-match'];
+      if (r.headers['ETag'] && inm && inm === r.headers['ETag']) {
+        const notMod: Record<string, string> = { ETag: r.headers['ETag'] };
+        if (corsOrigin) notMod['Access-Control-Allow-Origin'] = corsOrigin;
+        res.writeHead(304, notMod);
+        res.end();
+        return true;
+      }
+      const uiHeaders: Record<string, string> = { ...r.headers };
       if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-      if (detectIsolationMode(req) === 'standalone') {
+      if (!restPath && detectIsolationMode(req) === 'standalone') {
         uiHeaders['Cross-Origin-Opener-Policy'] = 'same-origin';
         uiHeaders['Cross-Origin-Embedder-Policy'] = 'require-corp';
       }
-      res.writeHead(200, uiHeaders);
-      res.end(content);
+      if (restPath) uiHeaders['Cross-Origin-Resource-Policy'] = 'same-origin';
+      res.writeHead(r.status, uiHeaders);
+      res.end(r.body);
       return true;
     } catch {
       return false;
@@ -3155,13 +3183,29 @@ export class PhotonServer {
             }
             if (ui?.resolvedPath) {
               try {
-                let content: string;
                 if (ui.resolvedPath.endsWith('.tsx')) {
-                  const { compileTsxCached } = await import('./tsx-compiler.js');
-                  content = await compileTsxCached(ui.resolvedPath);
-                } else {
-                  content = await readText(ui.resolvedPath);
+                  const { compileTsxCached, tsxHttpResponse } = await import('./tsx-compiler.js');
+                  const compiled = await compileTsxCached(ui.resolvedPath);
+                  const r = tsxHttpResponse(compiled, '');
+                  const inm = req.headers['if-none-match'];
+                  if (r.headers['ETag'] && inm && inm === r.headers['ETag']) {
+                    const notMod: Record<string, string> = { ETag: r.headers['ETag'] };
+                    if (corsOrigin) notMod['Access-Control-Allow-Origin'] = corsOrigin;
+                    res.writeHead(304, notMod);
+                    res.end();
+                    return;
+                  }
+                  const tsxHeaders: Record<string, string> = { ...r.headers };
+                  if (corsOrigin) tsxHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                  if (detectIsolationMode(req) === 'standalone') {
+                    tsxHeaders['Cross-Origin-Opener-Policy'] = 'same-origin';
+                    tsxHeaders['Cross-Origin-Embedder-Policy'] = 'require-corp';
+                  }
+                  res.writeHead(r.status, tsxHeaders);
+                  res.end(r.body);
+                  return;
                 }
+                const content = await readText(ui.resolvedPath);
                 const uiHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
                 if (corsOrigin) uiHeaders['Access-Control-Allow-Origin'] = corsOrigin;
                 // Track D2: cross-origin isolation for standalone tabs so
@@ -3182,6 +3226,25 @@ export class PhotonServer {
             }
             res.writeHead(404).end('UI not found');
             return;
+          }
+
+          // Compiled .tsx bundle: the shell references `./<base>.<hash>.js`,
+          // which lands here as a sub-path. Serve it from the compile cache
+          // with an immutable cache policy (the hash is the cache key).
+          if (ui?.resolvedPath?.endsWith('.tsx')) {
+            const { compileTsxCached, tsxHttpResponse } = await import('./tsx-compiler.js');
+            const compiled = await compileTsxCached(ui.resolvedPath);
+            const r = tsxHttpResponse(compiled, restPath);
+            if (r.status === 200) {
+              const jsHeaders: Record<string, string> = { ...r.headers };
+              if (corsOrigin) jsHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+              jsHeaders['Cross-Origin-Resource-Policy'] = 'same-origin';
+              res.writeHead(200, jsHeaders);
+              res.end(r.body);
+              return;
+            }
+            // Not the bundle (e.g. a static sibling shipped beside the .tsx) —
+            // fall through to filesystem resolution below.
           }
 
           // Sub-path: directory-style sibling resolution. Try the filesystem

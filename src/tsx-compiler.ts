@@ -9,9 +9,9 @@
  * ui/ folder to use React/Preact/Solid if they prefer.
  */
 
+import * as crypto from 'crypto';
 import * as esbuild from 'esbuild';
 import * as fs from 'fs';
-import * as fsAsync from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -81,8 +81,133 @@ function getRuntimePath(): string {
   return _runtimePath;
 }
 
-// In-memory cache: filePath → { mtimeMs, html }
-const cache = new Map<string, { mtimeMs: number; html: string }>();
+/**
+ * Result of compiling a .tsx view.
+ *
+ * The bundled JS is written to a content-hashed sidecar file rather than
+ * inlined, so every serving path (local server, Beam, `photon build`, the
+ * Cloudflare [assets] binding) gets URL-level cache-busting for free: the
+ * hash changes whenever the source or the esbuild toolchain changes, so a
+ * browser never executes a stale bundle. The tiny HTML shell carries no
+ * code and is served with revalidation; the hashed JS is immutable.
+ */
+export interface CompiledTsx {
+  /** sha256 of (bundle + esbuild version), 12 hex chars. Empty on build error. */
+  hash: string;
+  /** Hashed JS filename the shell references, e.g. `app.1a2b3c4d5e6f.js`. */
+  jsFileName: string;
+  /** The HTML shell (references `./<jsFileName>`). On error this is the error page. */
+  html: string;
+  /** The bundled browser JS. Empty on build error. */
+  js: string;
+  /** On-disk cache directory holding `<jsFileName>` and `index.html`. */
+  dir: string;
+  /** Absolute path to the written HTML shell. */
+  htmlPath: string;
+  /** Absolute path to the written hashed JS (empty string on build error). */
+  jsPath: string;
+  /** Absolute paths of every module in the bundle (entry + imports). */
+  inputs: string[];
+}
+
+// In-memory cache: filePath → { sig, result }. `sig` is the newest mtime
+// across the whole input graph, so a change to any imported module — not
+// just the entry file — invalidates the cache.
+const cache = new Map<string, { sig: number; result: CompiledTsx }>();
+
+/** Resolve esbuild metafile input keys to absolute paths. */
+function resolveInputs(metafile: { inputs: Record<string, unknown> } | undefined): string[] {
+  if (!metafile) return [];
+  const out: string[] = [];
+  for (const key of Object.keys(metafile.inputs)) {
+    // Skip esbuild virtual/injected entries (e.g. the JSX runtime shim).
+    if (key.includes('<') || key.startsWith('\0')) continue;
+    out.push(path.resolve(process.cwd(), key));
+  }
+  return out;
+}
+
+/** Newest mtime across the input graph; -1 if any input is missing. */
+function inputsSignature(inputs: string[]): number {
+  let newest = 0;
+  for (const f of inputs) {
+    try {
+      newest = Math.max(newest, fs.statSync(f).mtimeMs);
+    } catch {
+      return -1; // a vanished input forces a rebuild
+    }
+  }
+  return newest;
+}
+
+/** Stable per-source cache directory under the OS temp dir. */
+function cacheDirFor(filePath: string): string {
+  const key = crypto.createHash('sha256').update(path.resolve(filePath)).digest('hex').slice(0, 16);
+  return path.join(os.tmpdir(), 'photon-tsx-cache', key);
+}
+
+/** Content hash of the bundle, salted with the esbuild version. */
+function hashBundle(js: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${js}:::esbuild@${esbuild.version}`)
+    .digest('hex')
+    .slice(0, 12);
+}
+
+/**
+ * Write the shell + hashed JS to the cache dir and return the descriptor.
+ * Stale `*.js` from a previous hash are pruned so the dir stays bounded
+ * and a `photon build` copy never ships an orphaned old bundle.
+ */
+function writeArtifactsSync(filePath: string, js: string, inputs: string[]): CompiledTsx {
+  const dir = cacheDirFor(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const base = path.basename(filePath, path.extname(filePath)).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const hash = hashBundle(js);
+  const jsFileName = `${base}.${hash}.js`;
+  const html = wrapInHtml(jsFileName);
+  for (const entry of fs.readdirSync(dir)) {
+    if (entry.endsWith('.js') && entry !== jsFileName) {
+      try {
+        fs.unlinkSync(path.join(dir, entry));
+      } catch {
+        // best-effort prune
+      }
+    }
+  }
+  const jsPath = path.join(dir, jsFileName);
+  const htmlPath = path.join(dir, 'index.html');
+  fs.writeFileSync(jsPath, js);
+  fs.writeFileSync(htmlPath, html);
+  const entryAbs = path.resolve(filePath);
+  const allInputs = inputs.length ? Array.from(new Set([entryAbs, ...inputs])) : [entryAbs];
+  return { hash, jsFileName, html, js, dir, htmlPath, jsPath, inputs: allInputs };
+}
+
+/** Build-error descriptor: an HTML error page, no JS sidecar. */
+function errorResult(filePath: string, error: unknown): CompiledTsx {
+  const dir = cacheDirFor(filePath);
+  const html = wrapError(filePath, error);
+  let htmlPath = '';
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    htmlPath = path.join(dir, 'index.html');
+    fs.writeFileSync(htmlPath, html);
+  } catch {
+    // serving paths fall back to the in-memory `html`
+  }
+  return {
+    hash: '',
+    jsFileName: '',
+    html,
+    js: '',
+    dir,
+    htmlPath,
+    jsPath: '',
+    inputs: [path.resolve(filePath)],
+  };
+}
 
 /**
  * Find the nearest tsconfig.json walking up from startDir.
@@ -176,6 +301,9 @@ function buildOptions(filePath: string, tsconfigPath?: string): esbuild.BuildOpt
     entryPoints: [filePath],
     bundle: true,
     write: false,
+    // Needed to invalidate the cache on any imported module change, not
+    // just the entry file — `metafile.inputs` lists the full graph.
+    metafile: true,
     format: 'esm',
     platform: 'browser',
     target: 'es2020',
@@ -202,9 +330,36 @@ function buildOptions(filePath: string, tsconfigPath?: string): esbuild.BuildOpt
 }
 
 /**
- * Wrap bundled JS in a self-contained HTML document.
+ * The HTML shell. Carries no application code — it only references the
+ * content-hashed bundle as a sibling module, so the document itself is
+ * tiny and safe to serve with short-lived/revalidated caching while the
+ * hashed bundle is cached immutably. The reference is relative so it
+ * resolves to `/api/ui/<id>/<jsFileName>` (and the equivalent CF asset
+ * path) regardless of the mount point.
  */
-function wrapInHtml(js: string): string {
+function wrapInHtml(jsFileName: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="./${jsFileName}"></script>
+</body>
+</html>`;
+}
+
+/**
+ * Self-contained document with the bundle inlined. Used only by the MCP
+ * resource path (Claude Desktop apps): an MCP-app webview renders the
+ * returned HTML with no HTTP origin, so a `./<hash>.js` sibling reference
+ * would not resolve. Cache-busting is irrelevant there — the client
+ * re-reads the resource on every `resources/read`.
+ */
+export function inlineHtml(js: string): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -219,6 +374,53 @@ ${js}
 </script>
 </body>
 </html>`;
+}
+
+/** Immutable: hash in the URL changes whenever the bundle changes. */
+export const TSX_JS_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+/** Tiny, code-free shell — always revalidate so a new hash is picked up. */
+export const TSX_SHELL_CACHE_CONTROL = 'no-cache';
+
+export interface TsxHttpResponse {
+  status: 200 | 404;
+  /** Response body. */
+  body: string;
+  headers: Record<string, string>;
+}
+
+/**
+ * Resolve an HTTP request for a compiled `.tsx` view into a response.
+ *
+ * - `restPath` empty / `index.html` → the HTML shell (revalidated, ETag).
+ * - `restPath` === the hashed JS filename → the bundle (immutable).
+ * - anything else → 404 (caller may then try its own sibling resolution).
+ *
+ * Used by every browser-facing serving path (local server, Beam,
+ * streamable-http, and — via precompiled files — the Cloudflare
+ * [assets] binding) so the cache contract is identical everywhere.
+ */
+export function tsxHttpResponse(result: CompiledTsx, restPath: string): TsxHttpResponse {
+  const rest = restPath.replace(/^\/+/, '');
+  if (rest === '' || rest === 'index.html') {
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/html',
+      'Cache-Control': TSX_SHELL_CACHE_CONTROL,
+    };
+    // No hash on a build-error page — let it always revalidate without a tag.
+    if (result.hash) headers['ETag'] = `"${result.hash}"`;
+    return { status: 200, body: result.html, headers };
+  }
+  if (result.jsFileName && rest === result.jsFileName) {
+    return {
+      status: 200,
+      body: result.js,
+      headers: {
+        'Content-Type': 'text/javascript; charset=utf-8',
+        'Cache-Control': TSX_JS_CACHE_CONTROL,
+      },
+    };
+  }
+  return { status: 404, body: 'Not found', headers: {} };
 }
 
 /**
@@ -272,45 +474,49 @@ pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-heigh
 }
 
 /**
- * Compile a TSX file into a self-contained HTML document.
+ * Compile a TSX file into a hashed JS bundle plus an HTML shell.
  */
-export async function compileTsx(filePath: string): Promise<string> {
+export async function compileTsx(filePath: string): Promise<CompiledTsx> {
   const tsconfigPath = findTsconfig(path.dirname(filePath));
 
   try {
     const result = await esbuild.build(buildOptions(filePath, tsconfigPath));
     const js = result.outputFiles?.[0]?.text ?? '';
-    return wrapInHtml(js);
+    return writeArtifactsSync(filePath, js, resolveInputs(result.metafile));
   } catch (err) {
-    return wrapError(filePath, err);
+    return errorResult(filePath, err);
   }
 }
 
 /**
- * Compile with mtime-based caching. Re-transpiles only when the file changes.
+ * Compile with dependency-graph-aware caching. Re-transpiles when the
+ * entry file OR any imported module changes (the previous mtime-only
+ * cache silently served a stale bundle after an imported-component edit).
  */
-export async function compileTsxCached(filePath: string): Promise<string> {
-  const stat = await fsAsync.stat(filePath);
+export async function compileTsxCached(filePath: string): Promise<CompiledTsx> {
   const cached = cache.get(filePath);
-  if (cached && cached.mtimeMs === stat.mtimeMs) {
-    return cached.html;
+  if (cached) {
+    const sig = inputsSignature(cached.result.inputs);
+    if (sig !== -1 && sig === cached.sig) {
+      return cached.result;
+    }
   }
-  const html = await compileTsx(filePath);
-  cache.set(filePath, { mtimeMs: stat.mtimeMs, html });
-  return html;
+  const result = await compileTsx(filePath);
+  cache.set(filePath, { sig: inputsSignature(result.inputs), result });
+  return result;
 }
 
 /**
  * Synchronous variant for the build command (uses esbuild.buildSync).
  */
-export function compileTsxSync(filePath: string): string {
+export function compileTsxSync(filePath: string): CompiledTsx {
   const tsconfigPath = findTsconfig(path.dirname(filePath));
 
   try {
     const result = esbuild.buildSync(buildOptions(filePath, tsconfigPath));
     const js = result.outputFiles?.[0]?.text ?? '';
-    return wrapInHtml(js);
+    return writeArtifactsSync(filePath, js, resolveInputs(result.metafile));
   } catch (err) {
-    return wrapError(filePath, err);
+    return errorResult(filePath, err);
   }
 }

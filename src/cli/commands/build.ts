@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { printError } from '../../cli-formatter.js';
 import { fileURLToPath } from 'url';
 import { SchemaExtractor } from '@portel/photon-core';
-import { compileTsxSync } from '../../tsx-compiler.js';
+import { compileTsxSync, inlineHtml } from '../../tsx-compiler.js';
 import { encodeAssetForEmbed } from '../../shared/asset-encoding.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -136,9 +136,12 @@ function discoverUITemplates(
     ];
     const resolvedPath = candidates.find((p) => fs.existsSync(p)) ?? null;
     if (resolvedPath) {
+      // Embedded binary templates are self-contained: inline the bundle
+      // so the binary needs no sibling JS file on disk.
       let html: string;
       if (resolvedPath.endsWith('.tsx')) {
-        html = compileTsxSync(resolvedPath);
+        const c = compileTsxSync(resolvedPath);
+        html = c.js ? inlineHtml(c.js) : c.html;
       } else {
         html = fs.readFileSync(resolvedPath, 'utf-8');
       }
@@ -151,9 +154,13 @@ function discoverUITemplates(
     const resolved = resolveConventionUIPath(id, nestedRoot, assetFolder, photonDir);
     if (!resolved) continue;
 
-    const html = resolved.path.endsWith('.tsx')
-      ? compileTsxSync(resolved.path)
-      : fs.readFileSync(resolved.path, 'utf-8');
+    let html: string;
+    if (resolved.path.endsWith('.tsx')) {
+      const c = compileTsxSync(resolved.path);
+      html = c.js ? inlineHtml(c.js) : c.html;
+    } else {
+      html = fs.readFileSync(resolved.path, 'utf-8');
+    }
     templates.set(id, { id, html, relativePath: resolved.relativePath });
   }
   return templates;

@@ -50,7 +50,11 @@ export interface BeamActions {
   loadUIAsset: (
     photonName: string,
     uiId: string
-  ) => Promise<{ content: string; isPhotonTemplate: boolean } | null>;
+  ) => Promise<{
+    content: string;
+    isPhotonTemplate: boolean;
+    compiled?: import('../../tsx-compiler.js').CompiledTsx;
+  } | null>;
   subscribeToChannel: (channel: string) => Promise<void>;
   unsubscribeFromChannel: (channel: string) => void;
   configurePhotonViaMCP: (photonName: string, config: Record<string, any>) => Promise<any>;

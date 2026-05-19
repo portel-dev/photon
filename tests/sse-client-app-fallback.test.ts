@@ -70,15 +70,32 @@ render(<main><h1>Direct client app</h1></main>, root);
     await server.start();
     const base = `http://localhost:${port}`;
 
+    // The .tsx view is served as a tiny cache-busting shell that
+    // references a content-hashed bundle; the app code lives in the JS.
     const root = await fetch(`${base}/`);
     assert.equal(root.status, 200);
     assert.match(root.headers.get('content-type') || '', /text\/html/);
-    assert.match(await root.text(), /Direct client app/);
+    assert.equal(root.headers.get('cache-control'), 'no-cache');
+    const shell = await root.text();
+    const m = shell.match(/src="\.\/(app\.[0-9a-f]{12}\.js)"/);
+    assert.ok(m, 'shell references a hashed bundle');
+    const jsName = m![1];
 
+    const bundle = await fetch(`${base}/${jsName}`);
+    assert.equal(bundle.status, 200);
+    assert.match(bundle.headers.get('content-type') || '', /javascript/);
+    assert.match(bundle.headers.get('cache-control') || '', /immutable/);
+    assert.match(await bundle.text(), /Direct client app/);
+
+    // Nested SPA route: shell again, and the relatively-resolved bundle
+    // URL must still hit the immutable JS (basename match).
     const nested = await fetch(`${base}/threads/t_123`);
     assert.equal(nested.status, 200);
     assert.match(nested.headers.get('content-type') || '', /text\/html/);
-    assert.match(await nested.text(), /Direct client app/);
+    assert.match(await nested.text(), new RegExp(jsName.replace(/\./g, '\\.')));
+    const nestedJs = await fetch(`${base}/threads/${jsName}`);
+    assert.equal(nestedJs.status, 200);
+    assert.match(await nestedJs.text(), /Direct client app/);
 
     const explicit = await fetch(`${base}/explicit`);
     assert.equal(explicit.status, 200);
