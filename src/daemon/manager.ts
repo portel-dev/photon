@@ -929,23 +929,62 @@ export class DaemonManager {
     }
   }
 
+  /**
+   * File-descriptor exhaustion: EMFILE is the per-process cap, ENFILE the
+   * system-wide kernel file table. Both surface from `fs.openSync` and
+   * `spawn`. They are transient (another process freeing FDs clears them),
+   * so one short retry recovers the common case; if it persists the user
+   * needs an actionable message, not a raw posix_spawn stack trace.
+   */
+  private static isFdExhaustion(error: unknown): boolean {
+    const code = (error as { code?: string } | null)?.code;
+    return code === 'EMFILE' || code === 'ENFILE';
+  }
+
   private async spawnDaemon(quiet: boolean): Promise<void> {
     const daemonScript = this.resolveDaemonScript();
     this.rotateLogIfTooLarge();
-    const logStream = fs.openSync(this.ctx.logFile, 'a');
     const env: NodeJS.ProcessEnv = { ...process.env, PHOTON_DAEMON: 'true' };
     delete env.PHOTON_DIR;
 
+    // Open the log + spawn the daemon, retrying once on FD exhaustion.
+    const launch = (): ChildProcess => {
+      const logStream = fs.openSync(this.ctx.logFile, 'a');
+      try {
+        return spawn(process.execPath, [daemonScript, this.ctx.socketPath], {
+          detached: true,
+          stdio: ['ignore', logStream, logStream],
+          env,
+          cwd: this.ctx.baseDir,
+        });
+      } finally {
+        fs.closeSync(logStream);
+      }
+    };
+
     let child: ChildProcess;
     try {
-      child = spawn(process.execPath, [daemonScript, this.ctx.socketPath], {
-        detached: true,
-        stdio: ['ignore', logStream, logStream],
-        env,
-        cwd: this.ctx.baseDir,
+      child = launch();
+    } catch (error) {
+      if (!DaemonManager.isFdExhaustion(error)) throw error;
+      this.logger.warn('File-descriptor table full while spawning daemon — retrying in 750ms', {
+        code: (error as { code?: string }).code,
       });
-    } finally {
-      fs.closeSync(logStream);
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      try {
+        child = launch();
+      } catch (retryError) {
+        if (!DaemonManager.isFdExhaustion(retryError)) throw retryError;
+        throw new Error(
+          `Cannot start the Photon daemon: the ${
+            (retryError as { code?: string }).code === 'EMFILE' ? 'per-process' : 'system-wide'
+          } open-file limit is exhausted. ` +
+            'Close other Photon/Beam instances (each runs its own daemon and ' +
+            'recursive file watchers), then retry. To raise the ceiling: ' +
+            '`ulimit -n 8192` (per-shell) or increase `kern.maxfiles` (macOS) / ' +
+            '`fs.file-max` (Linux).'
+        );
+      }
     }
     const childPid = child.pid;
     if (childPid === undefined) {

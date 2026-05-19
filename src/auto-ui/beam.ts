@@ -3133,10 +3133,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Watch working directory recursively
   try {
+    // Directories that never hold photon source but generate huge event
+    // volume (dependency installs, git ops, build output). The recursive
+    // watch still descends them, but short-circuiting here stops every
+    // write from fanning out into getPhotonForPath/handleFileChange — the
+    // amplification that turns several Beam instances into FD/CPU pressure.
+    const IGNORED_TOP_DIRS = new Set(['.data', 'node_modules', '.git', 'dist', '.photon-ui']);
     const watcher = watch(workingDir, { recursive: true }, (eventType, filename) => {
       if (!filename) return;
-      // Skip all runtime data — .data/ contains all photon data, never source code
-      if (filename.startsWith('.data' + path.sep) || filename === '.data') return;
+      const firstSeg = filename.split(path.sep)[0];
+      if (IGNORED_TOP_DIRS.has(firstSeg)) return;
       const fullPath = path.join(workingDir, filename);
       logger.debug(`📂 File event: ${eventType} ${filename}`);
       const photonName = getPhotonForPath(fullPath);
