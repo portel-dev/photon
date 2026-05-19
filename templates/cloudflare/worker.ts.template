@@ -34,6 +34,15 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Mcp-Session-Id, X-Photon-Instance',
 };
 
+/**
+ * Precompiled .tsx UI manifest (uiId → asset descriptor). Generated at
+ * deploy time so `GET /api/ui/<id>` serves the cache-busting shell and
+ * the content-hashed bundle from the [assets] binding, matching the
+ * local server and Beam contract. Empty when the deploy has no .tsx UI.
+ */
+const UI_ASSET_MANIFEST: Record<string, { base: string; js: string; hash: string }> =
+  __UI_ASSET_MANIFEST__;
+
 // ════════════════════════════════════════════════════════════════════════════
 // Memory proxy — ctx.storage backing for this.memory
 // ════════════════════════════════════════════════════════════════════════════
@@ -1218,6 +1227,57 @@ abstract class BasePhotonDO extends DurableObject<Env> {
     // companion folder, so the typeof guard keeps non-asset deploys
     // quiet (no extra fetch round-trip when the binding is absent).
     const assets = (this.env as any).ASSETS as { fetch: (req: Request) => Promise<Response> } | undefined;
+
+    // Precompiled .tsx UI: GET /api/ui/<id>[/<rest>]. Serve the shell
+    // (revalidated, ETag) and the hashed bundle (immutable) from the
+    // [assets] binding so the cache contract matches local + Beam.
+    if (assets && request.method === 'GET') {
+      const uiMatch = url.pathname.match(/^\/api\/ui\/([^/]+)(?:\/(.*))?$/);
+      if (uiMatch) {
+        const entry = UI_ASSET_MANIFEST[uiMatch[1]];
+        if (entry) {
+          const rest = (uiMatch[2] || '').replace(/^\/+/, '');
+          const isBundle = rest === entry.js;
+          const assetPath = isBundle
+            ? `${entry.base}/${entry.js}`
+            : `${entry.base}/index.html`;
+          if (!isBundle) {
+            const inm = request.headers.get('if-none-match');
+            if (inm && inm === `"${entry.hash}"`) {
+              return new Response(null, {
+                status: 304,
+                headers: { ETag: `"${entry.hash}"`, ...CORS_HEADERS },
+              });
+            }
+          }
+          const assetResponse = await assets.fetch(
+            new Request(new URL(assetPath, url.origin).toString())
+          );
+          if (assetResponse.status === 200) {
+            const headers = new Headers(assetResponse.headers);
+            for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
+            if (isBundle) {
+              headers.set('Content-Type', 'text/javascript; charset=utf-8');
+              headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+              return new Response(assetResponse.body, { status: 200, headers });
+            }
+            headers.set('Content-Type', 'text/html');
+            headers.set('Cache-Control', 'no-cache');
+            headers.set('ETag', `"${entry.hash}"`);
+            // The shell references the bundle relatively (`./<hash>.js`).
+            // The document URL `/api/ui/<id>` has no trailing slash, so
+            // pin it to the absolute route the bundle branch serves.
+            const shellHtml = (await assetResponse.text()).replace(
+              `src="./${entry.js}"`,
+              `src="/api/ui/${uiMatch[1]}/${entry.js}"`
+            );
+            headers.delete('Content-Length');
+            return new Response(shellHtml, { status: 200, headers });
+          }
+        }
+      }
+    }
+
     if (assets && request.method === 'GET') {
       const assetResponse = await assets.fetch(request);
       if (assetResponse.status !== 404) return assetResponse;

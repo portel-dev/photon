@@ -17,6 +17,8 @@ import { PHOTON_VERSION } from '../version.js';
 import { logger } from '../shared/logger.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from '../shared/http-route-extractor.js';
 import { extractExposesFromSource, type ExposeDef } from '../shared/expose-route-extractor.js';
+import { AssetResolver } from '../asset-resolver.js';
+import { compileTsxSync } from '../tsx-compiler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -779,16 +781,64 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     }
   }
 
+  // uiId → precompiled-asset descriptor, injected into the worker so
+  // `GET /api/ui/<id>` resolves to the cache-busted shell + hashed bundle
+  // exactly like the local server and Beam. Without this the Worker would
+  // fall through to the [assets] binding and serve raw, unrunnable .tsx.
+  const uiManifest: Record<string, { base: string; js: string; hash: string }> = {};
+
   let assetsBlock = '';
-  if (assetSourceDirs.length > 0) {
-    const publicDir = path.join(outputDir, 'public');
+  const publicDir = path.join(outputDir, 'public');
+
+  // Copy any raw `assets/**` folders (new canonical layout).
+  for (const { photonName: name, assetsDir } of assetSourceDirs) {
     await fs.mkdir(publicDir, { recursive: true });
-    let totalCopied = 0;
-    for (const { photonName: name, assetsDir } of assetSourceDirs) {
-      const target = path.join(publicDir, name);
-      await fs.cp(assetsDir, target, { recursive: true });
-      totalCopied += await countFiles(target);
+    await fs.cp(assetsDir, path.join(publicDir, name), { recursive: true });
+  }
+
+  // Precompile every @ui .tsx view: esbuild runs here on the deploy
+  // machine (it cannot run inside a Worker). Emit the shell + hashed
+  // bundle into public/, drop the raw .tsx so source isn't shipped.
+  // Done via discoverAssets so BOTH the legacy `ui/` and the canonical
+  // `assets/ui/` layouts are covered — not just photons with an
+  // `assets/` folder.
+  const resolver = new AssetResolver(() => {});
+  for (const { photonName: name, sourcePhotonPath } of candidateDirs) {
+    let assets;
+    try {
+      const src = readFileSync(sourcePhotonPath, 'utf-8');
+      assets = await resolver.discover(sourcePhotonPath, src);
+    } catch {
+      continue;
     }
+    for (const ui of assets?.ui ?? []) {
+      if (!ui.resolvedPath?.endsWith('.tsx')) continue;
+      const compiled = compileTsxSync(ui.resolvedPath);
+      const relDir = path.posix.join(name, '.photon-ui', ui.id);
+      const outDir = path.join(publicDir, name, '.photon-ui', ui.id);
+      await fs.mkdir(outDir, { recursive: true });
+      await fs.writeFile(path.join(outDir, 'index.html'), compiled.html);
+      if (compiled.js) {
+        await fs.writeFile(path.join(outDir, compiled.jsFileName), compiled.js);
+      }
+      // If the raw .tsx got copied in via an `assets/` folder, drop it —
+      // the browser runs the precompiled bundle, never the source.
+      const rawCopy = path.join(
+        publicDir,
+        name,
+        path.relative(path.join(path.dirname(sourcePhotonPath), name), ui.resolvedPath)
+      );
+      await fs.rm(rawCopy, { force: true }).catch(() => {});
+      uiManifest[ui.id] = {
+        base: '/' + relDir,
+        js: compiled.jsFileName,
+        hash: compiled.hash,
+      };
+    }
+  }
+
+  if (existsSync(publicDir)) {
+    const totalCopied = await countFiles(publicDir);
     logger.info(`Bundling ${totalCopied} static asset(s) under public/ for the [assets] binding`);
     // The [assets] block guards against unintended file-system scans by
     // pinning the directory to the deploy-local public/. Binding name is
@@ -796,6 +846,11 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     // without any per-deploy substitution.
     assetsBlock = `\n[assets]\ndirectory = "./public"\nbinding = "ASSETS"\n`;
   }
+  // Inject the precompiled-UI manifest now that asset processing is done,
+  // then rewrite the worker so `/api/ui/<id>` resolves on Cloudflare.
+  workerCode = workerCode.replace(/__UI_ASSET_MANIFEST__/g, JSON.stringify(uiManifest));
+  await fs.writeFile(path.join(outputDir, 'src', 'worker.ts'), workerCode);
+
   // Reference for clarity in the wrangler.toml: hostPhotonDir is unused for
   // path generation but kept above for symmetry with sibling resolution.
   void hostPhotonDir;
