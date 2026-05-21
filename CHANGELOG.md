@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.33.0](https://github.com/portel-dev/photon/compare/v1.32.6...v1.33.0) (2026-05-21)
+
+### Features
+
+* **tsx:** focus-preserving reconciliation in the JSX runtime ([a05766d](https://github.com/portel-dev/photon/commit/a05766d4a08ec2c14a1b83e77ccc22cc2fdbf083))
+
+### Bug Fixes
+
+* **daemon,beam:** survive FD-table exhaustion gracefully ([940ebc4](https://github.com/portel-dev/photon/commit/940ebc4ffe510dad4e2c91e246a1d963c96296a2))
+* **tsx:** cache-busting for .tsx views on Cloudflare deploy ([cc61361](https://github.com/portel-dev/photon/commit/cc61361a810a064aba3b0190d5b54c74d0eaa35b))
+* **tsx:** content-hash cache-busting for .tsx views ([588ecf2](https://github.com/portel-dev/photon/commit/588ecf2f5c88a95dd8041dca0f824d0343af550c))
+
 ## [1.32.6](https://github.com/portel-dev/photon/compare/v1.32.5...v1.32.6) (2026-05-18)
 
 ### Bug Fixes
