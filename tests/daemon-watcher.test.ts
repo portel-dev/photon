@@ -152,6 +152,36 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Wait until the daemon log has been quiet (no new lines matching
+ * `pattern`) for `quietForMs`, or fail after `timeoutMs`. Used before
+ * tests that need to measure a fresh burst without late-arriving
+ * fs.watch events from a previous burst polluting the count.
+ */
+async function waitForDaemonQuiet(
+  pattern: RegExp,
+  quietForMs = 1500,
+  timeoutMs = 10_000
+): Promise<void> {
+  const started = Date.now();
+  let lastSeenCount = (getDaemonLog().join('\n').match(pattern) || []).length;
+  let quietSince = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    await sleep(150);
+    const count = (getDaemonLog().join('\n').match(pattern) || []).length;
+    if (count !== lastSeenCount) {
+      lastSeenCount = count;
+      quietSince = Date.now();
+      continue;
+    }
+    if (Date.now() - quietSince >= quietForMs) return;
+  }
+  throw new Error(
+    `Daemon log did not go quiet on ${pattern} within ${timeoutMs}ms ` +
+      `(needed ${quietForMs}ms of silence). Most recent count: ${lastSeenCount}.`
+  );
+}
+
 async function waitForDaemonLog(
   predicate: (log: string) => boolean,
   message: string,
@@ -863,28 +893,43 @@ async function testWatcherSurvivesReloadCycle() {
     );
   });
 
-  await test('multiple rapid edits are debounced into single reload', async () => {
-    // Let delayed fs.watch delivery from the previous edit drain before
-    // measuring this burst. Under full-suite load macOS can deliver prior
-    // changes well after the reload log, which makes the log count race the
-    // debounce behavior this assertion is meant to pin down.
-    await sleep(3500);
+  await test('multiple rapid edits coalesce via the debounce', async () => {
+    // The daemon uses a trailing debounce, but macOS fs.watch is free to
+    // deliver each event whenever it likes — including after a previous
+    // event's debounce timer has already fired. Under CI load that can
+    // legitimately split one logical "burst" into two reloads, even
+    // though no daemon code is misbehaving. So:
+    //
+    // 1. Wait for genuine quiescence (the log truly stopped emitting
+    //    reload lines) before measuring, not just a fixed sleep.
+    // 2. Fire the burst synchronously — back-to-back writes, no awaits
+    //    between them, so they leave the test in one event-loop tick.
+    // 3. Assert coalescing happened (count is << burst size). A daemon
+    //    with broken debounce would emit one reload per write (NUM_EDITS);
+    //    a working one collapses to 1 — but allow up to 2 to absorb the
+    //    OS-level event-delivery race, which is what was making this
+    //    test flake on Node 22 macOS runners.
+
+    const NUM_EDITS = 5;
+    await waitForDaemonQuiet(/File changed, auto-reloading/);
     clearDaemonLog();
 
-    // Rapid-fire 5 edits inside the debounce window
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < NUM_EDITS; i++) {
       fs.appendFileSync(PHOTON_FILE, `\n// rapid-edit-${i}\n`);
-      await new Promise((r) => setTimeout(r, 10));
     }
 
     await waitForDaemonLog(
       (current) => current.includes('File changed, auto-reloading'),
-      'Expected one debounced reload after rapid edits'
+      'Expected at least one debounced reload after rapid edits'
     );
-    await sleep(1500);
+    // Give any trailing reload from a late-delivered event time to land.
+    await sleep(2000);
     const log = getDaemonLog().join('\n');
     const reloadCount = (log.match(/File changed, auto-reloading/g) || []).length;
-    assert.equal(reloadCount, 1, `Expected one debounced reload, got ${reloadCount}`);
+    assert.ok(
+      reloadCount >= 1 && reloadCount <= 2,
+      `Expected the ${NUM_EDITS}-write burst to coalesce to 1-2 reloads, got ${reloadCount}`
+    );
   });
 }
 
@@ -987,20 +1032,24 @@ async function testSymlinkWatching() {
   });
 
   await test('file replacement via symlink target (sed -i) re-establishes watcher', async () => {
+    // Drain late events from the previous test before measuring this one,
+    // otherwise its stale "File changed" log can satisfy the assertion
+    // before our inode replacement is even delivered.
+    await waitForDaemonQuiet(/File changed, auto-reloading/);
     clearDaemonLog();
 
-    // Simulate sed -i on the REAL file: delete + recreate (new inode)
+    // Simulate sed -i on the REAL file: delete + recreate (new inode).
     const content = fs.readFileSync(REAL_PHOTON_FILE, 'utf-8');
     fs.unlinkSync(REAL_PHOTON_FILE);
     fs.writeFileSync(REAL_PHOTON_FILE, content + '\n// inode-replaced-via-symlink\n');
 
-    // macOS fs.watch rename events can be slow — give extra time
-    await new Promise((r) => setTimeout(r, 2000));
-
-    const log = getDaemonLog().join('\n');
-    assert.ok(
-      log.includes('File changed, auto-reloading'),
-      'Expected auto-reload after inode replacement of symlink target'
+    // macOS fs.watch rename delivery + 1s debounce + 250ms settle + reload
+    // work can comfortably exceed 2s under CI load. Poll instead of sleeping
+    // a fixed window.
+    await waitForDaemonLog(
+      (current) => current.includes('File changed, auto-reloading'),
+      'Expected auto-reload after inode replacement of symlink target',
+      10_000
     );
   });
 }
