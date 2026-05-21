@@ -16,57 +16,369 @@ import * as os from 'os';
 import * as path from 'path';
 
 // ─── Built-in JSX Runtime ──────────────────────────────────────────────────
-// Tiny DOM-based JSX factory. `h()` returns real DOM nodes, not virtual nodes.
-// Injected into every TSX build unless the user overrides via tsconfig.
+// Lightweight virtual-DOM with focus-preserving reconciliation. `h()` now
+// returns plain descriptor objects (not DOM nodes); `render()` diffs them
+// against the previous tree and patches the existing DOM in place.
+//
+// Rendering contract (see also docs/tsx-rendering.md):
+//   - DOM nodes are preserved across `render()` calls when the element's
+//     position and type (and key, if present) are stable. Patching keeps
+//     the same node so focus, selection, scrollTop, and other UA state
+//     survive a rerender.
+//   - For form controls (input/textarea/select), the `value` prop only
+//     touches the DOM when it actually differs, and selection/cursor is
+//     restored when the element is focused — controlled inputs work
+//     without losing focus per keystroke.
+//   - Use `defaultValue` (mapped to the DOM attribute) for uncontrolled
+//     inputs you want to manage with refs instead.
+//   - Provide a `key` on items in dynamic lists so reorders preserve the
+//     correct DOM nodes (and their focus/scroll state).
+//   - Event handlers (`onClick`, `onInput`, …) are stored on the node and
+//     dispatched via a single delegating listener per event type, so
+//     rerenders don't stack listeners.
 
 const JSX_RUNTIME = `
-export function h(type, props, ...children) {
-  if (type === Fragment) {
-    const frag = document.createDocumentFragment();
-    _append(frag, children);
-    return frag;
+export function Fragment() {}
+
+function flattenInto(out, c) {
+  if (c == null || c === false || c === true) return;
+  if (Array.isArray(c)) { for (var i = 0; i < c.length; i++) flattenInto(out, c[i]); return; }
+  if (c && typeof c === 'object' && c.__phv === true && c.type === Fragment) {
+    for (var j = 0; j < c.children.length; j++) flattenInto(out, c.children[j]);
+    return;
   }
-  if (typeof type === 'function') {
-    return type(Object.assign({}, props, { children: children.length <= 1 ? children[0] : children }));
+  out.push(c);
+}
+
+export function h(type, props) {
+  var children = [];
+  for (var ai = 2; ai < arguments.length; ai++) flattenInto(children, arguments[ai]);
+  props = props || {};
+  if (typeof type === 'function' && type !== Fragment) {
+    var cp = {};
+    for (var ck in props) cp[ck] = props[ck];
+    cp.children = children.length <= 1 ? children[0] : children;
+    var rv = type(cp);
+    if (rv == null || rv === false || rv === true) {
+      return { __phv: true, type: Fragment, props: {}, children: [], key: null };
+    }
+    return rv;
   }
-  const el = document.createElement(type);
-  if (props) {
-    for (const [k, v] of Object.entries(props)) {
-      if (k === 'children' || v == null || v === false) continue;
-      if (k.startsWith('on') && typeof v === 'function') {
-        el.addEventListener(k[2].toLowerCase() + k.slice(3), v);
-      } else if (k === 'style' && typeof v === 'object') {
-        Object.assign(el.style, v);
-      } else if (k === 'className') {
-        el.setAttribute('class', v);
-      } else if (k === 'htmlFor') {
-        el.setAttribute('for', v);
-      } else if (k === 'dangerouslySetInnerHTML') {
-        el.innerHTML = v.__html;
-      } else if (v === true) {
-        el.setAttribute(k, '');
-      } else {
-        el.setAttribute(k, String(v));
+  return {
+    __phv: true,
+    type: type,
+    props: props,
+    children: children,
+    key: props.key != null ? props.key : null
+  };
+}
+
+function isVNode(x) { return x != null && typeof x === 'object' && x.__phv === true; }
+function isTextLike(x) { return typeof x === 'string' || typeof x === 'number'; }
+function isOnProp(k) {
+  return k.length > 2 && k.charCodeAt(0) === 111 && k.charCodeAt(1) === 110;
+}
+function isFormCtl(el) {
+  var t = el.tagName;
+  return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT';
+}
+
+function setProp(el, key, value, prev) {
+  if (key === 'children' || key === 'key' || key === 'ref') return;
+
+  if (isOnProp(key) && typeof value === 'function') {
+    var evt = key.slice(2).toLowerCase();
+    if (!el.__phH) {
+      el.__phH = {};
+      el.__phD = function (e) { var f = el.__phH[e.type]; if (f) f(e); };
+    }
+    if (!el.__phH[evt]) el.addEventListener(evt, el.__phD);
+    el.__phH[evt] = value;
+    return;
+  }
+
+  if (key === 'style' && value && typeof value === 'object') {
+    if (prev && typeof prev === 'object') {
+      for (var pk in prev) if (!(pk in value)) el.style[pk] = '';
+    }
+    for (var sk in value) {
+      var sv = value[sk];
+      el.style[sk] = sv == null ? '' : sv;
+    }
+    return;
+  }
+
+  if (key === 'className') {
+    if (value == null || value === false || value === '') el.removeAttribute('class');
+    else el.setAttribute('class', String(value));
+    return;
+  }
+
+  if (key === 'htmlFor') {
+    if (value == null || value === false) el.removeAttribute('for');
+    else el.setAttribute('for', String(value));
+    return;
+  }
+
+  if (key === 'dangerouslySetInnerHTML') {
+    var nh = value && value.__html != null ? value.__html : '';
+    var ph = prev && prev.__html != null ? prev.__html : null;
+    if (nh !== ph) el.innerHTML = nh;
+    return;
+  }
+
+  // Controlled value: only touch the DOM when the live value differs, and
+  // preserve cursor/selection when the element is focused. This is what
+  // lets <input value={state}> work without losing focus per keystroke.
+  if (key === 'value' && isFormCtl(el)) {
+    var nv = value == null ? '' : String(value);
+    if (el.value !== nv) {
+      var focused = el.ownerDocument && el.ownerDocument.activeElement === el;
+      var s = null, e2 = null;
+      if (focused && 'selectionStart' in el) {
+        try { s = el.selectionStart; e2 = el.selectionEnd; } catch (_) {}
+      }
+      el.value = nv;
+      if (focused && s != null) {
+        try { el.setSelectionRange(s, e2 == null ? s : e2); } catch (_) {}
       }
     }
+    return;
   }
-  _append(el, children);
+
+  if (key === 'checked' && el.tagName === 'INPUT') {
+    var b = !!value;
+    if (el.checked !== b) el.checked = b;
+    return;
+  }
+
+  // 'defaultValue' / 'defaultChecked' map to the corresponding attribute
+  // and only seed the DOM on creation — the runtime never overwrites the
+  // user's input after that.
+  if (key === 'defaultValue' && isFormCtl(el)) {
+    if (prev === undefined) el.setAttribute('value', value == null ? '' : String(value));
+    return;
+  }
+  if (key === 'defaultChecked' && el.tagName === 'INPUT') {
+    if (prev === undefined && value) el.setAttribute('checked', '');
+    return;
+  }
+
+  if (value === false || value == null) { el.removeAttribute(key); return; }
+  if (value === true) { el.setAttribute(key, ''); return; }
+  el.setAttribute(key, String(value));
+}
+
+function unsetProp(el, key, prev) {
+  if (key === 'children' || key === 'key' || key === 'ref') return;
+  if (isOnProp(key) && typeof prev === 'function') {
+    var evt = key.slice(2).toLowerCase();
+    if (el.__phH) delete el.__phH[evt];
+    return;
+  }
+  if (key === 'className') { el.removeAttribute('class'); return; }
+  if (key === 'htmlFor') { el.removeAttribute('for'); return; }
+  if (key === 'style') { el.removeAttribute('style'); return; }
+  if (key === 'value' && isFormCtl(el)) {
+    if (el.value !== '') el.value = '';
+    return;
+  }
+  if (key === 'checked' && el.tagName === 'INPUT') {
+    if (el.checked) el.checked = false;
+    return;
+  }
+  el.removeAttribute(key);
+}
+
+function createDom(vnode) {
+  if (vnode == null || vnode === false || vnode === true) return null;
+  if (isTextLike(vnode)) return document.createTextNode(String(vnode));
+  if (vnode.type === Fragment) {
+    var frag = document.createDocumentFragment();
+    for (var fi = 0; fi < vnode.children.length; fi++) {
+      var fn = createDom(vnode.children[fi]);
+      if (fn) frag.appendChild(fn);
+    }
+    return frag;
+  }
+  var el = document.createElement(vnode.type);
+  el.__phV = vnode;
+  var props = vnode.props || {};
+  for (var pk in props) setProp(el, pk, props[pk], undefined);
+  for (var ci = 0; ci < vnode.children.length; ci++) {
+    var cn = createDom(vnode.children[ci]);
+    if (cn) el.appendChild(cn);
+  }
   return el;
 }
 
-export function Fragment() {}
+function sameType(a, b) {
+  if (isTextLike(a) && isTextLike(b)) return true;
+  if (isVNode(a) && isVNode(b)) {
+    if (a.type !== b.type) return false;
+    // Keys differing for the same type still count as different identities
+    // when reconciliation is keyed. Caller decides via key match first.
+    return true;
+  }
+  return false;
+}
 
-export function _append(parent, children) {
-  for (const child of children) {
-    if (child == null || child === false || child === true) continue;
-    if (Array.isArray(child)) { _append(parent, child); continue; }
-    parent.append(typeof child === 'object' ? child : String(child));
+function patchNode(parent, oldV, newV, dom) {
+  if (newV == null || newV === false || newV === true) {
+    if (dom && dom.parentNode === parent) parent.removeChild(dom);
+    return null;
+  }
+  if (!dom) {
+    var fresh = createDom(newV);
+    if (fresh) parent.appendChild(fresh);
+    return fresh;
+  }
+  if (!sameType(oldV, newV)) {
+    var rep = createDom(newV);
+    if (rep) parent.replaceChild(rep, dom);
+    else if (dom.parentNode === parent) parent.removeChild(dom);
+    return rep;
+  }
+  if (isTextLike(newV)) {
+    var s2 = String(newV);
+    if (dom.nodeValue !== s2) dom.nodeValue = s2;
+    return dom;
+  }
+  if (newV.type === Fragment) {
+    var rep2 = createDom(newV);
+    if (rep2) parent.replaceChild(rep2, dom);
+    return rep2;
+  }
+  var oldProps = (isVNode(oldV) && oldV.props) || {};
+  var newProps = newV.props || {};
+  for (var ok in oldProps) {
+    if (!(ok in newProps)) unsetProp(dom, ok, oldProps[ok]);
+  }
+  for (var nk in newProps) {
+    // Always rebind event handler (we swap the stored fn). For others,
+    // skip when reference-equal.
+    if (oldProps[nk] !== newProps[nk] || isOnProp(nk)) {
+      setProp(dom, nk, newProps[nk], oldProps[nk]);
+    }
+  }
+  dom.__phV = newV;
+  patchChildren(dom, isVNode(oldV) ? oldV.children : [], newV.children);
+  return dom;
+}
+
+function patchChildren(parent, oldChildren, newChildren) {
+  var oldLen = oldChildren.length;
+  var newLen = newChildren.length;
+
+  var keyed = false;
+  for (var ki = 0; ki < newLen && !keyed; ki++) {
+    var c = newChildren[ki];
+    if (isVNode(c) && c.key != null) keyed = true;
+  }
+  for (var kj = 0; kj < oldLen && !keyed; kj++) {
+    var oc = oldChildren[kj];
+    if (isVNode(oc) && oc.key != null) keyed = true;
+  }
+
+  var existing = [];
+  for (var dx = parent.firstChild; dx; dx = dx.nextSibling) existing.push(dx);
+
+  if (!keyed) {
+    var max = oldLen > newLen ? oldLen : newLen;
+    for (var i = 0; i < max; i++) {
+      var oldC = i < oldLen ? oldChildren[i] : undefined;
+      var newC = i < newLen ? newChildren[i] : undefined;
+      var dom = i < existing.length ? existing[i] : null;
+      if (newC === undefined) {
+        if (dom && dom.parentNode === parent) parent.removeChild(dom);
+      } else if (oldC === undefined || dom == null) {
+        var freshU = createDom(newC);
+        if (freshU) parent.appendChild(freshU);
+      } else {
+        patchNode(parent, oldC, newC, dom);
+      }
+    }
+    return;
+  }
+
+  // Keyed reconciliation: move existing nodes by key, create/remove the
+  // rest. Unkeyed siblings are matched by their position among unkeyed
+  // siblings (a forgiving extension to all-or-nothing keying).
+  var oldByKey = {};
+  for (var oi = 0; oi < oldLen; oi++) {
+    var oo = oldChildren[oi];
+    if (isVNode(oo) && oo.key != null) {
+      oldByKey[oo.key] = { v: oo, dom: existing[oi] };
+    }
+  }
+  var unkeyedOld = [];
+  var unkeyedDom = [];
+  for (var oj = 0; oj < oldLen; oj++) {
+    var op = oldChildren[oj];
+    if (!(isVNode(op) && op.key != null)) {
+      unkeyedOld.push(op);
+      unkeyedDom.push(existing[oj]);
+    }
+  }
+  var used = {};
+  var unkCursor = 0;
+  for (var ni = 0; ni < newLen; ni++) {
+    var nc = newChildren[ni];
+    var key = (isVNode(nc) && nc.key != null) ? nc.key : null;
+    var anchor = parent.childNodes[ni] || null;
+    var placed = null;
+    if (key != null && oldByKey[key]) {
+      var entry = oldByKey[key];
+      used[key] = true;
+      placed = patchNode(parent, entry.v, nc, entry.dom);
+    } else if (key == null && unkCursor < unkeyedOld.length) {
+      var oldUn = unkeyedOld[unkCursor];
+      var oldUnDom = unkeyedDom[unkCursor];
+      unkCursor++;
+      if (oldUnDom && sameType(oldUn, nc)) {
+        placed = patchNode(parent, oldUn, nc, oldUnDom);
+      } else {
+        if (oldUnDom && oldUnDom.parentNode === parent) parent.removeChild(oldUnDom);
+        placed = createDom(nc);
+      }
+    } else {
+      placed = createDom(nc);
+    }
+    if (placed && placed !== anchor) {
+      parent.insertBefore(placed, anchor);
+    }
+  }
+
+  // Drop old keyed nodes that the new tree didn't claim.
+  for (var rk in oldByKey) {
+    if (!used[rk]) {
+      var dead = oldByKey[rk].dom;
+      if (dead && dead.parentNode === parent) parent.removeChild(dead);
+    }
+  }
+  // Drop any trailing unkeyed leftovers we didn't consume.
+  while (unkCursor < unkeyedOld.length) {
+    var deadUn = unkeyedDom[unkCursor++];
+    if (deadUn && deadUn.parentNode === parent) parent.removeChild(deadUn);
+  }
+  // Belt-and-braces: trim any excess if our bookkeeping missed something.
+  while (parent.childNodes.length > newLen) {
+    parent.removeChild(parent.lastChild);
   }
 }
 
 export function render(element, container) {
   if (typeof container === 'string') container = document.querySelector(container);
-  container.replaceChildren(element);
+  if (!container) return null;
+  var prevTree = container.__phRoot;
+  var prevChildren = prevTree
+    ? (Array.isArray(prevTree) ? prevTree : [prevTree])
+    : [];
+  var newChildren = (isVNode(element) && element.type === Fragment)
+    ? element.children
+    : [element];
+  patchChildren(container, prevChildren, newChildren);
+  container.__phRoot = newChildren.length === 1 ? newChildren[0] : newChildren;
   return element;
 }
 `.trim();
