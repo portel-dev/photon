@@ -98,8 +98,9 @@ describe('CFLocalRuntime', () => {
     it('send accepts a message body', async () => {
       const q = rt.queue('uploads') as any;
       // Producer accepts the message; we just verify no throw. Consumer
-      // wiring is out of scope (no consumer worker registered).
-      await expect(q.send({ photo: 'a.jpg' })).resolves.not.toThrow();
+      // wiring is out of scope (no consumer worker registered) so we
+      // do not assert anything about the resolved value's shape.
+      await q.send({ photo: 'a.jpg' });
     });
 
     it('throws on undeclared binding', () => {

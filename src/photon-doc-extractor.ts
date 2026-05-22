@@ -31,6 +31,7 @@ interface Tool {
   outputFormat?: string;
   layoutHints?: Record<string, string>;
   exportFormats?: string[];
+  scopes?: string[];
 }
 
 type PhotonType = 'workflow' | 'streaming' | 'api';
@@ -778,6 +779,19 @@ export class PhotonDocExtractor {
         .filter(Boolean);
     }
 
+    const scopes: string[] = [];
+    const scopeRe = /@scope\s+([^\r\n*]+)/g;
+    let scopeMatch;
+    while ((scopeMatch = scopeRe.exec(jsdoc)) !== null) {
+      for (const scope of scopeMatch[1].trim().split(/\s+/)) {
+        if (scope && !scopes.includes(scope)) scopes.push(scope);
+      }
+    }
+    const inferredScopes =
+      scopes.length > 0
+        ? scopes
+        : [`${methodName}:${/@readOnly\b/.test(jsdoc) ? 'read' : 'write'}`];
+
     return {
       name: methodName,
       description,
@@ -786,6 +800,7 @@ export class PhotonDocExtractor {
       outputFormat,
       layoutHints,
       exportFormats,
+      scopes: inferredScopes,
     };
   }
 

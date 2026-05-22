@@ -1,6 +1,7 @@
 import { strict as assert } from 'assert';
 import {
   findBeamWebRoute,
+  rewriteBeamWebRedirectLocation,
   selectClientAppUi,
   shouldFallbackToClientAppForWebPath,
   shouldServeLinkedAppForWebPath,
@@ -73,6 +74,33 @@ async function run() {
     assert.equal(
       shouldFallbackToClientAppForWebPath('/threads', new URLSearchParams('legacy=1'), undefined),
       false
+    );
+  });
+
+  await test('keeps same-origin redirects inside the proxied photon web mount', () => {
+    assert.equal(
+      rewriteBeamWebRedirectLocation(
+        'http://localhost:3000/api/ui/app/?view=queue',
+        '/web/kith-approvals',
+        'http://localhost:3000'
+      ),
+      '/web/kith-approvals/api/ui/app/?view=queue'
+    );
+    assert.equal(
+      rewriteBeamWebRedirectLocation(
+        '/api/approvals/list?limit=1',
+        '/web/kith-approvals',
+        'http://localhost:3000'
+      ),
+      '/web/kith-approvals/api/approvals/list?limit=1'
+    );
+    assert.equal(
+      rewriteBeamWebRedirectLocation(
+        'https://example.com/api/ui/app/',
+        '/web/kith-approvals',
+        'http://localhost:3000'
+      ),
+      'https://example.com/api/ui/app/'
     );
   });
 

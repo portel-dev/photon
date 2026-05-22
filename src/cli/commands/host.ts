@@ -72,6 +72,11 @@ export function registerHostCommand(program: Command): void {
     .option('--dry-run', 'Generate project without deploying')
     .option('--output <dir>', 'Output directory for generated project')
     .option('--logs', 'Enable Workers Logs (Cloudflare dashboard observability)')
+    .option('--mcp-auth <mode>', 'MCP auth mode: jwt, bearer, or open')
+    .option(
+      '--mcp-audience <url>',
+      'Expected MCP JWT audience URL, for example https://app.example.com/mcp'
+    )
     .description('Deploy a Photon to cloud platforms')
     .action(async (target: string, name: string, options: any, command: Command) => {
       try {
@@ -93,6 +98,11 @@ export function registerHostCommand(program: Command): void {
         const normalizedTarget = target.toLowerCase();
 
         if (normalizedTarget === 'cloudflare' || normalizedTarget === 'cf') {
+          if (options.mcpAuth && !['jwt', 'bearer', 'open'].includes(String(options.mcpAuth))) {
+            logger.error(`Unknown MCP auth mode: ${options.mcpAuth}`);
+            console.error('Supported MCP auth modes: jwt, bearer, open');
+            process.exit(1);
+          }
           const { deployToCloudflare } = await import('../../deploy/cloudflare.js');
           await deployToCloudflare({
             photonPath,
@@ -100,6 +110,8 @@ export function registerHostCommand(program: Command): void {
             dryRun: options.dryRun,
             outputDir: options.output,
             withLogs: options.logs,
+            mcpAuth: options.mcpAuth,
+            mcpAudience: options.mcpAudience,
           });
         } else {
           logger.error(`Unknown deployment target: ${target}`);

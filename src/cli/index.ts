@@ -36,6 +36,7 @@ import { registerAliasCommands } from './commands/alias.js';
 import { registerAuditCommand } from './commands/audit.js';
 import { registerBuildCommand } from './commands/build.js';
 import { registerClaimCommands } from './commands/claim.js';
+import { registerAuthCommands } from './commands/auth.js';
 import { preprocessArgs } from './commands/run.js';
 
 export function createProgram(): Command {
@@ -122,6 +123,10 @@ Publishing:
   claim                   Scope a remote MCP session to photons via claim code
     claim list              List active claim codes
     claim revoke <code>     Remove a claim code
+  auth <command>          Manage deployed MCP OAuth/JWT auth
+    auth init <name>        Create a local ES256 issuer
+    auth token <name>       Sign a short-lived scoped JWT
+    auth verify <name>      Verify a local-issuer JWT
 
 Maintenance:
   update                  Update the Photon CLI itself (not installed photons)
@@ -166,6 +171,7 @@ Run 'photon <command> --help' for detailed usage.
   registerAuditCommand(program);
   registerBuildCommand(program);
   registerClaimCommands(program);
+  registerAuthCommands(program);
 
   return program;
 }

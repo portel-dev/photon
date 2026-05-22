@@ -73,6 +73,7 @@ export const RESERVED_COMMANDS = [
   'enable',
   'disable',
   'claim',
+  'auth',
   // Help/version (handled by commander)
   'help',
   '--help',
@@ -125,6 +126,7 @@ const knownCommands = [
   'diagram',
   'diagrams',
   'claim',
+  'auth',
 ];
 
 const knownSubcommands: Record<string, string[]> = {
@@ -134,6 +136,7 @@ const knownSubcommands: Record<string, string[]> = {
   uninit: ['cli'],
   cf: ['bindings', 'set', 'reset'],
   config: ['set', 'get', 'list'],
+  auth: ['init', 'token', 'verify'],
 };
 
 // ══════════════════════════════════════════════════════════════════════════════

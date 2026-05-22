@@ -153,4 +153,5 @@ These let operators see CIMD vs DCR adoption, cache hit rate, and per-grant erro
 
 - `docs/guides/AUTH.md` : user-facing `@auth` guide for photon authors
 - `docs/guides/mcp-client-registration.md` : how to register as a CIMD or DCR client
+- `docs/internals/MCP-OAUTH-AUTHZ-PROPOSAL.md` : proposed deployed Photon MCP OAuth model
 - `_photon/plans/mcp-security-study.md` : full threat model and phase roadmap

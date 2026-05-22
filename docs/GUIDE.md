@@ -562,6 +562,7 @@ Place these in the JSDoc comment at the top of your `.photon.ts` file.
 | `@dependencies` | NPM packages to auto-install | `@dependencies axios@^1.0.0` |
 | `@mcp` | Inject MCP dependency | `@mcp github anthropics/mcp` |
 | `@photon` | Inject Photon dependency | `@photon utils ./utils.photon.ts` |
+| `@auth` | Configure MCP auth and populate `this.caller` | `@auth required` |
 | `@stateful` | Enable stateful mode | `@stateful true` |
 | `@idleTimeout` | Idle timeout in ms | `@idleTimeout 300000` |
 | `@ui` | Define UI template asset | `@ui main ./ui/index.html` |
@@ -580,6 +581,7 @@ Place these immediately preceding a tool method.
 | `@icon` | Tool icon (emoji/name) | `@icon 🧮` |
 | `@autorun` | Auto-run in UI | `@autorun` |
 | `@ui` | Link to UI template | `@ui main` |
+| `@scope` | Override the inferred OAuth scope for this tool | `@scope bookings:write` |
 
 ### Daemon Tags (Advanced)
 Enable background features handled by the Photon Daemon.

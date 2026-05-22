@@ -203,6 +203,12 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
       type: 'keyword',
     },
     { label: '@autorun', detail: 'Auto-execute in Beam UI', apply: '@autorun', type: 'keyword' },
+    {
+      label: '@scope',
+      detail: 'OAuth scopes required by this tool',
+      snippetTmpl: '@scope ${1:bookings:write}',
+      type: 'keyword',
+    },
     { label: '@async', detail: 'Run in background', apply: '@async', type: 'keyword' },
     {
       label: '@ui',

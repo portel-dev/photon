@@ -93,6 +93,32 @@ The `@auth` tag enables MCP OAuth 2.1 authentication, making `this.caller` avail
 4. Populates `this.caller` with `{ id, name, anonymous, scope, claims }`
 5. Upgrades `@locked` middleware to check `this.caller.id` against lock holder
 
+### Tool Scopes
+
+Photon infers one OAuth scope for every MCP tool when JWT auth is active:
+`<toolName>:read` for `@readOnly` methods and `<toolName>:write` for all other
+methods. Method-level `@scope` overrides that inferred scope.
+
+```typescript
+/**
+ * Change bookable availability.
+ * @scope availability:write
+ */
+async setAvailability(...) {}
+```
+
+Rules:
+
+- `@scope` is method-level only
+- `@scope a b` requires both `a` and `b`
+- repeated method-level `@scope` tags are additive
+- methods without `@scope` default to `<toolName>:read` or `<toolName>:write`
+- scopes are matched against the space-delimited JWT `scope` claim
+- `@audience user` and `@internal` do not grant authorization
+
+See [Securing MCP with JWT](../guides/MCP-JWT-AUTH.md) for the full deploy and
+token issuance flow.
+
 **`this.caller` properties:**
 
 | Property | Type | Description |
@@ -166,6 +192,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@internal` | Hide method from LLM and sidebar. Still callable by the runtime (e.g. scheduled jobs, system callbacks). | `@internal` |
 | `@use` | **Functional.** Apply custom or built-in middleware with inline config. | `@use audit {@level info}` |
 | `@title` | **MCP.** Human-readable display name for the tool. | `@title Create New Task` |
+| `@scope` | **MCP Auth.** Override the inferred OAuth scope required for this tool. | `@scope bookings:write` |
 | `@readOnly` | **MCP.** Tool has no side effects — safe for auto-approval. | `@readOnly` |
 | `@destructive` | **MCP.** Tool performs destructive operations — requires confirmation. | `@destructive` |
 | `@idempotent` | **MCP.** Tool is safe to retry — multiple calls produce same effect. | `@idempotent` |

@@ -19,6 +19,7 @@ import { extractHttpRoutesFromSource, type HttpRouteDef } from '../shared/http-r
 import { extractExposesFromSource, type ExposeDef } from '../shared/expose-route-extractor.js';
 import { AssetResolver } from '../asset-resolver.js';
 import { compileTsxSync } from '../tsx-compiler.js';
+import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -112,6 +113,51 @@ function parsePhotonPhotons(source: string): string[] {
     }
   }
   return Array.from(seen);
+}
+
+function parseToolScopesFromSource(source: string): Record<string, string[]> {
+  const scopesByMethod: Record<string, string[]> = {};
+  const classRe = /(\/\*\*[\s\S]*?\*\/)\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+/g;
+  const classScopes: string[] = [];
+  let classMatch;
+  while ((classMatch = classRe.exec(source)) !== null) {
+    for (const s of extractScopes(classMatch[1])) {
+      if (!classScopes.includes(s)) classScopes.push(s);
+    }
+  }
+  const methodRe =
+    /(\/\*\*[\s\S]*?\*\/)\s*(?:async\s+)?(?:public\s+|protected\s+|private\s+)?([A-Za-z_$][\w$]*)\s*\(/g;
+  let match;
+  while ((match = methodRe.exec(source)) !== null) {
+    const name = match[2];
+    if (name === 'constructor') continue;
+    const methodScopes = extractScopes(match[1]);
+    const merged: string[] = [];
+    for (const s of classScopes) if (!merged.includes(s)) merged.push(s);
+    for (const s of methodScopes) if (!merged.includes(s)) merged.push(s);
+    if (merged.length > 0) scopesByMethod[name] = merged;
+  }
+  return scopesByMethod;
+}
+
+function extractScopes(jsdoc: string): string[] {
+  const scopes: string[] = [];
+  const re = /@scope\s+([^\r\n*]+)/g;
+  let match;
+  while ((match = re.exec(jsdoc)) !== null) {
+    for (const scope of match[1].trim().split(/\s+/)) {
+      if (scope && !scopes.includes(scope)) scopes.push(scope);
+    }
+  }
+  return scopes;
+}
+
+function inferToolScopes(
+  tool: { name: string; readOnlyHint?: boolean },
+  explicitScopes?: string[]
+): string[] {
+  if (explicitScopes && explicitScopes.length > 0) return explicitScopes;
+  return [`${tool.name}:${tool.readOnlyHint ? 'read' : 'write'}`];
 }
 
 /**
@@ -362,6 +408,8 @@ export interface CloudflareDeployOptions {
   outputDir?: string;
   devMode?: boolean;
   dryRun?: boolean;
+  mcpAuth?: 'jwt' | 'bearer' | 'open';
+  mcpAudience?: string;
   /**
    * Enable Cloudflare Workers Logs in the generated `wrangler.toml`.
    * When true, every Worker invocation is captured in the CF dashboard
@@ -369,6 +417,28 @@ export interface CloudflareDeployOptions {
    * deployments stay minimal until the user explicitly wants observability.
    */
   withLogs?: boolean;
+}
+
+interface DeployJwtConfig {
+  mode: 'jwt';
+  issuer: string;
+  audience: string;
+  jwks: { keys: unknown[] };
+}
+
+async function loadDeployJwtConfig(photonName: string, audience: string): Promise<DeployJwtConfig> {
+  const authDir = path.join(
+    process.env.PHOTON_DIR || path.join(homedir(), '.photon'),
+    'auth',
+    photonName
+  );
+  const issuer = JSON.parse(
+    await fs.readFile(path.join(authDir, 'issuer.json'), 'utf-8')
+  ) as PhotonAuthIssuer;
+  const jwks = JSON.parse(await fs.readFile(path.join(authDir, 'jwks.json'), 'utf-8')) as {
+    keys: unknown[];
+  };
+  return { mode: 'jwt', issuer: issuer.issuer, audience, jwks };
 }
 
 /**
@@ -546,6 +616,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const exposeDefs: ExposeDef[] = extractExposesFromSource(sourceCode).filter(
     (e) => !routeHandlerNames.has(e.handler)
   );
+  const hostScopes = parseToolScopesFromSource(sourceCode);
   const toolDefs = metadata.tools
     .filter((tool: { name: string }) => !routeHandlerNames.has(tool.name))
     .map((tool: any) => ({
@@ -553,9 +624,23 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       description: tool.description,
       inputSchema: tool.inputSchema,
       ...(tool.simpleParams ? { simpleParams: true } : {}),
+      scopes: inferToolScopes(tool, hostScopes[tool.name]),
     }));
 
   const cfAccessEnabled = metadata.auth === 'cf-access';
+  const jwtAudience = options.mcpAudience || process.env.PHOTON_MCP_JWT_AUDIENCE;
+  if (options.mcpAuth === 'jwt' && !jwtAudience) {
+    throw new Error(
+      'MCP JWT auth requires an audience. Pass --mcp-audience <url> or set PHOTON_MCP_JWT_AUDIENCE.'
+    );
+  }
+  const jwtConfig =
+    options.mcpAuth === 'jwt' ? await loadDeployJwtConfig(photonName, jwtAudience!) : null;
+  if (jwtConfig) {
+    logger.warn(
+      'MCP JWT auth is enabled. Existing PHOTON_MCP_BEARER clients will not authenticate unless they switch to JWT.'
+    );
+  }
 
   logger.info(
     `Found ${toolDefs.length} tools, ${routeDefs.length} HTTP routes, ${exposeDefs.length} @expose'd methods`
@@ -674,6 +759,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     const sibExposes: ExposeDef[] = extractExposesFromSource(sibSource).filter(
       (e) => !sibRouteHandlers.has(e.handler)
     );
+    const sibScopes = parseToolScopesFromSource(sibSource);
     const sibTools = sibMeta.tools
       .filter((tool: { name: string }) => !sibRouteHandlers.has(tool.name))
       .map((tool: any) => ({
@@ -681,6 +767,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
         description: tool.description,
         inputSchema: tool.inputSchema,
         ...(tool.simpleParams ? { simpleParams: true } : {}),
+        scopes: inferToolScopes(tool, sibScopes[tool.name]),
       }));
     // Sibling-level @photons are not recursively bundled in v1 — flag so the
     // user knows their indirect dependency isn't carried along.
@@ -751,7 +838,11 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .replace(/__HOST_PHOTON_NAME__/g, photonName)
     .replace(/__HOST_BINDING__/g, 'PHOTON')
     .replace(/__DEV_MODE__/g, String(devMode))
-    .replace(/__CF_ACCESS_ENABLED__/g, String(cfAccessEnabled));
+    .replace(/__CF_ACCESS_ENABLED__/g, String(cfAccessEnabled))
+    .replace(/__MCP_AUTH_MODE__/g, JSON.stringify(jwtConfig?.mode ?? options.mcpAuth ?? 'legacy'))
+    .replace(/__MCP_JWT_ISSUER__/g, JSON.stringify(jwtConfig?.issuer ?? ''))
+    .replace(/__MCP_JWT_AUDIENCE__/g, JSON.stringify(jwtConfig?.audience ?? ''))
+    .replace(/__MCP_JWT_JWKS__/g, JSON.stringify(jwtConfig?.jwks ?? null));
 
   // Write photon source files (host + each sibling)
   await fs.writeFile(path.join(outputDir, 'src', 'worker.ts'), workerCode);

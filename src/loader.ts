@@ -2619,6 +2619,51 @@ export class PhotonLoader {
     return match[1]?.trim() || 'required';
   }
 
+  private extractToolScopesFromSource(source: string): Record<string, string[]> {
+    const scopesByMethod: Record<string, string[]> = {};
+    const classRe = /(\/\*\*[\s\S]*?\*\/)\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+/g;
+    const classScopes: string[] = [];
+    let classMatch;
+    while ((classMatch = classRe.exec(source)) !== null) {
+      for (const s of this.extractScopesFromDocblock(classMatch[1])) {
+        if (!classScopes.includes(s)) classScopes.push(s);
+      }
+    }
+    const methodRe =
+      /(\/\*\*[\s\S]*?\*\/)\s*(?:async\s+)?(?:public\s+|protected\s+|private\s+)?([A-Za-z_$][\w$]*)\s*\(/g;
+    let match;
+    while ((match = methodRe.exec(source)) !== null) {
+      const name = match[2];
+      if (name === 'constructor') continue;
+      const methodScopes = this.extractScopesFromDocblock(match[1]);
+      const merged: string[] = [];
+      for (const s of classScopes) if (!merged.includes(s)) merged.push(s);
+      for (const s of methodScopes) if (!merged.includes(s)) merged.push(s);
+      if (merged.length > 0) scopesByMethod[name] = merged;
+    }
+    return scopesByMethod;
+  }
+
+  private extractScopesFromDocblock(docblock: string): string[] {
+    const scopes: string[] = [];
+    const re = /@scope\s+([^\r\n*]+)/g;
+    let match;
+    while ((match = re.exec(docblock)) !== null) {
+      for (const scope of match[1].trim().split(/\s+/)) {
+        if (scope && !scopes.includes(scope)) scopes.push(scope);
+      }
+    }
+    return scopes;
+  }
+
+  private inferToolScopes(
+    tool: { name: string; readOnlyHint?: boolean },
+    explicitScopes?: string[]
+  ): string[] {
+    if (explicitScopes && explicitScopes.length > 0) return explicitScopes;
+    return [`${tool.name}:${tool.readOnlyHint ? 'read' : 'write'}`];
+  }
+
   /**
    * Reload a Photon MCP file (for hot reload)
    */
@@ -3007,6 +3052,10 @@ export class PhotonLoader {
           // Filter by method names that exist in the class; exclude HTTP-route methods from tools
           tools = metadata.tools.filter(
             (t) => methodNames.includes(t.name) && !routeHandlerNames.has(t.name)
+          );
+          const scopesByTool = this.extractToolScopesFromSource(source);
+          tools = tools.map(
+            (t) => ({ ...t, scopes: this.inferToolScopes(t, scopesByTool[t.name]) }) as typeof t
           );
           templates = metadata.templates.filter((t) => methodNames.includes(t.name));
           statics = metadata.statics.filter((s) => methodNames.includes(s.name));

@@ -207,6 +207,25 @@ async function writeFetchResponseToNode(
   }
 }
 
+export function rewriteBeamWebRedirectLocation(
+  location: string | null,
+  prefix: string,
+  requestOrigin: string
+): string | null {
+  if (!location) return null;
+
+  try {
+    const target = new URL(location, requestOrigin);
+    if (target.origin !== requestOrigin) return location;
+    if (target.pathname === prefix || target.pathname.startsWith(`${prefix}/`)) {
+      return target.pathname + target.search + target.hash;
+    }
+    return `${prefix}${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return location;
+  }
+}
+
 /**
  * Resolve raw icon image paths to MCP Icon[] format (data URIs)
  */
@@ -2411,6 +2430,30 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               const result: unknown = await fn.call(photonClass.instance, webReq);
 
               if (result instanceof Response) {
+                const prefix = `/web/${photonName}`;
+                if (result.status >= 300 && result.status < 400) {
+                  const responseHeaders: Record<string, string> = {};
+                  result.headers.forEach((value, key) => {
+                    if (key.toLowerCase() !== 'location') responseHeaders[key] = value;
+                  });
+                  const location = rewriteBeamWebRedirectLocation(
+                    result.headers.get('location'),
+                    prefix,
+                    internalUrl.origin
+                  );
+                  if (location) {
+                    responseHeaders.location = location;
+                  }
+
+                  const body = Buffer.from(await result.arrayBuffer());
+                  if (body.length > 0) {
+                    responseHeaders['content-length'] = String(body.length);
+                  }
+                  res.writeHead(result.status, responseHeaders);
+                  res.end(body.length > 0 ? body : undefined);
+                  return;
+                }
+
                 const contentType = result.headers.get('content-type') || '';
                 if (!contentType.includes('text/html')) {
                   await writeFetchResponseToNode(result, res);
@@ -2424,7 +2467,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                   responseHeaders[key] = value;
                 });
                 let body = Buffer.from(await result.arrayBuffer());
-                const prefix = `/web/${photonName}`;
                 const interceptor = `<script>
 (function(){
   const _prefix="${prefix}";

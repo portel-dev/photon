@@ -178,6 +178,7 @@ This compiles your photon, generates a `wrangler.toml`, and deploys via Wrangler
 | `this.sample` / `this.confirm` / `this.elicit` | Forwarded over the SSE response stream |
 | `@get /path` / `@post /path` | Dispatched by the Worker fetch handler before MCP routing |
 | `@env MY_KEY` | Read from `wrangler.toml` `[vars]` or CF Secrets |
+| `--mcp-auth jwt` | Protect MCP `tools/call` with signed, scoped JWTs |
 | `@auth cf-access` | Each CF Access email maps to its own DO instance |
 
 For the full `this.cf.*` reference and the local miniflare sandbox that mirrors a deployed Worker, see [CF-BINDINGS.md](CF-BINDINGS.md).
@@ -253,9 +254,46 @@ export default class Summarizer {
 }
 ```
 
-### MCP transport-level bearer auth (`/mcp`)
+### MCP transport-level JWT auth (`/mcp`)
 
-By default, `/mcp` on a deployed photon is open — anyone who knows the URL can hit `tools/list` and `tools/call`. To require a bearer token, set the `PHOTON_MCP_BEARER` secret on the deployed Worker:
+For new deployments, prefer short-lived scoped JWTs over a shared bearer
+secret:
+
+```bash
+photon auth init appointments
+photon host deploy cf appointments \
+  --mcp-auth jwt \
+  --mcp-audience https://appointments.example.com/mcp
+photon auth token appointments \
+  --agent scheduler \
+  --audience https://appointments.example.com/mcp \
+  --scope bookings:write \
+  --ttl 15m
+```
+
+By default, `@readOnly` tools require `<toolName>:read` and other tools require
+`<toolName>:write`. Add method-level `@scope` only when you want a different
+permission name:
+
+```typescript
+/**
+ * Book a consultation slot.
+ * @scope bookings:write
+ */
+async book(...) {}
+```
+
+When JWT auth is active, `tools/call` rejects missing or invalid tokens with
+`401`, rejects missing scopes with `403`, and populates `this.caller` from the
+JWT claims before user code runs. See [Securing MCP with JWT](MCP-JWT-AUTH.md)
+for the complete flow.
+
+### Legacy MCP bearer auth (`/mcp`)
+
+By default, `/mcp` on a deployed photon is open — anyone who knows the URL can
+hit `tools/list` and `tools/call`. For simple or legacy deployments, you can
+require a shared bearer token by setting the `PHOTON_MCP_BEARER` secret on the
+deployed Worker:
 
 ```bash
 wrangler secret put PHOTON_MCP_BEARER

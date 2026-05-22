@@ -620,16 +620,14 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
       const data = await res.json();
       photons = data.photons || [];
       if (photons.length === 0) {
-        const [toolsRes, statusRes] = await Promise.all([
-          fetch('/api/tools', { signal: AbortSignal.timeout(10000) }),
-          fetch('/api/status', { signal: AbortSignal.timeout(5000) }).catch(() => null),
-        ]);
-        const toolsData = await toolsRes.json();
+        const statusRes = await fetch('/api/status', {
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => null);
         const statusData = statusRes?.ok ? await statusRes.json() : {};
         photons = [{
           name: statusData.photon || 'current',
           file: '',
-          tools: toolsData.tools || [],
+          tools: [],
         }];
       }
       // Flatten all tools from all photons
@@ -947,45 +945,24 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
       document.getElementById('output').textContent = '// Waiting for response...';
 
       try {
-        const response = await fetch('/api/call-stream', {
+        const response = await fetch('/mcp', {
           method: 'POST',
-          body: JSON.stringify({ tool: selectedTool.name, args, progressToken, requestId }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: requestId,
+            method: 'tools/call',
+            params: { name: selectedTool.name, arguments: args },
+          }),
           signal: AbortSignal.timeout(120000), // 2min for tool calls
         });
 
-        if (!response.ok || !response.body) {
+        if (!response.ok) {
           throw new Error('Unable to start tool execution');
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let finished = false;
-
-        while (!finished) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const segments = buffer.split('\\n\\n');
-          buffer = segments.pop() || '';
-
-          for (const segment of segments) {
-            const dataLine = segment.split('\\n').find(line => line.startsWith('data: '));
-            if (!dataLine) continue;
-            let payload;
-            try {
-              payload = JSON.parse(dataLine.slice(6));
-            } catch (e) {
-              console.error('Invalid payload from server', e);
-              continue;
-            }
-            if (handleServerMessage(payload)) {
-              finished = true;
-              break;
-            }
-          }
-        }
+        const payload = await response.json();
+        handleServerMessage(normalizeMcpToolResult(payload, requestId));
       } catch (err) {
         document.getElementById('output').innerHTML = '<span style="color: #ef4444;">Error: ' + err.message + '</span>';
         switchTab('data');
@@ -1043,6 +1020,19 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
       }
 
       return false;
+    }
+
+    function normalizeMcpToolResult(payload, requestId) {
+      if (!payload || payload.error) return payload;
+      const result = payload.result || {};
+      const data = Object.prototype.hasOwnProperty.call(result, 'structuredContent')
+        ? result.structuredContent
+        : result.content;
+      return {
+        jsonrpc: '2.0',
+        id: payload.id || requestId,
+        result: { success: true, data },
+      };
     }
 
     async function handleResult(result) {

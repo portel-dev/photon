@@ -31,6 +31,7 @@ import { detectIsolationMode } from './shared/cross-origin-headers.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import type { JsonWebKey } from 'node:crypto';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import { PhotonClassExtended } from '@portel/photon-core';
@@ -62,7 +63,7 @@ import {
   type ChannelPermissionResponse,
 } from './channel-manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
-import { isLocalRequest, readBody, setSecurityHeaders, getCorsOrigin } from './shared/security.js';
+import { isLocalRequest, setSecurityHeaders, getCorsOrigin } from './shared/security.js';
 import { audit } from './shared/audit.js';
 import { TaskExecutor } from './task-executor.js';
 import { CapabilityNegotiator } from './capability-negotiator.js';
@@ -77,6 +78,29 @@ import type {
   MCPTextContent,
   MCPToolResponse,
 } from './types/server-types.js';
+import { verifyPhotonAuthToken } from './auth/mcp-jwt.js';
+import { loadPhotonAuth } from './cli/commands/auth.js';
+
+let cachedJwtProfile: {
+  name: string;
+  issuer: string;
+  jwks: { keys: JsonWebKey[] };
+} | null = null;
+
+async function loadJwtProfile(
+  name: string
+): Promise<{ issuer: string; jwks: { keys: JsonWebKey[] } } | null> {
+  if (cachedJwtProfile && cachedJwtProfile.name === name) {
+    return { issuer: cachedJwtProfile.issuer, jwks: cachedJwtProfile.jwks };
+  }
+  try {
+    const loaded = await loadPhotonAuth(name);
+    cachedJwtProfile = { name, issuer: loaded.issuer.issuer, jwks: loaded.jwks };
+    return { issuer: loaded.issuer.issuer, jwks: loaded.jwks };
+  } catch {
+    return null;
+  }
+}
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -400,6 +424,53 @@ interface SubPhotonInfo {
   tools: any[]; // MCP tool definitions (name, description, inputSchema)
 }
 
+function localMcpAuthMode(): string {
+  return process.env.PHOTON_MCP_AUTH_MODE || (process.env.PHOTON_MCP_BEARER ? 'bearer' : 'legacy');
+}
+
+function authHeaderToken(req: IncomingMessage): string | null {
+  const header = req.headers.authorization ?? '';
+  const match = Array.isArray(header)
+    ? header[0]?.match(/^Bearer\s+(.+)$/i)
+    : header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : null;
+}
+
+function unauthorizedJson(
+  res: ServerResponse,
+  id: unknown,
+  status: number,
+  code: number,
+  message: string,
+  reason: string,
+  wwwAuthenticate: string,
+  corsOrigin?: string
+): void {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'WWW-Authenticate': wwwAuthenticate,
+  };
+  if (corsOrigin) headers['Access-Control-Allow-Origin'] = corsOrigin;
+  res.writeHead(status, headers);
+  res.end(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: id ?? null,
+      error: { code, message, data: { reason } },
+    })
+  );
+}
+
+function mcpTokenMatches(actual: string | null, expected: string | undefined): boolean {
+  if (!actual || !expected) return false;
+  const actualBytes = Buffer.from(actual);
+  const expectedBytes = Buffer.from(expected);
+  return (
+    actualBytes.length === expectedBytes.length &&
+    crypto.timingSafeEqual(actualBytes, expectedBytes)
+  );
+}
+
 class BeamCompatTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -411,6 +482,8 @@ class BeamCompatTransport implements Transport {
 
   /** Sub-photons whose tools are injected into tools/list alongside the main photon. */
   subPhotons: SubPhotonInfo[] = [];
+  /** Main photon tools, mirrored so auth can enforce scopes before dispatch. */
+  mainTools: any[] = [];
   /** Callback to execute a tool on a sub-photon by name. */
   subPhotonExecutor?: (photonName: string, method: string, args: any) => Promise<any>;
 
@@ -507,6 +580,20 @@ class BeamCompatTransport implements Transport {
     }
   }
 
+  private requiredScopesForTool(fullToolName: string): string[] {
+    const slashIdx = fullToolName.indexOf('/');
+    const targetPhoton = slashIdx === -1 ? this.photonName : fullToolName.slice(0, slashIdx);
+    const methodName = slashIdx === -1 ? fullToolName : fullToolName.slice(slashIdx + 1);
+    const tools =
+      targetPhoton === this.photonName
+        ? this.mainTools
+        : this.subPhotons.find((sub) => sub.name === targetPhoton)?.tools;
+    const scopes = tools?.find((tool) => tool.name === methodName)?.scopes;
+    return Array.isArray(scopes)
+      ? scopes.filter((scope): scope is string => typeof scope === 'string')
+      : [];
+  }
+
   async handleHTTP(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     const corsOrigin = getCorsOrigin(req);
 
@@ -562,6 +649,92 @@ class BeamCompatTransport implements Transport {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
         return;
+      }
+
+      const authMode = localMcpAuthMode();
+      const dispatchesUserCode = parsed?.method === 'tools/call';
+      const requiredScopes =
+        dispatchesUserCode && typeof parsed?.params?.name === 'string'
+          ? this.requiredScopesForTool(parsed.params.name)
+          : [];
+      let jwtClaims: Record<string, unknown> | undefined;
+      if (dispatchesUserCode && authMode === 'jwt') {
+        let jwks: { keys: JsonWebKey[] } | null = null;
+        let issuer: string | undefined;
+        const profileName = process.env.PHOTON_MCP_JWT_PROFILE;
+        if (profileName) {
+          const profile = await loadJwtProfile(profileName);
+          if (profile) {
+            issuer = profile.issuer;
+            jwks = profile.jwks;
+          }
+        } else {
+          try {
+            jwks = process.env.PHOTON_MCP_JWT_JWKS
+              ? (JSON.parse(process.env.PHOTON_MCP_JWT_JWKS) as { keys: JsonWebKey[] })
+              : null;
+          } catch {
+            jwks = null;
+          }
+          issuer = process.env.PHOTON_MCP_JWT_ISSUER;
+        }
+        const audience = process.env.PHOTON_MCP_JWT_AUDIENCE;
+        if (!issuer || !audience || !jwks) {
+          unauthorizedJson(
+            res,
+            parsed.id,
+            401,
+            -32001,
+            'Unauthorized',
+            'missing_token',
+            'Bearer realm="photon", error="invalid_token"',
+            corsOrigin
+          );
+          return;
+        }
+        const result = verifyPhotonAuthToken(authHeaderToken(req), {
+          issuer,
+          audience,
+          jwks,
+          requiredScopes,
+        });
+        if (!result.ok) {
+          const insufficientScope = result.reason === 'insufficient_scope';
+          unauthorizedJson(
+            res,
+            parsed.id,
+            insufficientScope ? 403 : 401,
+            insufficientScope ? -32003 : -32001,
+            insufficientScope ? 'Forbidden' : 'Unauthorized',
+            result.reason,
+            insufficientScope
+              ? `Bearer realm="photon", error="insufficient_scope", scope="${requiredScopes.join(' ')}"`
+              : 'Bearer realm="photon", error="invalid_token"',
+            corsOrigin
+          );
+          return;
+        }
+        jwtClaims = result.claims;
+      } else if (dispatchesUserCode && authMode === 'bearer') {
+        const expected = process.env.PHOTON_MCP_BEARER;
+        const token = authHeaderToken(req);
+        if (!mcpTokenMatches(token, expected)) {
+          unauthorizedJson(
+            res,
+            parsed.id,
+            401,
+            -32001,
+            'Unauthorized',
+            !expected
+              ? 'Authorization: Bearer <token> header missing'
+              : token
+                ? 'bearer token does not match PHOTON_MCP_BEARER'
+                : 'Authorization: Bearer <token> header missing',
+            'Bearer realm="photon"',
+            corsOrigin
+          );
+          return;
+        }
       }
 
       // Transform incoming tools/call: strip photonName/ prefix from tool name
@@ -622,11 +795,16 @@ class BeamCompatTransport implements Transport {
       // claims ride on the SDK's MessageExtraInfo.authInfo.extra, which
       // the protocol layer propagates to setRequestHandler's `extra` arg.
       const { extractClaimsFromHeaders } = await import('./shared/extract-claims.js');
-      const claims = extractClaimsFromHeaders(req.headers);
+      const claims = jwtClaims ?? extractClaimsFromHeaders(req.headers);
       const messageExtra = claims
         ? {
             sessionId: this.sessionId,
-            authInfo: { token: '', clientId: '', scopes: [], extra: claims },
+            authInfo: {
+              token: '',
+              clientId: typeof claims.client_id === 'string' ? claims.client_id : '',
+              scopes: typeof claims.scope === 'string' ? claims.scope.split(/\s+/) : [],
+              extra: claims,
+            },
           }
         : { sessionId: this.sessionId };
 
@@ -1326,6 +1504,7 @@ export class PhotonServer {
       );
       if (schema.outputFormat) toolDef['x-output-format'] = schema.outputFormat;
       if (schema.layoutHints) toolDef['x-layout-hints'] = schema.layoutHints;
+      if ((schema as any).scopes) toolDef.scopes = (schema as any).scopes;
       if (schema.buttonLabel) toolDef['x-button-label'] = schema.buttonLabel;
       if (schema.icon) toolDef['x-icon'] = schema.icon;
       if (schema.autorun) toolDef['x-autorun'] = true;
@@ -1628,11 +1807,23 @@ export class PhotonServer {
     const outputFormat = tool?.outputFormat;
 
     const startTime = Date.now();
+    const claims = extra?.authInfo?.extra;
+    const caller =
+      claims && typeof claims.sub === 'string'
+        ? {
+            id: claims.sub,
+            name: typeof claims.name === 'string' ? claims.name : undefined,
+            anonymous: false,
+            scope: typeof claims.scope === 'string' ? claims.scope : undefined,
+            claims,
+          }
+        : undefined;
     const result = await this.loader.executeTool(targetMcp, toolName, args || {}, {
       inputProvider,
       outputHandler,
       samplingProvider,
       roots: this.rootsByServer.get(ctx.server),
+      caller,
     });
     const durationMs = Date.now() - startTime;
     const transport = this.options.transport || 'stdio';
@@ -2778,6 +2969,12 @@ export class PhotonServer {
         (msg: any) => this.channelManager.interceptPermissionRequest(msg)
       );
       await this.server.connect(beamTransport);
+      beamTransport.mainTools = (this.mcp?.tools || [])
+        .filter((t: any) => !t.internal)
+        .map((t: any) => ({
+          name: t.name,
+          scopes: Array.isArray(t.scopes) ? t.scopes : [],
+        }));
 
       // Wire sub-photons: collect all loaded photons except the main one
       const mainName = this.mcp?.name || 'photon';
@@ -2805,6 +3002,7 @@ export class PhotonServer {
               name: t.name,
               description: t.description || '',
               inputSchema: t.inputSchema,
+              ...(Array.isArray((t as any).scopes) ? { scopes: (t as any).scopes } : {}),
               ...(linkedUI ? { linkedUi: linkedUI.id } : {}),
             };
           });
@@ -2949,33 +3147,6 @@ export class PhotonServer {
             return;
           }
 
-          // API: List tools (for compatibility, now returns current photon)
-          if (req.method === 'GET' && url.pathname === '/api/tools') {
-            const toolHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (corsOrigin) toolHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-            res.writeHead(200, toolHeaders);
-            const tools =
-              this.mcp?.tools.map((tool) => {
-                const linkedUI = this.mcp?.assets?.ui.find(
-                  (u) => u.linkedTool === tool.name || u.linkedTools?.includes(tool.name)
-                );
-                return {
-                  name: tool.name,
-                  description: tool.description,
-                  inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)),
-                  ui: linkedUI
-                    ? { id: linkedUI.id, uri: `ui://${this.mcp!.name}/${linkedUI.id}` }
-                    : null,
-                };
-              }) || [];
-            // Resolve @choice-from fields
-            for (const tool of tools) {
-              await this.resolveChoiceFromFields(tool);
-            }
-            res.end(JSON.stringify({ tools }));
-            return;
-          }
-
           if (req.method === 'GET' && url.pathname === '/api/status') {
             const statusHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
             if (corsOrigin) statusHeaders['Access-Control-Allow-Origin'] = corsOrigin;
@@ -2988,156 +3159,6 @@ export class PhotonServer {
             this.handleStatusStream(req, res);
             return;
           }
-        }
-
-        // API: Call tool
-        if (req.method === 'POST' && url.pathname === '/api/call') {
-          // Security: restrict CORS to localhost and require local request
-          if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
-          res.setHeader('Content-Type', 'application/json');
-
-          if (!isLocalRequest(req)) {
-            res.writeHead(403);
-            res.end(JSON.stringify({ success: false, error: 'Forbidden: non-local request' }));
-            return;
-          }
-
-          if (!this.mcp) {
-            res.writeHead(503);
-            res.end(JSON.stringify({ success: false, error: 'Photon not loaded' }));
-            return;
-          }
-
-          try {
-            const body = await readBody(req);
-            const { tool, args } = JSON.parse(body);
-            const result = await this.loader.executeTool(this.mcp, tool, args || {});
-            const isStateful = result && typeof result === 'object' && result._stateful === true;
-            res.writeHead(200);
-            res.end(
-              JSON.stringify({
-                success: true,
-                data: isStateful ? result.result : result,
-              })
-            );
-          } catch (error: any) {
-            const status = error.message?.includes('too large') ? 413 : 500;
-            res.writeHead(status);
-            res.end(JSON.stringify({ success: false, error: getErrorMessage(error) }));
-          }
-          return;
-        }
-
-        // API: Call tool with streaming progress (SSE)
-        if (req.method === 'POST' && url.pathname === '/api/call-stream') {
-          if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache');
-          res.setHeader('Connection', 'keep-alive');
-
-          if (!this.mcp) {
-            res.writeHead(503, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: false, error: 'Photon not loaded' }));
-            return;
-          }
-
-          let body = '';
-          req.on('data', (chunk) => (body += chunk));
-          req.on('end', () => {
-            void (async () => {
-              let requestId = `run_${Date.now()}`;
-
-              const sendMessage = (message: Record<string, any>) => {
-                res.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
-              };
-
-              try {
-                const payload = JSON.parse(body || '{}');
-                const tool = payload.tool;
-                if (!tool) {
-                  throw new Error('Tool name is required');
-                }
-                const args = payload.args || {};
-                const progressToken = payload.progressToken ?? `progress_${Date.now()}`;
-                requestId = payload.requestId || requestId;
-
-                const sendNotification = (method: string, params: Record<string, any>) => {
-                  sendMessage({ jsonrpc: '2.0', method, params });
-                };
-
-                const reportProgress = (emit: any) => {
-                  const rawValue = typeof emit?.value === 'number' ? emit.value : 0;
-                  const percent = rawValue <= 1 ? rawValue * 100 : rawValue;
-                  const payload = emit?.value ?? emit?.data;
-                  sendNotification('notifications/progress', {
-                    progressToken,
-                    progress: percent,
-                    total: 100,
-                    message: emit?.message || null,
-                    ...(payload !== undefined && typeof payload !== 'number'
-                      ? { data: payload }
-                      : {}),
-                  });
-                };
-
-                const outputHandler = (emit: any) => {
-                  if (!emit) return;
-                  if (emit.emit === 'progress') {
-                    reportProgress(emit);
-                  } else if (emit.emit === 'status') {
-                    sendNotification('notifications/status', {
-                      type: emit.type || 'info',
-                      message: emit.message || '',
-                    });
-                  } else if (emit.emit === 'render') {
-                    sendNotification('notifications/render', {
-                      format: emit.format,
-                      value: emit.value,
-                    });
-                  } else if (emit.emit === 'render:clear') {
-                    sendNotification('notifications/render', { clear: true });
-                  } else {
-                    sendNotification('notifications/emit', { event: emit });
-                  }
-                  // Forward channel events to daemon for cross-process pub/sub
-                  this.channelManager.publishIfChannel(emit);
-                };
-
-                sendNotification('notifications/status', {
-                  type: 'info',
-                  message: `Starting ${tool}`,
-                });
-
-                const result = await this.loader.executeTool(this.mcp!, tool, args, {
-                  outputHandler,
-                });
-                const isStateful =
-                  result && typeof result === 'object' && result._stateful === true;
-
-                sendMessage({
-                  jsonrpc: '2.0',
-                  id: requestId,
-                  result: {
-                    success: true,
-                    data: isStateful ? result.result : result,
-                  },
-                });
-                res.end();
-              } catch (error) {
-                const message = getErrorMessage(error);
-                const errorPayload: Record<string, any> = {
-                  jsonrpc: '2.0',
-                  error: { code: -32000, message },
-                };
-                if (requestId) {
-                  errorPayload.id = requestId;
-                }
-                sendMessage(errorPayload);
-                res.end();
-              }
-            })();
-          });
-          return;
         }
 
         // API: Get UI template (and directory-style siblings for SPA bundles).

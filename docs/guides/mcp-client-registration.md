@@ -1,5 +1,10 @@
 # Registering an MCP Client with a Photon AS
 
+> This guide covers the hosted Photon authorization-server path for MCP
+> clients. For the simpler single-tenant local-issuer flow that secures
+> deployed MCP tool calls with scoped JWTs, see
+> [Securing MCP with JWT](MCP-JWT-AUTH.md).
+
 Photon's authorization server accepts MCP clients via two paths: Client ID Metadata Documents (CIMD, the preferred modern approach) and Dynamic Client Registration (DCR, RFC 7591, kept for back-compat). This guide shows which to use, when, and how.
 
 ## tl;dr: which path should I use?

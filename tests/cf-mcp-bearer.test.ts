@@ -158,7 +158,7 @@ describe('CF /mcp bearer auth — helpers', () => {
       expect(tmpl).toContain('mcpAuthContext = new AsyncLocalStorage');
       expect(tmpl).toContain('function checkMcpBearer(');
       expect(tmpl).toContain('MCP_METHODS_BYPASSING_BEARER');
-      expect(tmpl).toContain("'WWW-Authenticate': 'Bearer realm=\"photon\"'");
+      expect(tmpl).toContain('wwwAuthenticate: \'Bearer realm="photon"\'');
       expect(tmpl).toContain("Object.defineProperty(instance, 'mcpAuthed'");
     });
   });

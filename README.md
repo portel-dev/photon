@@ -550,6 +550,8 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | `@param ... {@format email}` | Param | Input validation and field type |
 | `@param ... {@min N} {@max N}` | Param | Numeric range constraints |
 | `@ui` | Class/Method | Link a custom HTML template |
+| `@auth` | Class | Require or describe MCP authentication and populate `this.caller` |
+| `@scope` | Method | Override the inferred OAuth scope for a protected MCP tool call |
 | `@expose` | Method | Auto-bind to `POST /api/<kebab>` for SPA fetch (`public` skips the SameSite gate) |
 | `@get /path` | Method | HTTP-only GET route; shown as a web app in Beam, not an MCP tool. Supports `:param` segments |
 | `@post /path` | Method | HTTP-only POST route; shown as a web app in Beam, not an MCP tool. Supports `:param` segments |
@@ -574,6 +576,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 |---|---|
 | [Getting Started](./docs/getting-started.md) | Install, build, and run your first photon in 5 minutes |
 | [Core Concepts](./docs/concepts.md) | The 6 ideas behind Photon |
+| [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) | Public reference for every docblock tag Photon understands |
 | [Output Formats](./docs/formats.md) | Visual gallery of every `@format` type |
 | [Intent Metadata](./docs/reference/INTENT-METADATA.md) | How comments, schemas, annotations, and formats map to native surfaces |
 | [Settings](./docs/GUIDE.md#settings-user-configurable-knobs) | Declare runtime knobs with `protected settings` (the canonical config pattern) |
@@ -585,6 +588,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 |---|---|
 | [Custom UI](./docs/guides/CUSTOM-UI.md) | Build rich interactive interfaces with the photon bridge API |
 | [OAuth](./docs/guides/AUTH.md) | Built-in OAuth 2.0 with Google, GitHub, Microsoft |
+| [MCP JWT Auth](./docs/guides/MCP-JWT-AUTH.md) | Secure deployed MCP tool calls with short-lived scoped JWTs |
 | [MCP Client Registration](./docs/guides/mcp-client-registration.md) | Register MCP clients with Photon's AS via CIMD or DCR |
 | [Observability](./docs/guides/observability.md) | OpenTelemetry traces, metrics, logs, and structured errors |
 | [Protocol Features](./docs/guides/PROTOCOL-FEATURES.md) | Capability handshake, structured errors, trace correlation |
@@ -603,7 +607,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | [Marketplace Publishing](./docs/guides/MARKETPLACE-PUBLISHING.md) | Create and share team marketplaces |
 | [Best Practices](./docs/guides/BEST-PRACTICES.md) | Patterns for production photons |
 
-**Reference:** [Complete Developer Guide](./docs/GUIDE.md) · [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) · [Naming Conventions](./docs/guides/NAMING-CONVENTIONS.md) · [Architecture](./docs/internals/ARCHITECTURE.md) · [OAuth Authorization Server](./docs/internals/OAUTH-AUTHORIZATION-SERVER.md) · [Lifecycle & Ingress](./docs/internals/LIFECYCLE-AND-INGRESS.md) · [PHOTON_DIR & Namespace](./docs/internals/PHOTON-DIR-AND-NAMESPACE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
+**Reference:** [Complete Developer Guide](./docs/GUIDE.md) · [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) · [Naming Conventions](./docs/guides/NAMING-CONVENTIONS.md) · [Architecture](./docs/internals/ARCHITECTURE.md) · [Lifecycle & Ingress](./docs/internals/LIFECYCLE-AND-INGRESS.md) · [PHOTON_DIR & Namespace](./docs/internals/PHOTON-DIR-AND-NAMESPACE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
 
 ---
 

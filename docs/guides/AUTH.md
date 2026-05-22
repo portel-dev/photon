@@ -1,5 +1,11 @@
 # OAuth Authentication
 
+> This guide is about photons requesting third-party OAuth tokens, such as
+> GitHub or Google tokens, on behalf of a user. To secure deployed MCP tool
+> calls from agents, see [Securing MCP with JWT](MCP-JWT-AUTH.md). To register
+> MCP clients with Photon's authorization server, see
+> [Registering an MCP Client with a Photon AS](mcp-client-registration.md).
+
 Photon's OAuth system lets photons request third-party API tokens on behalf of users. It implements OAuth 2.1 with PKCE, HMAC-signed state, and per-tenant encrypted token storage.
 
 ## Table of Contents
