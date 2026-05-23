@@ -108,6 +108,21 @@ async function testDepProxy() {
     pendingDepCalls.clear();
   });
 
+  await test('tool methods starting with on are still dep_call methods', () => {
+    const { proxy, sent, pendingDepCalls } = makeProxy('calendar', ['onboard']);
+    void proxy.onboard({ userId: 'u1' });
+
+    assert.deepEqual(sent[0], {
+      type: 'dep_call',
+      id: 'id-1',
+      depName: 'calendar',
+      method: 'onboard',
+      args: { userId: 'u1' },
+    });
+    assert.equal(pendingDepCalls.size, 1);
+    pendingDepCalls.clear();
+  });
+
   await test('dep_call promise resolves from the pending call map', async () => {
     const { proxy, pendingDepCalls } = makeProxy();
     const resultPromise = proxy.status();
@@ -176,6 +191,21 @@ async function testDepProxyEvents() {
 
     broker.dispatch('telegram:message', { text: 'after off' });
     assert.deepEqual(received, []);
+  });
+
+  await test('.off() removes only the requested event for a reused handler', async () => {
+    const { proxy, broker } = makeProxy('telegram', []);
+    const received: unknown[] = [];
+    const handler = (data: unknown) => received.push(data);
+
+    proxy.on('message', handler);
+    proxy.on('status', handler);
+    proxy.off('message', handler);
+    await Promise.resolve();
+
+    broker.dispatch('telegram:message', { text: 'message should be off' });
+    broker.dispatch('telegram:status', { text: 'status should remain' });
+    assert.deepEqual(received, [{ text: 'status should remain' }]);
   });
 
   await test('unsubscribe function returned by .on() disables delivery', async () => {

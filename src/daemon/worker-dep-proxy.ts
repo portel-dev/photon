@@ -47,24 +47,38 @@ export function createWorkerDepProxy({
   timeoutMs = 120_000,
 }: WorkerDepProxyOptions): any {
   const toolSet = new Set(remoteToolNames);
-  const subscriptions = new Map<ChannelHandler, Promise<Subscription>>();
+  const subscriptions = new Map<string, Map<ChannelHandler, Promise<Subscription>>>();
 
   const subscribe = (event: string, handler: (data: unknown) => void): (() => void) => {
     const channel = depEventChannel(depName, event);
     const wrapped: ChannelHandler = (message) => handler(eventPayload(message));
     const subscription = broker.subscribe(channel, wrapped);
-    subscriptions.set(handler as ChannelHandler, subscription);
+    const handlerKey = handler as ChannelHandler;
+    let eventSubscriptions = subscriptions.get(event);
+    if (!eventSubscriptions) {
+      eventSubscriptions = new Map();
+      subscriptions.set(event, eventSubscriptions);
+    }
+    eventSubscriptions.set(handlerKey, subscription);
 
     return () => {
-      subscriptions.delete(handler as ChannelHandler);
+      eventSubscriptions.delete(handlerKey);
+      if (eventSubscriptions.size === 0) {
+        subscriptions.delete(event);
+      }
       void subscription.then((sub) => sub.unsubscribe());
     };
   };
 
-  const unsubscribe = (handler: (data: unknown) => void): void => {
-    const subscription = subscriptions.get(handler as ChannelHandler);
+  const unsubscribe = (event: string, handler: (data: unknown) => void): void => {
+    const eventSubscriptions = subscriptions.get(event);
+    if (!eventSubscriptions) return;
+    const subscription = eventSubscriptions.get(handler as ChannelHandler);
     if (!subscription) return;
-    subscriptions.delete(handler as ChannelHandler);
+    eventSubscriptions.delete(handler as ChannelHandler);
+    if (eventSubscriptions.size === 0) {
+      subscriptions.delete(event);
+    }
     void subscription.then((sub) => sub.unsubscribe());
   };
 
@@ -77,7 +91,7 @@ export function createWorkerDepProxy({
       }
 
       if (prop === 'off') {
-        return (_event: string, handler: (data: unknown) => void) => unsubscribe(handler);
+        return (event: string, handler: (data: unknown) => void) => unsubscribe(event, handler);
       }
 
       if (prop === 'emit') {
@@ -89,11 +103,6 @@ export function createWorkerDepProxy({
             timestamp: Date.now(),
             source: depName,
           });
-      }
-
-      const eventName = eventNameFromOnProperty(prop);
-      if (eventName) {
-        return (handler: (data: unknown) => void) => subscribe(eventName, handler);
       }
 
       if (toolSet.has(prop)) {
@@ -110,6 +119,11 @@ export function createWorkerDepProxy({
             }, timeoutMs);
           });
         };
+      }
+
+      const eventName = eventNameFromOnProperty(prop);
+      if (eventName) {
+        return (handler: (data: unknown) => void) => subscribe(eventName, handler);
       }
 
       return undefined;
