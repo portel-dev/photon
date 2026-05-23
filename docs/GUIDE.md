@@ -1593,6 +1593,14 @@ daemon registers the timer immediately and persists the schedule to
 `{base}/.data/{photon}/schedules/{uuid}.json`. Cancellation (by id or
 name) unlinks the file and evicts the timer in one step.
 
+For domain-owned jobs that must be cancelled or replaced later, treat
+`name` as the recomputable application key and keep `id` opaque. For
+example, a booking photon can create
+`booking:<bookingId>:reminder:24h`, then call `cancelByName()` when the
+booking is cancelled or moved. The local runtime and Cloudflare deploy
+surface both support `getByName`, `cancelByName`, `has`, `pause`, and
+`resume`.
+
 > **Pre-1.27.0 gotcha (fixed)**: an `enable_schedule` method that called
 > `cancelByName` followed by `create` could silently end up with no
 > active timer if the daemon was in a recovery window. Fixed in v1.27.0.

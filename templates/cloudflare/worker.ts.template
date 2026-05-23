@@ -235,6 +235,14 @@ function createScheduleProvider(ctx: DurableObjectState, photonId: string) {
       if (ok) await rescheduleAlarm(ctx);
       return ok;
     },
+    async cancelByName(name: string): Promise<boolean> {
+      const task = await this.getByName(name);
+      if (!task) return false;
+      return this.cancel(task.id);
+    },
+    async has(name: string): Promise<boolean> {
+      return (await this.getByName(name)) !== null;
+    },
     async update(
       id: string,
       updates: Partial<
@@ -248,6 +256,28 @@ function createScheduleProvider(ctx: DurableObjectState, photonId: string) {
         ...updates,
         cron: updates.schedule ? resolveCron(updates.schedule) : cur.cron,
       };
+      await ctx.storage.put(SCHEDULE_PREFIX + id, next);
+      await rescheduleAlarm(ctx);
+      return next;
+    },
+    async pause(id: string): Promise<ScheduledTask> {
+      const cur = await ctx.storage.get<ScheduledTask>(SCHEDULE_PREFIX + id);
+      if (!cur) throw new Error(`Schedule ${id} not found`);
+      if (cur.status !== 'active') {
+        throw new Error(`Cannot pause task with status '${cur.status}'. Only active tasks can be paused.`);
+      }
+      const next: ScheduledTask = { ...cur, status: 'paused' };
+      await ctx.storage.put(SCHEDULE_PREFIX + id, next);
+      await rescheduleAlarm(ctx);
+      return next;
+    },
+    async resume(id: string): Promise<ScheduledTask> {
+      const cur = await ctx.storage.get<ScheduledTask>(SCHEDULE_PREFIX + id);
+      if (!cur) throw new Error(`Schedule ${id} not found`);
+      if (cur.status !== 'paused') {
+        throw new Error(`Cannot resume task with status '${cur.status}'. Only paused tasks can be resumed.`);
+      }
+      const next: ScheduledTask = { ...cur, status: 'active' };
       await ctx.storage.put(SCHEDULE_PREFIX + id, next);
       await rescheduleAlarm(ctx);
       return next;
