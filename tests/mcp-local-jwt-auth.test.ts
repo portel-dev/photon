@@ -76,9 +76,15 @@ export default class Appointments {
       params: {},
     });
     expect(list.status).toBe(200);
-    const toolName = list.json.result.tools.find((tool: any) => tool.name.endsWith('/book')).name;
-    const readToolName = list.json.result.tools.find((tool: any) =>
-      tool.name.endsWith('/listSlots')
+    const toolName = list.json.result.tools.find(
+      (tool: any) =>
+        tool.name === 'book' || tool.name.endsWith('.book') || tool.name.endsWith('/book')
+    ).name;
+    const readToolName = list.json.result.tools.find(
+      (tool: any) =>
+        tool.name === 'listSlots' ||
+        tool.name.endsWith('.listSlots') ||
+        tool.name.endsWith('/listSlots')
     ).name;
     expect(list.json.result.tools.find((tool: any) => tool.name === readToolName).scopes).toEqual([
       'listSlots:read',

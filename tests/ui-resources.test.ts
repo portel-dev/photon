@@ -83,11 +83,67 @@ async function runUIResourceTests() {
       assert.ok(contents[0].mimeType?.includes('html'), 'Should have html mimeType');
       assert.ok(contents[0].text, 'Should have text content');
       assert.ok(contents[0].text.includes('UI Test Page'), 'Should contain UI HTML content');
+      assert.ok(
+        (contents[0] as any)._meta?.['openai/widgetDescription'],
+        'UI resource should include OpenAI widget description metadata'
+      );
+      assert.equal(
+        (contents[0] as any)._meta?.['openai/widgetPrefersBorder'],
+        true,
+        'UI resource should request bordered rendering in OpenAI app hosts'
+      );
 
       console.log('✅ resources/read (ui://) returns HTML content');
     }
 
     // Test 3: Invalid ui:// URI should throw error
+    {
+      const mainUiUri = uiResources.find((r) => r.uri.includes('/main-ui'))!.uri;
+      const photonName = mainUiUri.match(/ui:\/\/([^/]+)\//)?.[1] || 'unknown';
+
+      const uiToolAlias = await client.readResource({
+        uri: `ui://${photonName}/main`,
+      });
+      assert.equal(
+        uiToolAlias.contents[0].uri,
+        `ui://${photonName}/main`,
+        'ui:// tool alias should preserve requested URI'
+      );
+      assert.ok(
+        uiToolAlias.contents[0].text?.includes('UI Test Page'),
+        'ui:// tool alias should resolve to linked UI HTML'
+      );
+
+      const plainToolAlias = await client.readResource({
+        uri: `${photonName}/main`,
+      });
+      assert.equal(
+        plainToolAlias.contents[0].uri,
+        `${photonName}/main`,
+        'plain tool resource alias should preserve requested URI'
+      );
+      assert.ok(
+        plainToolAlias.contents[0].text?.includes('UI Test Page'),
+        'plain tool resource alias should resolve to linked UI HTML'
+      );
+
+      const chatGptScopedAlias = await client.readResource({
+        uri: `/Photon test app/link_123/${photonName}/main`,
+      });
+      assert.equal(
+        chatGptScopedAlias.contents[0].uri,
+        `/Photon test app/link_123/${photonName}/main`,
+        'app-scoped tool resource alias should preserve requested URI'
+      );
+      assert.ok(
+        chatGptScopedAlias.contents[0].text?.includes('UI Test Page'),
+        'app-scoped tool resource alias should resolve to linked UI HTML'
+      );
+
+      console.log('✅ resources/read maps linked tool aliases to UI assets');
+    }
+
+    // Test 4: Invalid ui:// URI should throw error
     {
       // Extract photon name from a valid URI
       const validUri = uiResources[0].uri;

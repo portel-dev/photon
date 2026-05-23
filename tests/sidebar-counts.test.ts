@@ -48,11 +48,13 @@ function toolsToPhotons(tools: MCPTool[]) {
   const photonMap = new Map<string, any>();
 
   for (const tool of tools) {
+    const dotIndex = tool.name.indexOf('.');
     const slashIndex = tool.name.indexOf('/');
-    if (slashIndex === -1) continue;
+    const separatorIndex = dotIndex !== -1 ? dotIndex : slashIndex;
+    if (separatorIndex === -1) continue;
 
-    const photonName = tool.name.slice(0, slashIndex);
-    const methodName = tool.name.slice(slashIndex + 1);
+    const photonName = tool.name.slice(0, separatorIndex);
+    const methodName = tool.name.slice(separatorIndex + 1);
 
     if (!photonMap.has(photonName)) {
       photonMap.set(photonName, {
@@ -229,10 +231,10 @@ async function testPhotonGrouping() {
     assert.ok(photons.find((p) => p.name === 'preferences'));
   });
 
-  await test('skips tools without slash separator', () => {
+  await test('skips tools without namespace separator', () => {
     const tools: MCPTool[] = [
-      { name: 'no-slash', description: 'System tool' },
-      { name: 'photon/method', description: 'Valid' },
+      { name: 'no-namespace', description: 'System tool' },
+      { name: 'photon.method', description: 'Valid' },
     ];
     const photons = toolsToPhotons(tools);
     assert.equal(photons.length, 1);
@@ -328,11 +330,11 @@ async function testMethodMetadata() {
   await test('detects app photons with main + linkedUi', () => {
     const tools: MCPTool[] = [
       {
-        name: 'myapp/main',
+        name: 'myapp.main',
         description: 'Main entry',
         _meta: { ui: { resourceUri: 'ui://myapp/board.html' } },
       },
-      { name: 'myapp/helper', description: 'Helper' },
+      { name: 'myapp.helper', description: 'Helper' },
     ];
     const photons = toolsToPhotons(tools);
     assert.equal(photons[0].isApp, true);
@@ -342,10 +344,10 @@ async function testMethodMetadata() {
   await test('detects app photons with main even without linkedUi', () => {
     const tools: MCPTool[] = [
       {
-        name: 'autoapp/main',
+        name: 'autoapp.main',
         description: 'Main entry',
       },
-      { name: 'autoapp/helper', description: 'Helper' },
+      { name: 'autoapp.helper', description: 'Helper' },
     ];
     const photons = toolsToPhotons(tools);
     assert.equal(photons[0].isApp, true);

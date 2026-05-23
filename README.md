@@ -10,17 +10,49 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D20-43853d.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 
-### Define intent once. Deliver everywhere.
+### Build MCP apps from TypeScript methods.
 
-Photon turns a single TypeScript file into:
+Define the capability once. Photon turns it into the interfaces people now
+expect around AI tools:
 
-- **MCP server** for AI agents  
-- **CLI tool** for automation  
-- **Web interface** for humans
+- **MCP server** for Claude, ChatGPT, Cursor, and agents
+- **Embedded app UI** for chat clients that support MCP app resources
+- **CLI tool** for scripts, demos, and automation
+- **Beam web interface** for humans
 
 Photon is free and open source software released under the [MIT license](./LICENSE).
 
 *Interfaces are optional. Intent is mandatory.*
+
+---
+
+## From one method to every surface
+
+The weather example is intentionally small: one TypeScript method, a few
+docblock tags, and one `@ui` HTML asset. Photon turns that into a CLI command,
+Beam UI, MCP tool, and embedded app surface for MCP app-capable chat clients.
+Claude Desktop can run it from a local stdio MCP command; ChatGPT developer
+mode can connect to the same Photon over a public HTTPS `/mcp` endpoint.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/photon-surface-map.svg" alt="Infographic showing one Photon method becoming CLI, Beam, MCP, Claude Desktop, ChatGPT, and other agent surfaces" width="100%">
+</div>
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/chat-clients-photon-weather-showcase.gif" alt="Animated Photon weather showcase with matched ChatGPT and Claude Desktop MCP app demos" width="100%">
+</div>
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/weather-showcase-hero.png" alt="Photon weather showcase: one method rendered across Beam, CLI, and chat app surfaces" width="100%">
+</div>
+
+[Follow the step-by-step tutorial](./docs/tutorials/from-method-to-chat-app.md)
+or open the runnable example in
+[`examples/weather-showcase`](./examples/weather-showcase).
+Real-client proof is included for
+[Claude Desktop](https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/claude-weather-real.png)
+and
+[ChatGPT developer mode](https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/chatgpt-photon-weather-local-dot.png).
 
 ---
 
@@ -575,6 +607,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | Guide | |
 |---|---|
 | [Getting Started](./docs/getting-started.md) | Install, build, and run your first photon in 5 minutes |
+| [From Method to Chat App](./docs/tutorials/from-method-to-chat-app.md) | Weather showcase: CLI, Beam, MCP, and embedded app UI from one method |
 | [Core Concepts](./docs/concepts.md) | The 6 ideas behind Photon |
 | [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) | Public reference for every docblock tag Photon understands |
 | [Output Formats](./docs/formats.md) | Visual gallery of every `@format` type |

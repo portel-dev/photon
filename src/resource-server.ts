@@ -201,7 +201,12 @@ export class ResourceServer {
    */
   buildUIToolMeta(photonName: string, uiId: string): Record<string, unknown> {
     const uri = this.buildUIResourceUri(photonName, uiId);
-    return { ui: { resourceUri: uri } };
+    return {
+      ui: { resourceUri: uri },
+      outputTemplate: uri,
+      'openai/outputTemplate': uri,
+      'openai/widgetAccessible': true,
+    };
   }
 
   /**
@@ -377,21 +382,35 @@ export class ResourceServer {
       const [, uiPhotonName, assetId] = uiMatch;
       // Check main photon first
       if (mcp.assets && uiPhotonName === mcp.name) {
-        return this.handleUIAssetRead(uri, assetId, mcp);
+        const resolvedAssetId = this.resolveUIAssetId(assetId, mcp);
+        if (resolvedAssetId) return this.handleUIAssetRead(uri, resolvedAssetId, mcp);
       }
       // Check sub-photons (compiled binary mode)
       if (this.options.embeddedAssets) {
         const allLoaded = this.toolExecutor.getLoadedPhotons();
         for (const [, loaded] of allLoaded) {
           if (loaded.name === uiPhotonName && loaded.assets?.ui) {
-            return this.handleUIAssetRead(uri, assetId, mcp, loaded);
+            const resolvedAssetId = this.resolveUIAssetId(assetId, loaded);
+            if (resolvedAssetId) return this.handleUIAssetRead(uri, resolvedAssetId, mcp, loaded);
           }
         }
       }
       // Fallback to main photon
       if (mcp.assets) {
-        return this.handleUIAssetRead(uri, assetId, mcp);
+        const resolvedAssetId = this.resolveUIAssetId(assetId, mcp);
+        if (resolvedAssetId) return this.handleUIAssetRead(uri, resolvedAssetId, mcp);
       }
+    }
+
+    const toolResourceMatch = uri.match(/^([^:/?#]+)\/([^/?#]+)$/);
+    if (toolResourceMatch && mcp.assets && this.isKnownUIHost(toolResourceMatch[1], mcp)) {
+      const resolvedAssetId = this.resolveUIAssetId(toolResourceMatch[2], mcp);
+      if (resolvedAssetId) return this.handleUIAssetRead(uri, resolvedAssetId, mcp);
+    }
+
+    const appScopedResource = this.resolveAppScopedUIResource(uri, mcp);
+    if (appScopedResource) {
+      return this.handleUIAssetRead(uri, appScopedResource.assetId, mcp, appScopedResource.photon);
     }
 
     const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
@@ -403,6 +422,63 @@ export class ResourceServer {
   }
 
   // ─── Asset reading ──────────────────────────────────────────────────
+
+  /**
+   * Accept both the canonical UI asset id (`weather-card`) and the linked tool
+   * name (`current`). ChatGPT may surface a tool like `weather/current` while it
+   * is trying to resolve the app card; mapping that to the linked `@ui` asset
+   * keeps the MCP Apps flow tolerant without inventing a private endpoint.
+   */
+  private resolveUIAssetId(idOrToolName: string, photon: PhotonClassExtended): string | undefined {
+    const ui = photon.assets?.ui.find(
+      (asset) =>
+        asset.id === idOrToolName ||
+        asset.linkedTool === idOrToolName ||
+        asset.linkedTools?.includes(idOrToolName)
+    );
+    return ui?.id;
+  }
+
+  private isKnownUIHost(host: string, photon: PhotonClassExtended): boolean {
+    if (host === photon.name) return true;
+    return !!photon.assets?.ui.some((asset) => {
+      const uiHost = asset.uri?.match(/^ui:\/\/([^/]+)\//)?.[1];
+      return uiHost === host;
+    });
+  }
+
+  /**
+   * ChatGPT developer-mode apps may wrap listed resources in an app-scoped
+   * path such as `/My App/link_abc/weather/current` before reading them back.
+   * The final host/tool suffix is still the stable Photon signal, so tolerate
+   * the wrapper and map it to the linked UI asset.
+   */
+  private resolveAppScopedUIResource(
+    uri: string,
+    photon: PhotonClassExtended
+  ): { photon: PhotonClassExtended; assetId: string } | undefined {
+    if (!photon.assets?.ui || uri.includes('://')) return undefined;
+
+    let normalized = uri;
+    try {
+      normalized = decodeURIComponent(uri);
+    } catch {
+      // Keep the original string if the client sends a partially encoded URI.
+    }
+
+    const segments = normalized.split('/').filter(Boolean);
+    for (let i = segments.length - 2; i >= 0; i--) {
+      const host = segments[i];
+      const idOrToolName = segments[i + 1];
+      const assetId = this.resolveUIAssetId(idOrToolName, photon);
+      if (!assetId) continue;
+      if (this.isKnownUIHost(host, photon) || normalized.startsWith('/')) {
+        return { photon, assetId };
+      }
+    }
+
+    return undefined;
+  }
 
   /**
    * Handle SEP-1865 ui:// resource read
@@ -459,7 +535,18 @@ export class ResourceServer {
     content = content.replace('<head>', `<head>\n${bridgeScript}`);
 
     return {
-      contents: [{ uri, mimeType: 'text/html;profile=mcp-app', text: content }],
+      contents: [
+        {
+          uri,
+          mimeType: 'text/html;profile=mcp-app',
+          text: content,
+          _meta: {
+            ui: { prefersBorder: true },
+            'openai/widgetDescription': `Interactive ${mcp.name} UI rendered from Photon.`,
+            'openai/widgetPrefersBorder': true,
+          },
+        },
+      ],
     };
   }
 

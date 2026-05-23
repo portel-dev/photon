@@ -54,8 +54,19 @@ function extractJSON(result: any): any {
 }
 
 function findToolName(tools: any[], name: string): string {
-  const t = tools.find((t: any) => t.name === name || t.name.endsWith(`/${name}`));
+  const t = tools.find(
+    (t: any) => t.name === name || t.name.endsWith(`.${name}`) || t.name.endsWith(`/${name}`)
+  );
   return t?.name ?? name;
+}
+
+function baseToolName(name: string): string {
+  const slashBase = name.includes('/') ? name.split('/').pop()! : name;
+  return slashBase.includes('.') ? slashBase.split('.').pop()! : slashBase;
+}
+
+function hasToolName(tool: any, name: string): boolean {
+  return tool.name === name || tool.name.endsWith(`.${name}`) || tool.name.endsWith(`/${name}`);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -146,9 +157,7 @@ async function runTests() {
       const sseTools = await sseClient.listTools();
 
       const stdioNames = stdioTools.tools.map((t) => t.name).sort();
-      const sseNames = sseTools.tools
-        .map((t) => (t.name.includes('/') ? t.name.split('/').pop()! : t.name))
-        .sort();
+      const sseNames = sseTools.tools.map((t) => baseToolName(t.name)).sort();
 
       ok(
         JSON.stringify(stdioNames) === JSON.stringify(sseNames),
@@ -198,8 +207,8 @@ async function runTests() {
       console.log('\n[4] Parameter validation: add() with @min constraint');
       const stdioTools = (await stdioClient.listTools()).tools;
       const sseTools = (await sseClient.listTools()).tools;
-      const stdioAdd = stdioTools.find((t) => t.name === 'add' || t.name.endsWith('/add'));
-      const sseAdd = sseTools.find((t) => t.name === 'add' || t.name.endsWith('/add'));
+      const stdioAdd = stdioTools.find((t) => hasToolName(t, 'add'));
+      const sseAdd = sseTools.find((t) => hasToolName(t, 'add'));
 
       const stdioSchema = (stdioAdd as any)?.inputSchema?.properties;
       const sseSchema = (sseAdd as any)?.inputSchema?.properties;
@@ -259,8 +268,8 @@ async function runTests() {
       const stdioTools = (await stdioClient.listTools()).tools;
       const sseTools = (await sseClient.listTools()).tools;
 
-      const stdioGreet = stdioTools.find((t) => t.name === 'greet' || t.name.endsWith('/greet'));
-      const sseGreet = sseTools.find((t) => t.name === 'greet' || t.name.endsWith('/greet'));
+      const stdioGreet = stdioTools.find((t) => hasToolName(t, 'greet'));
+      const sseGreet = sseTools.find((t) => hasToolName(t, 'greet'));
 
       const stdioReadOnly = (stdioGreet as any)?.annotations?.readOnlyHint;
       const sseReadOnly = (sseGreet as any)?.annotations?.readOnlyHint;

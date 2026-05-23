@@ -349,19 +349,19 @@ async function run() {
   // ─── Test 1: Internal photon methods visible in tools/list ───
   await test('maker photon has methods in tools/list', async () => {
     const tools = await mcpListTools(sessionId);
-    const makerTools = tools.filter((t: any) => t.name.startsWith('maker/'));
+    const makerTools = tools.filter((t: any) => t.name.startsWith('maker.'));
     assert(makerTools.length > 0, `Expected maker tools, got ${makerTools.length}`);
 
-    const makerNew = makerTools.find((t: any) => t.name === 'maker/new');
-    assert(!!makerNew, 'maker/new tool not found');
+    const makerNew = makerTools.find((t: any) => t.name === 'maker.new');
+    assert(!!makerNew, 'maker.new tool not found');
 
-    const makerWizard = makerTools.find((t: any) => t.name === 'maker/wizard');
-    assert(!!makerWizard, 'maker/wizard tool not found');
+    const makerWizard = makerTools.find((t: any) => t.name === 'maker.wizard');
+    assert(!!makerWizard, 'maker.wizard tool not found');
   });
 
   await test('marketplace photon has methods in tools/list', async () => {
     const tools = await mcpListTools(sessionId);
-    const mpTools = tools.filter((t: any) => t.name.startsWith('marketplace/'));
+    const mpTools = tools.filter((t: any) => t.name.startsWith('marketplace.'));
     assert(mpTools.length > 0, `Expected marketplace tools, got ${mpTools.length}`);
   });
 
@@ -369,8 +369,8 @@ async function run() {
     const tools = await mcpListTools(sessionId);
     // maker has @internal at class level, but its methods should still appear
     const makerMethods = tools
-      .filter((t: any) => t.name.startsWith('maker/'))
-      .filter((t: any) => !t.name.includes('/_')); // exclude system methods
+      .filter((t: any) => t.name.startsWith('maker.'))
+      .filter((t: any) => !t.name.includes('._')); // exclude system methods
     assert(
       makerMethods.length >= 5,
       `Expected at least 5 maker methods (new, wizard, validate, rename, describe), got ${makerMethods.length}: ${makerMethods.map((t: any) => t.name).join(', ')}`
@@ -380,7 +380,7 @@ async function run() {
   // ─── Test 2: Cross-client state sync (CLI → Beam MCP) ───
   await test('CLI mutation is visible via Beam MCP after state-changed sync', async () => {
     // Get initial state via Beam MCP
-    const beforeResp = await mcpCallTool(sessionId, 'sync-list/get', {}, 10);
+    const beforeResp = await mcpCallTool(sessionId, 'sync-list.get', {}, 10);
     const before = parseToolResult(beforeResp);
     assert(Array.isArray(before), 'get should return array');
     const initialCount = before.length;
@@ -400,7 +400,7 @@ async function run() {
     await new Promise((r) => setTimeout(r, 3000));
 
     // Query via Beam MCP — should include the new item
-    const afterResp = await mcpCallTool(sessionId, 'sync-list/get', {}, 11);
+    const afterResp = await mcpCallTool(sessionId, 'sync-list.get', {}, 11);
     const after = parseToolResult(afterResp);
     assert(Array.isArray(after), 'get should return array after add');
     assert(
@@ -423,7 +423,7 @@ async function run() {
     await new Promise((r) => setTimeout(r, 500));
 
     // Trigger a mutation on the first session
-    await mcpCallTool(sessionId, 'sync-list/add', { item: `sse-test-${Date.now()}` }, 20);
+    await mcpCallTool(sessionId, 'sync-list.add', { item: `sse-test-${Date.now()}` }, 20);
 
     const events = await eventPromise;
     const stateChanged = events.filter(
@@ -460,14 +460,14 @@ export default class DynList {
 
     // Verify the dynamic photon appears in tools
     const tools = await mcpListTools(sessionId);
-    const dynTools = tools.filter((t: any) => t.name.startsWith('dyn-list/'));
+    const dynTools = tools.filter((t: any) => t.name.startsWith('dyn-list.'));
     assert(dynTools.length > 0, `Dynamic photon dyn-list not found in tools after file creation`);
 
     // Verify it's callable
-    const addResp = await mcpCallTool(sessionId, 'dyn-list/add', { item: 'dynamic-item' }, 30);
-    assert(!addResp.result?.isError, `dyn-list/add failed: ${JSON.stringify(addResp)}`);
+    const addResp = await mcpCallTool(sessionId, 'dyn-list.add', { item: 'dynamic-item' }, 30);
+    assert(!addResp.result?.isError, `dyn-list.add failed: ${JSON.stringify(addResp)}`);
 
-    const getResp = await mcpCallTool(sessionId, 'dyn-list/get', {}, 31);
+    const getResp = await mcpCallTool(sessionId, 'dyn-list.get', {}, 31);
     const items = parseToolResult(getResp);
     assert(
       Array.isArray(items) && items.includes('dynamic-item'),
@@ -501,27 +501,27 @@ export default class SyncList {
     let clearFound = false;
     for (let i = 0; i < 5; i++) {
       const tools = await mcpListTools(sessionId);
-      if (tools.some((t: any) => t.name === 'sync-list/clear')) {
+      if (tools.some((t: any) => t.name === 'sync-list.clear')) {
         clearFound = true;
         break;
       }
       await new Promise((r) => setTimeout(r, 1000));
     }
-    assert(clearFound, 'sync-list/clear should appear in tools after hot-reload');
+    assert(clearFound, 'sync-list.clear should appear in tools after hot-reload');
 
     // Verify clear is callable (not "Tool not found") — retry once if daemon still reloading
-    let clearResp = await mcpCallTool(sessionId, 'sync-list/clear', {}, 40);
+    let clearResp = await mcpCallTool(sessionId, 'sync-list.clear', {}, 40);
     if (clearResp.result?.isError && clearResp.result?.content?.[0]?.text?.includes('not found')) {
       await new Promise((r) => setTimeout(r, 3000));
-      clearResp = await mcpCallTool(sessionId, 'sync-list/clear', {}, 42);
+      clearResp = await mcpCallTool(sessionId, 'sync-list.clear', {}, 42);
     }
     assert(
       !clearResp.result?.isError,
-      `sync-list/clear should succeed, got: ${clearResp.result?.content?.[0]?.text}`
+      `sync-list.clear should succeed, got: ${clearResp.result?.content?.[0]?.text}`
     );
 
     // Verify items are actually cleared
-    const getResp = await mcpCallTool(sessionId, 'sync-list/get', {}, 41);
+    const getResp = await mcpCallTool(sessionId, 'sync-list.get', {}, 41);
     const items = parseToolResult(getResp);
     assert(
       Array.isArray(items) && items.length === 0,
@@ -535,9 +535,11 @@ export default class SyncList {
     // sync-list is @stateful, so it gets _use and _instances — but they should be hidden
     // Actually _use and _instances ARE in tools/list (they're needed by MCP clients)
     // The frontend filters them in toolsToPhotons — this test verifies the naming convention
-    const syncListTools = tools.filter((t: any) => t.name.startsWith('sync-list/'));
+    const syncListTools = tools.filter(
+      (t: any) => t.name.startsWith('sync-list.') || t.name.startsWith('sync-list/')
+    );
     const userMethods = syncListTools.filter((t: any) => {
-      const method = t.name.split('/')[1];
+      const method = t.name.split(t.name.includes('.') ? '.' : '/')[1];
       return !method.startsWith('_');
     });
     assert(
@@ -547,12 +549,12 @@ export default class SyncList {
 
     // Verify user methods are present
     assert(
-      syncListTools.some((t: any) => t.name === 'sync-list/add'),
-      'sync-list/add should be in tools'
+      syncListTools.some((t: any) => t.name === 'sync-list.add' || t.name === 'sync-list/add'),
+      'sync-list.add should be in tools'
     );
     assert(
-      syncListTools.some((t: any) => t.name === 'sync-list/get'),
-      'sync-list/get should be in tools'
+      syncListTools.some((t: any) => t.name === 'sync-list.get' || t.name === 'sync-list/get'),
+      'sync-list.get should be in tools'
     );
   });
 
@@ -625,7 +627,7 @@ export default class StudioTest {
   // ─── Test 8: CLI mutation produces SSE state-changed event ───
   await test('CLI mutation triggers SSE state-changed event at Beam', async () => {
     // First add an item so sync-list has data to work with
-    await mcpCallTool(sessionId, 'sync-list/add', { item: 'sse-baseline' }, 60);
+    await mcpCallTool(sessionId, 'sync-list.add', { item: 'sse-baseline' }, 60);
 
     // Open SSE listener on a second session
     const session2 = await mcpInitialize();
@@ -748,11 +750,11 @@ export default class RapidSave {
   // ─── Test 11: Undo via MCP rolls back state ───
   await test('_undo rolls back last mutation on stateful photon', async () => {
     // Add two items
-    await mcpCallTool(sessionId, 'sync-list/add', { item: 'undo-test-1' }, 80);
-    await mcpCallTool(sessionId, 'sync-list/add', { item: 'undo-test-2' }, 81);
+    await mcpCallTool(sessionId, 'sync-list.add', { item: 'undo-test-1' }, 80);
+    await mcpCallTool(sessionId, 'sync-list.add', { item: 'undo-test-2' }, 81);
 
     // Get current state
-    const beforeResp = await mcpCallTool(sessionId, 'sync-list/get', {}, 82);
+    const beforeResp = await mcpCallTool(sessionId, 'sync-list.get', {}, 82);
     const before = parseToolResult(beforeResp);
     assert(
       Array.isArray(before) && before.includes('undo-test-2'),
@@ -760,7 +762,7 @@ export default class RapidSave {
     );
 
     // Call _undo
-    const undoResp = await mcpCallTool(sessionId, 'sync-list/_undo', {}, 83);
+    const undoResp = await mcpCallTool(sessionId, 'sync-list._undo', {}, 83);
     // _undo may fail if no undo history — that's acceptable for this test
     if (undoResp.result?.isError) {
       // Skip — daemon may not have undo history for this session
@@ -768,7 +770,7 @@ export default class RapidSave {
     }
 
     // Verify state rolled back
-    const afterResp = await mcpCallTool(sessionId, 'sync-list/get', {}, 84);
+    const afterResp = await mcpCallTool(sessionId, 'sync-list.get', {}, 84);
     const after = parseToolResult(afterResp);
     assert(
       Array.isArray(after) && !after.includes('undo-test-2'),
@@ -787,12 +789,12 @@ export default class RapidSave {
 
     const callResults: any[] = [];
     for (let i = 0; i < 20; i++) {
-      const response = await mcpCallTool(sessionId, 'sync-list/get', {}, 100 + i);
+      const response = await mcpCallTool(sessionId, 'sync-list.get', {}, 100 + i);
       callResults.push(response);
-      assert(!response.error, `sync-list/get returned JSON-RPC error: ${JSON.stringify(response)}`);
+      assert(!response.error, `sync-list.get returned JSON-RPC error: ${JSON.stringify(response)}`);
       assert(
         !response.result?.isError,
-        `sync-list/get returned tool error: ${response.result?.content?.[0]?.text || JSON.stringify(response)}`
+        `sync-list.get returned tool error: ${response.result?.content?.[0]?.text || JSON.stringify(response)}`
       );
       await new Promise((r) => setTimeout(r, 100));
     }

@@ -807,11 +807,13 @@ class MCPClientService {
     const externalMCPMap = new Map<string, any>();
 
     for (const tool of tools) {
+      const dotIndex = tool.name.indexOf('.');
       const slashIndex = tool.name.indexOf('/');
-      if (slashIndex === -1) continue;
+      const separatorIndex = dotIndex !== -1 ? dotIndex : slashIndex;
+      if (separatorIndex === -1) continue;
 
-      const serverName = tool.name.slice(0, slashIndex);
-      const methodName = tool.name.slice(slashIndex + 1);
+      const serverName = tool.name.slice(0, separatorIndex);
+      const methodName = tool.name.slice(separatorIndex + 1);
       const isExternalMCP = !!tool['x-external-mcp'];
 
       if (isExternalMCP) {

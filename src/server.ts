@@ -512,12 +512,14 @@ class BeamCompatTransport implements Transport {
   }
 
   async send(message: any): Promise<void> {
-    // Transform outgoing tools/list responses: prefix names + add x-photon-* metadata
+    // Transform outgoing tools/list responses with Photon metadata. Main photon
+    // tools stay slashless for broad client compatibility; aggregated tools use
+    // dot names (`photon.method`) while tools/call still accepts legacy slashes.
     if (message?.result?.tools && Array.isArray(message.result.tools)) {
       // Main photon tools
       message.result.tools = message.result.tools.map((tool: any) => ({
         ...tool,
-        name: `${this.photonName}/${tool.name}`,
+        name: tool.name,
         'x-photon-id': this.photonName,
         'x-photon-description': this.photonMeta.description || '',
         'x-photon-icon': this.photonMeta.icon || '⚡',
@@ -537,7 +539,7 @@ class BeamCompatTransport implements Transport {
         const subTools = sub.tools.map((tool: any) => {
           const def: any = {
             ...tool,
-            name: `${sub.name}/${tool.name}`,
+            name: `${sub.name}.${tool.name}`,
             'x-photon-id': sub.name,
             'x-photon-description': sub.description,
             'x-photon-icon': sub.icon,
@@ -581,9 +583,12 @@ class BeamCompatTransport implements Transport {
   }
 
   private requiredScopesForTool(fullToolName: string): string[] {
+    const dotIdx = fullToolName.indexOf('.');
     const slashIdx = fullToolName.indexOf('/');
-    const targetPhoton = slashIdx === -1 ? this.photonName : fullToolName.slice(0, slashIdx);
-    const methodName = slashIdx === -1 ? fullToolName : fullToolName.slice(slashIdx + 1);
+    const separatorIdx = dotIdx !== -1 ? dotIdx : slashIdx;
+    const targetPhoton =
+      separatorIdx === -1 ? this.photonName : fullToolName.slice(0, separatorIdx);
+    const methodName = separatorIdx === -1 ? fullToolName : fullToolName.slice(separatorIdx + 1);
     const tools =
       targetPhoton === this.photonName
         ? this.mainTools
@@ -737,13 +742,15 @@ class BeamCompatTransport implements Transport {
         }
       }
 
-      // Transform incoming tools/call: strip photonName/ prefix from tool name
+      // Transform incoming tools/call: strip photonName.method prefix from tool name
       // and route sub-photon calls directly
       if (parsed.method === 'tools/call' && parsed.params?.name) {
+        const dotIdx = parsed.params.name.indexOf('.');
         const slashIdx = parsed.params.name.indexOf('/');
-        if (slashIdx !== -1) {
-          const targetPhoton = parsed.params.name.slice(0, slashIdx);
-          const methodName = parsed.params.name.slice(slashIdx + 1);
+        const separatorIdx = dotIdx !== -1 ? dotIdx : slashIdx;
+        if (separatorIdx !== -1) {
+          const targetPhoton = parsed.params.name.slice(0, separatorIdx);
+          const methodName = parsed.params.name.slice(separatorIdx + 1);
 
           // Check if this is a sub-photon call
           if (targetPhoton !== this.photonName && this.subPhotonExecutor) {
@@ -1464,7 +1471,6 @@ export class PhotonServer {
       return { tools: [] };
     }
     const mcpName = this.mcp.name;
-
     const tools = this.mcp.tools.map((tool) => {
       // Append deprecation notice to tool description if tagged
       let description = tool.description;
@@ -1474,8 +1480,13 @@ export class PhotonServer {
         description = `[DEPRECATED: ${notice}] ${description}`;
       }
 
+      const slashlessName = tool.name.includes('/') ? tool.name.split('/').pop()! : tool.name;
+      const toolName = slashlessName.includes('.')
+        ? slashlessName.split('.').pop()!
+        : slashlessName;
+
       const toolDef: MCPToolDefinition = {
-        name: tool.name,
+        name: toolName,
         description,
         inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)),
       };

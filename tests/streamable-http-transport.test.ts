@@ -248,8 +248,8 @@ async function runTests(): Promise<void> {
       });
 
       assert.equal(response.status, 200);
-      const tool = response.body.result.tools.find((entry: any) => entry.name === 'demo/rows');
-      assert(tool, 'expected demo/rows tool');
+      const tool = response.body.result.tools.find((entry: any) => entry.name === 'demo.rows');
+      assert(tool, 'expected demo.rows tool');
       assert.equal(tool['x-output-format'], 'table');
       assert.deepEqual(tool['x-layout-hints'], { title: 'name' });
       assert.deepEqual(tool._meta['photon/render'], {
@@ -306,8 +306,8 @@ async function runTests(): Promise<void> {
       });
 
       assert.equal(response.status, 200);
-      const tool = response.body.result.tools.find((entry: any) => entry.name === 'demo/main');
-      assert(tool, 'expected demo/main tool');
+      const tool = response.body.result.tools.find((entry: any) => entry.name === 'demo.main');
+      assert(tool, 'expected demo.main tool');
       assert.equal(tool['x-web-url'], '/web/demo/');
       assert.equal(tool['x-web-description'], 'Demo app');
     });
@@ -377,7 +377,7 @@ async function runTests(): Promise<void> {
         params: { cursor: toolPage1.body.result.nextCursor },
       });
       assert.equal(toolPage2.status, 200);
-      assert(toolPage2.body.result.tools.some((tool: any) => tool.name === 'demo/method100'));
+      assert(toolPage2.body.result.tools.some((tool: any) => tool.name === 'demo.method100'));
 
       for (const [method, collection] of [
         ['resources/list', 'resources'],
@@ -451,9 +451,9 @@ async function runTests(): Promise<void> {
 
       assert.equal(response.status, 200);
       const tool = response.body.result.tools.find(
-        (entry: any) => entry.name === 'tasks/createTask'
+        (entry: any) => entry.name === 'tasks.createTask'
       );
-      assert(tool, 'expected tasks/createTask tool');
+      assert(tool, 'expected tasks.createTask tool');
       assert.deepEqual(tool._meta['photon/render'].intent, {
         action: 'create',
         subject: 'task',
@@ -529,7 +529,7 @@ async function runTests(): Promise<void> {
         jsonrpc: '2.0',
         id: 2,
         method: 'tools/call',
-        params: { name: 'demo/rows', arguments: {} },
+        params: { name: 'demo.rows', arguments: {} },
       });
 
       assert.equal(response.status, 200);

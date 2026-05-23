@@ -5669,7 +5669,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const saved = sessionStorage.getItem(`photon-instance:${photonName}`);
     if (saved && saved !== 'default') {
       try {
-        await mcpClient.callTool(`${photonName}/_use`, { name: saved });
+        await mcpClient.callTool(`${photonName}._use`, { name: saved });
         this._currentInstance = saved;
       } catch {
         // Failed to restore — clear stale value
@@ -5746,7 +5746,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         this._autoInstance !== this._currentInstance
       ) {
         try {
-          await mcpClient.callTool(`${this._selectedPhoton.name}/_use`, {
+          await mcpClient.callTool(`${this._selectedPhoton.name}._use`, {
             name: this._autoInstance,
           });
           this._currentInstance = this._autoInstance;
@@ -5810,7 +5810,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const target = selected === '__auto__' ? this._autoInstance || 'default' : selected;
     if (target === this._currentInstance) return;
     try {
-      await mcpClient.callTool(`${photonName}/_use`, { name: target });
+      await mcpClient.callTool(`${photonName}._use`, { name: target });
       this._currentInstance = target;
       sessionStorage.setItem(`photon-instance:${photonName}`, target);
       // Re-invoke main() to load the new board
@@ -5832,7 +5832,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     if (!this._selectedPhoton) return;
     const photonName = this._selectedPhoton.name;
     try {
-      const result = await mcpClient.callTool(`${photonName}/_use`, {});
+      const result = await mcpClient.callTool(`${photonName}._use`, {});
       // Parse result to update current instance for breadcrumb
       if (result && !result.isError) {
         const textContent = result.content?.find((c: any) => c.type === 'text')?.text;
@@ -7213,7 +7213,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     if (this._mcpReady) {
       try {
-        const result = await mcpClient.callTool('maker/source', { photonPath });
+        const result = await mcpClient.callTool('maker.source', { photonPath });
         if (result.isError) {
           const errorText =
             result.content.find((c: any) => c.type === 'text')?.text || 'Failed to load source';
@@ -7282,7 +7282,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           const target = this._autoInstance || 'default';
           if (target !== this._currentInstance) {
             try {
-              await mcpClient.callTool(`${photonName}/_use`, { name: target });
+              await mcpClient.callTool(`${photonName}._use`, { name: target });
               this._setCurrentInstance(photonName, target);
               if (this._selectedMethod) {
                 void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
@@ -7299,7 +7299,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         const target = selected;
         if (target === this._currentInstance) return;
         try {
-          await mcpClient.callTool(`${photonName}/_use`, { name: target });
+          await mcpClient.callTool(`${photonName}._use`, { name: target });
           this._setCurrentInstance(photonName, target);
           showToast(`Switched to: ${target === 'default' ? '(default)' : target}`, 'success');
           // Re-invoke current method to refresh data
@@ -7314,7 +7314,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       case 'create': {
         const name = detail.instance;
         try {
-          await mcpClient.callTool(`${photonName}/_use`, { name });
+          await mcpClient.callTool(`${photonName}._use`, { name });
           this._setCurrentInstance(photonName, name);
           await this._fetchInstances(photonName);
           showToast(`Created instance: ${name}`, 'success');
@@ -7363,7 +7363,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           );
           if (res.ok) {
             // Switch to the renamed instance
-            await mcpClient.callTool(`${photonName}/_use`, { name: newName });
+            await mcpClient.callTool(`${photonName}._use`, { name: newName });
             this._setCurrentInstance(photonName, newName);
             await this._fetchInstances(photonName);
             showToast(`Renamed to: ${newName}`, 'success');
@@ -7392,7 +7392,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           );
           if (res.ok) {
             // Switch to default
-            await mcpClient.callTool(`${photonName}/_use`, { name: 'default' });
+            await mcpClient.callTool(`${photonName}._use`, { name: 'default' });
             this._setCurrentInstance(photonName, 'default');
             await this._fetchInstances(photonName);
             showToast(`Deleted: ${instanceToDelete}`, 'success');
@@ -7449,7 +7449,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Use MCP to invoke the maker method
     if (this._mcpReady) {
       try {
-        const toolName = `maker/${methodName}`;
+        const toolName = `maker.${methodName}`;
         const result = await mcpClient.callTool(toolName, { photonPath, ...additionalArgs });
 
         if (result.isError) {

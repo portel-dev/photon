@@ -1,0 +1,20 @@
+{
+  "marketplaces": [
+    {
+      "name": "photons",
+      "repo": "portel-dev/photons",
+      "url": "https://raw.githubusercontent.com/portel-dev/photons/main",
+      "sourceType": "github",
+      "source": "portel-dev/photons",
+      "enabled": true
+    },
+    {
+      "name": "examples",
+      "repo": "portel-dev/photon-examples",
+      "url": "https://raw.githubusercontent.com/portel-dev/photon-examples/main",
+      "sourceType": "github",
+      "source": "portel-dev/photon-examples",
+      "enabled": true
+    }
+  ]
+}

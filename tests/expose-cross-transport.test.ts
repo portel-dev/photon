@@ -25,7 +25,9 @@ const FIXTURE = path.join(REPO, 'examples', 'todo-app', 'todo-app.photon.ts');
 const SKIP = process.env.CI === 'true' && process.env.RUN_E2E !== '1';
 
 function findTool(tools: Array<{ name: string }>, base: string): string {
-  const t = tools.find((x) => x.name === base || x.name.endsWith('/' + base));
+  const t = tools.find(
+    (x) => x.name === base || x.name.endsWith('.' + base) || x.name.endsWith('/' + base)
+  );
   if (!t) throw new Error(`tool ${base} not in catalog: ${tools.map((x) => x.name).join(', ')}`);
   return t.name;
 }
@@ -51,14 +53,18 @@ describe.skipIf(SKIP)('cross-transport parity for @expose', () => {
       const names = list.tools.map((t) => t.name);
       for (const expected of ['addTask', 'listTasks', 'removeTask', 'search']) {
         expect(
-          names.some((n) => n === expected || n.endsWith('/' + expected)),
+          names.some(
+            (n) => n === expected || n.endsWith('.' + expected) || n.endsWith('/' + expected)
+          ),
           `${expected} should appear in stdio MCP tools/list`
         ).toBe(true);
       }
 
       // The HTTP route handler (`feed` carries @get /api/feed.rss) must
       // NOT bleed into the MCP surface — it's HTTP-only.
-      expect(names.some((n) => n === 'feed' || n.endsWith('/feed'))).toBe(false);
+      expect(names.some((n) => n === 'feed' || n.endsWith('.feed') || n.endsWith('/feed'))).toBe(
+        false
+      );
 
       // tools/call against an @expose'd method runs the same handler the
       // HTTP /api/add-task path runs. Any divergence (e.g., the loader

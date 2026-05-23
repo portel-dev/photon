@@ -236,9 +236,12 @@
         // Handle JSON-RPC tools/call from bridge and form components
         if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
           var rawName = (msg.params && msg.params.name) || '';
-          // Don't double-prefix: invoke-form sends fully-qualified names (photon/method),
+          // Don't double-prefix: invoke-form sends fully-qualified names (photon.method),
           // bridge sends unqualified names (just method). Check for prefix before adding.
-          var toolName = rawName.indexOf('/') !== -1 ? rawName : photonName + '/' + rawName;
+          var toolName =
+            rawName.indexOf('.') !== -1 || rawName.indexOf('/') !== -1
+              ? rawName
+              : photonName + '.' + rawName;
           var args = (msg.params && msg.params.arguments) || {};
 
           var doCall = function() {

@@ -10,6 +10,7 @@
  * - experimental: experimental["io.modelcontextprotocol/ui"] → full UI response (older SDK)
  * - extensions: extensions["io.modelcontextprotocol/ui"] → full UI response (protocol 2025-11-25+)
  * - beam: clientInfo.name = "beam" → full UI response (name-based fallback)
+ * - openai-mcp: ChatGPT connector identity → full UI response (name-based fallback)
  *
  * The extensions vs experimental distinction is critical:
  * Claude Desktop and ChatGPT use `extensions`, older clients use `experimental`.
@@ -46,9 +47,11 @@ function ok(condition: boolean, message: string) {
   }
 }
 
-/** Resolve tool name — handles both bare 'main' (STDIO) and 'photon/main' (SSE) */
+/** Resolve tool name — handles bare 'main' and namespaced 'photon.main' (SSE/Beam). */
 function findTool(tools: any[], name: string) {
-  return tools.find((t: any) => t.name === name || t.name.endsWith(`/${name}`));
+  return tools.find(
+    (t: any) => t.name === name || t.name.endsWith(`.${name}`) || t.name.endsWith(`/${name}`)
+  );
 }
 function toolName(tools: any[], name: string): string {
   const t = findTool(tools, name);
@@ -195,6 +198,14 @@ async function testExperimentalCapability(
     const meta = (mainTool as any)._meta;
     ok(!!meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
     ok((meta.ui.resourceUri as string).startsWith('ui://'), 'tools/list: starts with ui://');
+    ok(
+      meta['openai/outputTemplate'] === meta.ui.resourceUri,
+      'tools/list: OpenAI output template points at the UI resource'
+    );
+    ok(
+      meta['openai/widgetAccessible'] === true,
+      'tools/list: OpenAI app hosts may call back into the tool'
+    );
 
     const result = await client.callTool({ name: mainTool!.name, arguments: {} });
     ok(Array.isArray(result.content), 'tools/call: has content array');
@@ -204,6 +215,10 @@ async function testExperimentalCapability(
       'tools/call: structuredContent has correct value'
     );
     ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
+    ok(
+      (result as any)._meta?.['openai/outputTemplate'] === (result as any)._meta?.ui?.resourceUri,
+      'tools/call: OpenAI output template points at the UI resource'
+    );
   } finally {
     await client.close();
   }
@@ -301,6 +316,9 @@ async function testChatGPTWithUI(createFn: (opts: ClientOpts) => Promise<Client>
     const { tools } = await client.listTools();
     const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
+    if (label === 'STDIO') {
+      ok(mainTool.name === 'main', 'tools/list: OpenAI connector sees slashless tool names');
+    }
     ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
 
     const result = await client.callTool({ name: mainTool!.name, arguments: {} });
@@ -311,19 +329,61 @@ async function testChatGPTWithUI(createFn: (opts: ClientOpts) => Promise<Client>
 }
 
 /**
- * ChatGPT WITHOUT extensions → basic tier (no hardcoded name fallback)
+ * ChatGPT WITHOUT extensions still needs UI metadata. Live ChatGPT traffic has
+ * identified as OpenAI-owned clients such as `openai-mcp`, and the Apps SDK
+ * reference requires `_meta.ui.resourceUri` on the tool descriptor.
  */
 async function testChatGPTNoCapability(
   createFn: (opts: ClientOpts) => Promise<Client>,
   label: string
 ) {
-  console.log(`[${label}] ChatGPT (no capability): should be basic tier`);
+  console.log(`[${label}] ChatGPT (no capability): should still get UI metadata`);
   const client = await createFn({ name: 'chatgpt', capabilities: {} });
   try {
     const { tools } = await client.listTools();
     const mainTool = findTool(tools, 'main');
     assert.ok(mainTool, 'Should have "main" tool');
-    ok(!(mainTool as any)._meta?.ui, 'No _meta.ui (chatgpt without capability)');
+    if (label === 'STDIO') {
+      ok(mainTool.name === 'main', 'tools/list: ChatGPT sees slashless tool names');
+    }
+    ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
+    ok(
+      (mainTool as any)._meta?.['openai/outputTemplate'] ===
+        (mainTool as any)._meta?.ui?.resourceUri,
+      'tools/list: OpenAI output template points at the UI resource'
+    );
+
+    const result = await client.callTool({ name: mainTool!.name, arguments: {} });
+    ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
+    ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
+  } finally {
+    await client.close();
+  }
+}
+
+/**
+ * OpenAI MCP connector identity observed from ChatGPT developer-mode sessions.
+ */
+async function testOpenAIMcpClient(createFn: (opts: ClientOpts) => Promise<Client>, label: string) {
+  console.log(`[${label}] OpenAI MCP connector: tools/list + tools/call with full UI`);
+  const client = await createFn({ name: 'openai-mcp', version: '1.0.0' });
+  try {
+    const { tools } = await client.listTools();
+    const mainTool = findTool(tools, 'main');
+    assert.ok(mainTool, 'Should have "main" tool');
+    if (label === 'STDIO') {
+      ok(mainTool.name === 'main', 'tools/list: OpenAI connector sees slashless tool names');
+    }
+    ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
+    ok(
+      (mainTool as any)._meta?.['openai/outputTemplate'] ===
+        (mainTool as any)._meta?.ui?.resourceUri,
+      'tools/list: OpenAI output template points at the UI resource'
+    );
+
+    const result = await client.callTool({ name: mainTool!.name, arguments: {} });
+    ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
+    ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
   } finally {
     await client.close();
   }
@@ -398,6 +458,7 @@ async function runTests() {
   await testClaudeDesktopNoUI(createStdioClient, 'STDIO');
   await testChatGPTWithUI(createStdioClient, 'STDIO');
   await testChatGPTNoCapability(createStdioClient, 'STDIO');
+  await testOpenAIMcpClient(createStdioClient, 'STDIO');
   await testBeamClient(createStdioClient, 'STDIO');
   await testUnknownFutureClient(createStdioClient, 'STDIO');
 
@@ -425,6 +486,7 @@ async function runTests() {
     await testClaudeDesktopNoUI(createSSE, 'SSE');
     await testChatGPTWithUI(createSSE, 'SSE');
     await testChatGPTNoCapability(createSSE, 'SSE');
+    await testOpenAIMcpClient(createSSE, 'SSE');
     await testBeamClient(createSSE, 'SSE');
     await testUnknownFutureClient(createSSE, 'SSE');
   } finally {

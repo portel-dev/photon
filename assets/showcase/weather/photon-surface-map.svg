@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Photon turns one TypeScript method into multiple AI and human interfaces</title>
+  <desc id="desc">A central TypeScript Photon method connects to CLI, Beam, MCP tools, Claude Desktop, and ChatGPT app UI surfaces.</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#09111c" />
+      <stop offset="54%" stop-color="#121d2d" />
+      <stop offset="100%" stop-color="#080c14" />
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#172a3d" />
+      <stop offset="100%" stop-color="#0d1623" />
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#182638" />
+      <stop offset="100%" stop-color="#101926" />
+    </linearGradient>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.32" />
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="8" refY="6" orient="auto">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#61e6ff" />
+    </marker>
+    <style>
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .sans { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .tiny { font-size: 24px; letter-spacing: 0; text-transform: uppercase; }
+      .label { fill: #61e6ff; font-weight: 800; }
+      .muted { fill: #93a8ba; }
+      .text { fill: #f4f7fb; }
+      .amber { fill: #ffb000; }
+      .green { fill: #58f2a0; }
+      .line { fill: none; stroke: #61e6ff; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 7 11; marker-end: url(#arrow); opacity: 0.78; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#canvas)" />
+  <path d="M0 720 C280 650 430 780 720 710 C980 648 1110 560 1600 650 L1600 900 L0 900 Z" fill="#0b1522" opacity="0.72" />
+
+  <text x="80" y="86" class="mono tiny label">Photon mental model</text>
+  <text x="80" y="154" class="sans text" font-size="62" font-weight="900">One method becomes every surface</text>
+  <text x="80" y="205" class="sans muted" font-size="28">Write intent once. Photon derives the app contracts around it.</text>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="540" y="290" width="520" height="320" rx="30" fill="url(#core)" stroke="#31445b" stroke-width="2" />
+    <text x="585" y="350" class="mono tiny green">weather.photon.ts</text>
+    <text x="585" y="410" class="sans text" font-size="44" font-weight="900">current(params)</text>
+    <text x="585" y="462" class="sans muted" font-size="27">Types validate input</text>
+    <text x="585" y="506" class="sans muted" font-size="27">JSDoc explains intent</text>
+    <text x="585" y="550" class="sans muted" font-size="27">@ui adds app surface</text>
+  </g>
+
+  <path class="line" d="M558 356 C392 316 276 290 170 260" />
+  <path class="line" d="M540 455 C380 455 275 456 168 456" />
+  <path class="line" d="M558 552 C402 625 302 668 176 712" />
+  <path class="line" d="M1042 356 C1196 312 1300 286 1430 250" />
+  <path class="line" d="M1060 455 C1224 455 1328 455 1434 455" />
+  <path class="line" d="M1040 552 C1196 620 1300 670 1436 724" />
+
+  <g filter="url(#soft-shadow)">
+    <rect x="80" y="210" width="330" height="135" rx="18" fill="url(#card)" stroke="#2d3d51" />
+    <text x="110" y="260" class="sans text" font-size="30" font-weight="850">CLI command</text>
+    <text x="110" y="306" class="mono muted" font-size="23">photon cli weather current</text>
+  </g>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="80" y="390" width="330" height="135" rx="18" fill="url(#card)" stroke="#2d3d51" />
+    <text x="110" y="440" class="sans text" font-size="30" font-weight="850">Beam UI</text>
+    <text x="110" y="486" class="sans muted" font-size="24">Human form + app preview</text>
+  </g>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="80" y="660" width="330" height="135" rx="18" fill="url(#card)" stroke="#2d3d51" />
+    <text x="110" y="710" class="sans text" font-size="30" font-weight="850">MCP tool</text>
+    <text x="110" y="756" class="sans muted" font-size="24">Schemas, metadata, resources</text>
+  </g>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="1190" y="195" width="330" height="160" rx="18" fill="url(#card)" stroke="#2d3d51" />
+    <text x="1220" y="245" class="sans text" font-size="30" font-weight="850">Claude Desktop</text>
+    <text x="1220" y="292" class="sans muted" font-size="24">Local stdio MCP server</text>
+    <text x="1220" y="326" class="mono amber" font-size="22">renders @ui</text>
+  </g>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="1190" y="390" width="330" height="135" rx="18" fill="url(#card)" stroke="#2d3d51" />
+    <text x="1220" y="440" class="sans text" font-size="30" font-weight="850">ChatGPT Apps</text>
+    <text x="1220" y="486" class="sans muted" font-size="24">HTTPS /mcp connector</text>
+  </g>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="1190" y="660" width="330" height="135" rx="18" fill="url(#card)" stroke="#2d3d51" />
+    <text x="1220" y="710" class="sans text" font-size="30" font-weight="850">Other agents</text>
+    <text x="1220" y="756" class="sans muted" font-size="24">Same tool contract everywhere</text>
+  </g>
+
+  <g>
+    <rect x="515" y="680" width="570" height="78" rx="18" fill="#0d1623" stroke="#31445b" />
+    <text x="560" y="730" class="sans text" font-size="30" font-weight="850">The method is the product API.</text>
+  </g>
+</svg>

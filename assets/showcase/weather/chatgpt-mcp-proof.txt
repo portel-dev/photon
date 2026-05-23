@@ -1,0 +1,74 @@
+Photon Weather ChatGPT MCP compatibility proof
+Generated from a local OpenAI-style MCP probe against:
+
+  PHOTON_DIR=examples/weather-showcase
+  node dist/cli.js mcp weather --transport sse --port 3479
+
+The probe used a ChatGPT-like initialize payload:
+
+  clientInfo.name: openai-mcp
+  clientInfo.version: 1.0.0
+  protocolVersion: 2025-11-25
+  extensions.io.modelcontextprotocol/ui.mimeTypes:
+    - text/html;profile=mcp-app
+
+Observed MCP evidence:
+
+  initialize.status: 200
+  initialize.server.name: photon-mcp
+  initialize.protocolVersion: 2025-11-25
+
+  tools/list:
+    tool.name: current
+    tool.annotations.readOnlyHint: true
+    tool._meta.ui.resourceUri: ui://weather/weather-card
+    tool._meta.outputTemplate: ui://weather/weather-card
+    tool._meta.openai/outputTemplate: ui://weather/weather-card
+    tool._meta.openai/widgetAccessible: true
+    tool._meta.photon/render.resources.ui: ui://weather/weather-card
+
+  resources/list:
+    resource.uri: ui://weather/weather-card
+    resource.name: ui:weather-card
+    resource.description: UI template for current tool
+    resource.mimeType: text/html;profile=mcp-app
+
+  resources/read:
+    status: 200
+    content.uri: ui://weather/weather-card
+    content.mimeType: text/html;profile=mcp-app
+    content._meta.ui.prefersBorder: true
+    content._meta.openai/widgetDescription: Interactive weather UI rendered from Photon.
+    content._meta.openai/widgetPrefersBorder: true
+    content.text includes: Photon weather showcase
+
+Post-ChatGPT compatibility fix:
+
+  openai-mcp without an explicit UI capability now receives the same UI tool
+  descriptor metadata:
+
+    tool._meta.ui.resourceUri: ui://weather/weather-card
+    tool._meta.openai/outputTemplate: ui://weather/weather-card
+
+  These resource reads now resolve to the same app card:
+
+    ui://weather/weather-card
+    ui://weather/current
+    weather/current
+
+Live ChatGPT note:
+
+  In a developer-mode ChatGPT session, ChatGPT connected to the temporary
+  Cloudflare Tunnel endpoint, listed slashless tools (`current`, `cities`),
+  called `current` with city Singapore, fetched ui://weather/weather-card, and
+  rendered the embedded weather app iframe inline. The screenshot is checked in
+  at assets/showcase/weather/chatgpt-photon-weather-local-dot.png.
+  A clean-flow capture shows the named Photon Weather Showcase connector
+  rendering Singapore from a fresh prompt at
+  assets/showcase/weather/chatgpt-photon-weather-clean-flow.gif.
+
+  A polished side-by-side HyperFrames demo recreates setup, tool call, and
+  embedded UI render for ChatGPT and Claude Desktop at a consistent 1920x1080
+  canvas:
+
+    assets/showcase/weather/chat-clients-photon-weather-showcase.gif

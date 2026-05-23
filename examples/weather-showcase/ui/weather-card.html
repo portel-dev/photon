@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1018;
+        --panel: #131b28;
+        --panel-strong: #192334;
+        --text: #f0ede6;
+        --muted: #6b8a8a;
+        --amber: #ffb000;
+        --cyan: #78e6ff;
+        --border: rgba(145, 166, 190, 0.18);
+        --success: #58d68d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        font-family:
+          'DM Sans',
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        background:
+          radial-gradient(circle at 16% 0%, rgba(255, 176, 0, 0.12), transparent 26%),
+          linear-gradient(135deg, #0b1018 0%, #101927 52%, #0b1018 100%);
+        color: var(--text);
+      }
+
+      .weather-card {
+        width: min(680px, 100%);
+        min-height: 420px;
+        display: grid;
+        gap: 18px;
+        padding: 24px;
+        border: 1px solid var(--border);
+        border-top-color: rgba(255, 255, 255, 0.13);
+        border-left-color: rgba(255, 255, 255, 0.1);
+        background:
+          linear-gradient(160deg, rgba(19, 27, 40, 0.96), rgba(11, 16, 24, 0.98)),
+          var(--panel);
+        box-shadow:
+          0 24px 70px rgba(0, 0, 0, 0.35),
+          0 0 42px rgba(255, 176, 0, 0.08);
+      }
+
+      .topline {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .eyebrow,
+      .label,
+      .updated,
+      .source {
+        font-family: 'Azeret Mono', 'SFMono-Regular', Consolas, monospace;
+        text-transform: uppercase;
+        letter-spacing: 0;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      h1 {
+        margin: 6px 0 0;
+        font-family: 'Sora', 'DM Sans', sans-serif;
+        font-size: 34px;
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      .condition {
+        color: var(--cyan);
+        font-size: 15px;
+        margin-top: 8px;
+      }
+
+      .orb {
+        width: 76px;
+        height: 76px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+        color: #201100;
+        background:
+          radial-gradient(circle at 35% 28%, #fff3c4, #ffb000 42%, #b76100 100%);
+        box-shadow:
+          0 0 36px rgba(255, 176, 0, 0.32),
+          inset 0 1px 10px rgba(255, 255, 255, 0.45);
+      }
+
+      .orb svg {
+        width: 42px;
+        height: 42px;
+      }
+
+      .temperature {
+        display: flex;
+        align-items: end;
+        gap: 16px;
+        padding: 18px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.035);
+      }
+
+      .degrees {
+        font-family: 'Sora', 'DM Sans', sans-serif;
+        font-size: 72px;
+        line-height: 0.9;
+      }
+
+      .summary {
+        max-width: 310px;
+        margin-bottom: 6px;
+        color: rgba(240, 237, 230, 0.82);
+        line-height: 1.45;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+
+      .metric,
+      .day {
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.035);
+        padding: 12px;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 19px;
+      }
+
+      .forecast {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+
+      .day-name {
+        font-weight: 700;
+      }
+
+      .day-condition {
+        min-height: 36px;
+        color: rgba(240, 237, 230, 0.78);
+        margin: 8px 0 10px;
+        font-size: 13px;
+      }
+
+      .rain {
+        color: var(--amber);
+        font-family: 'Azeret Mono', monospace;
+        font-size: 12px;
+      }
+
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        border-top: 1px solid var(--border);
+        padding-top: 14px;
+      }
+
+      .source {
+        color: var(--success);
+      }
+
+      @media (max-width: 560px) {
+        .weather-card {
+          padding: 18px;
+        }
+
+        .temperature,
+        .topline,
+        .footer {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .metrics,
+        .forecast {
+          grid-template-columns: 1fr;
+        }
+
+        .degrees {
+          font-size: 58px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="weather-card" id="card" aria-live="polite">
+      <section class="topline">
+        <div>
+          <div class="eyebrow">Photon weather showcase</div>
+          <h1 id="city">Singapore</h1>
+          <div class="condition" id="condition">Thunderstorms</div>
+        </div>
+        <div class="orb" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 3v2.3M12 18.7V21M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M3 12h2.3M18.7 12H21M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+            />
+            <path
+              d="M8.7 14.8h7.2a3.1 3.1 0 0 0 .4-6.2 4.7 4.7 0 0 0-8.8 1.6 2.4 2.4 0 0 0 1.2 4.6Z"
+              fill="currentColor"
+              opacity=".92"
+            />
+          </svg>
+        </div>
+      </section>
+
+      <section class="temperature">
+        <div class="degrees"><span id="temperature">31</span> C</div>
+        <div>
+          <div class="summary" id="summary">Warm and humid with a late-afternoon storm window.</div>
+          <div class="updated" id="updated">Updated 2026-05-23T17:30:00+08:00</div>
+        </div>
+      </section>
+
+      <section class="metrics">
+        <div class="metric">
+          <span class="label">Feels like</span>
+          <strong><span id="feels-like">36</span> C</strong>
+        </div>
+        <div class="metric">
+          <span class="label">Humidity</span>
+          <strong><span id="humidity">84</span>%</strong>
+        </div>
+        <div class="metric">
+          <span class="label">Wind</span>
+          <strong><span id="wind">9</span> kph</strong>
+        </div>
+      </section>
+
+      <section class="forecast" id="forecast"></section>
+
+      <footer class="footer">
+        <span class="source">Same photon: CLI + Beam + MCP app</span>
+        <span class="updated">Rendered from @ui weather-card</span>
+      </footer>
+    </main>
+
+    <script>
+      const fallback = {
+        city: 'Singapore',
+        condition: 'Thunderstorms',
+        temperatureC: 31,
+        feelsLikeC: 36,
+        humidity: 84,
+        windKph: 9,
+        summary: 'Warm and humid with a late-afternoon storm window.',
+        updatedAt: '2026-05-23T17:30:00+08:00',
+        forecast: [
+          { day: 'Today', condition: 'Thunderstorms', highC: 32, lowC: 27, rainChance: 86 },
+          { day: 'Tomorrow', condition: 'Humid clouds', highC: 33, lowC: 27, rainChance: 58 },
+          { day: 'Monday', condition: 'Scattered storms', highC: 32, lowC: 26, rainChance: 63 },
+        ],
+      };
+
+      function render(data) {
+        const weather = data && data.city ? data : fallback;
+        document.getElementById('city').textContent = weather.city;
+        document.getElementById('condition').textContent = weather.condition;
+        document.getElementById('temperature').textContent = weather.temperatureC;
+        document.getElementById('feels-like').textContent = weather.feelsLikeC;
+        document.getElementById('humidity').textContent = weather.humidity;
+        document.getElementById('wind').textContent = weather.windKph;
+        document.getElementById('summary').textContent = weather.summary;
+        document.getElementById('updated').textContent = `Updated ${weather.updatedAt}`;
+
+        document.getElementById('forecast').innerHTML = weather.forecast
+          .map(
+            (day) => `
+              <article class="day">
+                <div class="day-name">${day.day}</div>
+                <div class="day-condition">${day.condition}</div>
+                <div>${day.lowC} C to ${day.highC} C</div>
+                <div class="rain">${day.rainChance}% rain</div>
+              </article>
+            `
+          )
+          .join('');
+      }
+
+      render(window.photon?.toolOutput || fallback);
+      window.photon?.onResult?.(render);
+      window.openai?.toolOutput && render(window.openai.toolOutput);
+    </script>
+  </body>
+</html>

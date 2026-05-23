@@ -1,0 +1,14 @@
+{
+  "name": "weather-showcase",
+  "version": "1.0.0",
+  "description": "Photon adoption showcase: one weather method rendered across CLI, Beam, and MCP app-capable chat clients.",
+  "photons": [
+    {
+      "name": "weather",
+      "description": "A tiny weather demo that becomes a CLI command, Beam UI, MCP tool, and embedded chat-client app.",
+      "path": "weather.photon.ts",
+      "version": "1.0.0",
+      "license": "MIT"
+    }
+  ]
+}

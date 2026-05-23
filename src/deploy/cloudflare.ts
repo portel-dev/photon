@@ -463,6 +463,25 @@ async function loadDeployJwtConfig(photonName: string, audience: string): Promis
   return { mode: 'jwt', issuer: issuer.issuer, audience, jwks };
 }
 
+function parseInstanceAliases(): Record<string, string> {
+  const raw = process.env.PHOTON_INSTANCE_ALIASES;
+  if (!raw?.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        .map(([from, to]) => [from.toLowerCase(), to])
+    );
+  } catch (err) {
+    throw new Error(
+      `PHOTON_INSTANCE_ALIASES must be a JSON object mapping aliases to canonical instances: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+}
+
 /**
  * Generate the wrangler.toml binding blocks for a deployment.
  *
@@ -861,6 +880,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .replace(/__HOST_BINDING__/g, 'PHOTON')
     .replace(/__DEV_MODE__/g, String(devMode))
     .replace(/__CF_ACCESS_ENABLED__/g, String(cfAccessEnabled))
+    .replace(/__INSTANCE_ALIASES__/g, JSON.stringify(parseInstanceAliases()))
     .replace(/__MCP_AUTH_MODE__/g, JSON.stringify(jwtConfig?.mode ?? options.mcpAuth ?? 'legacy'))
     .replace(/__MCP_JWT_ISSUER__/g, JSON.stringify(jwtConfig?.issuer ?? ''))
     .replace(/__MCP_JWT_AUDIENCE__/g, JSON.stringify(jwtConfig?.audience ?? ''))

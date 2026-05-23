@@ -96,7 +96,7 @@ async function getToolName(asEmail: string, baseName: string): Promise<string> {
   });
   const env = (await res.json()) as { result?: { tools: Array<{ name: string }> } };
   const tool = env.result?.tools.find(
-    (t) => t.name === baseName || t.name.endsWith('/' + baseName)
+    (t) => t.name === baseName || t.name.endsWith('.' + baseName) || t.name.endsWith('/' + baseName)
   );
   if (!tool) throw new Error(`tool ${baseName} not found in tools/list`);
   return tool.name;

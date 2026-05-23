@@ -8015,7 +8015,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
 
       // Resolve @format from photon metadata
       if (!el.getAttribute('data-format')) {
-        const parts = embedPath.split('/');
+        const parts = embedPath.split(embedPath.includes('.') ? '.' : '/');
         if (parts.length === 2) {
           try {
             const beamApp =
@@ -8190,7 +8190,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         return;
       }
 
-      // Convert data-embed="photon/method" to data-method="photon/method"
+      // Convert data-embed="photon.method" to data-method="photon.method"
       // This lets the inline binding call mcpClient.callTool() directly — no iframe needed
       el.setAttribute('data-method', embedPath);
       el.removeAttribute('data-embed');
@@ -8200,10 +8200,10 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         el.setAttribute('data-args', paramsRaw);
       }
 
-      // Resolve @format from method metadata (e.g., walkthrough/team → "table")
+      // Resolve @format from method metadata (e.g., walkthrough.team → "table")
       // Look up from beam-app's photon list via the DOM tree
       if (!el.getAttribute('data-format')) {
-        const parts = embedPath.split('/');
+        const parts = embedPath.split(embedPath.includes('.') ? '.' : '/');
         if (parts.length === 2) {
           try {
             const beamApp =
@@ -8280,8 +8280,8 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       }
 
       // Subscribe to streaming render events (generator yields, this.render() calls)
-      // Match by photon/method name — e.g., data-method="walkthrough/monitor"
-      const [embedPhoton, embedMethod] = method.split('/');
+      // Match by photon.method name — e.g., data-method="walkthrough.monitor"
+      const [embedPhoton, embedMethod] = method.split(method.includes('.') ? '.' : '/');
       if (embedPhoton && embedMethod) {
         const renderHandler = (data: any) => {
           if (data?.photon === embedPhoton && data?.method === embedMethod) {

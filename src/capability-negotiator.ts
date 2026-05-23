@@ -72,8 +72,28 @@ export class CapabilityNegotiator {
     // Beam is our own transport — UI support is implicit
     const clientInfo = server.getClientVersion();
     if (clientInfo?.name === 'beam') return true;
+    if (this.isOpenAIAppHost(server)) return true;
 
     return false;
+  }
+
+  /**
+   * ChatGPT's Apps connector currently identifies as OpenAI-owned clients such
+   * as `openai-mcp` in live traffic. Treat those as UI-capable even when the
+   * SDK-normalized capabilities object does not retain the app extension.
+   */
+  /**
+   * ChatGPT/OpenAI app hosts need a couple of compatibility shims beyond plain
+   * UI support, notably slashless tool names for the app connector layer.
+   */
+  isOpenAIAppHost(server: Server): boolean {
+    return this.isOpenAIClientName(server.getClientVersion()?.name);
+  }
+
+  private isOpenAIClientName(name?: string): boolean {
+    if (!name) return false;
+    const normalized = name.toLowerCase();
+    return normalized === 'chatgpt' || normalized.includes('openai');
   }
 
   /**

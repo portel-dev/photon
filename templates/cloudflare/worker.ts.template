@@ -24,6 +24,7 @@ const MCP_AUTH_MODE = __MCP_AUTH_MODE__;
 const MCP_JWT_ISSUER = __MCP_JWT_ISSUER__;
 const MCP_JWT_AUDIENCE = __MCP_JWT_AUDIENCE__;
 const MCP_JWT_JWKS = __MCP_JWT_JWKS__;
+const DEPLOY_INSTANCE_ALIASES: Record<string, string> = __INSTANCE_ALIASES__;
 
 /**
  * Photon name → Worker env binding name. Generated at deploy time from the
@@ -1743,27 +1744,44 @@ const CF_ACCESS_ENABLED = __CF_ACCESS_ENABLED__;
  * CF Access verifies the JWT at the edge before the request reaches this
  * Worker, so we trust the claim without re-verifying the signature here.
  */
-function extractInstance(request: Request): string {
+function canonicalizeInstance(instance: string, env: Env): string {
+  const key = instance.trim().toLowerCase();
+  const aliases: Record<string, string> = { ...DEPLOY_INSTANCE_ALIASES };
+  const runtimeAliases = env.PHOTON_INSTANCE_ALIASES;
+  if (typeof runtimeAliases === 'string' && runtimeAliases.trim()) {
+    try {
+      const parsed = JSON.parse(runtimeAliases) as Record<string, unknown>;
+      for (const [from, to] of Object.entries(parsed)) {
+        if (typeof to === 'string' && to.trim()) aliases[from.toLowerCase()] = to;
+      }
+    } catch (err) {
+      console.warn('canonicalizeInstance: PHOTON_INSTANCE_ALIASES parse failed', err);
+    }
+  }
+  return aliases[key] || instance;
+}
+
+function extractInstance(request: Request, env: Env): string {
+  let instance: string | null = null;
   if (CF_ACCESS_ENABLED) {
     const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
-    if (headerEmail) return headerEmail;
+    if (headerEmail) instance = headerEmail;
     const jwt = request.headers.get('Cf-Access-Jwt-Assertion');
-    if (jwt) {
+    if (!instance && jwt) {
       try {
         const part = jwt.split('.')[1];
         const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
         const padded = b64 + '==='.slice((b64.length + 3) % 4);
         const payload = JSON.parse(atob(padded));
-        if (payload?.email) return payload.email as string;
+        if (payload?.email) instance = payload.email as string;
       } catch (err) {
         console.warn('extractInstance: JWT parse failed', err);
       }
     }
   }
   const url = new URL(request.url);
-  return (
-    url.searchParams.get('instance') ?? request.headers.get('X-Photon-Instance') ?? 'default'
-  );
+  instance ??= url.searchParams.get('instance') ?? request.headers.get('X-Photon-Instance') ?? 'default';
+  return canonicalizeInstance(instance, env);
 }
 
 export default {
@@ -1778,7 +1796,7 @@ export default {
         },
       });
     }
-    const instance = extractInstance(request);
+    const instance = extractInstance(request, env);
     const id = env.__HOST_BINDING__.idFromName(instance);
     return env.__HOST_BINDING__.get(id).fetch(request);
   },

@@ -83,17 +83,21 @@ describe.skipIf(SKIP)('reference photon — three contexts', () => {
     const names = new Set(list.tools.map((t) => t.name));
     // Methods bound to @get/@post are filtered out of the MCP surface;
     // `feed` carries @get /api/feed.rss so it should NOT appear here.
-    expect(names.has('todo-app/feed')).toBe(false);
+    expect(names.has('todo-app.feed')).toBe(false);
     // The @expose'd methods stay in the MCP catalog as tools.
     for (const name of ['addTask', 'listTasks', 'removeTask', 'search']) {
       expect(
-        Array.from(names).some((n) => n === name || n.endsWith('/' + name)),
+        Array.from(names).some(
+          (n) => n === name || n.endsWith('.' + name) || n.endsWith('/' + name)
+        ),
         `tools/list should include ${name}; got ${[...names].join(', ')}`
       ).toBe(true);
     }
 
     // Add via MCP tool call.
-    const addTaskName = Array.from(names).find((n) => n === 'addTask' || n.endsWith('/addTask'))!;
+    const addTaskName = Array.from(names).find(
+      (n) => n === 'addTask' || n.endsWith('.addTask') || n.endsWith('/addTask')
+    )!;
     const added = (await jsonrpc('tools/call', {
       name: addTaskName,
       arguments: { title: 'engineering review' },

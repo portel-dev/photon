@@ -84,8 +84,9 @@ describe.skipIf(SKIP)('v1.28 byte-compat regression', () => {
     server?.kill();
   });
 
-  // v1.28 namespaces tool names as `<photon>/<method>`. Locking that here.
-  const TOOL = 'v128-compat/wordCount';
+  // Single-photon MCP servers now advertise bare method names for maximum
+  // client compatibility. Aggregated Beam-style servers keep qualified names.
+  const TOOL = 'wordCount';
 
   it('MCP tools/list returns the expected tool set (route handlers excluded)', async () => {
     const { tools } = await client.listTools();

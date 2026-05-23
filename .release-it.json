@@ -1,6 +1,6 @@
 {
   "git": {
-    "commitMessage": "chore: release v${version}",
+    "commitMessage": "chore: release v${version}\n\nConstraint: release-it owns package version, changelog, tag, npm publish, and GitHub release steps.\nConfidence: high\nScope-risk: narrow\nDirective: Keep release commits mechanical; put product rationale in the preceding feature or fix commits.\nTested: release-it pre-release checks\nNot-tested: Manual post-publish install before this commit is created",
     "tagName": "v${version}",
     "requireCleanWorkingDir": true,
     "requireUpstream": true,

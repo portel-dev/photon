@@ -239,6 +239,39 @@ interface MCPResource {
   description?: string;
 }
 
+function isOpenAIAppSession(session: MCPSession): boolean {
+  const name = session.clientInfo?.name?.toLowerCase();
+  return name === 'chatgpt' || !!name?.includes('openai');
+}
+
+function namespacedToolName(serverName: string, methodName: string): string {
+  return `${serverName}.${methodName}`;
+}
+
+function toolNameForSession(session: MCPSession, photonName: string, methodName: string): string {
+  return isOpenAIAppSession(session) ? methodName : namespacedToolName(photonName, methodName);
+}
+
+function splitNamespacedToolName(name: string): { serverName: string; methodName: string } | null {
+  const dotIndex = name.indexOf('.');
+  if (dotIndex !== -1) {
+    return {
+      serverName: name.slice(0, dotIndex),
+      methodName: name.slice(dotIndex + 1),
+    };
+  }
+
+  const slashIndex = name.indexOf('/');
+  if (slashIndex !== -1) {
+    return {
+      serverName: name.slice(0, slashIndex),
+      methodName: name.slice(slashIndex + 1),
+    };
+  }
+
+  return null;
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // SESSION MANAGEMENT
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1492,7 +1525,7 @@ const handlers: Record<string, RequestHandler> = {
           : undefined;
         const meta = buildToolMCPMeta(method, { uiResourceUri });
         tools.push({
-          name: `${photon.name}/${method.name}`,
+          name: toolNameForSession(session, photon.name, method.name),
           description: method.description || `Execute ${method.name}`,
           inputSchema: method.params || { type: 'object', properties: {} },
           'x-photon-id': photon.id, // Unique ID (hash of path) for subscriptions
@@ -1528,7 +1561,7 @@ const handlers: Record<string, RequestHandler> = {
     for (const photon of visiblePhotons) {
       if (!photon.configured || !photon.stateful) continue;
       tools.push({
-        name: `${photon.name}/_use`,
+        name: namespacedToolName(photon.name, '_use'),
         description: `Switch to a named instance of ${photon.name}. Omit name to select interactively.`,
         inputSchema: {
           type: 'object',
@@ -1543,21 +1576,21 @@ const handlers: Record<string, RequestHandler> = {
         'x-photon-internal': true,
       });
       tools.push({
-        name: `${photon.name}/_instances`,
+        name: namespacedToolName(photon.name, '_instances'),
         description: `List all available instances of ${photon.name}.`,
         inputSchema: { type: 'object', properties: {} },
         'x-photon-id': photon.id,
         'x-photon-internal': true,
       });
       tools.push({
-        name: `${photon.name}/_undo`,
+        name: namespacedToolName(photon.name, '_undo'),
         description: `Undo the last state mutation on ${photon.name}. Reverts the most recent change.`,
         inputSchema: { type: 'object', properties: {} },
         'x-photon-id': photon.id,
         'x-photon-internal': true,
       });
       tools.push({
-        name: `${photon.name}/_redo`,
+        name: namespacedToolName(photon.name, '_redo'),
         description: `Redo the last undone mutation on ${photon.name}. Re-applies a previously undone change.`,
         inputSchema: { type: 'object', properties: {} },
         'x-photon-id': photon.id,
@@ -1573,7 +1606,7 @@ const handlers: Record<string, RequestHandler> = {
         for (const method of mcp.methods) {
           const meta = buildToolMCPMeta(method, { uiResourceUri: method.linkedUi });
           tools.push({
-            name: `${mcp.name}/${method.name}`,
+            name: namespacedToolName(mcp.name, method.name),
             description: method.description || `Execute ${method.name}`,
             inputSchema: method.params || { type: 'object', properties: {} },
             'x-external-mcp': true, // Marker for frontend to identify external MCPs
@@ -1923,9 +1956,31 @@ const handlers: Record<string, RequestHandler> = {
       return handleBeamStudioParse(req, args || {});
     }
 
-    // Parse tool name: server-name/method-name or namespace:server-name/method-name
-    const slashIndex = name.indexOf('/');
-    if (slashIndex === -1) {
+    // Parse tool name: server-name.method-name.
+    // ChatGPT/OpenAI app sessions receive slashless names in tools/list because
+    // their connector layer treats slash-qualified names as app resource paths.
+    let serverName: string;
+    let methodName: string;
+    const namespacedName = splitNamespacedToolName(name);
+    if (!namespacedName && isOpenAIAppSession(session)) {
+      const matches = ctx.photons.filter(
+        (photon) => photon.configured && photon.methods?.some((method) => method.name === name)
+      );
+      if (matches.length === 1) {
+        const photon = matches[0];
+        serverName = photon.name;
+        methodName = name;
+      } else {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: `Invalid tool name: ${name}` }],
+            isError: true,
+          },
+        };
+      }
+    } else if (!namespacedName) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -1934,10 +1989,10 @@ const handlers: Record<string, RequestHandler> = {
           isError: true,
         },
       };
+    } else {
+      serverName = namespacedName.serverName;
+      methodName = namespacedName.methodName;
     }
-
-    const serverName = name.slice(0, slashIndex);
-    const methodName = name.slice(slashIndex + 1);
 
     // Per-photon auth check: if this photon requires auth but caller is anonymous, reject
     const targetPhoton = ctx.photons.find((p) => p.name === serverName);

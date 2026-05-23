@@ -7,8 +7,7 @@ dist/
 .env
 .env.local
 coverage/
-.data/
-tests/**/.data/
+**/.data/
 tests/**/debug/
 tests/**/snapshots/visual/
 tests/**/snapshots/promises/
@@ -60,7 +59,10 @@ _*.md
 !src/photons/*.photon.ts
 !tests/**/*.photon.ts
 !examples/*.photon.ts
+!examples/weather-showcase/weather.photon.ts
 .marketplace/
+!examples/weather-showcase/.marketplace/
+!examples/weather-showcase/.marketplace/**
 .mcp.json
 .claude-plugin/
 beam-kanban-photon-board.png
