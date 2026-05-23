@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.33.2](https://github.com/portel-dev/photon/compare/v1.33.1...v1.33.2) (2026-05-23)
+
+### Features
+
+* make Photon credible as a chat app surface ([4b5bc21](https://github.com/portel-dev/photon/commit/4b5bc219e5280e1edf03a6f5f82dc2fb1fada544))
+
 ## [1.33.1](https://github.com/portel-dev/photon/compare/v1.33.0...v1.33.1) (2026-05-23)
 
 ### Features
