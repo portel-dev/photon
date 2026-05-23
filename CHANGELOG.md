@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.33.1](https://github.com/portel-dev/photon/compare/v1.33.0...v1.33.1) (2026-05-23)
+
+### Features
+
+* **auth:** MCP JWT auth for deployed photons ([d677fd0](https://github.com/portel-dev/photon/commit/d677fd0fcf4302bc355197d86869dfeb4e6c1bf3))
+
+### Bug Fixes
+
+* **cf:** preserve assets helper on Cloudflare ([9db1aef](https://github.com/portel-dev/photon/commit/9db1aef29a4274fe93edb4c55b01e1d2e2c381dd))
+
 ## [1.33.0](https://github.com/portel-dev/photon/compare/v1.32.6...v1.33.0) (2026-05-21)
 
 ### Features
