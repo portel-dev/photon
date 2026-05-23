@@ -1,14 +1,15 @@
 /**
  * Worker Dependency Proxy Tests
  *
- * Tests the dep proxy that worker-host.ts creates for @photon dependencies.
- * This proxy caught a real production bug: .on()/.off()/.emit() were stubbed
- * as no-ops, causing claw's channel event subscriptions to silently fail.
- *
- * These tests verify the proxy behavior without needing a real worker thread.
+ * Regression coverage for the @photon proxy used inside worker-host.ts.
+ * The test imports production proxy code so it cannot drift into a duplicate
+ * implementation that proves only itself.
  */
 
 import { strict as assert } from 'assert';
+import type { ChannelHandler, ChannelMessage, Subscription } from '@portel/photon-core';
+import { createWorkerDepProxy, type PendingDepCall } from '../src/daemon/worker-dep-proxy.js';
+import type { WorkerToMainMessage } from '../src/daemon/worker-protocol.js';
 
 let passed = 0;
 let failed = 0;
@@ -27,118 +28,177 @@ async function test(name: string, fn: () => void | Promise<void>): Promise<void>
     });
 }
 
-// ── Recreate createDepProxy from worker-host.ts ──────────────────────
-// We duplicate the logic here because worker-host.ts can't be imported
-// outside a worker thread (it throws at module level).
+class RecordingBroker {
+  subscriptions: Array<{ channel: string; handler: ChannelHandler; active: boolean }> = [];
+  published: ChannelMessage[] = [];
 
-function createDepProxy(depName: string, remoteToolNames: string[]): any {
-  const toolSet = new Set(remoteToolNames);
-  const pendingCalls = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  async subscribe(channel: string, handler: ChannelHandler): Promise<Subscription> {
+    const record = { channel, handler, active: true };
+    this.subscriptions.push(record);
+    return {
+      channel,
+      active: true,
+      unsubscribe: () => {
+        record.active = false;
+      },
+    };
+  }
 
-  return new Proxy({} as any, {
-    get(_target: any, prop: string) {
-      if (typeof prop !== 'string') return undefined;
+  async publish(message: ChannelMessage): Promise<void> {
+    this.published.push(message);
+  }
 
-      // Event methods — currently stubbed as no-ops (known limitation)
-      if (prop === 'on' || prop === 'off' || prop === 'emit') {
-        return () => {};
+  dispatch(channel: string, data: unknown): void {
+    for (const subscription of this.subscriptions) {
+      if (subscription.channel === channel && subscription.active) {
+        subscription.handler({
+          channel,
+          event: channel.split(':').at(-1) || 'message',
+          data,
+          timestamp: Date.now(),
+          source: channel.split(':')[0],
+        });
       }
-
-      if (toolSet.has(prop)) {
-        return async (args: Record<string, unknown> = {}) => {
-          // In real code this sends via postMessage; here we simulate
-          return { called: true, method: prop, args };
-        };
-      }
-
-      return undefined;
-    },
-  });
+    }
+  }
 }
 
-// ══════════════════════════════════════════════════════════════════════
+function makeProxy(depName = 'telegram', remoteToolNames = ['send', 'groups', 'status']) {
+  const broker = new RecordingBroker();
+  const sent: WorkerToMainMessage[] = [];
+  const pendingDepCalls = new Map<string, PendingDepCall>();
+  let nextId = 0;
+  const proxy = createWorkerDepProxy({
+    depName,
+    remoteToolNames,
+    broker,
+    send: (msg) => sent.push(msg),
+    genId: () => `id-${++nextId}`,
+    pendingDepCalls,
+    timeoutMs: 1_000,
+  });
+  return { proxy, broker, sent, pendingDepCalls };
+}
 
 async function testDepProxy() {
   console.log(`\n${'═'.repeat(60)}`);
   console.log('  Worker Dependency Proxy');
   console.log(`${'═'.repeat(60)}`);
 
-  await test('proxy exposes known tool methods as async functions', async () => {
-    const proxy = createDepProxy('telegram', ['send', 'groups', 'status']);
+  await test('proxy exposes known tool methods as async functions', () => {
+    const { proxy } = makeProxy();
     assert.equal(typeof proxy.send, 'function');
     assert.equal(typeof proxy.groups, 'function');
     assert.equal(typeof proxy.status, 'function');
   });
 
-  await test('calling a tool method returns a promise', async () => {
-    const proxy = createDepProxy('telegram', ['status']);
-    const result = await proxy.status();
-    assert.ok(result, 'Should return a result');
-    assert.equal(result.called, true);
-    assert.equal(result.method, 'status');
+  await test('tool method sends a dep_call IPC message', () => {
+    const { proxy, sent, pendingDepCalls } = makeProxy();
+    void proxy.send({ chatId: '123', text: 'hello' });
+
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0], {
+      type: 'dep_call',
+      id: 'id-1',
+      depName: 'telegram',
+      method: 'send',
+      args: { chatId: '123', text: 'hello' },
+    });
+    assert.equal(pendingDepCalls.size, 1);
+    pendingDepCalls.clear();
   });
 
-  await test('tool method passes args through', async () => {
-    const proxy = createDepProxy('telegram', ['send']);
-    const result = await proxy.send({ chatId: '123', text: 'hello' });
-    assert.deepEqual(result.args, { chatId: '123', text: 'hello' });
+  await test('dep_call promise resolves from the pending call map', async () => {
+    const { proxy, pendingDepCalls } = makeProxy();
+    const resultPromise = proxy.status();
+    const pending = pendingDepCalls.get('id-1');
+    assert.ok(pending, 'dep_call should register a pending resolver');
+
+    pendingDepCalls.delete('id-1');
+    pending.resolve({ ok: true });
+    assert.deepEqual(await resultPromise, { ok: true });
+  });
+
+  await test('method with no args defaults to empty object', () => {
+    const { proxy, sent, pendingDepCalls } = makeProxy('test', ['status']);
+    void proxy.status();
+    assert.deepEqual((sent[0] as any).args, {});
+    pendingDepCalls.clear();
   });
 
   await test('unknown properties return undefined', () => {
-    const proxy = createDepProxy('telegram', ['send']);
+    const { proxy } = makeProxy('telegram', ['send']);
     assert.equal(proxy.nonexistent, undefined);
     assert.equal(proxy.foo, undefined);
   });
 
-  await test('.on() is a no-op function (known limitation)', () => {
-    const proxy = createDepProxy('telegram', ['send']);
-    assert.equal(typeof proxy.on, 'function');
-    const result = proxy.on('message', () => {});
-    assert.equal(result, undefined, '.on() returns undefined (no-op)');
-  });
-
-  await test('.off() is a no-op function', () => {
-    const proxy = createDepProxy('telegram', []);
-    assert.equal(typeof proxy.off, 'function');
-    proxy.off('message', () => {}); // Should not throw
-  });
-
-  await test('.emit() is a no-op function', () => {
-    const proxy = createDepProxy('telegram', []);
-    assert.equal(typeof proxy.emit, 'function');
-    proxy.emit('event', {}); // Should not throw
-  });
-
-  await test('.on() stub means event subscriptions silently fail', () => {
-    // This documents the known bug that caused claw to not receive
-    // telegram channel events when telegram ran in a worker thread.
-    const proxy = createDepProxy('telegram', ['send', 'groups']);
-    let received = false;
-    proxy.on('message', () => {
-      received = true;
-    });
-    // Even if we could emit, the handler was never actually registered
-    assert.equal(received, false, 'Event handler was never registered (known limitation)');
-  });
-
-  await test('proxy works with empty tool list', () => {
-    const proxy = createDepProxy('empty', []);
-    assert.equal(proxy.anything, undefined);
-    assert.equal(typeof proxy.on, 'function'); // Event stubs still work
-  });
-
-  await test('proxy distinguishes tools from non-tools', () => {
-    const proxy = createDepProxy('test', ['alpha', 'beta']);
-    assert.equal(typeof proxy.alpha, 'function');
-    assert.equal(typeof proxy.beta, 'function');
-    assert.equal(proxy.gamma, undefined);
-    assert.equal(proxy.delta, undefined);
-  });
-
   await test('symbol properties return undefined', () => {
-    const proxy = createDepProxy('test', ['method']);
-    // Symbol.toPrimitive and similar should not crash
+    const { proxy } = makeProxy('test', ['method']);
     assert.equal(proxy[Symbol.toPrimitive], undefined);
+  });
+}
+
+async function testDepProxyEvents() {
+  console.log(`\n${'═'.repeat(60)}`);
+  console.log('  Worker Dependency Proxy Events');
+  console.log(`${'═'.repeat(60)}`);
+
+  await test('.on() subscribes to the dependency event channel and receives data', () => {
+    const { proxy, broker } = makeProxy('telegram', ['send']);
+    const received: unknown[] = [];
+
+    proxy.on('message', (data: unknown) => received.push(data));
+    assert.equal(broker.subscriptions[0].channel, 'telegram:message');
+
+    broker.dispatch('telegram:message', { text: 'hello' });
+    assert.deepEqual(received, [{ text: 'hello' }]);
+  });
+
+  await test('onEventName shorthand subscribes to the matching dependency event', () => {
+    const { proxy, broker } = makeProxy('notifications', []);
+    const received: unknown[] = [];
+
+    proxy.onAlertCreated((data: unknown) => received.push(data));
+    assert.equal(broker.subscriptions[0].channel, 'notifications:alertCreated');
+
+    broker.dispatch('notifications:alertCreated', { id: 'a1' });
+    assert.deepEqual(received, [{ id: 'a1' }]);
+  });
+
+  await test('.off() unsubscribes a previously registered handler', async () => {
+    const { proxy, broker } = makeProxy('telegram', []);
+    const received: unknown[] = [];
+    const handler = (data: unknown) => received.push(data);
+
+    proxy.on('message', handler);
+    proxy.off('message', handler);
+    await Promise.resolve();
+
+    broker.dispatch('telegram:message', { text: 'after off' });
+    assert.deepEqual(received, []);
+  });
+
+  await test('unsubscribe function returned by .on() disables delivery', async () => {
+    const { proxy, broker } = makeProxy('telegram', []);
+    const received: unknown[] = [];
+
+    const unsubscribe = proxy.on('message', (data: unknown) => received.push(data));
+    unsubscribe();
+    await Promise.resolve();
+
+    broker.dispatch('telegram:message', { text: 'after unsubscribe' });
+    assert.deepEqual(received, []);
+  });
+
+  await test('.emit() publishes to the dependency event channel', async () => {
+    const { proxy, broker } = makeProxy('telegram', []);
+
+    await proxy.emit('message', { text: 'outbound' });
+    assert.equal(broker.published.length, 1);
+    assert.equal(broker.published[0].channel, 'telegram:message');
+    assert.equal(broker.published[0].event, 'message');
+    assert.deepEqual(broker.published[0].data, { text: 'outbound' });
+    assert.equal(broker.published[0].source, 'telegram');
   });
 }
 
@@ -147,40 +207,30 @@ async function testDepProxyEdgeCases() {
   console.log('  Dep Proxy Edge Cases');
   console.log(`${'═'.repeat(60)}`);
 
-  await test('concurrent calls to same method work independently', async () => {
-    const proxy = createDepProxy('test', ['fetch']);
-    const results = await Promise.all([
-      proxy.fetch({ id: 1 }),
-      proxy.fetch({ id: 2 }),
-      proxy.fetch({ id: 3 }),
-    ]);
-    assert.equal(results.length, 3);
-    assert.deepEqual(results[0].args, { id: 1 });
-    assert.deepEqual(results[1].args, { id: 2 });
-    assert.deepEqual(results[2].args, { id: 3 });
-  });
+  await test('concurrent calls to same method get independent pending IDs', () => {
+    const { proxy, sent, pendingDepCalls } = makeProxy('test', ['fetch']);
+    void proxy.fetch({ id: 1 });
+    void proxy.fetch({ id: 2 });
+    void proxy.fetch({ id: 3 });
 
-  await test('method with no args defaults to empty object', async () => {
-    const proxy = createDepProxy('test', ['status']);
-    const result = await proxy.status();
-    assert.deepEqual(result.args, {});
+    assert.deepEqual(
+      sent.map((msg) => (msg as any).id),
+      ['id-1', 'id-2', 'id-3']
+    );
+    assert.equal(pendingDepCalls.size, 3);
+    pendingDepCalls.clear();
   });
 
   await test('multiple proxies for different deps are independent', () => {
-    const wa = createDepProxy('whatsapp', ['send', 'groups']);
-    const tg = createDepProxy('telegram', ['send', 'status']);
+    const wa = makeProxy('whatsapp', ['send', 'groups']).proxy;
+    const tg = makeProxy('telegram', ['send', 'status']).proxy;
 
     assert.equal(typeof wa.groups, 'function');
-    assert.equal(tg.groups, undefined); // telegram doesn't have groups
-
+    assert.equal(tg.groups, undefined);
     assert.equal(typeof tg.status, 'function');
-    assert.equal(wa.status, undefined); // whatsapp doesn't have status
+    assert.equal(wa.status, undefined);
   });
 }
-
-// ══════════════════════════════════════════════════════════════════════
-// RUN
-// ══════════════════════════════════════════════════════════════════════
 
 (async () => {
   console.log('\n');
@@ -189,6 +239,7 @@ async function testDepProxyEdgeCases() {
   console.log('╚══════════════════════════════════════════════════════════════╝');
 
   await testDepProxy();
+  await testDepProxyEvents();
   await testDepProxyEdgeCases();
 
   console.log('\n' + '═'.repeat(60));

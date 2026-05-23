@@ -36,6 +36,10 @@ class PerformanceProfiler {
       console.log(`  ${result.name}: ${result.duration.toFixed(2)}ms`);
     }
   }
+
+  getResults() {
+    return this.results;
+  }
 }
 
 describe('Pagination Performance', () => {
@@ -364,7 +368,9 @@ describe('Pagination Performance', () => {
       profiler.measure('test-2');
 
       profiler.summary();
-      expect(true).toBe(true);
+      expect(profiler.getResults()).toHaveLength(2);
+      expect(profiler.getResults().map((result) => result.name)).toEqual(['test-1', 'test-2']);
+      expect(profiler.getResults().every((result) => result.duration >= 0)).toBe(true);
     });
   });
 });

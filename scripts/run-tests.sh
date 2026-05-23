@@ -123,6 +123,7 @@ SUITES=(
   "daemon-rpc-contract:$RUN tests/daemon-rpc-contract.test.ts"
   "daemon-parent-watchdog:$RUN tests/daemon-parent-watchdog.test.ts"
   "daemon-health-probe:$RUN tests/daemon-health-probe.test.ts"
+  "worker-dep-proxy:$RUN tests/worker-dep-proxy.test.ts"
   "progress-token-echo:$VITEST tests/progress-token-echo.test.ts"
   "transport-parity-resources:$VITEST tests/transport-parity-resources.test.ts"
   "dynamic-resources-subscribe:$VITEST tests/dynamic-resources-subscribe.test.ts"

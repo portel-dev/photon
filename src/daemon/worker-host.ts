@@ -17,6 +17,7 @@ import type {
   Subscription,
 } from '@portel/photon-core';
 import type { MainToWorkerMessage, WorkerInit, WorkerToMainMessage } from './worker-protocol.js';
+import { createWorkerDepProxy } from './worker-dep-proxy.js';
 
 if (!parentPort) {
   throw new Error('worker-host must run inside a worker thread');
@@ -130,37 +131,13 @@ function genId(): string {
 // ─── @photon Dependency Resolution (cross-worker RPC) ────────────────────────
 
 function createDepProxy(depName: string, remoteToolNames: string[]): any {
-  const toolSet = new Set(remoteToolNames);
-
-  return new Proxy({} as Record<string, unknown>, {
-    get(_target, prop) {
-      if (typeof prop !== 'string') return undefined;
-
-      // .on, .off, .emit — use broker-based events (channel: dep:${depName})
-      if (prop === 'on' || prop === 'off' || prop === 'emit') {
-        // TODO: bridge event subscriptions for dependencies
-        return () => {};
-      }
-
-      if (toolSet.has(prop)) {
-        return async (args: Record<string, unknown> = {}) => {
-          const id = genId();
-          return new Promise((resolve, reject) => {
-            pendingDepCalls.set(id, { resolve, reject });
-            send({ type: 'dep_call', id, depName, method: prop, args });
-            // Timeout after 120s
-            setTimeout(() => {
-              if (pendingDepCalls.has(id)) {
-                pendingDepCalls.delete(id);
-                reject(new Error(`Dependency call ${depName}.${prop} timed out`));
-              }
-            }, 120_000);
-          });
-        };
-      }
-
-      return undefined;
-    },
+  return createWorkerDepProxy({
+    depName,
+    remoteToolNames,
+    broker,
+    send,
+    genId,
+    pendingDepCalls,
   });
 }
 
