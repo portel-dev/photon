@@ -47,6 +47,13 @@ const CORS_HEADERS = {
 const UI_ASSET_MANIFEST: Record<string, { base: string; js: string; hash: string }> =
   __UI_ASSET_MANIFEST__;
 
+/**
+ * Photon companion-folder assets embedded at deploy time for synchronous
+ * `this.assets(subpath, { load })` parity with the local runtime. Files are
+ * keyed by photon name and normalized relative path.
+ */
+const PHOTON_ASSET_CONTENTS: Record<string, Record<string, string>> = __PHOTON_ASSET_CONTENTS__;
+
 // ════════════════════════════════════════════════════════════════════════════
 // Memory proxy — ctx.storage backing for this.memory
 // ════════════════════════════════════════════════════════════════════════════
@@ -572,6 +579,13 @@ function withCfCapabilities(
     configurable: false,
   });
 
+  Object.defineProperty(instance, 'assets', {
+    value: createAssetsProvider(photonName),
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
   Object.defineProperty(instance, 'callerCwd', {
     get() {
       return undefined;
@@ -660,6 +674,43 @@ function withCfCapabilities(
   });
 
   return instance;
+}
+
+function createAssetsProvider(photonName: string) {
+  return (subpath: string, options?: boolean | { load?: boolean; encoding?: string | null }) => {
+    const normalized = typeof options === 'boolean' ? { load: options } : (options ?? {});
+    const assetPath = normalizeAssetPath(subpath);
+    if (!normalized.load) return `/${photonName}/${assetPath}`;
+
+    const encoded = PHOTON_ASSET_CONTENTS[photonName]?.[assetPath];
+    if (encoded === undefined) {
+      throw new Error(`Asset not found: ${assetPath}`);
+    }
+
+    const bytes = base64ToBytes(encoded);
+    if (normalized.encoding === null) return bytes;
+    const encoding = !normalized.encoding || normalized.encoding === 'utf8' ? 'utf-8' : normalized.encoding;
+    return new TextDecoder(encoding).decode(bytes);
+  };
+}
+
+function normalizeAssetPath(subpath: string): string {
+  const clean = String(subpath)
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .split('/')
+    .filter((part) => part && part !== '.');
+  if (clean.some((part) => part === '..')) {
+    throw new Error(`Invalid asset path: ${subpath}`);
+  }
+  return clean.join('/');
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1227,10 +1278,17 @@ abstract class BasePhotonDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.instanceName = ctx.id.name ?? 'default';
-    this.photon = withCfCapabilities(this.createPhoton(), ctx, env, this.photonName);
+  }
+
+  protected getPhoton(): any {
+    if (!this.photon) {
+      this.photon = withCfCapabilities(this.createPhoton(), this.ctx, this.env, this.photonName);
+    }
+    return this.photon;
   }
 
   async fetch(request: Request): Promise<Response> {
+    this.getPhoton();
     const url = new URL(request.url);
 
     // Internal cross-photon call — invoked by sibling DOs via this.call.
@@ -1558,6 +1616,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
    * (which arrive as separate POST /mcp requests routed by `_handleMcpPost`).
    */
   private _streamToolCall(rpcRequest: any): Response {
+    this.getPhoton();
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
@@ -1626,6 +1685,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
    * Per-task errors move that task to status='error' without blocking others.
    */
   async alarm(): Promise<void> {
+    this.getPhoton();
     const tasks = await listSchedules(this.ctx);
     const now = Date.now();
     for (const task of tasks) {

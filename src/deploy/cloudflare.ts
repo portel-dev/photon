@@ -160,6 +160,28 @@ function inferToolScopes(
   return [`${tool.name}:${tool.readOnlyHint ? 'read' : 'write'}`];
 }
 
+function normalizeAssetRelativePath(value: string): string {
+  return value.split(path.sep).join('/');
+}
+
+async function collectAssetFiles(root: string, prefix = ''): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  if (!existsSync(root)) return result;
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  for (const entry of entries) {
+    const absolute = path.join(root, entry.name);
+    const relative = prefix ? path.join(prefix, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      Object.assign(result, await collectAssetFiles(absolute, relative));
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const key = normalizeAssetRelativePath(relative);
+    result[key] = readFileSync(absolute).toString('base64');
+  }
+  return result;
+}
+
 /**
  * Resolve a sibling photon name to its `.photon.ts` file. Searches alongside
  * the caller first, then PHOTON_DIR / `~/.photon`. Returns null if not
@@ -850,12 +872,13 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     await fs.writeFile(path.join(outputDir, 'src', p.sourceFileBase), p.source);
   }
 
-  // Track E: bundle <photon>/<name>/assets/** into <outputDir>/public/<name>/
-  // for the wrangler [assets] binding. Walk every photon (host + siblings) so
-  // a sibling's SPA chunks ship alongside the host's. Skips photons without
-  // an `assets/` folder, leaving the [assets] block out of wrangler.toml so
-  // the deploy stays minimal for asset-less photons.
-  const assetSourceDirs: { photonName: string; assetsDir: string }[] = [];
+  // Track E: bundle each photon's companion folder into the Worker. The local
+  // runtime resolves `this.assets('x')` relative to `<name>/` when that folder
+  // exists, and falls back to legacy `<name>/assets/` contents. Keep both
+  // layouts available on Cloudflare so deployed photons preserve local
+  // `this.assets()` behavior while older [assets] URLs remain stable.
+  const assetSourceDirs: { photonName: string; companionDir?: string; legacyAssetsDir?: string }[] =
+    [];
   const hostPhotonDir = path.dirname(absolutePath);
   const candidateDirs: { photonName: string; sourcePhotonPath: string }[] = [
     { photonName, sourcePhotonPath: absolutePath },
@@ -866,9 +889,14 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   }
   for (const { photonName: name, sourcePhotonPath } of candidateDirs) {
     const photonBaseName = path.basename(sourcePhotonPath, '.photon.ts');
-    const assetsDir = path.join(path.dirname(sourcePhotonPath), photonBaseName, 'assets');
-    if (existsSync(assetsDir)) {
-      assetSourceDirs.push({ photonName: name, assetsDir });
+    const companionDir = path.join(path.dirname(sourcePhotonPath), photonBaseName);
+    const legacyAssetsDir = path.join(companionDir, 'assets');
+    if (existsSync(companionDir) || existsSync(legacyAssetsDir)) {
+      assetSourceDirs.push({
+        photonName: name,
+        companionDir: existsSync(companionDir) ? companionDir : undefined,
+        legacyAssetsDir: existsSync(legacyAssetsDir) ? legacyAssetsDir : undefined,
+      });
     }
   }
 
@@ -880,11 +908,22 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
 
   let assetsBlock = '';
   const publicDir = path.join(outputDir, 'public');
+  const embeddedAssetContents: Record<string, Record<string, string>> = {};
 
-  // Copy any raw `assets/**` folders (new canonical layout).
-  for (const { photonName: name, assetsDir } of assetSourceDirs) {
+  // Copy companion folders and legacy `assets/**` contents into public/.
+  for (const { photonName: name, companionDir, legacyAssetsDir } of assetSourceDirs) {
     await fs.mkdir(publicDir, { recursive: true });
-    await fs.cp(assetsDir, path.join(publicDir, name), { recursive: true });
+    embeddedAssetContents[name] = {};
+
+    if (companionDir) {
+      await fs.cp(companionDir, path.join(publicDir, name), { recursive: true });
+      Object.assign(embeddedAssetContents[name], await collectAssetFiles(companionDir));
+    }
+
+    if (legacyAssetsDir) {
+      await fs.cp(legacyAssetsDir, path.join(publicDir, name), { recursive: true });
+      Object.assign(embeddedAssetContents[name], await collectAssetFiles(legacyAssetsDir));
+    }
   }
 
   // Precompile every @ui .tsx view: esbuild runs here on the deploy
@@ -939,7 +978,9 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   }
   // Inject the precompiled-UI manifest now that asset processing is done,
   // then rewrite the worker so `/api/ui/<id>` resolves on Cloudflare.
-  workerCode = workerCode.replace(/__UI_ASSET_MANIFEST__/g, JSON.stringify(uiManifest));
+  workerCode = workerCode
+    .replace(/__UI_ASSET_MANIFEST__/g, JSON.stringify(uiManifest))
+    .replace(/__PHOTON_ASSET_CONTENTS__/g, JSON.stringify(embeddedAssetContents));
   await fs.writeFile(path.join(outputDir, 'src', 'worker.ts'), workerCode);
 
   // Reference for clarity in the wrangler.toml: hostPhotonDir is unused for

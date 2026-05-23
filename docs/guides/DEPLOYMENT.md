@@ -174,6 +174,7 @@ This compiles your photon, generates a `wrangler.toml`, and deploys via Wrangler
 | `this.memory` | DO storage backing the photon instance |
 | `this.schedule` | DO Alarm multiplexer - each scheduled method becomes an alarm |
 | `this.call(otherPhoton)` | Sibling DO binding resolved by photon name |
+| `this.assets(path, { load })` | Synchronously reads files bundled from the photon's companion asset folder |
 | `this.cf.*` (R2/KV/D1/Queues/Vectorize/AI/Images) | Real bindings on the deployed Worker; same shape as local miniflare |
 | `this.sample` / `this.confirm` / `this.elicit` | Forwarded over the SSE response stream |
 | `@get /path` / `@post /path` | Dispatched by the Worker fetch handler before MCP routing |
@@ -182,6 +183,11 @@ This compiles your photon, generates a `wrangler.toml`, and deploys via Wrangler
 | `@auth cf-access` | Each CF Access email maps to its own DO instance |
 
 For the full `this.cf.*` reference and the local miniflare sandbox that mirrors a deployed Worker, see [CF-BINDINGS.md](CF-BINDINGS.md).
+
+`this.assets()` resolves the same way locally and on Cloudflare: files in the
+companion folder named after the photon (`my-photon/`) are bundled with the
+Worker. Legacy `my-photon/assets/` contents are also copied to the public
+assets binding for older UI bundles.
 
 ### Stateful Photons with Durable Objects
 

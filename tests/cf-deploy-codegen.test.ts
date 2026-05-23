@@ -425,10 +425,10 @@ export default class ExposePhoton {
 });
 
 describe('cf deploy code-gen — [assets] binding', () => {
-  // Track E: when a photon ships an `assets/` companion folder, the deploy
-  // bundles it under public/<photon-name>/ and emits the wrangler [assets]
-  // block. Photons without assets must NOT get the block (would force an
-  // empty public/ to exist and break minimal deploys).
+  // Track E: when a photon ships a companion asset folder, the deploy bundles
+  // it under public/<photon-name>/ and emits the wrangler [assets] block.
+  // Photons without assets must NOT get the block (would force an empty
+  // public/ to exist and break minimal deploys).
 
   it('photon without assets/ folder emits NO [assets] block', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-cf-noassets-'));
@@ -505,5 +505,47 @@ export default class WithAssets {
     expect(worker).toContain('this.env');
     expect(worker.toLowerCase()).toContain('assets');
     expect(worker).toContain('assets.fetch(request)');
+  });
+
+  it('photon companion folder embeds files for this.assets() on Cloudflare', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-cf-companion-assets-'));
+    const photonPath = path.join(dir, 'profiled.photon.ts');
+    await fsp.writeFile(
+      photonPath,
+      `export default class Profiled {
+  protected declare assets: (subpath: string, options: { load: true; encoding?: string | null }) => string | Uint8Array;
+
+  /** @get / */
+  async home() {
+    return new Response(this.assets('profile.md', { load: true }), {
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+}`
+    );
+
+    const companionDir = path.join(dir, 'profiled');
+    await fsp.mkdir(companionDir, { recursive: true });
+    await fsp.writeFile(path.join(companionDir, 'profile.md'), '# Arul Kumaran\n');
+
+    await deployToCloudflare({
+      photonPath,
+      outputDir: path.join(dir, 'out'),
+      dryRun: true,
+    });
+
+    const wrangler = await fsp.readFile(path.join(dir, 'out', 'wrangler.toml'), 'utf-8');
+    expect(wrangler).toContain('[assets]');
+    expect(fs.existsSync(path.join(dir, 'out', 'public', 'profiled', 'profile.md'))).toBe(true);
+
+    const worker = await fsp.readFile(path.join(dir, 'out', 'src', 'worker.ts'), 'utf-8');
+    expect(worker).toContain('PHOTON_ASSET_CONTENTS');
+    expect(worker).toContain('createAssetsProvider');
+    expect(worker).toContain('protected getPhoton(): any');
+    expect(worker).toContain('this.getPhoton();');
+    expect(worker).toContain("Object.defineProperty(instance, 'assets'");
+    expect(worker).toContain("normalized.encoding === 'utf8' ? 'utf-8'");
+    expect(worker).toContain('profile.md');
+    expect(worker).toContain(Buffer.from('# Arul Kumaran\n').toString('base64'));
   });
 });
