@@ -66,9 +66,3 @@ Live ChatGPT note:
   A clean-flow capture shows the named Photon Weather Showcase connector
   rendering Singapore from a fresh prompt at
   assets/showcase/weather/chatgpt-photon-weather-clean-flow.gif.
-
-  A polished side-by-side HyperFrames demo recreates setup, tool call, and
-  embedded UI render for ChatGPT and Claude Desktop at a consistent 1920x1080
-  canvas:
-
-    assets/showcase/weather/chat-clients-photon-weather-showcase.gif

@@ -15,7 +15,7 @@ import { getErrorMessage, ExitCode, exitWithError } from '../../shared/error-han
 import { logger } from '../../shared/logger.js';
 import { resolvePhotonPath, ensureWorkingDir } from '../../path-resolver.js';
 import { getDefaultContext } from '../../context.js';
-import { PHOTON_VERSION } from '../../version.js';
+import { PHOTON_PACKAGE_VERSION } from '../../version.js';
 import { isNodeError } from '../../shared/error-handler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +23,161 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ══════════════════════════════════════════════════════════════════════════════
 // PRIVATE HELPERS
 // ══════════════════════════════════════════════════════════════════════════════
+
+interface MarketplaceCatalogPhotonOverride {
+  label?: string;
+  description?: string;
+  summary?: string;
+  category?: string;
+  tags?: string[];
+}
+
+interface MarketplaceCatalogSection {
+  title: string;
+  description?: string;
+  photons: string[];
+}
+
+interface MarketplaceCatalog {
+  kind?: 'apps' | 'examples' | 'mixed';
+  title?: string;
+  description?: string;
+  quickStart?: {
+    photon?: string;
+    command?: string;
+  };
+  include?: string[];
+  exclude?: string[];
+  sections?: MarketplaceCatalogSection[];
+  overrides?: Record<string, MarketplaceCatalogPhotonOverride>;
+  removeExcludedDocs?: boolean;
+}
+
+interface MarketplacePhotonEntry {
+  file: string;
+  metadata: any;
+  manifest: any;
+}
+
+async function loadMarketplaceCatalog(workingDir: string): Promise<MarketplaceCatalog | undefined> {
+  const catalogPath = path.join(workingDir, '.marketplace', 'catalog.json');
+
+  if (!existsSync(catalogPath)) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(await fs.readFile(catalogPath, 'utf-8')) as MarketplaceCatalog;
+  } catch (error) {
+    exitWithError(`Could not read .marketplace/catalog.json: ${getErrorMessage(error)}`, {
+      exitCode: ExitCode.CONFIG_ERROR,
+      suggestion: 'Fix the JSON syntax or remove the catalog file',
+    });
+  }
+}
+
+function normalizeList(values?: string[]): string[] {
+  return Array.from(new Set((values || []).map((value) => value.trim()).filter(Boolean)));
+}
+
+function applyCatalogOverride<T extends Record<string, any>>(
+  item: T,
+  override?: MarketplaceCatalogPhotonOverride
+): T {
+  if (!override) return item;
+
+  return {
+    ...item,
+    label: override.label ?? item.label,
+    description: override.description ?? item.description,
+    summary: override.summary ?? item.summary,
+    category: override.category ?? item.category,
+    tags: override.tags ?? item.tags,
+  };
+}
+
+function selectCatalogEntries(
+  entries: MarketplacePhotonEntry[],
+  catalog?: MarketplaceCatalog
+): MarketplacePhotonEntry[] {
+  if (!catalog) return entries;
+
+  const sectionNames = normalizeList(catalog.sections?.flatMap((section) => section.photons));
+  const includeNames = normalizeList(catalog.include);
+  const excludeNames = new Set(normalizeList(catalog.exclude));
+  const selectedNames = sectionNames.length > 0 ? sectionNames : includeNames;
+  const entryByName = new Map(entries.map((entry) => [entry.metadata.name, entry]));
+
+  const orderedEntries =
+    selectedNames.length > 0
+      ? selectedNames
+          .map((name) => {
+            const entry = entryByName.get(name);
+            if (!entry) {
+              console.error(`   ⚠ Catalog references missing photon: ${name}`);
+            }
+            return entry;
+          })
+          .filter((entry): entry is MarketplacePhotonEntry => Boolean(entry))
+      : entries;
+
+  return orderedEntries
+    .filter((entry) => !excludeNames.has(entry.metadata.name))
+    .map((entry) => {
+      const override = catalog.overrides?.[entry.metadata.name];
+      return {
+        ...entry,
+        metadata: applyCatalogOverride(entry.metadata, override),
+        manifest: applyCatalogOverride(entry.manifest, override),
+      };
+    });
+}
+
+function buildCatalogSections(photons: any[], catalog?: MarketplaceCatalog): any[] {
+  if (!catalog?.sections?.length) {
+    return [
+      {
+        title: catalog?.kind === 'examples' ? 'Examples' : 'Photons',
+        description: '',
+        photons,
+      },
+    ];
+  }
+
+  const byName = new Map(photons.map((photon) => [photon.name, photon]));
+
+  return catalog.sections
+    .map((section) => ({
+      title: section.title,
+      description: section.description || '',
+      photons: section.photons.map((name) => byName.get(name)).filter(Boolean),
+    }))
+    .filter((section) => section.photons.length > 0);
+}
+
+async function removeExcludedPhotonDocs(
+  workingDir: string,
+  allEntries: MarketplacePhotonEntry[],
+  selectedEntries: MarketplacePhotonEntry[],
+  catalog?: MarketplaceCatalog
+): Promise<number> {
+  if (!catalog?.removeExcludedDocs) return 0;
+
+  const selectedNames = new Set(selectedEntries.map((entry) => entry.metadata.name));
+  let removed = 0;
+
+  for (const entry of allEntries) {
+    if (selectedNames.has(entry.metadata.name)) continue;
+
+    const docPath = path.join(workingDir, `${entry.metadata.name}.md`);
+    if (existsSync(docPath)) {
+      await fs.rm(docPath);
+      removed++;
+    }
+  }
+
+  return removed;
+}
 
 /**
  * Ensure .gitignore includes marketplace template directory
@@ -154,7 +309,8 @@ async function performMarketplaceSync(
   const { calculateFileHash, calculatePhotonHash } = await import('../../marketplace-manager.js');
   const { PhotonDocExtractor } = await import('../../photon-doc-extractor.js');
 
-  const photons: any[] = [];
+  const catalog = await loadMarketplaceCatalog(resolvedPath);
+  const allEntries: MarketplacePhotonEntry[] = [];
 
   for (const file of photonFiles.sort()) {
     const filePath = path.join(resolvedPath, file);
@@ -173,28 +329,54 @@ async function performMarketplaceSync(
     console.error(`   ✓ ${metadata.name} (${metadata.tools?.length || 0} tools)`);
 
     // Build manifest entry
-    photons.push({
-      name: metadata.name,
-      version: metadata.version,
-      description: metadata.description,
-      author: metadata.author || options.owner || 'Unknown',
-      license: metadata.license || 'MIT',
-      repository: metadata.repository,
-      homepage: metadata.homepage,
-      icon: metadata.icon || null,
-      source: `../${file}`,
-      hash,
-      contentHash,
-      tools: metadata.tools?.map((t) => t.name),
-      assets: metadata.assets,
-      photonType: metadata.photonType,
-      features: metadata.features,
+    allEntries.push({
+      file,
+      metadata,
+      manifest: {
+        name: metadata.name,
+        version: metadata.version,
+        description: metadata.description,
+        author: metadata.author || options.owner || 'Unknown',
+        license: metadata.license || 'MIT',
+        repository: metadata.repository,
+        homepage: metadata.homepage,
+        icon: metadata.icon || null,
+        tags: metadata.tags,
+        category: metadata.category,
+        source: `../${file}`,
+        hash,
+        contentHash,
+        tools: metadata.tools?.map((t) => t.name),
+        assets: metadata.assets,
+        photonType: metadata.photonType,
+        features: metadata.features,
+      },
     });
+  }
 
-    // Generate individual photon documentation
-    const photonMarkdown = await templateMgr.renderTemplate('photon.md', metadata);
-    const docPath = path.join(resolvedPath, `${metadata.name}.md`);
+  const selectedEntries = selectCatalogEntries(allEntries, catalog);
+  const photons = selectedEntries.map((entry) => entry.manifest);
+
+  if (catalog) {
+    console.error(
+      `   Catalog selected ${selectedEntries.length} of ${allEntries.length} photons from .marketplace/catalog.json`
+    );
+  }
+
+  for (const entry of selectedEntries) {
+    const photonMarkdown = await templateMgr.renderTemplate('photon.md', entry.metadata);
+    const docPath = path.join(resolvedPath, `${entry.metadata.name}.md`);
     await fs.writeFile(docPath, photonMarkdown, 'utf-8');
+  }
+
+  const removedDocs = await removeExcludedPhotonDocs(
+    resolvedPath,
+    allEntries,
+    selectedEntries,
+    catalog
+  );
+  if (removedDocs > 0) {
+    console.error(`   Removed ${removedDocs} generated docs for excluded photons`);
   }
 
   // Create manifest
@@ -239,8 +421,8 @@ async function performMarketplaceSync(
 
   const manifest = {
     name: options.name || baseName,
-    version: PHOTON_VERSION,
-    description: options.description || undefined,
+    version: PHOTON_PACKAGE_VERSION,
+    description: catalog?.description || options.description || undefined,
     owner: options.owner
       ? {
           name: options.owner,
@@ -259,17 +441,44 @@ async function performMarketplaceSync(
 
   // Render README section from template
   const readmeContent = await templateMgr.renderTemplate('readme.md', {
-    marketplaceName: manifest.name,
+    marketplaceName: catalog?.title || manifest.name,
     marketplaceDescription: manifest.description || '',
+    marketplaceKind: catalog?.kind || 'mixed',
+    quickStart: {
+      photon: catalog?.quickStart?.photon || photons[0]?.name || '<name>',
+      command:
+        catalog?.quickStart?.command ||
+        `photon info ${catalog?.quickStart?.photon || photons[0]?.name || '<name>'} --mcp`,
+    },
     photons: photons.map((p) => ({
+      label: p.label,
       name: p.name,
       description: p.description,
+      summary: p.summary,
       version: p.version,
       license: p.license,
       tools: p.tools || [],
       photonType: p.photonType || 'api',
       features: p.features || [],
+      category: p.category,
+      tags: p.tags || [],
     })),
+    sections: buildCatalogSections(
+      photons.map((p) => ({
+        label: p.label,
+        name: p.name,
+        description: p.description,
+        summary: p.summary,
+        version: p.version,
+        license: p.license,
+        tools: p.tools || [],
+        photonType: p.photonType || 'api',
+        features: p.features || [],
+        category: p.category,
+        tags: p.tags || [],
+      })),
+      catalog
+    ),
   });
 
   const isUpdate = await syncer.sync(readmeContent);

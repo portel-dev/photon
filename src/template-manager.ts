@@ -28,7 +28,7 @@ export class TemplateManager {
   private hashFile: string;
 
   // Current template version - increment when templates are updated
-  private static readonly TEMPLATE_VERSION = '3.0.0';
+  private static readonly TEMPLATE_VERSION = '4.0.0';
 
   constructor(workingDir: string) {
     this.marketplaceDir = path.join(workingDir, '.marketplace');
@@ -395,11 +395,11 @@ export class TemplateManager {
   private getDefaultReadmeTemplate(): string {
     return `# \${marketplaceName}
 
-\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`A collection of single-file TypeScript [MCP](https://modelcontextprotocol.io/introduction) servers for AI assistants.\n\n\`)}## Photons
+\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, marketplaceKind === 'examples' ? \`Small examples that teach one Photon capability at a time.\n\n\` : \`Ready-to-use single-file TypeScript [MCP](https://modelcontextprotocol.io/introduction) apps and tools for AI assistants.\n\n\`)}\${$if(marketplaceKind === 'apps', \`Use these directly from Claude Desktop, ChatGPT connectors, Beam, or the Photon CLI. Each photon is one auditable TypeScript file plus optional UI assets.\n\n\`, '')}\${$if(marketplaceKind === 'examples', \`These are learning-oriented photons. For production-ready tools, use the main Photon app marketplace.\n\n\`, '')}## Gallery
 
-| Photon | Description | Tools | Type |
-|--------|-------------|-------|------|
-\${each(photons, (p) => \`| [**\${properName(p.description, p.name)}**](\${p.name}.md) | \${brief(cleanDesc(p.description))} | \${p.tools ? p.tools.length : 0} | \${p.photonType === 'workflow' ? 'Workflow' : p.photonType === 'streaming' ? 'Streaming' : 'API'}\${(p.features || []).some(f => f === 'custom-ui' || f === 'dashboard') ? ' + UI' : ''} |\n\`)}
+\${each(sections || [{ title: 'Photons', description: '', photons }], (section) => \`\${section.title ? \`### \${section.title}\n\n\` : ''}\${section.description ? \`\${section.description}\n\n\` : ''}| Photon | What it gives an agent | Tools | Shape |
+|--------|------------------------|-------|-------|
+\${each(section.photons || [], (p) => \`| [**\${p.label || properName(p.description, p.name)}**](\${p.name}.md) | \${p.summary || brief(cleanDesc(p.description))} | \${p.tools ? p.tools.length : 0} | \${p.photonType === 'workflow' ? 'Workflow' : p.photonType === 'streaming' ? 'Streaming' : 'API'}\${(p.features || []).some(f => f === 'custom-ui' || f === 'dashboard') ? ' + UI' : ''} |\n\`)}\n\`)}
 
 ## Quick Start
 
@@ -407,20 +407,20 @@ export class TemplateManager {
 # Install the CLI
 ${globalInstallCmd('@portel/photon')}
 
-# Add a photon
-photon add filesystem
+# Add a photon from this marketplace
+photon add \${quickStart.photon}
 
 # Get MCP config (paste into your client)
-photon get filesystem --mcp
+\${quickStart.command}
 \\\`\\\`\\\`
 
 Output:
 \\\`\\\`\\\`json
 {
   "mcpServers": {
-    "filesystem": {
+    "\${quickStart.photon}": {
       "command": "photon",
-      "args": ["mcp", "filesystem"]
+      "args": ["mcp", "\${quickStart.photon}"]
     }
   }
 }
@@ -430,15 +430,15 @@ Output:
 
 \\\`\\\`\\\`bash
 photon add <name>        # Install a photon
-photon get               # List installed photons
-photon get <name> --mcp  # Get MCP config for a photon
+photon list              # List local photons
+photon info <name> --mcp # Get MCP config for a photon
 photon search <keyword>  # Search available photons
 photon upgrade           # Upgrade all photons
 \\\`\\\`\\\`
-\${$if(marketplaceName === 'photons', \`
+\${$if(marketplaceName.toLowerCase().includes('photon app'), \`
 ## Contributing
 
-PRs welcome for bug fixes, enhancements, and new photons.
+PRs welcome for focused, well-tested photons. Keep the gallery small: polished apps here, teaching examples in the examples marketplace.
 \`, '')}
 ---
 

@@ -10,7 +10,7 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D20-43853d.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 
-### Build MCP apps from TypeScript methods.
+### Define intent once. Deliver everywhere.
 
 Define the capability once. Photon turns it into the interfaces people now
 expect around AI tools:
@@ -23,6 +23,10 @@ expect around AI tools:
 Photon is free and open source software released under the [MIT license](./LICENSE).
 
 *Interfaces are optional. Intent is mandatory.*
+
+```bash
+gh repo star portel-dev/photon
+```
 
 ---
 
@@ -38,21 +42,23 @@ mode can connect to the same Photon over a public HTTPS `/mcp` endpoint.
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/photon-surface-map.svg" alt="Infographic showing one Photon method becoming CLI, Beam, MCP, Claude Desktop, ChatGPT, and other agent surfaces" width="100%">
 </div>
 
+Real clients, same Photon:
+
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/chat-clients-photon-weather-showcase.gif" alt="Animated Photon weather showcase with matched ChatGPT and Claude Desktop MCP app demos" width="100%">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/chatgpt-photon-weather-local-dot.png" alt="Real ChatGPT developer-mode session rendering the Photon weather app from a public HTTPS MCP endpoint" width="100%">
+<p><sub>ChatGPT developer mode rendering the Photon weather UI from a public HTTPS <code>/mcp</code> endpoint.</sub></p>
 </div>
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/weather-showcase-hero.png" alt="Photon weather showcase: one method rendered across Beam, CLI, and chat app surfaces" width="100%">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/claude-weather-real.png" alt="Real Claude Desktop session rendering the Photon weather app through local MCP" width="100%">
+<p><sub>Claude Desktop rendering the same Photon through local MCP.</sub></p>
 </div>
 
 [Follow the step-by-step tutorial](./docs/tutorials/from-method-to-chat-app.md)
 or open the runnable example in
 [`examples/weather-showcase`](./examples/weather-showcase).
-Real-client proof is included for
-[Claude Desktop](https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/claude-weather-real.png)
-and
-[ChatGPT developer mode](https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/chatgpt-photon-weather-local-dot.png).
+The tutorial also includes Beam, CLI, and a concept animation that explains the
+transformation without pretending to be proof.
 
 ---
 
@@ -61,6 +67,26 @@ and
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon: one file, three surfaces" width="100%">
 </div>
+
+---
+
+## The Promise
+
+Photon is the modern dev stack for the agentic age: each photon is a small,
+auditable brick that can be used by humans, agents, schedulers, webhooks, and
+apps without rewriting the same capability for every interface.
+
+| Define once | Photon derives |
+|---|---|
+| TypeScript method | MCP tool, CLI command, Beam action |
+| JSDoc intent | AI descriptions, human docs, form labels |
+| Types and tags | Validation, output formats, safety hints |
+| `@ui`, `@get`, `@post` | Embedded apps and web routes |
+| `@scheduled`, `@webhook`, `@locked` | Automation, integration, coordination |
+| `@auth`, scopes, JWT | Agent-safe deployed access |
+
+That is the core idea: **tiny trusted capabilities compose into larger
+systems**.
 
 ---
 
@@ -129,16 +155,6 @@ pnpm dlx @portel/photon mcp install my-tool
 > Requires [Node.js 20+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
 >
 > **Where do photon files live?** `./` (a project directory you cd into) or `~/.photon/` (global, auto-discovered). User settings persist under `~/.photon/state/<photon>/`. See [Where things live](docs/getting-started.md#where-things-live).
-
-<div align="center">
-
-<a href="https://www.youtube.com/watch?v=FI0M8s6ZKv4">
-  <img src="https://img.youtube.com/vi/FI0M8s6ZKv4/maxresdefault.jpg" alt="Watch: Why Photon? (2 min)" width="100%">
-</a>
-
-</div>
-
----
 
 ### How It Works
 
@@ -455,15 +471,17 @@ Full reference: [`docs/reference/CLAIM-CODES.md`](docs/reference/CLAIM-CODES.md)
 
 ## Marketplace
 
-32 photons ready to install: databases, APIs, developer tools, and more.
+A curated set of photons is ready to install. The public gallery is now kept
+small on purpose: polished apps and tools in one place, teaching examples in
+another.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="100%">
 </div>
 
 ```bash
-photon search postgres
-photon add postgres
+photon search boards
+photon add boards
 ```
 
 You can also install directly from any GitHub repository using qualified refs:
@@ -472,7 +490,11 @@ You can also install directly from any GitHub repository using qualified refs:
 photon add owner/repo/photon-name
 ```
 
-Browse the full catalog in the [official photons repository](https://github.com/portel-dev/photons). You can also host a private marketplace for your team: internal tools that stay off the public internet.
+Browse the [Photon Apps marketplace](https://github.com/portel-dev/photons)
+for ready-to-use photons, or the
+[Photon Examples marketplace](https://github.com/portel-dev/photon-examples)
+for focused learning examples. You can also host a private marketplace for your
+team: internal tools that stay off the public internet.
 
 ---
 
@@ -650,6 +672,6 @@ Photon is free and open source under the [MIT license](./LICENSE).
 
 The project is still evolving and contributions are welcome.
 
-- Star the repository if the idea resonates
+- Star the repository if the idea resonates: `gh repo star portel-dev/photon`
 - [Report issues](https://github.com/portel-dev/photon/issues)
 - [Contribute improvements or examples](./CONTRIBUTING.md)

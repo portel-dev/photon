@@ -143,19 +143,13 @@ It records the OpenAI-style MCP probe, the advertised `openai/outputTemplate`
 metadata, the slashless tool names, and the `resources/read` response for the
 app card.
 
-## 7. The Transformation as a GIF
+## 7. The Transformation as a Concept Animation
 
-The animated walkthrough shows the idea without depending on a particular live
-desktop layout: method, intent, CLI, Beam, and chat-client UI all come from the
-same Photon source.
+The animated walkthrough is explanatory, not proof. It shows the idea without
+depending on a particular live desktop layout: method, intent, CLI, Beam, and
+chat-client UI all come from the same Photon source.
 
 ![Weather transformation animation](../../assets/showcase/weather/weather-transformation.gif)
-
-The matched ChatGPT and Claude Desktop demo recreates setup, tool call, and the
-final embedded UI at a consistent `1920x1080` canvas so the two client demos sit
-cleanly side by side.
-
-![Matched chat-client Photon demo](../../assets/showcase/weather/chat-clients-photon-weather-showcase.gif)
 
 ## What This Demonstrates
 

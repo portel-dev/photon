@@ -94,11 +94,19 @@ function computeDevBuildMarker(): string {
 const devMarker = computeDevBuildMarker();
 
 /**
+ * Published package version without local git build metadata.
+ *
+ * Use this for generated files that are committed to repositories, where
+ * checkout-specific SHA noise would make otherwise stable outputs churn.
+ */
+export const PHOTON_PACKAGE_VERSION: string = pkg.version;
+
+/**
  * Photon runtime version. When running from a git checkout, includes a
  * `+sha.<short>` build-metadata suffix (semver 2.0 legal) so `photon
  * --version` distinguishes the dev tree from a published tarball.
  */
-export const PHOTON_VERSION: string = pkg.version + devMarker;
+export const PHOTON_VERSION: string = PHOTON_PACKAGE_VERSION + devMarker;
 
 /**
  * True when this process is running from a git checkout rather than an

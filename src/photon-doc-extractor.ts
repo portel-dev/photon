@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as ts from 'typescript';
 import { SchemaExtractor } from '@portel/photon-core';
-import { PHOTON_VERSION } from './version.js';
+import { PHOTON_PACKAGE_VERSION } from './version.js';
 
 interface ConfigParam {
   name: string;
@@ -60,6 +60,8 @@ export interface PhotonMetadata {
   homepage?: string;
   icon?: string;
   internal?: boolean;
+  tags?: string[];
+  category?: string;
   configParams?: ConfigParam[];
   setupInstructions?: string;
   tools?: Tool[];
@@ -114,7 +116,7 @@ export class PhotonDocExtractor {
     return {
       name: this.extractName(),
       label: this.extractTag('label'),
-      version: this.extractTag('version') || PHOTON_VERSION,
+      version: this.extractTag('version') || PHOTON_PACKAGE_VERSION,
       description: this.extractDescription(),
       author: this.extractTag('author'),
       license: this.extractTag('license'),
@@ -122,6 +124,8 @@ export class PhotonDocExtractor {
       homepage: this.extractTag('homepage'),
       icon: this.extractTag('icon'),
       internal: internalTag !== undefined,
+      tags: this.extractTags(),
+      category: this.extractTag('category'),
       configParams: this.extractConfigParams(),
       setupInstructions: this.extractSetupInstructions(),
       tools,
@@ -225,6 +229,37 @@ export class PhotonDocExtractor {
     }
 
     return undefined;
+  }
+
+  /**
+   * Extract marketplace/search tags from @tags or repeated @tag entries.
+   */
+  private extractTags(): string[] {
+    const values = [...this.extractAllTags('tags'), ...this.extractAllTags('tag')];
+
+    return Array.from(
+      new Set(
+        values
+          .flatMap((value) => value.split(/[,\s]+/))
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
+  }
+
+  /**
+   * Extract all values for a specific JSDoc tag.
+   */
+  private extractAllTags(tagName: string): string[] {
+    const regex = new RegExp(`@${tagName}\\s+(.+?)(?=\\n|$)`, 'gm');
+    const values: string[] = [];
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(this.content)) !== null) {
+      values.push(match[1].trim());
+    }
+
+    return values;
   }
 
   /**
