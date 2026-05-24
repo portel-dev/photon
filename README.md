@@ -44,49 +44,41 @@ mode can connect to the same Photon over a public HTTPS `/mcp` endpoint.
 
 Real clients, same Photon:
 
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/chatgpt-photon-weather-local-dot.png" alt="Real ChatGPT developer-mode session rendering the Photon weather app from a public HTTPS MCP endpoint" width="100%">
-<p><sub>ChatGPT developer mode rendering the Photon weather UI from a public HTTPS <code>/mcp</code> endpoint.</sub></p>
-</div>
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/claude-weather-real.png" alt="Real Claude Desktop session rendering the Photon weather app through local MCP" width="100%">
-<p><sub>Claude Desktop rendering the same Photon through local MCP.</sub></p>
-</div>
+<table>
+<tr>
+<td width="50%" align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/chatgpt-photon-weather-local-dot.png" alt="Real ChatGPT developer-mode session rendering the Photon weather app from a public HTTPS MCP endpoint">
+<br><sub>ChatGPT developer mode rendering the Photon weather UI from a public HTTPS <code>/mcp</code> endpoint.</sub>
+</td>
+<td width="50%" align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/claude-weather-real.png" alt="Real Claude Desktop session rendering the Photon weather app through local MCP">
+<br><sub>Claude Desktop rendering the same Photon through local MCP.</sub>
+</td>
+</tr>
+</table>
 
 [Follow the step-by-step tutorial](./docs/tutorials/from-method-to-chat-app.md)
 or open the runnable example in
 [`examples/weather-showcase`](./examples/weather-showcase).
-The tutorial also includes Beam, CLI, and a concept animation that explains the
-transformation without pretending to be proof.
+The tutorial also includes Beam, CLI, and a concept animation for the full
+transformation.
 
 ---
 
-## One definition. Multiple interfaces.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon: one file, three surfaces" width="100%">
-</div>
-
----
-
-## The Promise
+## The Photon Promise
 
 Photon is the modern dev stack for the agentic age: each photon is a small,
 auditable brick that can be used by humans, agents, schedulers, webhooks, and
 apps without rewriting the same capability for every interface.
 
-| Define once | Photon derives |
-|---|---|
-| TypeScript method | MCP tool, CLI command, Beam action |
-| JSDoc intent | AI descriptions, human docs, form labels |
-| Types and tags | Validation, output formats, safety hints |
-| `@ui`, `@get`, `@post` | Embedded apps and web routes |
-| `@scheduled`, `@webhook`, `@locked` | Automation, integration, coordination |
-| `@auth`, scopes, JWT | Agent-safe deployed access |
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-agentic-stack.svg" alt="Photon agentic stack infographic showing one intent becoming MCP contracts, human surfaces, apps, operations, trust boundaries, and composable systems" width="100%">
+</div>
 
 That is the core idea: **tiny trusted capabilities compose into larger
-systems**.
+systems**. A photon can start as a helper method, become a CLI command, render
+as an app, run on a schedule, accept webhooks, and still expose a clean
+agent-readable contract.
 
 ---
 
@@ -111,20 +103,6 @@ $ photon mcp hello                          # MCP server for Claude, Cursor, etc
 
 No decorators. No registration. No server boilerplate.
 Just define the intent. Photon handles the rest.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="One file, three interfaces" width="100%">
-</div>
-
----
-
-## Why Photon Exists
-
-Most software is built around interfaces: web apps, CLI tools, APIs, and now MCP servers for AI agents. But the underlying logic is often the same.
-
-Photon starts from a different place: capture the intent once in a TypeScript file and let the system expose it through multiple interfaces — CLI tools, web interfaces, and MCP servers.
-
-One definition. Multiple surfaces.
 
 ---
 
@@ -159,6 +137,10 @@ pnpm dlx @portel/photon mcp install my-tool
 ### How It Works
 
 You write a TypeScript class. Methods are your capabilities. Types describe what's valid. Comments explain the intent. Photon reads all of it and generates three interfaces from one file. Same logic. Same validation. Same data.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-core-concepts.svg" alt="Six Photon core concepts: methods, comments, types and tags, settings, UI and routes, and operations" width="100%">
+</div>
 
 ```
 analytics.photon.ts  →  Web UI (Beam)  ·  CLI  ·  MCP Server for AI
@@ -221,13 +203,7 @@ Paste into your AI client's config. Your photon is now an MCP server. Claude can
 
 The AI sees the same thing a human sees in Beam: the method names, the parameter descriptions from your JSDoc, the validation rules from your types. The JSDoc comment you wrote to document the tool for yourself is what Claude reads to decide when and how to call it.
 
-The MCP tools themselves work with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any MCP-compatible client.
-
-When your photon has a custom UI, clients that support the [MCP Apps Extension](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) render it natively, no separate app needed. The photon below is running inside Claude Desktop, same UI, same data as Beam.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/claude-desktop.png" alt="Photon running as an MCP App with custom UI inside Claude Desktop" width="100%">
-</div>
+The MCP tools themselves work with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any MCP-compatible client. When your photon has a custom UI, clients that support the [MCP Apps Extension](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) can render it natively, as shown in the weather proof above.
 
 ---
 
