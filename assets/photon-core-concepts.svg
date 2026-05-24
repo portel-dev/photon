@@ -19,6 +19,8 @@
       .cardTitle{font-size:30px;font-weight:850;fill:#0A2348}
       .cardText{font-size:21px;fill:#334B6B}
       .mini{font-size:17px;fill:#667E9C}
+      .iconStroke{stroke:#FFFFFF;stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
+      .iconDark{stroke:#0A2348;stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
     </style>
   </defs>
 
@@ -31,6 +33,11 @@
     <circle cx="104" cy="202" r="24" fill="#3478F6"/>
     <text x="104" y="210" text-anchor="middle" class="font chip">1</text>
     <text x="138" y="211" class="font muted" font-size="17" font-weight="800">CAPABILITY</text>
+    <g transform="translate(306 176)">
+      <rect x="0" y="0" width="58" height="58" rx="16" fill="#EAF2FF"/>
+      <path d="M18 20H40M18 30H40M18 40H31" class="iconDark"/>
+      <circle cx="43" cy="41" r="8" fill="#3478F6"/>
+    </g>
     <text x="88" y="258" class="font cardTitle">Methods are tools</text>
     <text x="88" y="302" class="font cardText">A class method becomes a</text>
     <text x="88" y="330" class="font cardText">callable action for humans</text>
@@ -42,6 +49,12 @@
     <circle cx="474" cy="202" r="24" fill="#6D5EF2"/>
     <text x="474" y="210" text-anchor="middle" class="font chip">2</text>
     <text x="508" y="211" class="font muted" font-size="17" font-weight="800">INTENT</text>
+    <g transform="translate(676 176)">
+      <rect x="0" y="0" width="58" height="58" rx="16" fill="#F0EDFF"/>
+      <path d="M17 20H41M17 31H35M17 42H29" class="iconDark"/>
+      <path d="M39 36L47 44" class="iconDark"/>
+      <circle cx="36" cy="33" r="8" fill="#6D5EF2"/>
+    </g>
     <text x="458" y="258" class="font cardTitle">Comments teach AI</text>
     <text x="458" y="302" class="font cardText">JSDoc becomes descriptions,</text>
     <text x="458" y="330" class="font cardText">labels, docs, and tool</text>
@@ -53,6 +66,12 @@
     <circle cx="844" cy="202" r="24" fill="#12A594"/>
     <text x="844" y="210" text-anchor="middle" class="font chip">3</text>
     <text x="878" y="211" class="font muted" font-size="17" font-weight="800">SHAPE</text>
+    <g transform="translate(1046 176)">
+      <rect x="0" y="0" width="58" height="58" rx="16" fill="#E8FBF5"/>
+      <path d="M18 18H40V40H18Z" class="iconDark"/>
+      <path d="M18 29H40M29 18V40" class="iconDark"/>
+      <circle cx="43" cy="43" r="8" fill="#12A594"/>
+    </g>
     <text x="828" y="258" class="font cardTitle">Types become UX</text>
     <text x="828" y="302" class="font cardText">Types and tags drive forms,</text>
     <text x="828" y="330" class="font cardText">validation, schemas, and</text>
@@ -64,6 +83,13 @@
     <circle cx="104" cy="494" r="24" fill="#F59E0B"/>
     <text x="104" y="502" text-anchor="middle" class="font chip">4</text>
     <text x="138" y="503" class="font muted" font-size="17" font-weight="800">CONFIG</text>
+    <g transform="translate(306 468)">
+      <rect x="0" y="0" width="58" height="58" rx="16" fill="#FFF3DD"/>
+      <path d="M18 25H40M22 37H36" class="iconDark"/>
+      <path d="M25 16V25M34 37V46" class="iconDark"/>
+      <circle cx="25" cy="25" r="5" fill="#F59E0B"/>
+      <circle cx="34" cy="37" r="5" fill="#F59E0B"/>
+    </g>
     <text x="88" y="550" class="font cardTitle">Settings stay live</text>
     <text x="88" y="594" class="font cardText">Runtime knobs become a</text>
     <text x="88" y="622" class="font cardText">settings tool. Secrets come</text>
@@ -75,10 +101,16 @@
     <circle cx="474" cy="494" r="24" fill="#0F6CBD"/>
     <text x="474" y="502" text-anchor="middle" class="font chip">5</text>
     <text x="508" y="503" class="font muted" font-size="17" font-weight="800">APP SURFACE</text>
+    <g transform="translate(676 468)">
+      <rect x="0" y="0" width="58" height="58" rx="16" fill="#EAF2FF"/>
+      <rect x="15" y="17" width="28" height="24" rx="4" fill="none" class="iconDark"/>
+      <path d="M15 25H43M22 49H36" class="iconDark"/>
+      <circle cx="44" cy="44" r="8" fill="#0F6CBD"/>
+    </g>
     <text x="458" y="550" class="font cardTitle">UI is optional</text>
-    <text x="458" y="594" class="font cardText"><tspan class="mono">@ui</tspan>, <tspan class="mono">@get</tspan>, and <tspan class="mono">@post</tspan></text>
-    <text x="458" y="622" class="font cardText">turn the same photon into</text>
-    <text x="458" y="650" class="font cardText">apps and web routes.</text>
+    <text x="458" y="594" class="font cardText"><tspan class="mono">@ui</tspan> adds an app surface.</text>
+    <text x="458" y="622" class="font cardText"><tspan class="mono">@get</tspan> and <tspan class="mono">@post</tspan> expose</text>
+    <text x="458" y="650" class="font cardText">web routes.</text>
   </g>
 
   <g filter="url(#shadow)">
@@ -86,6 +118,12 @@
     <circle cx="844" cy="494" r="24" fill="#22A447"/>
     <text x="844" y="502" text-anchor="middle" class="font chip">6</text>
     <text x="878" y="503" class="font muted" font-size="17" font-weight="800">OPERATIONS</text>
+    <g transform="translate(1046 468)">
+      <rect x="0" y="0" width="58" height="58" rx="16" fill="#EAF9ED"/>
+      <path d="M29 14V23M29 36V45M14 29H23M36 29H45" class="iconDark"/>
+      <circle cx="29" cy="29" r="10" fill="#22A447"/>
+      <path d="M25 29L28 32L34 25" class="iconStroke"/>
+    </g>
     <text x="828" y="550" class="font cardTitle">Production hooks</text>
     <text x="828" y="594" class="font cardText">Schedules, webhooks, locks,</text>
     <text x="828" y="622" class="font cardText">auth, retries, logs, and</text>
