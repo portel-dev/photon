@@ -86,3 +86,15 @@ tests/beam/fixtures/agent-router.photon.ts
 /people/
 tests/fixtures/.wrangler/
 .fallow/
+
+# Generated GitHub Pages docs content. Source docs live in /docs and are synced
+# into docs-site during docs:build.
+/docs-site/docs/
+/docs-site/assets/
+/docs-site/llms.md
+/docs-site/readme.md
+/docs-site/why-photon.md
+/docs-site/public/assets/
+/docs-site/public/llms.txt
+/docs-site/public/llms-full.txt
+/docs-site/.vitepress/dist/

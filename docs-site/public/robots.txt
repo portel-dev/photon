@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+Sitemap: https://portel-dev.github.io/photon/sitemap.xml
