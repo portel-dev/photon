@@ -46,11 +46,11 @@ Real clients, same Photon:
 
 <table>
 <tr>
-<td width="50%" align="center">
+<td width="50%" align="center" valign="top">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/chatgpt-photon-weather-local-dot.png" alt="Real ChatGPT developer-mode session rendering the Photon weather app from a public HTTPS MCP endpoint">
 <br><sub>ChatGPT developer mode rendering the Photon weather UI from a public HTTPS <code>/mcp</code> endpoint.</sub>
 </td>
-<td width="50%" align="center">
+<td width="50%" align="center" valign="top">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/showcase/weather/claude-weather-real.png" alt="Real Claude Desktop session rendering the Photon weather app through local MCP">
 <br><sub>Claude Desktop rendering the same Photon through local MCP.</sub>
 </td>
