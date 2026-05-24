@@ -72,7 +72,7 @@ auditable brick that can be used by humans, agents, schedulers, webhooks, and
 apps without rewriting the same capability for every interface.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-agentic-stack.svg" alt="Photon agentic stack infographic showing one intent becoming MCP contracts, human surfaces, apps, operations, trust boundaries, and composable systems" width="100%">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-agentic-stack.png" alt="Photon agentic stack infographic showing one intent becoming MCP contracts, human surfaces, apps, operations, trust boundaries, and composable systems" width="100%">
 </div>
 
 That is the core idea: **tiny trusted capabilities compose into larger
