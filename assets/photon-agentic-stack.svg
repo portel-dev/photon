@@ -1,112 +1,89 @@
-<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Photon agentic stack infographic</title>
-  <desc id="desc">A six panel infographic showing how one Photon definition becomes interfaces, operations, trust boundaries, and composable agent architecture.</desc>
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Photon agentic stack</title>
+  <desc id="desc">A layered infographic showing Photon as a stack: intent, derived contracts, surfaces, runtime operations, trust, and composition.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="800" gradientUnits="userSpaceOnUse">
+    <linearGradient id="canvas" x1="0" y1="0" x2="1200" y2="760" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F8FBFF"/>
-      <stop offset="0.52" stop-color="#F3F7FB"/>
-      <stop offset="1" stop-color="#F7FFF9"/>
+      <stop offset="1" stop-color="#EEF7F5"/>
     </linearGradient>
-    <linearGradient id="core" x1="468" y1="300" x2="732" y2="460" gradientUnits="userSpaceOnUse">
+    <linearGradient id="intent" x1="210" y1="120" x2="990" y2="202" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5D5FEF"/>
       <stop offset="1" stop-color="#10A7A7"/>
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#10294A" flood-opacity="0.12"/>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#10294A" flood-opacity="0.12"/>
     </filter>
     <style>
-      .title{font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;font-weight:800;fill:#0A2348}
-      .text{font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;fill:#263C5C}
-      .small{font-size:20px}
-      .tiny{font-size:17px}
-      .label{font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;font-size:15px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;fill:#607897}
-      .cardTitle{font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;font-size:27px;font-weight:800;fill:#0A2348}
-      .cardBody{font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;font-size:19px;fill:#344C6C}
-      .num{font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;font-size:22px;font-weight:800;fill:white}
+      .font{font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif}
       .mono{font-family:"SFMono-Regular", Consolas, "Liberation Mono", monospace}
+      .title{font-weight:850;fill:#0A2348}
+      .body{fill:#2F4768}
+      .muted{fill:#637B99}
+      .label{font-size:15px;font-weight:850;letter-spacing:1.4px;fill:#627B99}
+      .layerTitle{font-size:25px;font-weight:850;fill:#0A2348}
+      .small{font-size:18px;fill:#304A6B}
+      .pill{font-size:17px;font-weight:800;fill:#0A2348}
     </style>
   </defs>
 
-  <rect width="1200" height="800" rx="36" fill="url(#bg)"/>
-  <text x="60" y="78" class="title" font-size="48">Photon in one picture</text>
-  <text x="60" y="116" class="text small">Define a trusted capability once. Photon turns it into the surfaces, operations, and contracts needed in the agentic age.</text>
+  <rect width="1200" height="760" rx="34" fill="url(#canvas)"/>
+
+  <text x="60" y="70" class="font title" font-size="48">Photon as a stack</text>
+  <text x="60" y="104" class="font body" font-size="20">A photon is not just an MCP app. It is a small verified capability that gains interfaces, operations,</text>
+  <text x="60" y="132" class="font body" font-size="20">and trust boundaries from one definition.</text>
 
   <g filter="url(#shadow)">
-    <rect x="438" y="268" width="324" height="224" rx="28" fill="url(#core)"/>
-    <rect x="462" y="292" width="276" height="72" rx="16" fill="white" fill-opacity="0.16"/>
-    <text x="486" y="324" class="text mono" font-size="20" fill="white">weather.photon.ts</text>
-    <text x="486" y="348" class="text mono" font-size="17" fill="#EAFBFF">async current({ city })</text>
-    <text x="600" y="410" text-anchor="middle" class="title" font-size="38" fill="white">Intent</text>
-    <text x="600" y="446" text-anchor="middle" class="text tiny" fill="#EAFBFF">Types, comments, tags, UI assets</text>
+    <rect x="210" y="146" width="780" height="82" rx="24" fill="url(#intent)"/>
+    <text x="248" y="180" class="font label" fill="#DFFBFF">SOURCE OF TRUTH</text>
+    <text x="248" y="212" class="mono" font-size="24" fill="#FFFFFF">weather.photon.ts  ->  async current({ city })</text>
+    <text x="903" y="198" text-anchor="middle" class="font" font-size="21" font-weight="850" fill="#EAFBFF">intent</text>
   </g>
 
-  <g stroke="#8CA4C2" stroke-width="3" stroke-dasharray="8 10" opacity="0.85">
-    <path d="M438 330 C380 292 330 250 292 205"/>
-    <path d="M438 430 C380 476 330 512 292 555"/>
-    <path d="M762 330 C820 292 870 250 908 205"/>
-    <path d="M762 430 C820 476 870 512 908 555"/>
-    <path d="M600 268 C600 220 600 184 600 152"/>
-    <path d="M600 492 C600 540 600 574 600 608"/>
+  <g stroke="#A8BBD2" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 10">
+    <path d="M600 228 V258"/>
+    <path d="M600 342 V386"/>
+    <path d="M600 492 V536"/>
   </g>
 
   <g filter="url(#shadow)">
-    <rect x="60" y="152" width="304" height="166" rx="24" fill="#FFFFFF" stroke="#B9D8F7"/>
-    <circle cx="102" cy="194" r="23" fill="#3478F6"/>
-    <text x="102" y="202" text-anchor="middle" class="num">1</text>
-    <text x="142" y="184" class="label">Agent contract</text>
-    <text x="142" y="222" class="cardTitle">MCP ready</text>
-    <text x="88" y="260" class="cardBody">Tools, resources, prompts,</text>
-    <text x="88" y="286" class="cardBody">schemas, app resources.</text>
+    <rect x="120" y="258" width="960" height="84" rx="22" fill="#FFFFFF" stroke="#C8D8EF"/>
+    <text x="154" y="294" class="font label">DERIVED CONTRACT</text>
+    <text x="154" y="322" class="font layerTitle" font-size="24">MCP schema  +  CLI arguments  +  Beam fields  +  app resources  +  docs</text>
   </g>
 
   <g filter="url(#shadow)">
-    <rect x="448" y="136" width="304" height="140" rx="24" fill="#FFFFFF" stroke="#C7C5FF"/>
-    <circle cx="490" cy="178" r="23" fill="#6258EA"/>
-    <text x="490" y="186" text-anchor="middle" class="num">2</text>
-    <text x="530" y="168" class="label">Human surfaces</text>
-    <text x="530" y="206" class="cardTitle">Use it anywhere</text>
-    <text x="476" y="244" class="cardBody">Beam, CLI, web routes, chat UI.</text>
+    <rect x="120" y="386" width="960" height="106" rx="22" fill="#FFFFFF" stroke="#BFE8DA"/>
+    <text x="154" y="423" class="font label">SURFACES PEOPLE AND AGENTS TOUCH</text>
+    <g>
+      <rect x="154" y="444" width="128" height="32" rx="16" fill="#EAF2FF"/>
+      <text x="218" y="466" text-anchor="middle" class="font pill">CLI</text>
+      <rect x="302" y="444" width="128" height="32" rx="16" fill="#EAF2FF"/>
+      <text x="366" y="466" text-anchor="middle" class="font pill">Beam</text>
+      <rect x="450" y="444" width="128" height="32" rx="16" fill="#E9FBF6"/>
+      <text x="514" y="466" text-anchor="middle" class="font pill">MCP</text>
+      <rect x="598" y="444" width="156" height="32" rx="16" fill="#E9FBF6"/>
+      <text x="676" y="466" text-anchor="middle" class="font pill">Chat UI</text>
+      <rect x="774" y="444" width="272" height="32" rx="16" fill="#FFF4DF"/>
+      <text x="910" y="466" text-anchor="middle" class="font pill">Web routes and apps</text>
+    </g>
   </g>
 
   <g filter="url(#shadow)">
-    <rect x="836" y="152" width="304" height="166" rx="24" fill="#FFFFFF" stroke="#BFE8DA"/>
-    <circle cx="878" cy="194" r="23" fill="#12A594"/>
-    <text x="878" y="202" text-anchor="middle" class="num">3</text>
-    <text x="918" y="184" class="label">Application layer</text>
-    <text x="918" y="222" class="cardTitle">Real apps</text>
-    <text x="864" y="260" class="cardBody">Calendars, boards, booking,</text>
-    <text x="864" y="286" class="cardBody">dashboards, and workflows.</text>
+    <rect x="120" y="536" width="460" height="116" rx="22" fill="#FFFFFF" stroke="#F7D4A7"/>
+    <text x="154" y="574" class="font label">OPERATIONS</text>
+    <text x="154" y="606" class="font layerTitle">Runs beyond a request</text>
+    <text x="154" y="636" class="font small">Schedules, webhooks, retries, locks, state, events.</text>
   </g>
 
   <g filter="url(#shadow)">
-    <rect x="60" y="492" width="304" height="166" rx="24" fill="#FFFFFF" stroke="#F8D2A5"/>
-    <circle cx="102" cy="534" r="23" fill="#F59E0B"/>
-    <text x="102" y="542" text-anchor="middle" class="num">4</text>
-    <text x="142" y="524" class="label">Operations</text>
-    <text x="142" y="562" class="cardTitle">Runs itself</text>
-    <text x="88" y="600" class="cardBody">Schedules, webhooks, retries,</text>
-    <text x="88" y="626" class="cardBody">locks, state, audit history.</text>
+    <rect x="620" y="536" width="460" height="116" rx="22" fill="#FFFFFF" stroke="#C7D7F5"/>
+    <text x="654" y="574" class="font label">TRUST BOUNDARY</text>
+    <text x="654" y="606" class="font layerTitle">Safe by construction</text>
+    <text x="654" y="636" class="font small">Types, validation, auth scopes, caller identity, audit logs.</text>
   </g>
 
-  <g filter="url(#shadow)">
-    <rect x="448" y="608" width="304" height="118" rx="24" fill="#FFFFFF" stroke="#BED9F4"/>
-    <circle cx="490" cy="650" r="23" fill="#0F6CBD"/>
-    <text x="490" y="658" text-anchor="middle" class="num">5</text>
-    <text x="530" y="640" class="label">Trust boundary</text>
-    <text x="530" y="678" class="cardTitle">Safe by shape</text>
-    <text x="476" y="710" class="cardBody">Auth, scopes, validation, caller identity.</text>
+  <g>
+    <rect x="210" y="686" width="780" height="38" rx="19" fill="#E5F0FF"/>
+    <text x="600" y="711" text-anchor="middle" class="font" font-size="18" fill="#284362">Composition: photons call photons, publish to marketplaces, and become reliable agent architecture.</text>
   </g>
-
-  <g filter="url(#shadow)">
-    <rect x="836" y="492" width="304" height="166" rx="24" fill="#FFFFFF" stroke="#C8EECF"/>
-    <circle cx="878" cy="534" r="23" fill="#22A447"/>
-    <text x="878" y="542" text-anchor="middle" class="num">6</text>
-    <text x="918" y="524" class="label">Composition</text>
-    <text x="918" y="562" class="cardTitle">Lego bricks</text>
-    <text x="864" y="600" class="cardBody">Photons call photons, publish</text>
-    <text x="864" y="626" class="cardBody">to marketplaces, become systems.</text>
-  </g>
-
-  <rect x="164" y="746" width="872" height="34" rx="17" fill="#E8F2FF"/>
-  <text x="600" y="769" text-anchor="middle" class="text tiny">Small enough to verify. Useful enough to compose. Friendly enough for humans and agents.</text>
 </svg>
