@@ -27,6 +27,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - uses: actions/configure-pages@v6
+        with:
+          enablement: true
 
       - run: bun install --frozen-lockfile
       - run: bun run docs:build
