@@ -97,4 +97,5 @@ tests/fixtures/.wrangler/
 /docs-site/public/assets/
 /docs-site/public/llms.txt
 /docs-site/public/llms-full.txt
+/docs-site/public/photon-docs-index.json
 /docs-site/.vitepress/dist/

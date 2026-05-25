@@ -30,6 +30,10 @@ function write(path, contents) {
 }
 
 function firstHeading(markdown) {
+  const frontmatter = markdown.match(/^---\n([\s\S]*?)\n---/)?.[1];
+  const frontmatterTitle = frontmatter?.match(/^title:\s*['"]?(.+?)['"]?$/m)?.[1]?.trim();
+  if (frontmatterTitle) return frontmatterTitle.replace(/^['"]|['"]$/g, '');
+
   const match = markdown.match(/^#\s+(.+)$/m);
   return match?.[1]?.trim();
 }
@@ -92,10 +96,11 @@ function escapePlaceholders(markdown) {
 
 function excerpt(markdown) {
   return markdown
+    .replace(/^---\n[\s\S]*?\n---\n?/, '')
     .replace(/```[\s\S]*?```/g, '')
     .split('\n')
     .map((line) => line.trim())
-    .find((line) => line && !line.startsWith('#') && !line.startsWith('<') && !line.startsWith('|'))
+    .find((line) => line && !line.startsWith('#') && !line.startsWith('<') && !line.startsWith('|') && !line.startsWith('![') && !line.startsWith('[![') && line !== '---')
     ?.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 }
 
@@ -141,6 +146,18 @@ const docs = [
     };
   });
 
+const docsIndex = docs.map((doc) => ({
+  title: doc.title,
+  route: doc.route,
+  excerpt: doc.excerpt,
+  section: (() => {
+    const parts = doc.route.split('/').filter(Boolean);
+    if (parts[0] !== 'docs') return 'start';
+    if (parts.length === 2) return 'docs';
+    return parts[1];
+  })(),
+}));
+
 const llmsSummary = `# Photon
 
 > Photon is an open source TypeScript runtime that turns a single .photon.ts class into an MCP server for AI agents, a CLI tool, and a Beam web dashboard.
@@ -176,6 +193,7 @@ ${docs.map((doc) => `- [${doc.title}](${doc.route})${doc.excerpt ? `: ${doc.exce
 
 write(join(publicDir, 'llms.txt'), llmsSummary);
 write(join(publicDir, 'llms-full.txt'), llmsFull);
+write(join(publicDir, 'photon-docs-index.json'), `${JSON.stringify(docsIndex, null, 2)}\n`);
 write(join(siteDir, 'llms.md'), `# LLM Reference\n\n\`/llms.txt\` and \`/llms-full.txt\` are generated during the docs build.\n\n${llmsFull}`);
 
 console.log(`Synced ${docs.length} documentation pages into docs-site.`);
