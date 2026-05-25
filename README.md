@@ -9,6 +9,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178c6.svg)](https://www.typescriptlang.org)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-43853d.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
+[![Docs](https://img.shields.io/badge/docs-photon-blue)](https://portel-dev.github.io/photon/)
 
 ### Define intent once. Deliver everywhere.
 
@@ -21,6 +22,7 @@ expect around AI tools:
 - **Beam web interface** for humans
 
 Photon is free and open source software released under the [MIT license](./LICENSE).
+Full documentation lives at [portel-dev.github.io/photon](https://portel-dev.github.io/photon/).
 
 *Interfaces are optional. Intent is mandatory.*
 
