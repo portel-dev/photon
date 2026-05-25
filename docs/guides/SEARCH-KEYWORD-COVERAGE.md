@@ -5,6 +5,9 @@ public documentation. The goal is not to stuff keywords into pages. The goal is
 to answer real developer questions with precise pages that search engines and AI
 answer systems can quote.
 
+Use the [Search Measurement Playbook](SEARCH-MEASUREMENT.md) to track Google
+Search Console, Bing, and AI answer-engine performance against these clusters.
+
 ## Current Keyword Coverage
 
 | Keyword cluster | Current coverage | Priority |
