@@ -358,6 +358,42 @@ export default class RouteOnlyPhoton {
   });
 });
 
+describe('cf deploy code-gen — constructor env injection', () => {
+  it('passes primitive constructor params from Worker env bindings', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-cf-constructor-env-'));
+    const photonPath = path.join(dir, 'mail-room.photon.ts');
+    await fsp.writeFile(
+      photonPath,
+      `
+export default class MailRoom {
+  constructor(
+    private apiKey: string = '',
+    private fromEmail: string = '',
+    private retryCount: number = 0,
+    private enabled: boolean = false
+  ) {}
+
+  /** @get / */
+  async home() { return { ok: true }; }
+}
+`
+    );
+
+    await deployToCloudflare({
+      photonPath,
+      outputDir: path.join(dir, 'out'),
+      dryRun: true,
+    });
+
+    const worker = await fsp.readFile(path.join(dir, 'out', 'src', 'worker.ts'), 'utf-8');
+    expect(worker).toContain('function readConstructorEnv');
+    expect(worker).toContain('protected createPhoton(env: Env)');
+    expect(worker).toContain(
+      'return new MailRoomPhoton(readConstructorEnv(env, "MAIL_ROOM_API_KEY", "string"), readConstructorEnv(env, "MAIL_ROOM_FROM_EMAIL", "string"), readConstructorEnv(env, "MAIL_ROOM_RETRY_COUNT", "number"), readConstructorEnv(env, "MAIL_ROOM_ENABLED", "boolean"));'
+    );
+  });
+});
+
 describe('cf deploy code-gen — @expose dispatch', () => {
   // Track C: methods tagged `@expose` (or `@expose public`) get bound to
   // POST /api/<kebab> in the generated DO. Without this the deployed

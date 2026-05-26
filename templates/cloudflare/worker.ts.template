@@ -55,6 +55,25 @@ const UI_ASSET_MANIFEST: Record<string, { base: string; js: string; hash: string
  */
 const PHOTON_ASSET_CONTENTS: Record<string, Record<string, string>> = __PHOTON_ASSET_CONTENTS__;
 
+function readConstructorEnv(env: Env, name: string, type: string): unknown {
+  const raw = env[name];
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const value = String(raw);
+  switch (type) {
+    case 'boolean':
+      return value === 'true' || value === '1';
+    case 'number': {
+      const parsed = Number(value);
+      if (Number.isNaN(parsed)) {
+        throw new Error(`Environment variable ${name} must be a number`);
+      }
+      return parsed;
+    }
+    default:
+      return value;
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Memory proxy — ctx.storage backing for this.memory
 // ════════════════════════════════════════════════════════════════════════════
@@ -1262,7 +1281,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
    * callers like RSS readers).
    */
   protected readonly exposes: { handler: string; visibility: 'private' | 'public' }[] = [];
-  protected abstract createPhoton(): any;
+  protected abstract createPhoton(env: Env): any;
 
   protected photon: any;
   protected instanceName: string;
@@ -1283,7 +1302,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
 
   protected getPhoton(): any {
     if (!this.photon) {
-      this.photon = withCfCapabilities(this.createPhoton(), this.ctx, this.env, this.photonName);
+      this.photon = withCfCapabilities(this.createPhoton(this.env), this.ctx, this.env, this.photonName);
     }
     return this.photon;
   }

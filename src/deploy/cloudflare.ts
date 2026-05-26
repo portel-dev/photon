@@ -140,6 +140,20 @@ function parseToolScopesFromSource(source: string): Record<string, string[]> {
   return scopesByMethod;
 }
 
+function renderConstructorArgs(
+  source: string,
+  photonName: string,
+  extractor: SchemaExtractor
+): string {
+  const injections = extractor.resolveInjections(source, photonName);
+  return injections
+    .map((injection: any) => {
+      if (injection.injectionType !== 'env') return 'undefined';
+      return `readConstructorEnv(env, ${JSON.stringify(injection.envVarName)}, ${JSON.stringify(injection.param?.type ?? 'string')})`;
+    })
+    .join(', ');
+}
+
 function extractScopes(jsdoc: string): string[] {
   const scopes: string[] = [];
   const re = /@scope\s+([^\r\n*]+)/g;
@@ -751,6 +765,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     exposeDefs: ExposeDef[];
     /** Transformed source written to outputDir/src */
     source: string;
+    /** Constructor argument expressions for Worker env injection */
+    constructorArgs: string;
     /** Where the source lives in outputDir/src/ */
     sourceFileBase: string;
     /** Whether this is the externally-routed host photon */
@@ -779,6 +795,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       routeDefs,
       exposeDefs,
       source: transformedHost,
+      constructorArgs: renderConstructorArgs(sourceCode, photonName, extractor),
       sourceFileBase: 'photon.ts',
       isHost: true,
     },
@@ -835,6 +852,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       routeDefs: sibRoutes,
       exposeDefs: sibExposes,
       source: transformPhotonSource(sibSource),
+      constructorArgs: renderConstructorArgs(sibSource, sibName, extractor),
       sourceFileBase: `dep-${sibName}.ts`,
       isHost: false,
     });
@@ -867,7 +885,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   protected readonly toolDefinitions: any[] = ${JSON.stringify(p.toolDefs, null, 2)};
   protected readonly httpRoutes: any[] = ${JSON.stringify(p.routeDefs, null, 2)};
   protected readonly exposes: any[] = ${JSON.stringify(p.exposeDefs, null, 2)};
-  protected createPhoton() { return new ${p.importName}(); }
+  protected createPhoton(env: Env) { return new ${p.importName}(${p.constructorArgs}); }
 }`
     )
     .join('\n\n');
