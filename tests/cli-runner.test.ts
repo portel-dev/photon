@@ -9,6 +9,7 @@
 
 import { strict as assert } from 'assert';
 import {
+  createCliInvocationSessionId,
   getMethodFormatHint,
   isDestructiveMethod,
   methodRequiresInput,
@@ -263,6 +264,30 @@ async function run() {
     const result = parseCliArgs(['group', 'Arul', 'folder', '~/path'], params);
     assert.equal(result.group, 'Arul');
     assert.equal(result.folder, '~/path');
+  });
+
+  console.log('\n-- CLI invocation sessions --');
+
+  await test('stateful CLI invocation session ids are unique per command', () => {
+    const first = createCliInvocationSessionId('tel');
+    const second = createCliInvocationSessionId('tel');
+    assert.match(first, /^cli-tel-\d+-[a-z0-9]+-[a-z0-9]+$/);
+    assert.match(second, /^cli-tel-\d+-[a-z0-9]+-[a-z0-9]+$/);
+    assert.notEqual(first, second);
+  });
+
+  await test('PHOTON_SESSION_ID explicitly opts into shared CLI affinity', () => {
+    const previous = process.env.PHOTON_SESSION_ID;
+    process.env.PHOTON_SESSION_ID = 'shared-cli-session';
+    try {
+      assert.equal(createCliInvocationSessionId('tel'), 'shared-cli-session');
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PHOTON_SESSION_ID;
+      } else {
+        process.env.PHOTON_SESSION_ID = previous;
+      }
+    }
   });
 
   console.log('\n-- coerceValue --');

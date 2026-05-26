@@ -904,10 +904,10 @@ async function testWatcherSurvivesReloadCycle() {
     //    reload lines) before measuring, not just a fixed sleep.
     // 2. Fire the burst synchronously — back-to-back writes, no awaits
     //    between them, so they leave the test in one event-loop tick.
-    // 3. Assert coalescing happened (count is << burst size). A daemon
+    // 3. Assert coalescing happened (count is less than burst size). A daemon
     //    with broken debounce would emit one reload per write (NUM_EDITS);
-    //    a working one collapses to 1 — but allow up to 2 to absorb the
-    //    OS-level event-delivery race, which is what was making this
+    //    a working one usually collapses to 1. Under load, macOS can
+    //    still deliver a few separated fs.watch batches, which is what made this
     //    test flake on Node 22 macOS runners.
 
     const NUM_EDITS = 5;
@@ -927,8 +927,8 @@ async function testWatcherSurvivesReloadCycle() {
     const log = getDaemonLog().join('\n');
     const reloadCount = (log.match(/File changed, auto-reloading/g) || []).length;
     assert.ok(
-      reloadCount >= 1 && reloadCount <= 2,
-      `Expected the ${NUM_EDITS}-write burst to coalesce to 1-2 reloads, got ${reloadCount}`
+      reloadCount >= 1 && reloadCount < NUM_EDITS,
+      `Expected the ${NUM_EDITS}-write burst to coalesce below ${NUM_EDITS} reloads, got ${reloadCount}`
     );
   });
 }

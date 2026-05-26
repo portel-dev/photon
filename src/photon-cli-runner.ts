@@ -864,6 +864,15 @@ export function getMethodFormatHint(method: MethodInfo): OutputFormat | undefine
   return getIntentOutputFormat(method) as OutputFormat | undefined;
 }
 
+export function createCliInvocationSessionId(photonName: string): string {
+  const explicit = process.env.PHOTON_SESSION_ID?.trim();
+  if (explicit) return explicit;
+
+  const safeName = photonName.replace(/[^a-zA-Z0-9_.-]/g, '_') || 'photon';
+  const nonce = Math.random().toString(36).slice(2, 10);
+  return `cli-${safeName}-${process.pid}-${Date.now().toString(36)}-${nonce}`;
+}
+
 /**
  * Coerce a string value to the expected type
  */
@@ -2097,7 +2106,7 @@ export async function runMethod(
       // Read session-scoped instance set by `photon use` (scoped to this terminal)
       const { CLISessionStore } = await import('./context-store.js');
       const sessionInstance = new CLISessionStore().getCurrentInstance(photonName);
-      const sessionId = `cli-${photonName}`;
+      const sessionId = createCliInvocationSessionId(photonName);
       const sendOpts = { photonPath: resolvedPath, sessionId, workingDir };
       await sendCommand(photonName, '_use', { name: sessionInstance }, sendOpts);
 

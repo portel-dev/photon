@@ -145,7 +145,10 @@ function renderConstructorArgs(
   photonName: string,
   extractor: SchemaExtractor
 ): string {
-  const injections = extractor.resolveInjections(source, photonName);
+  if (typeof (extractor as any).resolveInjections !== 'function') {
+    return '';
+  }
+  const injections = (extractor as any).resolveInjections(source, photonName);
   return injections
     .map((injection: any) => {
       if (injection.injectionType !== 'env') return 'undefined';
