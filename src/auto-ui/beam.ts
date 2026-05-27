@@ -117,6 +117,17 @@ export function shouldServeLinkedAppForWebPath(
   return true;
 }
 
+export function shouldBypassBeamServiceWorkerNavigation(pathname: string): boolean {
+  return (
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/web/') ||
+    pathname === '/sw.js' ||
+    pathname === '/beam.bundle.js' ||
+    pathname === '/beam-form.bundle.js' ||
+    pathname === '/beam-ts-worker.js'
+  );
+}
+
 function uiAssetPath(asset: NonNullable<PhotonInfo['assets']>['ui'][number]): string {
   return asset.resolvedPath || asset.path || '';
 }
@@ -430,6 +441,17 @@ const CACHE_NAME = 'photon-pwa-v1';
 const EXPECTED_WORKING_DIR = ${JSON.stringify(workingDir)};
 const HEALTH_ENDPOINT = '/api/diagnostics';
 
+function shouldBypassBeamServiceWorkerNavigation(pathname) {
+  return (
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/web/') ||
+    pathname === '/sw.js' ||
+    pathname === '/beam.bundle.js' ||
+    pathname === '/beam-form.bundle.js' ||
+    pathname === '/beam-ts-worker.js'
+  );
+}
+
 // Cache the boot page on install
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -461,14 +483,10 @@ self.addEventListener('fetch', (event) => {
   // Only intercept navigation requests (page loads, not API/asset fetches)
   if (event.request.mode !== 'navigate') return;
 
-  // Skip API routes and static assets — let them pass through
-  if (
-    url.pathname.startsWith('/api/') ||
-    url.pathname === '/sw.js' ||
-    url.pathname === '/beam.bundle.js' ||
-    url.pathname === '/beam-form.bundle.js' ||
-    url.pathname === '/beam-ts-worker.js'
-  ) return;
+  // Skip app proxy routes, API routes, and static assets — let them pass through.
+  // /web/{photon}/... is a standalone photon-owned app route; if the Beam PWA
+  // worker handles it, the Beam shell can flash over the app during navigation.
+  if (shouldBypassBeamServiceWorkerNavigation(url.pathname)) return;
 
   // All navigation requests go through health check
   event.respondWith(handlePWANavigation(event.request));
@@ -2368,6 +2386,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             const interceptor = `<script>
 (function(){
   const _prefix="${prefix}";
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations()
+      .then(function(regs){ regs.forEach(function(reg){ if (reg.scope === location.origin + '/') reg.unregister(); }); })
+      .catch(function(){});
+  }
   const _origFetch=window.fetch;
   window.fetch=function(input,init){
     if(typeof input==='string'&&input.startsWith('/')&&!input.startsWith(_prefix))
@@ -2470,6 +2493,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 const interceptor = `<script>
 (function(){
   const _prefix="${prefix}";
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations()
+      .then(function(regs){ regs.forEach(function(reg){ if (reg.scope === location.origin + '/') reg.unregister(); }); })
+      .catch(function(){});
+  }
   const _origFetch=window.fetch;
   window.fetch=function(input,init){
     if(typeof input==='string'&&input.startsWith('/')&&!input.startsWith(_prefix))

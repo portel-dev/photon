@@ -3,6 +3,7 @@ import {
   findBeamWebRoute,
   rewriteBeamWebRedirectLocation,
   selectClientAppUi,
+  shouldBypassBeamServiceWorkerNavigation,
   shouldFallbackToClientAppForWebPath,
   shouldServeLinkedAppForWebPath,
 } from '../src/auto-ui/beam.js';
@@ -60,6 +61,13 @@ async function run() {
     assert.equal(shouldServeLinkedAppForWebPath('/sw.js', new URLSearchParams()), true);
     assert.equal(shouldServeLinkedAppForWebPath('/mcp', new URLSearchParams()), false);
     assert.equal(shouldServeLinkedAppForWebPath('/mcp/messages', new URLSearchParams()), false);
+  });
+
+  await test('does not let the Beam service worker handle photon app routes', () => {
+    assert.equal(shouldBypassBeamServiceWorkerNavigation('/web/port/threads'), true);
+    assert.equal(shouldBypassBeamServiceWorkerNavigation('/web/port/api/state'), true);
+    assert.equal(shouldBypassBeamServiceWorkerNavigation('/api/diagnostics'), true);
+    assert.equal(shouldBypassBeamServiceWorkerNavigation('/port/_weather_current'), false);
   });
 
   await test('falls back to client app only after declared web routes lose', () => {
