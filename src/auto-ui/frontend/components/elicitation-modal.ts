@@ -14,6 +14,11 @@ export interface ElicitationData {
   submitLabel?: string;
   /** Custom label for the cancel button (default: "Cancel") */
   cancelLabel?: string;
+  /** Beam/MCP context for decision prompts */
+  photonName?: string;
+  methodName?: string;
+  methodTitle?: string;
+  risk?: 'destructive' | 'default';
   placeholder?: string;
   default?: any;
   options?: ElicitationOption[];
@@ -70,11 +75,9 @@ export class ElicitationModal extends LitElement {
       @keyframes modal-backdrop-in {
         from {
           opacity: 0;
-          backdrop-filter: blur(0);
         }
         to {
           opacity: 1;
-          backdrop-filter: blur(4px);
         }
       }
 
@@ -93,8 +96,7 @@ export class ElicitationModal extends LitElement {
         display: flex;
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(4px);
+        background: rgba(0, 0, 0, 0.38);
         z-index: 10000;
         align-items: center;
         justify-content: center;
@@ -105,14 +107,18 @@ export class ElicitationModal extends LitElement {
         background: var(--bg-panel);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
-        padding: var(--space-xl);
+        padding: 22px;
         max-width: 500px;
         width: 90%;
         max-height: 80vh;
         overflow-y: auto;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
         animation: modal-content-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
         animation-delay: 0.05s;
+      }
+
+      .modal-content.confirm-modal {
+        width: min(520px, calc(100vw - 32px));
       }
 
       .modal-icon {
@@ -168,11 +174,66 @@ export class ElicitationModal extends LitElement {
       /* Confirm buttons */
       .confirm-actions {
         display: flex;
-        gap: var(--space-md);
+        gap: var(--space-sm);
+        justify-content: flex-end;
+        margin-top: var(--space-lg);
       }
 
       .confirm-actions button {
-        flex: 1;
+        flex: 0 0 auto;
+        min-width: 108px;
+      }
+
+      .confirm-primary {
+        background: color-mix(in srgb, var(--color-warning), transparent 10%);
+        color: var(--bg-base);
+      }
+
+      .confirm-primary:hover {
+        background: var(--color-warning);
+      }
+
+      .context-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        margin-bottom: var(--space-sm);
+        color: var(--t-muted);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+      }
+
+      .context-row strong {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--t-primary);
+        font-weight: 650;
+      }
+
+      .risk-pill {
+        display: inline-flex;
+        align-items: center;
+        align-self: flex-start;
+        gap: 6px;
+        margin-bottom: var(--space-md);
+        padding: 4px 8px;
+        border: 1px solid color-mix(in srgb, var(--color-warning), transparent 55%);
+        border-radius: var(--radius-full);
+        background: color-mix(in srgb, var(--color-warning), transparent 88%);
+        color: var(--color-warning);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        font-weight: 650;
+      }
+
+      .confirm-summary {
+        margin: 0 0 var(--space-md) 0;
+        color: var(--t-muted);
+        font-size: var(--text-md);
+        line-height: 1.5;
       }
 
       /* Select options */
@@ -655,20 +716,22 @@ export class ElicitationModal extends LitElement {
 
   render() {
     if (!this.data) return nothing;
+    const isConfirm = this.data.ask === 'confirm';
+    const hasHeaderDescription = Boolean(this.data.description && !isConfirm);
 
     return html`
       <div
-        class="modal-content"
+        class="modal-content ${isConfirm ? 'confirm-modal' : ''}"
         role="dialog"
         aria-modal="true"
         aria-label="${this.data?.message || 'Input required'}"
         @click=${(e: Event) => e.stopPropagation()}
       >
         ${this.data.icon ? html`<div class="modal-icon">${this.data.icon}</div>` : nothing}
-        <h3 class="${this.data.description ? 'has-description' : ''}">
+        <h3 class="${hasHeaderDescription ? 'has-description' : ''}">
           ${this.data.message || 'Input Required'}
         </h3>
-        ${this.data.description
+        ${hasHeaderDescription
           ? html`<p class="modal-description">${this.data.description}</p>`
           : nothing}
         ${this._renderContent()}
@@ -880,10 +943,40 @@ export class ElicitationModal extends LitElement {
   }
 
   private _renderConfirm() {
+    const photonName = this.data?.photonName;
+    const methodName = this.data?.methodName;
+    const methodTitle = this.data?.methodTitle || methodName;
+    const toolLabel =
+      photonName && methodName
+        ? `${photonName}.${methodName}`
+        : methodTitle || photonName || methodName || 'Unknown MCP tool';
+
     return html`
+      ${this.data?.risk === 'destructive'
+        ? html`<div class="risk-pill">Destructive MCP call</div>`
+        : nothing}
+      <div class="context-row">
+        <span>Tool</span>
+        <strong title=${toolLabel}>${toolLabel}</strong>
+      </div>
+      ${methodTitle && methodTitle !== methodName
+        ? html`
+            <div class="context-row">
+              <span>Action</span>
+              <strong title=${methodTitle}>${methodTitle}</strong>
+            </div>
+          `
+        : nothing}
+      ${this.data?.description
+        ? html`<p class="confirm-summary">${this.data.description}</p>`
+        : nothing}
       <div class="confirm-actions">
-        <button class="btn-danger" @click=${() => this._submitValue(false)}>No</button>
-        <button class="btn-success" @click=${() => this._submitValue(true)}>Yes</button>
+        <button class="btn-secondary" @click=${() => this._submitValue(false)}>
+          ${this.data?.cancelLabel || 'Cancel'}
+        </button>
+        <button class="btn-primary confirm-primary" @click=${() => this._submitValue(true)}>
+          ${this.data?.submitLabel || 'Continue'}
+        </button>
       </div>
     `;
   }

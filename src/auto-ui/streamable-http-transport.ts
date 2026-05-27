@@ -2118,7 +2118,14 @@ const handlers: Record<string, RequestHandler> = {
       const elicitResult = await requestBeamElicitation(
         {
           ask: 'confirm',
-          message: `"${methodName}" is a destructive operation. Continue?`,
+          message: 'Confirm destructive tool call',
+          description:
+            methodInfo.description ||
+            `This will run ${photonName}.${methodName}, which is marked as destructive.`,
+          photonName,
+          methodName,
+          methodTitle: methodInfo.title || methodInfo.name,
+          risk: 'destructive',
         },
         { photonName: serverName, methodName }
       );
@@ -5327,6 +5334,11 @@ function requestBeamElicitation(
   data: {
     ask: 'select' | 'text' | 'confirm' | 'number';
     message: string;
+    description?: string;
+    photonName?: string;
+    methodName?: string;
+    methodTitle?: string;
+    risk?: 'destructive' | 'default';
     options?: Array<{ value: string; label: string; selected?: boolean; description?: string }>;
     placeholder?: string;
     default?: any;
@@ -5357,6 +5369,8 @@ function requestBeamElicitation(
     // Broadcast with Photon-native ask format (not MCP form mode)
     broadcastToBeam('beam/elicitation', {
       elicitationId,
+      photonName: context?.photonName,
+      methodName: context?.methodName,
       ...data,
     });
 
