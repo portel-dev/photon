@@ -56,6 +56,7 @@ _*.md
 .windsurf/
 .zencoder/
 *.photon.ts
+!photons/*.photon.ts
 !src/photons/*.photon.ts
 !tests/**/*.photon.ts
 !examples/*.photon.ts
