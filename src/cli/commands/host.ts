@@ -72,6 +72,18 @@ export function registerHostCommand(program: Command): void {
     .option('--dry-run', 'Generate project without deploying')
     .option('--output <dir>', 'Output directory for generated project')
     .option('--logs', 'Enable Workers Logs (Cloudflare dashboard observability)')
+    .option(
+      '--url <url>',
+      'Canonical public URL for this deployment; custom URLs disable workers.dev'
+    )
+    .option(
+      '--domain <hostname>',
+      'Cloudflare custom domain for this deployment; disables workers.dev'
+    )
+    .option(
+      '--route <pattern>',
+      'Cloudflare route pattern for this deployment, for example example.com/*; disables workers.dev'
+    )
     .option('--mcp-auth <mode>', 'MCP auth mode: jwt, bearer, or open')
     .option(
       '--mcp-audience <url>',
@@ -110,6 +122,9 @@ export function registerHostCommand(program: Command): void {
             dryRun: options.dryRun,
             outputDir: options.output,
             withLogs: options.logs,
+            publicUrl: options.url,
+            customDomain: options.domain,
+            routePattern: options.route,
             mcpAuth: options.mcpAuth,
             mcpAudience: options.mcpAudience,
           });

@@ -1,5 +1,6 @@
 name = "__PHOTON_NAME__"
 main = "src/worker.ts"
+__ROUTE_CONFIG__
 # 2024-09-23+ enables the Node.js-style module resolution path so packages
 # that ship distinct browser/node entries (e.g. linkedom inside
 # @extractus/article-extractor) resolve to the Node build instead of a

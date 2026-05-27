@@ -447,6 +447,9 @@ export interface CloudflareDeployOptions {
   outputDir?: string;
   devMode?: boolean;
   dryRun?: boolean;
+  publicUrl?: string;
+  customDomain?: string;
+  routePattern?: string;
   mcpAuth?: 'jwt' | 'bearer' | 'open';
   mcpAudience?: string;
   /**
@@ -456,6 +459,11 @@ export interface CloudflareDeployOptions {
    * deployments stay minimal until the user explicitly wants observability.
    */
   withLogs?: boolean;
+}
+
+interface CloudflareRouteConfig {
+  toml: string;
+  publicUrl?: string;
 }
 
 interface DeployJwtConfig {
@@ -478,6 +486,110 @@ async function loadDeployJwtConfig(photonName: string, audience: string): Promis
     keys: unknown[];
   };
   return { mode: 'jwt', issuer: issuer.issuer, audience, jwks };
+}
+
+function renderCloudflareRouteConfig(options: CloudflareDeployOptions): CloudflareRouteConfig {
+  const targets = [options.publicUrl, options.customDomain, options.routePattern].filter(Boolean);
+  if (targets.length > 1) {
+    throw new Error('Choose only one Cloudflare deploy target: --url, --domain, or --route.');
+  }
+
+  if (options.customDomain) {
+    const domain = normalizeHostname(options.customDomain, '--domain');
+    return {
+      publicUrl: `https://${domain}`,
+      toml: renderRoutesToml([{ pattern: domain, customDomain: true }]),
+    };
+  }
+
+  if (options.routePattern) {
+    const pattern = normalizeRoutePattern(options.routePattern);
+    return {
+      publicUrl: routePatternToDisplayUrl(pattern),
+      toml: renderRoutesToml([{ pattern, customDomain: false }]),
+    };
+  }
+
+  if (!options.publicUrl) return { toml: '' };
+
+  const parsed = parsePublicUrl(options.publicUrl);
+  if (parsed.hostname.endsWith('.workers.dev')) {
+    return { publicUrl: parsed.origin, toml: '' };
+  }
+
+  if (parsed.pathname === '/') {
+    return {
+      publicUrl: parsed.origin,
+      toml: renderRoutesToml([{ pattern: parsed.hostname, customDomain: true }]),
+    };
+  }
+
+  const pathname = parsed.pathname.replace(/\/$/, '');
+  const pattern = `${parsed.hostname}${pathname}*`;
+  return {
+    publicUrl: `${parsed.origin}${pathname}`,
+    toml: renderRoutesToml([{ pattern, customDomain: false }]),
+  };
+}
+
+function parsePublicUrl(value: string): { hostname: string; origin: string; pathname: string } {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`Invalid --url value: ${value}`);
+  }
+
+  if (url.protocol !== 'https:') {
+    throw new Error(`Cloudflare deploy --url must use https: ${value}`);
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error('Cloudflare deploy --url must not include credentials, query, or hash.');
+  }
+
+  const hostname = normalizeHostname(url.hostname, '--url');
+  const pathname = url.pathname || '/';
+  return { hostname, origin: `https://${hostname}`, pathname };
+}
+
+function normalizeHostname(value: string, flagName: string): string {
+  const trimmed = value
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(trimmed) || !trimmed.includes('.')) {
+    throw new Error(`Invalid ${flagName} hostname: ${value}`);
+  }
+  return trimmed;
+}
+
+function normalizeRoutePattern(value: string): string {
+  const trimmed = value.trim().replace(/^https?:\/\//, '');
+  if (!trimmed || trimmed.includes('?') || trimmed.includes('#')) {
+    throw new Error(`Invalid --route pattern: ${value}`);
+  }
+  if (!trimmed.includes('.')) {
+    throw new Error(`Cloudflare --route must include a hostname: ${value}`);
+  }
+  return trimmed;
+}
+
+function routePatternToDisplayUrl(pattern: string): string | undefined {
+  const withoutWildcard = pattern.replace(/\*+$/, '').replace(/\/+$/, '');
+  if (!withoutWildcard) return undefined;
+  return `https://${withoutWildcard}`;
+}
+
+function renderRoutesToml(routes: Array<{ pattern: string; customDomain: boolean }>): string {
+  const renderedRoutes = routes
+    .map((route) => {
+      const entries = [`pattern = ${JSON.stringify(route.pattern)}`];
+      if (route.customDomain) entries.push('custom_domain = true');
+      return `  { ${entries.join(', ')} }`;
+    })
+    .join(',\n');
+  return `workers_dev = false\nroutes = [\n${renderedRoutes}\n]\n`;
 }
 
 function parseInstanceAliases(): Record<string, string> {
@@ -703,6 +815,10 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   logger.info(
     `Found ${toolDefs.length} tools, ${routeDefs.length} HTTP routes, ${exposeDefs.length} @expose'd methods`
   );
+  const routeConfig = renderCloudflareRouteConfig(options);
+  if (routeConfig.publicUrl && routeConfig.toml) {
+    logger.info(`Deploy target: ${routeConfig.publicUrl} (workers.dev disabled)`);
+  }
 
   // Extract `@dependencies` from the photon source. These get bundled into
   // the Worker by wrangler, so they must land in package.json's dependencies
@@ -1063,6 +1179,7 @@ class_name = "${p.doClass}"`
   let wranglerConfig = await fs.readFile(wranglerTemplatePath, 'utf-8');
   wranglerConfig = wranglerConfig
     .replace(/__PHOTON_NAME__/g, photonName)
+    .replace(/__ROUTE_CONFIG__\n?/g, routeConfig.toml)
     .replace(/__DURABLE_OBJECT_BINDINGS__/g, doBindingsToml)
     .replace(/__SQLITE_CLASSES__/g, sqliteClassesToml)
     .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement)
@@ -1186,10 +1303,10 @@ class_name = "${p.doClass}"`
       if (code === 0) {
         logger.info('Deployment complete!');
         logger.info(`\nYour MCP server is live at:`);
-        logger.info(`https://${photonName}.<your-subdomain>.workers.dev`);
+        logger.info(routeConfig.publicUrl || `https://${photonName}.<your-subdomain>.workers.dev`);
         if (devMode) {
           logger.info(
-            `\nPlayground: https://${photonName}.<your-subdomain>.workers.dev/playground`
+            `\nPlayground: ${routeConfig.publicUrl || `https://${photonName}.<your-subdomain>.workers.dev`}/playground`
           );
         }
         // Clean up the scratch project dir on success, but only if the user

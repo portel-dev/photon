@@ -47,6 +47,12 @@ If this list is missing behavior you need, add it here before implementing more.
 - For local CLI testing, use the photon name exactly as the file stem. `whatsapp.photon.ts`
   is invoked with `photon cli whatsapp ...`; a typo like `whatsaapp` correctly reports
   `Photon 'whatsaapp' not found`.
+- For Cloudflare deploys that move a photon to a custom public URL, pass that
+  URL into Photon rather than attaching the route out-of-band:
+  `photon host deploy cf appointments --url https://appointments.arul.sg`.
+  Custom `--url`, `--domain`, and `--route` targets generate Wrangler routing
+  config with `workers_dev = false`, so future deploys keep the old workers.dev
+  surface shut down.
 - Stateful `photon cli <name> <method>` calls use a fresh daemon session per invocation so
   long-running methods do not block unrelated CLI commands for the same photon. The selected
   instance from `photon use` is still applied before the method runs. Set `PHOTON_SESSION_ID`

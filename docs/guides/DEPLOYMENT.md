@@ -167,6 +167,20 @@ photon host deploy cloudflare my-photon   # alias: photon host deploy cf my-phot
 
 This compiles your photon, generates a `wrangler.toml`, and deploys via Wrangler in one step.
 
+When a deployment has a canonical custom URL, make that URL part of the Photon
+deploy command:
+
+```bash
+photon host deploy cf appointments --url https://appointments.arul.sg
+```
+
+For custom URLs, Photon emits `workers_dev = false` plus a Cloudflare route in
+the generated `wrangler.toml`. That makes redeploys behave like a move: the
+custom URL is the live public surface, and the old `<worker>.<account>.workers.dev`
+surface is not re-enabled by Wrangler. Use `--domain appointments.example.com`
+when you only need a root custom domain, or `--route appointments.example.com/*`
+when you need an explicit Worker route pattern.
+
 ### What the CF Runtime Provides
 
 | Capability | How it works on CF |

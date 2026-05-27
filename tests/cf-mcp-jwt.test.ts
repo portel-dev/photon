@@ -122,4 +122,50 @@ export default class Appointments {
     const worker = await readFile(join(outputDir, 'src', 'worker.ts'), 'utf-8');
     expect(worker).toContain('const MCP_AUTH_MODE = "legacy"');
   });
+
+  it('treats a custom deploy URL as a move by disabling workers.dev', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'photon-cf-url-'));
+    const photonDir = join(root, 'project');
+    const outputDir = join(root, 'out');
+    await mkdir(photonDir, { recursive: true });
+    const photonPath = join(photonDir, 'appointments.photon.ts');
+    await writeFile(
+      photonPath,
+      `export default class Appointments { async ping() { return 'pong'; } }`
+    );
+
+    await deployToCloudflare({
+      photonPath,
+      outputDir,
+      dryRun: true,
+      publicUrl: 'https://appointments.arul.sg',
+    });
+
+    const wrangler = await readFile(join(outputDir, 'wrangler.toml'), 'utf-8');
+    expect(wrangler).toContain('workers_dev = false');
+    expect(wrangler).toContain('routes = [');
+    expect(wrangler).toContain('{ pattern = "appointments.arul.sg", custom_domain = true }');
+  });
+
+  it('rejects ambiguous Cloudflare deploy targets', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'photon-cf-url-conflict-'));
+    const photonDir = join(root, 'project');
+    const outputDir = join(root, 'out');
+    await mkdir(photonDir, { recursive: true });
+    const photonPath = join(photonDir, 'appointments.photon.ts');
+    await writeFile(
+      photonPath,
+      `export default class Appointments { async ping() { return 'pong'; } }`
+    );
+
+    await expect(
+      deployToCloudflare({
+        photonPath,
+        outputDir,
+        dryRun: true,
+        publicUrl: 'https://appointments.arul.sg',
+        routePattern: 'appointments.arul.sg/*',
+      })
+    ).rejects.toThrow(/Choose only one Cloudflare deploy target/);
+  });
 });
