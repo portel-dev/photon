@@ -3,6 +3,7 @@ import { basename, join, relative } from 'node:path';
 import { defineConfig } from 'vitepress';
 
 const root = join(__dirname, '..');
+const gaMeasurementId = process.env.VITE_GA_MEASUREMENT_ID?.trim();
 
 function titleFor(file: string) {
   const markdown = readFileSync(file, 'utf8');
@@ -47,8 +48,20 @@ export default defineConfig({
     ['meta', { name: 'theme-color', content: '#0f172a' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Photon Documentation' }],
-    ['meta', { property: 'og:description', content: 'Single-file TypeScript runtime for MCP, CLI, and web UI.' }],
-    ['meta', { property: 'og:image', content: 'https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-logo.png' }],
+    [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Single-file TypeScript runtime for MCP, CLI, and web UI.',
+      },
+    ],
+    [
+      'meta',
+      {
+        property: 'og:image',
+        content: 'https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-logo.png',
+      },
+    ],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     [
       'script',
@@ -62,7 +75,8 @@ export default defineConfig({
         programmingLanguage: 'TypeScript',
         license: 'https://github.com/portel-dev/photon/blob/main/LICENSE',
         codeRepository: 'https://github.com/portel-dev/photon',
-        description: 'Photon turns a single .photon.ts TypeScript class into an MCP server, CLI tool, and Beam web dashboard.',
+        description:
+          'Photon turns a single .photon.ts TypeScript class into an MCP server, CLI tool, and Beam web dashboard.',
         offers: {
           '@type': 'Offer',
           price: '0',
@@ -70,12 +84,32 @@ export default defineConfig({
         },
       }),
     ],
+    ...(gaMeasurementId
+      ? [
+          [
+            'script',
+            { async: '', src: `https://www.googletagmanager.com/gtag/js?id=${gaMeasurementId}` },
+          ],
+          [
+            'script',
+            {},
+            `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}window.gtag=gtag;gtag('js',new Date());gtag('config','${gaMeasurementId}',{send_page_view:false});`,
+          ],
+        ]
+      : []),
   ],
+  vite: {
+    define: {
+      __PHOTON_GA_MEASUREMENT_ID__: JSON.stringify(gaMeasurementId ?? ''),
+    },
+  },
   markdown: {
     config(md) {
       const fence = md.renderer.rules.fence;
       md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-        const rendered = fence ? fence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
+        const rendered = fence
+          ? fence(tokens, idx, options, env, self)
+          : self.renderToken(tokens, idx, options);
         return rendered.replace('<div class="language-', '<div v-pre class="language-');
       };
     },
