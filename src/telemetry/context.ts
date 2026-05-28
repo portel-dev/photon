@@ -19,6 +19,8 @@ export interface RequestContext {
   parentTraceparent?: string;
   /** Authenticated caller when available. */
   caller?: CallerInfo;
+  /** Normalized transport/client/app-session details for the current invocation. */
+  request?: PhotonExecutionRequestContext;
   /**
    * Originating CLI invocation directory, propagated end-to-end across
    * worker thread and cross-photon-call boundaries. Lets photons resolve
@@ -36,6 +38,27 @@ export interface RequestContext {
   photonDir?: string;
   /** Wall-clock start of the tool call. */
   startedAt: number;
+}
+
+export interface PhotonExecutionClientContext {
+  protocolVersion: string;
+  clientName?: string;
+  clientVersion?: string;
+  mode: 'legacy-sessionful' | 'stateless' | 'unknown';
+  capabilities?: Record<string, unknown>;
+  quirks?: Record<string, unknown>;
+}
+
+export interface PhotonExecutionRequestContext {
+  requestId?: string | number;
+  transport: string;
+  protocolVersion: string;
+  client: PhotonExecutionClientContext;
+  traceparent?: string;
+  legacyTransportSessionId?: string;
+  appSessionId?: string;
+  appSessionSource?: string;
+  scopeDir?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -113,6 +136,7 @@ export function runWithPhotonDir<T>(photonDir: string, fn: () => T): T {
   if (existing?.traceId !== undefined) ctx.traceId = existing.traceId;
   if (existing?.parentTraceparent !== undefined) ctx.parentTraceparent = existing.parentTraceparent;
   if (existing?.caller !== undefined) ctx.caller = existing.caller;
+  if (existing?.request !== undefined) ctx.request = existing.request;
   if (existing?.cwd !== undefined) ctx.cwd = existing.cwd;
 
   return storage.run(ctx, fn);

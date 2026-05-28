@@ -17,7 +17,7 @@
  * @see https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
  */
 
-import type { IncomingMessage, ServerResponse } from 'http';
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
 import { readdir, stat, readFile, writeFile } from 'fs/promises';
 import { readText } from '../shared/io.js';
@@ -213,6 +213,7 @@ interface MCPSession {
   isBeam?: boolean; // True if client is Beam UI
   clientInfo?: { name: string; version: string };
   clientCapabilities?: Record<string, unknown>;
+  clientProfile?: ClientProfile;
   /** Tracked instance name for daemon drift recovery */
   instanceName?: string;
   /**
@@ -222,6 +223,48 @@ interface MCPSession {
    * See src/daemon/claims.ts for the full claim-code story.
    */
   claimScopeDir?: string;
+}
+
+export type MCPProtocolMode = 'legacy-sessionful' | 'stateless';
+
+export interface ClientProfile {
+  protocolVersion: string;
+  clientName?: string;
+  clientVersion?: string;
+  mode: MCPProtocolMode;
+  capabilities: {
+    tools: boolean;
+    prompts: boolean;
+    resources: boolean;
+    sampling: boolean;
+    mcpApps: boolean;
+    tasks: 'none' | 'legacy-core' | 'extension';
+    cacheMetadata: boolean;
+  };
+  quirks: {
+    unnamespacedToolNames: boolean;
+    prefersOpenAIAppMetadata: boolean;
+    requiresLegacyInitializeConfigSchema: boolean;
+  };
+}
+
+export interface PhotonRequestContext {
+  requestId?: string | number;
+  protocolVersion: string;
+  transport: 'streamable-http';
+  client: ClientProfile;
+  caller?: CallerInfo;
+  traceparent?: string;
+  legacyTransportSessionId?: string;
+  appSessionId?: string;
+  appSessionSource:
+    | 'explicit-meta'
+    | 'explicit-argument'
+    | 'header'
+    | 'legacy-mcp-session'
+    | 'caller-default'
+    | 'anonymous-default';
+  scopeDir?: string;
 }
 
 interface MCPTool {
@@ -240,8 +283,7 @@ interface MCPResource {
 }
 
 function isOpenAIAppSession(session: MCPSession): boolean {
-  const name = session.clientInfo?.name?.toLowerCase();
-  return name === 'chatgpt' || !!name?.includes('openai');
+  return !!session.clientProfile?.quirks.unnamespacedToolNames;
 }
 
 function namespacedToolName(serverName: string, methodName: string): string {
@@ -251,6 +293,232 @@ function namespacedToolName(serverName: string, methodName: string): string {
 function toolNameForSession(session: MCPSession, photonName: string, methodName: string): string {
   return isOpenAIAppSession(session) ? methodName : namespacedToolName(photonName, methodName);
 }
+
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requestMeta(request: JSONRPCRequest): Record<string, unknown> {
+  const params = isRecord(request.params) ? request.params : undefined;
+  const meta = params?._meta;
+  return isRecord(meta) ? meta : {};
+}
+
+function stringFromRecord(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function capabilitiesFrom(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function requestParamRecord(request: JSONRPCRequest | undefined): Record<string, unknown> {
+  return request && isRecord(request.params) ? request.params : {};
+}
+
+function requestDeclaredName(request: JSONRPCRequest): string | undefined {
+  const params = requestParamRecord(request);
+  const value = params.name ?? params.uri;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function validateStatelessRoutingHeaders(
+  request: JSONRPCRequest,
+  headers: IncomingHttpHeaders
+): JSONRPCResponse | null {
+  const headerProtocol = firstHeaderValue(headers['mcp-protocol-version']);
+  const headerMethod = firstHeaderValue(headers['mcp-method']);
+  const headerName = firstHeaderValue(headers['mcp-name']);
+  const isStatelessRequest = headerProtocol === '2026-07-28' || !!headerMethod;
+
+  if (!isStatelessRequest) return null;
+
+  if (!headerMethod) {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: -32600,
+        message: 'Mcp-Method header is required for stateless MCP requests',
+      },
+    };
+  }
+
+  if (headerMethod !== request.method) {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: -32600,
+        message: `Mcp-Method header (${headerMethod}) does not match request method (${request.method})`,
+      },
+    };
+  }
+
+  const declaredName = requestDeclaredName(request);
+  if (headerName && declaredName && headerName !== declaredName) {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: -32602,
+        message: `Mcp-Name header (${headerName}) does not match request name (${declaredName})`,
+      },
+    };
+  }
+
+  return null;
+}
+
+function resolveClientProfile(
+  request: JSONRPCRequest | undefined,
+  session: MCPSession,
+  headers: IncomingHttpHeaders
+): ClientProfile {
+  const meta = request ? requestMeta(request) : {};
+  const metaClient = {
+    ...capabilitiesFrom(meta.client),
+    ...capabilitiesFrom(meta['io.modelcontextprotocol/clientInfo']),
+  };
+  const params = requestParamRecord(request);
+  const paramClientInfo = capabilitiesFrom(params.clientInfo);
+  const paramCapabilities = capabilitiesFrom(params.capabilities);
+  const metaCapabilities = {
+    ...capabilitiesFrom(meta.capabilities),
+    ...capabilitiesFrom(meta['io.modelcontextprotocol/clientCapabilities']),
+  };
+  const sessionCapabilities = capabilitiesFrom(session.clientCapabilities);
+
+  const headerProtocol = firstHeaderValue(headers['mcp-protocol-version']);
+  const protocolVersion =
+    stringFromRecord(meta, ['protocolVersion', 'mcp/protocolVersion']) ||
+    headerProtocol ||
+    (typeof params.protocolVersion === 'string' ? params.protocolVersion : undefined) ||
+    session.clientProfile?.protocolVersion ||
+    '2025-11-25';
+
+  const clientName =
+    stringFromRecord(metaClient, ['name']) ||
+    stringFromRecord(meta, ['clientName', 'mcp/clientName']) ||
+    (typeof paramClientInfo.name === 'string' ? paramClientInfo.name : undefined) ||
+    session.clientInfo?.name;
+  const clientVersion =
+    stringFromRecord(metaClient, ['version']) ||
+    stringFromRecord(meta, ['clientVersion', 'mcp/clientVersion']) ||
+    (typeof paramClientInfo.version === 'string' ? paramClientInfo.version : undefined) ||
+    session.clientInfo?.version;
+  const normalizedName = clientName?.toLowerCase();
+  const mode: MCPProtocolMode =
+    protocolVersion >= '2026-07-28' || firstHeaderValue(headers['mcp-method'])
+      ? 'stateless'
+      : 'legacy-sessionful';
+
+  const mergedCapabilities = {
+    ...sessionCapabilities,
+    ...paramCapabilities,
+    ...metaCapabilities,
+  };
+  const experimental = capabilitiesFrom(mergedCapabilities.experimental);
+  const extensions = {
+    ...capabilitiesFrom(mergedCapabilities.extensions),
+    ...capabilitiesFrom(meta.extensions),
+  };
+
+  const mcpApps =
+    !!extensions['mcp-apps'] ||
+    !!extensions.apps ||
+    !!experimental['mcp-apps'] ||
+    !!experimental.apps ||
+    normalizedName === 'chatgpt' ||
+    !!normalizedName?.includes('openai') ||
+    session.isBeam === true;
+
+  return {
+    protocolVersion,
+    clientName,
+    clientVersion,
+    mode,
+    capabilities: {
+      tools: mergedCapabilities.tools !== false,
+      prompts: mergedCapabilities.prompts !== false,
+      resources: mergedCapabilities.resources !== false,
+      sampling: !!mergedCapabilities.sampling,
+      mcpApps,
+      tasks: mode === 'stateless' ? 'extension' : 'legacy-core',
+      cacheMetadata: mode === 'stateless',
+    },
+    quirks: {
+      unnamespacedToolNames: normalizedName === 'chatgpt' || !!normalizedName?.includes('openai'),
+      prefersOpenAIAppMetadata:
+        normalizedName === 'chatgpt' || !!normalizedName?.includes('openai'),
+      requiresLegacyInitializeConfigSchema: mode === 'legacy-sessionful',
+    },
+  };
+}
+
+function resolvePhotonRequestContext(input: {
+  request: JSONRPCRequest;
+  session: MCPSession;
+  headers: IncomingHttpHeaders;
+  caller?: CallerInfo;
+}): PhotonRequestContext {
+  const { request, session, headers, caller } = input;
+  const meta = requestMeta(request);
+  const args =
+    isRecord(request.params) && isRecord(request.params.arguments) ? request.params.arguments : {};
+  const client = resolveClientProfile(request, session, headers);
+  const explicitMetaSession = stringFromRecord(meta, [
+    'photon/appSessionId',
+    'appSessionId',
+    'photon/sessionId',
+  ]);
+  const explicitArgSession = stringFromRecord(args, ['appSessionId', 'photonSessionId']);
+  const headerSession = firstHeaderValue(headers['x-photon-app-session-id']);
+  const fallbackSessionId =
+    client.mode === 'legacy-sessionful'
+      ? session.id
+      : caller && !caller.anonymous
+        ? `caller:${caller.id}`
+        : 'anonymous';
+  const appSessionId =
+    explicitMetaSession || explicitArgSession || headerSession || fallbackSessionId;
+
+  return {
+    requestId: request.id,
+    protocolVersion: client.protocolVersion,
+    transport: 'streamable-http',
+    client,
+    caller,
+    traceparent: stringFromRecord(meta, ['traceparent']) || firstHeaderValue(headers.traceparent),
+    legacyTransportSessionId: session.id,
+    appSessionId,
+    appSessionSource: explicitMetaSession
+      ? 'explicit-meta'
+      : explicitArgSession
+        ? 'explicit-argument'
+        : headerSession
+          ? 'header'
+          : client.mode === 'legacy-sessionful'
+            ? 'legacy-mcp-session'
+            : caller && !caller.anonymous
+              ? 'caller-default'
+              : 'anonymous-default',
+    scopeDir: session.claimScopeDir,
+  };
+}
+
+export const __streamableHttpTransportInternals = {
+  resolveClientProfile,
+  resolvePhotonRequestContext,
+};
 
 function splitNamespacedToolName(name: string): { serverName: string; methodName: string } | null {
   const dotIndex = name.indexOf('.');
@@ -989,6 +1257,10 @@ interface HandlerContext {
   workingDir?: string;
   /** Authenticated caller from MCP OAuth (JWT) */
   caller?: CallerInfo;
+  /** Normalized per-request identity/capability/app-session context. */
+  requestContext?: PhotonRequestContext;
+  /** Convenience alias for requestContext.client. */
+  clientProfile?: ClientProfile;
   configurePhoton?: (
     photonName: string,
     config: Record<string, any>
@@ -1123,6 +1395,145 @@ function isTaskInScope(
   return isPathInScope(info.path, scopeDir);
 }
 
+const SUPPORTED_MCP_PROTOCOL_VERSIONS = ['2025-03-26', '2025-11-25', '2026-07-28'];
+const MCP_LIST_CACHE_TTL_MS = 30_000;
+
+function buildServerInfo() {
+  return {
+    name: 'beam-mcp',
+    version: PHOTON_VERSION,
+  };
+}
+
+function buildServerCapabilities() {
+  return {
+    tools: { listChanged: true },
+    prompts: { listChanged: true },
+    resources: { listChanged: true, subscribe: true },
+    tasks: {
+      list: {},
+      cancel: {},
+      requests: {
+        tools: { call: {} },
+      },
+    },
+    experimental: {
+      'ag-ui': {
+        version: '0.1.0',
+        events: Object.values(AGUIEventType),
+        // Capability flags advertise server-side features so clients can
+        // negotiate without probing. Matches the handshake pattern used
+        // elsewhere in MCP `experimental`.
+        features: [
+          'structured-errors', // RUN_ERROR carries code + retryable
+          'trace-correlation', // events include rawEvent.traceparent
+          'proxy-mode', // ag-ui/run accepts agentUrl to proxy
+          'local-mode', // ag-ui/run accepts photon+method to run locally
+        ],
+      },
+    },
+  };
+}
+
+function buildConfigurationSchemaResult(photons: AnyPhotonInfo[]) {
+  const configurationSchema = generateConfigurationSchema(photons);
+  return Object.keys(configurationSchema).length > 0 ? configurationSchema : undefined;
+}
+
+function buildDiscoveryResult(ctx: HandlerContext, requestContext?: PhotonRequestContext) {
+  return {
+    protocolVersion: requestContext?.protocolVersion ?? '2025-11-25',
+    supportedProtocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
+    serverInfo: buildServerInfo(),
+    capabilities: buildServerCapabilities(),
+    extensions: {
+      'mcp-apps': { version: '1.0.0' },
+      tasks: {
+        version:
+          requestContext?.client.capabilities.tasks === 'extension' ? '2026-07-28' : 'legacy',
+      },
+      photon: {
+        version: PHOTON_VERSION,
+        requestContext: true,
+        appSession: {
+          acceptedLocations: ['_meta.photon/appSessionId', 'arguments.appSessionId'],
+          responseMetaKey: 'photon/appSessionId',
+        },
+      },
+    },
+    configurationSchema: buildConfigurationSchemaResult(ctx.photons),
+    _meta: {
+      ...(requestContext?.appSessionId
+        ? { 'photon/appSessionId': requestContext.appSessionId }
+        : {}),
+      ...(requestContext
+        ? {
+            'photon/clientProfile': {
+              protocolVersion: requestContext.client.protocolVersion,
+              clientName: requestContext.client.clientName,
+              clientVersion: requestContext.client.clientVersion,
+              mode: requestContext.client.mode,
+              capabilities: requestContext.client.capabilities,
+              quirks: requestContext.client.quirks,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+function cacheScopeForRequest(ctx: HandlerContext, session?: MCPSession): 'public' | 'private' {
+  const requestContext = ctx.requestContext;
+  if (requestContext?.scopeDir || session?.claimScopeDir) return 'private';
+  if (ctx.caller && !ctx.caller.anonymous) return 'private';
+  if (requestContext?.client.clientName || session?.clientInfo?.name) return 'private';
+  if (requestContext?.appSessionSource && requestContext.appSessionSource !== 'anonymous-default') {
+    return 'private';
+  }
+  return 'public';
+}
+
+function withCacheMetadata<T extends Record<string, unknown>>(
+  result: T,
+  ctx: HandlerContext,
+  options: { session?: MCPSession; ttlMs?: number } = {}
+): T & {
+  ttlMs: number;
+  cacheScope: 'public' | 'private';
+  _meta?: Record<string, unknown>;
+} {
+  const requestContext = ctx.requestContext;
+  const existingMeta = isRecord(result._meta) ? result._meta : {};
+  const meta =
+    requestContext?.appSessionId || requestContext?.client
+      ? {
+          ...existingMeta,
+          ...(requestContext?.appSessionId
+            ? { 'photon/appSessionId': requestContext.appSessionId }
+            : {}),
+          ...(requestContext
+            ? {
+                'photon/clientProfile': {
+                  protocolVersion: requestContext.client.protocolVersion,
+                  clientName: requestContext.client.clientName,
+                  clientVersion: requestContext.client.clientVersion,
+                  mode: requestContext.client.mode,
+                  capabilities: requestContext.client.capabilities,
+                  quirks: requestContext.client.quirks,
+                },
+              }
+            : {}),
+        }
+      : existingMeta;
+
+  return {
+    ...result,
+    ttlMs: options.ttlMs ?? MCP_LIST_CACHE_TTL_MS,
+    cacheScope: cacheScopeForRequest(ctx, options.session),
+    ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
+  };
+}
+
 const handlers: Record<string, RequestHandler> = {
   // ─────────────────────────────────────────────────────────────────────────────
   // Lifecycle
@@ -1138,51 +1549,27 @@ const handlers: Record<string, RequestHandler> = {
     }
     session.clientCapabilities =
       (req.params?.capabilities as Record<string, unknown> | undefined) || {};
-
-    // Generate configuration schema for unconfigured photons
-    const configurationSchema = generateConfigurationSchema(ctx.photons);
+    session.clientProfile = resolveClientProfile(req, session, {});
 
     return {
       jsonrpc: '2.0',
       id: req.id,
       result: {
         protocolVersion: '2025-11-25',
-        serverInfo: {
-          name: 'beam-mcp',
-          version: PHOTON_VERSION,
-        },
-        capabilities: {
-          tools: { listChanged: true },
-          prompts: { listChanged: true },
-          resources: { listChanged: true, subscribe: true },
-          tasks: {
-            list: {},
-            cancel: {},
-            requests: {
-              tools: { call: {} },
-            },
-          },
-          experimental: {
-            'ag-ui': {
-              version: '0.1.0',
-              events: Object.values(AGUIEventType),
-              // Capability flags advertise server-side features so clients can
-              // negotiate without probing. Matches the handshake pattern used
-              // elsewhere in MCP `experimental`.
-              features: [
-                'structured-errors', // RUN_ERROR carries code + retryable
-                'trace-correlation', // events include rawEvent.traceparent
-                'proxy-mode', // ag-ui/run accepts agentUrl to proxy
-                'local-mode', // ag-ui/run accepts photon+method to run locally
-              ],
-            },
-          },
-        },
+        serverInfo: buildServerInfo(),
+        capabilities: buildServerCapabilities(),
         // SEP-1596 inspired: configuration schema for unconfigured photons
         // Uses JSON Schema for rich UI generation
-        configurationSchema:
-          Object.keys(configurationSchema).length > 0 ? configurationSchema : undefined,
+        configurationSchema: buildConfigurationSchemaResult(ctx.photons),
       },
+    };
+  },
+
+  'server/discover': async (req, _session, ctx) => {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: buildDiscoveryResult(ctx, ctx.requestContext),
     };
   },
 
@@ -1298,6 +1685,7 @@ const handlers: Record<string, RequestHandler> = {
         result = await ctx.loader.executeTool(mcp, methodName, args, {
           outputHandler: agui.outputHandler,
           caller: ctx.caller,
+          requestContext: ctx.requestContext,
           signal: ctx.signal,
         });
       } else {
@@ -1880,10 +2268,14 @@ const handlers: Record<string, RequestHandler> = {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: {
-          tools: page.items,
-          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-        },
+        result: withCacheMetadata(
+          {
+            tools: page.items,
+            ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+          },
+          ctx,
+          { session }
+        ),
       };
     } catch (error) {
       if (error instanceof InvalidCursorError) return invalidCursorResponse(req.id, error);
@@ -2406,6 +2798,7 @@ const handlers: Record<string, RequestHandler> = {
             inputProvider,
             samplingProvider,
             caller: ctx.caller,
+            requestContext: ctx.requestContext,
           });
         }
         // Fallback: direct method call
@@ -2716,6 +3109,7 @@ const handlers: Record<string, RequestHandler> = {
           inputProvider,
           samplingProvider,
           caller: ctx.caller,
+          requestContext: ctx.requestContext,
           signal: ctx.signal,
         });
       } else {
@@ -2982,10 +3376,14 @@ const handlers: Record<string, RequestHandler> = {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: {
-          resources: page.items,
-          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-        },
+        result: withCacheMetadata(
+          {
+            resources: page.items,
+            ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+          },
+          ctx,
+          { session }
+        ),
       };
     } catch (error) {
       if (error instanceof InvalidCursorError) return invalidCursorResponse(req.id, error);
@@ -2993,7 +3391,7 @@ const handlers: Record<string, RequestHandler> = {
     }
   },
 
-  'resources/templates/list': async (req, _session, ctx) => {
+  'resources/templates/list': async (req, session, ctx) => {
     const resourceTemplates: Array<{
       uriTemplate: string;
       name: string;
@@ -3024,10 +3422,14 @@ const handlers: Record<string, RequestHandler> = {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: {
-          resourceTemplates: page.items,
-          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-        },
+        result: withCacheMetadata(
+          {
+            resourceTemplates: page.items,
+            ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+          },
+          ctx,
+          { session }
+        ),
       };
     } catch (error) {
       if (error instanceof InvalidCursorError) return invalidCursorResponse(req.id, error);
@@ -3146,7 +3548,10 @@ const handlers: Record<string, RequestHandler> = {
             },
           };
         }
-        const result = await ctx.loader.executeTool(mcp, stat.name, params);
+        const result = await ctx.loader.executeTool(mcp, stat.name, params, {
+          caller: ctx.caller,
+          requestContext: ctx.requestContext,
+        });
         const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
         return {
           jsonrpc: '2.0',
@@ -3196,7 +3601,7 @@ const handlers: Record<string, RequestHandler> = {
     return { jsonrpc: '2.0', id: req.id, result: {} };
   },
 
-  'prompts/list': async (req, _session, ctx) => {
+  'prompts/list': async (req, session, ctx) => {
     const prompts: any[] = [];
     for (const photon of ctx.photons) {
       if (!photon.configured) continue;
@@ -3227,10 +3632,14 @@ const handlers: Record<string, RequestHandler> = {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: {
-          prompts: page.items,
-          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-        },
+        result: withCacheMetadata(
+          {
+            prompts: page.items,
+            ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+          },
+          ctx,
+          { session }
+        ),
       };
     } catch (error) {
       if (error instanceof InvalidCursorError) return invalidCursorResponse(req.id, error);
@@ -3360,6 +3769,7 @@ const handlers: Record<string, RequestHandler> = {
           outputHandler,
           inputProvider,
           caller: ctx.caller,
+          requestContext: ctx.requestContext,
         });
       }
       const method = mcp.instance?.[methodName];
@@ -3422,10 +3832,14 @@ const handlers: Record<string, RequestHandler> = {
     return {
       jsonrpc: '2.0',
       id: req.id,
-      result: {
-        tasks: page.map(toWireFormat),
-        ...(nextCursor && { nextCursor }),
-      },
+      result: withCacheMetadata(
+        {
+          tasks: page.map(toWireFormat),
+          ...(nextCursor && { nextCursor }),
+        },
+        ctx,
+        { session, ttlMs: 0 }
+      ),
     };
   },
 
@@ -4818,9 +5232,23 @@ export async function handleStreamableHTTP(
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Accept, Mcp-Session-Id, Mcp-Claim-Code, Authorization'
+    [
+      'Content-Type',
+      'Accept',
+      'Mcp-Session-Id',
+      'Mcp-Claim-Code',
+      'Authorization',
+      'Mcp-Protocol-Version',
+      'Mcp-Method',
+      'Mcp-Name',
+      'Traceparent',
+      'X-Photon-App-Session-Id',
+    ].join(', ')
   );
-  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'Mcp-Session-Id, Mcp-Protocol-Version, X-Photon-App-Session-Id'
+  );
 
   // Handle preflight
   if (req.method === 'OPTIONS') {
@@ -5041,7 +5469,7 @@ export async function handleStreamableHTTP(
       // Extract caller identity from Authorization header or query token (MCP OAuth)
       const caller = decodeJWTCaller(authHeader);
 
-      const context: HandlerContext = {
+      const baseContext: HandlerContext = {
         photons: options.photons,
         photonMCPs: options.photonMCPs,
         externalMCPs: options.externalMCPs,
@@ -5099,6 +5527,20 @@ export async function handleStreamableHTTP(
           continue;
         }
 
+        const routingError = validateStatelessRoutingHeaders(request, req.headers);
+        if (routingError) {
+          if (request.id !== undefined) responses.push(routingError);
+          continue;
+        }
+
+        const requestContext = resolvePhotonRequestContext({
+          request,
+          session,
+          headers: req.headers,
+          caller,
+        });
+        session.clientProfile = requestContext.client;
+
         const handler = handlers[request.method];
 
         if (!handler) {
@@ -5112,7 +5554,11 @@ export async function handleStreamableHTTP(
           continue;
         }
 
-        const response = await handler(request, session, context);
+        const response = await handler(request, session, {
+          ...baseContext,
+          requestContext,
+          clientProfile: requestContext.client,
+        });
 
         // Only include responses for requests (not notifications)
         if (request.id !== undefined && response.id !== undefined) {

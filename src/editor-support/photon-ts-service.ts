@@ -52,6 +52,27 @@ interface CallerInfo {
   claims?: Record<string, unknown>;
 }
 
+interface PhotonClientContext {
+  protocolVersion: string;
+  clientName?: string;
+  clientVersion?: string;
+  mode: 'legacy-sessionful' | 'stateless' | 'unknown';
+  capabilities?: Record<string, unknown>;
+  quirks?: Record<string, unknown>;
+}
+
+interface PhotonRequestContext {
+  requestId?: string | number;
+  transport: string;
+  protocolVersion: string;
+  client: PhotonClientContext;
+  traceparent?: string;
+  legacyTransportSessionId?: string;
+  appSessionId?: string;
+  appSessionSource?: string;
+  scopeDir?: string;
+}
+
 declare class MemoryProvider {
   sessionId?: string;
   get<T = any>(key: string, scope?: MemoryScope): Promise<T | null>;
@@ -113,6 +134,8 @@ interface PhotonConfigStore {
 
 declare class Photon {
   get caller(): CallerInfo;
+  get client(): PhotonClientContext | undefined;
+  get request(): PhotonRequestContext | undefined;
   get memory(): MemoryProvider;
   get config(): PhotonConfigStore;
   get schedule(): ScheduleProvider;

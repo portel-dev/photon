@@ -135,10 +135,13 @@ export function listTasks(photon?: string): Task[] {
 }
 
 /**
- * Clean expired tasks — removes terminal tasks past their TTL
- * and also removes non-terminal tasks that have been alive longer than their TTL
+ * Clean expired task records.
+ *
+ * Only terminal task records are eligible. Active tasks may legitimately wait
+ * for long-running work or user input, so cleanup must not remove them merely
+ * because their retention window has elapsed.
  */
-export function cleanExpiredTasks(): number {
+export function cleanExpiredTasks(ttlOverride?: number): number {
   ensureDir();
   const files = readdirSync(resolveTasksDir()).filter((f) => f.endsWith('.json'));
   const now = Date.now();
@@ -146,23 +149,15 @@ export function cleanExpiredTasks(): number {
   for (const file of files) {
     try {
       const task: Task = readJSONSync(join(resolveTasksDir(), file));
-      const age = now - new Date(task.createdAt).getTime();
-      const ttl = task.ttl || DEFAULT_TTL;
+      if (!TERMINAL_STATES.includes(task.state)) continue;
+
+      const age = now - new Date(task.updatedAt).getTime();
+      const ttl = ttlOverride ?? task.ttl ?? DEFAULT_TTL;
 
       if (age > ttl) {
-        // Terminal tasks: always clean
-        // Non-terminal tasks past TTL: force-cancel and clean
-        if (TERMINAL_STATES.includes(task.state)) {
-          unlinkSync(join(resolveTasksDir(), file));
-          cleaned++;
-        } else {
-          // Force-cancel stale non-terminal tasks
-          const controller = getController(task.id);
-          if (controller) controller.abort();
-          unregisterController(task.id);
-          unlinkSync(join(resolveTasksDir(), file));
-          cleaned++;
-        }
+        unregisterController(task.id);
+        unlinkSync(join(resolveTasksDir(), file));
+        cleaned++;
       }
     } catch {
       // Skip corrupt files

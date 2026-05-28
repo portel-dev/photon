@@ -24,6 +24,82 @@ Beam does this automatically. Custom MCP clients should do the same so every
 tool, resource, template, prompt, and task remains visible in large photon
 installations.
 
+List responses also include additive cache metadata:
+
+```json
+{
+  "tools": [],
+  "nextCursor": "opaque-server-token",
+  "ttlMs": 30000,
+  "cacheScope": "private"
+}
+```
+
+Older clients can ignore `ttlMs`, `cacheScope`, and `_meta`. Stateless clients
+can use them to cache list responses safely without relying on a transport
+session.
+
+## Stateless MCP Compatibility
+
+Photon supports both legacy sessionful MCP clients and newer stateless clients.
+Legacy clients can keep using `initialize` plus `Mcp-Session-Id`. Stateless
+clients should send per-request routing and identity details instead:
+
+```http
+Mcp-Protocol-Version: 2026-07-28
+Mcp-Method: tools/call
+Mcp-Name: weather.current
+X-Photon-App-Session-Id: psess_123
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "method": "tools/call",
+  "params": {
+    "name": "weather.current",
+    "arguments": { "city": "Singapore" },
+    "_meta": {
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "ChatGPT",
+        "version": "future"
+      },
+      "photon/appSessionId": "psess_123"
+    }
+  }
+}
+```
+
+Photon validates `Mcp-Method` against the JSON-RPC method for stateless
+requests. When `Mcp-Name` is present and the request declares a `name` or `uri`,
+Photon validates those too. This catches accidental proxy or cache mixups early.
+
+Photon methods can read the normalized request context:
+
+```typescript
+export default class Weather {
+  async current(params: { city: string }) {
+    return {
+      city: params.city,
+      client: this.client?.clientName,
+      protocol: this.client?.protocolVersion,
+      appSession: this.request?.appSessionId,
+    };
+  }
+}
+```
+
+`this.client` describes the current MCP client and negotiated mode. `this.request`
+describes the current turn, including `appSessionId`, `appSessionSource`,
+`traceparent`, caller identity, and the legacy transport session ID when one
+exists internally. Photon still maintains internal state for subscriptions,
+elicitation, sampling, and task routing; app authors should use `appSessionId`
+when they need to associate multiple stateless turns from the same client UI.
+
+Clients can discover Photon’s supported protocol versions and extension surface
+with `server/discover`.
+
 ## AG-UI Events
 
 AG-UI (Agent-to-UI) maps photon yields to a standard event protocol that external UIs can consume.

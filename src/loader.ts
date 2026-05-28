@@ -38,7 +38,12 @@ import {
   recordRateLimitRejection,
   recordBulkheadRejection,
 } from './telemetry/metrics.js';
-import { runWithRequestContext, getRequestContext, runWithPhotonDir } from './telemetry/context.js';
+import {
+  runWithRequestContext,
+  getRequestContext,
+  runWithPhotonDir,
+  type PhotonExecutionRequestContext,
+} from './telemetry/context.js';
 import { spawn, execSync } from 'child_process';
 import {
   SchemaExtractor,
@@ -1775,6 +1780,27 @@ export class PhotonLoader {
             get() {
               const store = executionContext.getStore();
               return store?.caller ?? { id: 'anonymous', anonymous: true };
+            },
+            configurable: true,
+          });
+        }
+
+        // Always-inject request/client getters from Photon's own ambient
+        // execution context. These intentionally do not depend on
+        // @portel/cli's executionContext because Photon base-class
+        // dispatch can replace that store while a method is running.
+        if (!('request' in instance)) {
+          Object.defineProperty(instance, 'request', {
+            get() {
+              return getRequestContext()?.request;
+            },
+            configurable: true,
+          });
+        }
+        if (!('client' in instance)) {
+          Object.defineProperty(instance, 'client', {
+            get() {
+              return getRequestContext()?.request?.client;
             },
             configurable: true,
           });
@@ -4354,6 +4380,7 @@ Run: photon mcp ${mcpName} --config
        */
       roots?: Array<{ uri: string; name?: string }>;
       caller?: CallerInfo;
+      requestContext?: PhotonExecutionRequestContext;
       traceId?: string;
       parentTraceparent?: string;
       signal?: AbortSignal;
@@ -4386,6 +4413,7 @@ Run: photon mcp ${mcpName} --config
           traceId: options?.traceId,
           parentTraceparent: resolvedParentTraceparent,
           caller: options?.caller,
+          request: options?.requestContext,
           cwd: resolvedCallerCwd,
           photonDir: this.baseDir,
           startedAt: Date.now(),
@@ -4457,6 +4485,7 @@ Run: photon mcp ${mcpName} --config
       samplingProvider?: SamplingProvider;
       roots?: Array<{ uri: string; name?: string }>;
       caller?: CallerInfo;
+      requestContext?: PhotonExecutionRequestContext;
       traceId?: string;
       parentTraceparent?: string;
       signal?: AbortSignal;
@@ -4859,6 +4888,7 @@ Run: photon mcp ${mcpName} --config
                 inputProvider,
                 samplingProvider: options?.samplingProvider,
                 roots: options?.roots,
+                requestContext: options?.requestContext,
               } as unknown as Parameters<typeof executionContext.run>[0],
               () => {
                 return method.call(mcp.instance, ...args) as unknown;

@@ -5,7 +5,10 @@
 import { strict as assert } from 'assert';
 import http from 'http';
 import type { Socket } from 'net';
-import { handleStreamableHTTP } from '../dist/auto-ui/streamable-http-transport.js';
+import {
+  __streamableHttpTransportInternals,
+  handleStreamableHTTP,
+} from '../dist/auto-ui/streamable-http-transport.js';
 
 let passed = 0;
 let failed = 0;
@@ -53,7 +56,8 @@ function post(port: number, agent: http.Agent, id: number): Promise<number> {
 function postJSON(
   port: number,
   body: Record<string, unknown>,
-  agent = new http.Agent({ keepAlive: false })
+  agent?: http.Agent,
+  headers: Record<string, string> = {}
 ): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
@@ -63,11 +67,12 @@ function postJSON(
         port,
         path: '/mcp',
         method: 'POST',
-        agent,
+        agent: agent ?? new http.Agent({ keepAlive: false }),
         headers: {
           accept: 'application/json',
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(payload),
+          ...headers,
         },
       },
       (res) => {
@@ -131,6 +136,214 @@ async function withServer(context: any, fn: (port: number) => Promise<void>): Pr
 
 async function runTests(): Promise<void> {
   console.log('\nStreamable HTTP Transport:');
+
+  await test('normalizes legacy initialize clients into a sessionful client profile', async () => {
+    const session = {
+      id: 'legacy-session',
+      initialized: false,
+      createdAt: new Date(),
+      lastActivity: new Date(),
+    } as any;
+
+    const profile = __streamableHttpTransportInternals.resolveClientProfile(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: { sampling: {} },
+          clientInfo: { name: 'beam', version: '1.0.0' },
+        },
+      },
+      session,
+      {}
+    );
+
+    assert.equal(profile.mode, 'legacy-sessionful');
+    assert.equal(profile.protocolVersion, '2025-03-26');
+    assert.equal(profile.clientName, 'beam');
+    assert.equal(profile.capabilities.sampling, true);
+    assert.equal(profile.capabilities.tasks, 'legacy-core');
+    assert.equal(profile.quirks.requiresLegacyInitializeConfigSchema, true);
+  });
+
+  await test('normalizes stateless request metadata into an explicit app session', async () => {
+    const session = {
+      id: 'transport-session',
+      initialized: false,
+      createdAt: new Date(),
+      lastActivity: new Date(),
+    } as any;
+
+    const requestContext = __streamableHttpTransportInternals.resolvePhotonRequestContext({
+      request: {
+        jsonrpc: '2.0',
+        id: 'req-1',
+        method: 'tools/call',
+        params: {
+          name: 'demo.rows',
+          arguments: {},
+          _meta: {
+            protocolVersion: '2026-07-28',
+            'io.modelcontextprotocol/clientInfo': { name: 'ChatGPT', version: 'future' },
+            'io.modelcontextprotocol/clientCapabilities': {
+              extensions: { 'mcp-apps': { version: '1.0.0' } },
+            },
+            'photon/appSessionId': 'psess_123',
+            traceparent: '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01',
+          },
+        },
+      },
+      session,
+      headers: { 'mcp-method': 'tools/call' },
+    });
+
+    assert.equal(requestContext.client.mode, 'stateless');
+    assert.equal(requestContext.client.quirks.unnamespacedToolNames, true);
+    assert.equal(requestContext.appSessionId, 'psess_123');
+    assert.equal(requestContext.appSessionSource, 'explicit-meta');
+    assert.equal(
+      requestContext.traceparent,
+      '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01'
+    );
+    assert.equal(requestContext.client.capabilities.tasks, 'extension');
+    assert.equal(requestContext.client.capabilities.cacheMetadata, true);
+    assert.equal(requestContext.client.capabilities.mcpApps, true);
+  });
+
+  await test('stateless requests reject missing or mismatched routing headers', async () => {
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'demo-id',
+          name: 'demo',
+          path: `${process.cwd()}/demo.photon.ts`,
+          configured: true,
+          methods: [{ name: 'run', description: 'Run demo', params: { type: 'object' } }],
+        },
+      ],
+    });
+
+    await withServer(context, async (port) => {
+      const missingMethod = await postJSON(
+        port,
+        {
+          jsonrpc: '2.0',
+          id: 'missing-method',
+          method: 'tools/list',
+          params: {},
+        },
+        undefined,
+        { 'Mcp-Protocol-Version': '2026-07-28' }
+      );
+      assert.equal(missingMethod.status, 200);
+      assert.equal(missingMethod.body.error.code, -32600);
+      assert.match(missingMethod.body.error.message, /Mcp-Method header is required/);
+
+      const wrongMethod = await postJSON(
+        port,
+        {
+          jsonrpc: '2.0',
+          id: 'wrong-method',
+          method: 'tools/list',
+          params: {},
+        },
+        undefined,
+        {
+          'Mcp-Protocol-Version': '2026-07-28',
+          'Mcp-Method': 'tools/call',
+        }
+      );
+      assert.equal(wrongMethod.status, 200);
+      assert.equal(wrongMethod.body.error.code, -32600);
+      assert.match(wrongMethod.body.error.message, /does not match request method/);
+
+      const wrongName = await postJSON(
+        port,
+        {
+          jsonrpc: '2.0',
+          id: 'wrong-name',
+          method: 'tools/call',
+          params: { name: 'demo.run', arguments: {} },
+        },
+        undefined,
+        {
+          'Mcp-Protocol-Version': '2026-07-28',
+          'Mcp-Method': 'tools/call',
+          'Mcp-Name': 'other.run',
+        }
+      );
+      assert.equal(wrongName.status, 200);
+      assert.equal(wrongName.body.error.code, -32602);
+      assert.match(wrongName.body.error.message, /does not match request name/);
+    });
+  });
+
+  await test('server/discover returns stateless capability and app-session metadata', async () => {
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'needs-config',
+          name: 'needsConfig',
+          path: `${process.cwd()}/needs-config.photon.ts`,
+          configured: false,
+          requiredParams: [
+            {
+              name: 'apiKey',
+              envVar: 'API_KEY',
+              type: 'string',
+              isOptional: false,
+              hasDefault: false,
+              description: 'API key',
+            },
+          ],
+        },
+      ],
+    });
+
+    await withServer(context, async (port) => {
+      const response = await postJSON(
+        port,
+        {
+          jsonrpc: '2.0',
+          id: 'discover-1',
+          method: 'server/discover',
+          params: {
+            _meta: {
+              protocolVersion: '2026-07-28',
+              client: { name: 'ChatGPT', version: 'future' },
+              'photon/appSessionId': 'psess_discover',
+            },
+          },
+        },
+        undefined,
+        {
+          'Mcp-Method': 'server/discover',
+          'Mcp-Name': 'beam-mcp',
+          'Mcp-Protocol-Version': '2026-07-28',
+          'X-Photon-App-Session-Id': 'psess_header',
+        }
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(response.body.result.protocolVersion, '2026-07-28');
+      assert.deepEqual(response.body.result.supportedProtocolVersions, [
+        '2025-03-26',
+        '2025-11-25',
+        '2026-07-28',
+      ]);
+      assert.equal(response.body.result.serverInfo.name, 'beam-mcp');
+      assert.equal(response.body.result.capabilities.tools.listChanged, true);
+      assert.equal(response.body.result.extensions.photon.requestContext, true);
+      assert.equal(response.body.result._meta['photon/appSessionId'], 'psess_discover');
+      assert.equal(response.body.result._meta['photon/clientProfile'].mode, 'stateless');
+      assert.equal(
+        response.body.result.configurationSchema.needsConfig.properties.apiKey['x-env-var'],
+        'API_KEY'
+      );
+    });
+  });
 
   await test('POST cleanup does not accumulate socket close listeners on keep-alive', async () => {
     let observedSocket: Socket | undefined;
@@ -369,6 +582,8 @@ async function runTests(): Promise<void> {
       assert.equal(toolPage1.status, 200);
       assert.equal(toolPage1.body.result.tools.length, 100);
       assert.equal(typeof toolPage1.body.result.nextCursor, 'string');
+      assert.equal(toolPage1.body.result.ttlMs, 30000);
+      assert.equal(toolPage1.body.result.cacheScope, 'private');
 
       const toolPage2 = await postJSON(port, {
         jsonrpc: '2.0',
@@ -393,6 +608,8 @@ async function runTests(): Promise<void> {
         assert.equal(page1.status, 200);
         assert.equal(page1.body.result[collection].length, 100);
         assert.equal(typeof page1.body.result.nextCursor, 'string');
+        assert.equal(page1.body.result.ttlMs, 30000);
+        assert.equal(page1.body.result.cacheScope, 'private');
 
         const page2 = await postJSON(port, {
           jsonrpc: '2.0',
@@ -403,6 +620,60 @@ async function runTests(): Promise<void> {
         assert.equal(page2.status, 200);
         assert(page2.body.result[collection].length > 0);
       }
+    });
+  });
+
+  await test('stateless list responses include cache and Photon request metadata', async () => {
+    const context = createTestContext({
+      photons: [
+        {
+          id: 'demo-id',
+          name: 'demo',
+          path: `${process.cwd()}/demo.photon.ts`,
+          configured: true,
+          methods: [
+            {
+              name: 'run',
+              description: 'Run demo',
+              params: { type: 'object', properties: {} },
+            },
+          ],
+        },
+      ],
+    });
+
+    await withServer(context, async (port) => {
+      const response = await postJSON(
+        port,
+        {
+          jsonrpc: '2.0',
+          id: 'stateless-list',
+          method: 'tools/list',
+          params: {
+            _meta: {
+              protocolVersion: '2026-07-28',
+              client: { name: 'ChatGPT', version: 'future' },
+              'photon/appSessionId': 'psess_list',
+            },
+          },
+        },
+        undefined,
+        {
+          'Mcp-Protocol-Version': '2026-07-28',
+          'Mcp-Method': 'tools/list',
+        }
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(response.body.result.ttlMs, 30000);
+      assert.equal(response.body.result.cacheScope, 'private');
+      assert.equal(response.body.result._meta['photon/appSessionId'], 'psess_list');
+      assert.equal(response.body.result._meta['photon/clientProfile'].mode, 'stateless');
+      assert.equal(
+        response.body.result._meta['photon/clientProfile'].protocolVersion,
+        '2026-07-28'
+      );
+      assert(response.body.result.tools.some((tool: any) => tool.name === 'run'));
     });
   });
 

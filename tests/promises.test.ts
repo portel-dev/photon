@@ -990,6 +990,65 @@ export default class CtxProbe {
   await check(
     'I10',
     'P10.2',
+    'current MCP client and Photon app session are exposed to photon methods',
+    'Runtime',
+    async () => {
+      const { PhotonLoader } = await import('../dist/loader.js');
+      const tmp = path.join(os.tmpdir(), `client-context-${Date.now()}.photon.ts`);
+      fs.writeFileSync(
+        tmp,
+        `/** Probe Photon request context */
+export default class ClientContextProbe {
+  async peek() {
+    return {
+      clientName: this.client?.clientName,
+      protocolVersion: this.client?.protocolVersion,
+      mode: this.client?.mode,
+      appSessionId: this.request?.appSessionId,
+      appSessionSource: this.request?.appSessionSource,
+      traceparent: this.request?.traceparent,
+    };
+  }
+}
+`
+      );
+      try {
+        const loader = new PhotonLoader();
+        const mcp = await loader.loadFile(tmp);
+        const result = await loader.executeTool(mcp, 'peek', {}, {
+          requestContext: {
+            requestId: 'req-ctx',
+            transport: 'streamable-http',
+            protocolVersion: '2026-07-28',
+            traceparent: '00-22222222222222222222222222222222-3333333333333333-01',
+            appSessionId: 'psess_test',
+            appSessionSource: 'explicit-meta',
+            client: {
+              protocolVersion: '2026-07-28',
+              clientName: 'ChatGPT',
+              clientVersion: 'future',
+              mode: 'stateless',
+            },
+          },
+        } as any);
+
+        assert.deepEqual(result, {
+          clientName: 'ChatGPT',
+          protocolVersion: '2026-07-28',
+          mode: 'stateless',
+          appSessionId: 'psess_test',
+          appSessionSource: 'explicit-meta',
+          traceparent: '00-22222222222222222222222222222222-3333333333333333-01',
+        });
+      } finally {
+        fs.unlinkSync(tmp);
+      }
+    }
+  );
+
+  await check(
+    'I10',
+    'P10.2',
     'nested this.call() forwards _meta.traceparent from ambient context',
     'Runtime',
     async () => {
