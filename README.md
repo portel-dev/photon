@@ -24,6 +24,11 @@ expect around AI tools:
 Photon is free and open source software released under the [MIT license](./LICENSE).
 Full documentation lives at [portel-dev.github.io/photon](https://portel-dev.github.io/photon/).
 
+Related Portel project: [NCP](https://github.com/portel-dev/ncp) gives agents
+one natural MCP interface to discover and run tools across a whole tool
+ecosystem. Photon builds reliable agent-facing capabilities; NCP helps agents
+find and use them alongside every other MCP.
+
 *Interfaces are optional. Intent is mandatory.*
 
 ```bash
