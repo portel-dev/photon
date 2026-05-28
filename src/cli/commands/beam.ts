@@ -8,6 +8,7 @@
 import type { Command } from 'commander';
 import * as path from 'path';
 import * as net from 'net';
+import { execFile } from 'child_process';
 import {
   getErrorMessage,
   ExitCode,
@@ -65,6 +66,54 @@ async function findAvailablePort(startPort: number, maxAttempts: number = 10): P
   throw new Error(
     `No available port found between ${startPort} and ${startPort + maxAttempts - 1}`
   );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isBrowserProcessName(name: string): boolean {
+  return /^(arc|brave|chrom(e|ium)|firefox|google|microsoft|msedge|opera|safari|vivaldi|zen)\b/i.test(
+    name
+  );
+}
+
+function hasBrowserProcessInLsof(output: string): boolean {
+  return output
+    .split('\n')
+    .slice(1)
+    .some((line) => {
+      const command = line.trim().split(/\s+/, 1)[0] || '';
+      return isBrowserProcessName(command);
+    });
+}
+
+async function hasBrowserConnectedToPort(port: number): Promise<boolean> {
+  if (process.platform === 'win32') return false;
+
+  return new Promise((resolve) => {
+    execFile(
+      'lsof',
+      ['-nP', `-iTCP:${port}`, '-sTCP:ESTABLISHED'],
+      { timeout: 1000 },
+      (err, stdout) => {
+        if (err) {
+          resolve(false);
+          return;
+        }
+        resolve(hasBrowserProcessInLsof(stdout));
+      }
+    );
+  });
+}
+
+async function waitForBrowserConnection(port: number, timeoutMs = 1500): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    if (await hasBrowserConnectedToPort(port)) return true;
+    await sleep(250);
+  } while (Date.now() < deadline);
+  return false;
 }
 
 function getLogOptionsFromCommand(command: Command | null | undefined): LoggerOptions {
@@ -296,23 +345,32 @@ export function registerBeamCommand(program: Command): void {
         const { startBeam } = await import('../../auto-ui/beam.js');
         await startBeam(workingDir, startPort);
 
-        // Auto-open browser — always when a photon is specified (focus mode), or when --open flag is set
-        if (photon || options.open) {
+        // Auto-open browser unless --no-open was passed. When a previous Beam tab
+        // reconnects to this port after a restart, avoid spawning duplicate tabs.
+        const shouldAutoOpen = options.open === false ? false : Boolean(photon || options.open);
+        if (shouldAutoOpen) {
           const actualPort = process.env.BEAM_PORT || startPort;
-          // Focus mode: hash routes to the photon, ?focus=1 hides sidebar for full-width view
-          const url = photon
-            ? `http://localhost:${actualPort}/#${photon}?focus=1`
-            : `http://localhost:${actualPort}`;
-          const { exec } = await import('child_process');
-          const openCmd =
-            process.platform === 'darwin'
-              ? 'open'
-              : process.platform === 'win32'
-                ? 'start'
-                : 'xdg-open';
-          exec(`${openCmd} "${url}"`, (err) => {
-            if (err) logger.debug(`Could not auto-open browser: ${err.message}`);
-          });
+          const numericPort =
+            typeof actualPort === 'number' ? actualPort : parseInt(String(actualPort), 10);
+
+          if (Number.isFinite(numericPort) && (await waitForBrowserConnection(numericPort))) {
+            logger.debug(`Browser already connected to Beam on port ${numericPort}; skipping open`);
+          } else {
+            // Focus mode: hash routes to the photon, ?focus=1 hides sidebar for full-width view
+            const url = photon
+              ? `http://localhost:${actualPort}/#${encodeURIComponent(photon)}?focus=1`
+              : `http://localhost:${actualPort}`;
+            const openCmd =
+              process.platform === 'darwin'
+                ? 'open'
+                : process.platform === 'win32'
+                  ? 'cmd'
+                  : 'xdg-open';
+            const openArgs = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+            execFile(openCmd, openArgs, (err) => {
+              if (err) logger.debug(`Could not auto-open browser: ${err.message}`);
+            });
+          }
         }
 
         // Bun does not reliably keep this CLI process alive from the Node

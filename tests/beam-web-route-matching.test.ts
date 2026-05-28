@@ -5,6 +5,7 @@ import {
   selectClientAppUi,
   shouldBypassBeamServiceWorkerNavigation,
   shouldFallbackToClientAppForWebPath,
+  shouldHandleBeamServiceWorkerNavigation,
   shouldServeLinkedAppForWebPath,
 } from '../src/auto-ui/beam.js';
 
@@ -68,6 +69,14 @@ async function run() {
     assert.equal(shouldBypassBeamServiceWorkerNavigation('/web/port/api/state'), true);
     assert.equal(shouldBypassBeamServiceWorkerNavigation('/api/diagnostics'), true);
     assert.equal(shouldBypassBeamServiceWorkerNavigation('/port/_weather_current'), false);
+  });
+
+  await test('limits Beam offline navigation handling to Beam-owned routes', () => {
+    assert.equal(shouldHandleBeamServiceWorkerNavigation('/'), true);
+    assert.equal(shouldHandleBeamServiceWorkerNavigation('/app/port'), true);
+    assert.equal(shouldHandleBeamServiceWorkerNavigation('/web/port/threads'), false);
+    assert.equal(shouldHandleBeamServiceWorkerNavigation('/some-other-local-app'), false);
+    assert.equal(shouldHandleBeamServiceWorkerNavigation('/port/_weather_current'), false);
   });
 
   await test('falls back to client app only after declared web routes lose', () => {

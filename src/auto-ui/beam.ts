@@ -128,6 +128,10 @@ export function shouldBypassBeamServiceWorkerNavigation(pathname: string): boole
   );
 }
 
+export function shouldHandleBeamServiceWorkerNavigation(pathname: string): boolean {
+  return pathname === '/' || pathname.startsWith('/app/');
+}
+
 function uiAssetPath(asset: NonNullable<PhotonInfo['assets']>['ui'][number]): string {
   return asset.resolvedPath || asset.path || '';
 }
@@ -452,6 +456,10 @@ function shouldBypassBeamServiceWorkerNavigation(pathname) {
   );
 }
 
+function shouldHandleBeamServiceWorkerNavigation(pathname) {
+  return pathname === '/' || pathname.startsWith('/app/');
+}
+
 // Cache the boot page on install
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -483,10 +491,13 @@ self.addEventListener('fetch', (event) => {
   // Only intercept navigation requests (page loads, not API/asset fetches)
   if (event.request.mode !== 'navigate') return;
 
-  // Skip app proxy routes, API routes, and static assets — let them pass through.
-  // /web/{photon}/... is a standalone photon-owned app route; if the Beam PWA
-  // worker handles it, the Beam shell can flash over the app during navigation.
-  if (shouldBypassBeamServiceWorkerNavigation(url.pathname)) return;
+  // Skip app proxy routes, API routes, static assets, and unrelated localhost
+  // paths. Beam's offline boot page is only for Beam root and packaged PWA
+  // routes; otherwise it can mask another app running later on the same port.
+  if (
+    shouldBypassBeamServiceWorkerNavigation(url.pathname) ||
+    !shouldHandleBeamServiceWorkerNavigation(url.pathname)
+  ) return;
 
   // All navigation requests go through health check
   event.respondWith(handlePWANavigation(event.request));
