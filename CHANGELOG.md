@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.34.0](https://github.com/portel-dev/photon/compare/v1.33.4...v1.34.0) (2026-05-28)
+
+### Features
+
+* prepare Photon for stateless MCP clients ([3b580fd](https://github.com/portel-dev/photon/commit/3b580fd69e50e36857d55a3f69cef392f01d821f))
+
 ## [1.33.4](https://github.com/portel-dev/photon/compare/v1.33.3...v1.33.4) (2026-05-26)
 
 ## [1.33.3](https://github.com/portel-dev/photon/compare/v1.33.2...v1.33.3) (2026-05-24)
