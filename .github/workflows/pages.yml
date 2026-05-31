@@ -33,6 +33,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run docs:build
         env:
+          DOCS_BASE: /
+          DOCS_HOSTNAME: https://photon.portel.dev
           VITE_GA_MEASUREMENT_ID: ${{ secrets.DOCS_GA_MEASUREMENT_ID }}
 
       - uses: actions/upload-pages-artifact@v4

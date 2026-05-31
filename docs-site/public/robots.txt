@@ -7,4 +7,4 @@ Allow: /
 User-agent: GPTBot
 Allow: /
 
-Sitemap: https://portel-dev.github.io/photon/sitemap.xml
+Sitemap: https://photon.portel.dev/sitemap.xml
