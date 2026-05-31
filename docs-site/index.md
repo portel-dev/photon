@@ -1,69 +1,112 @@
 ---
-title: Photon Documentation
-description: Photon is an open source TypeScript runtime for building MCP servers, CLI tools, and web dashboards from one .photon.ts file.
-layout: home
-
-hero:
-  name: Photon
-  text: Single-file TypeScript runtime for MCP, CLI, and web UI
-  tagline: Define a capability once. Photon exposes it to AI agents, command lines, embedded app UIs, and Beam.
-  image:
-    src: /assets/photon-logo.png
-    alt: Photon logo
-  actions:
-    - theme: brand
-      text: Get Started
-      link: /docs/getting-started
-    - theme: alt
-      text: Method to Chat App
-      link: /docs/tutorials/from-method-to-chat-app
-    - theme: alt
-      text: GitHub
-      link: https://github.com/portel-dev/photon
-
-features:
-  - title: MCP server for AI agents
-    details: Methods become typed MCP tools for Claude, ChatGPT, Cursor, and other MCP-compatible clients.
-  - title: CLI and web UI from the same code
-    details: Run the same photon from scripts, terminal workflows, and Beam without rewriting the interface.
-  - title: Intent lives in TypeScript and JSDoc
-    details: Method signatures, comments, tags, and types drive validation, forms, help text, and AI-readable contracts.
+title: Photon
+description: Build MCP servers, CLI tools, embedded app UIs, web routes, schedules, webhooks, retries, and reliable agent workflows from one TypeScript capability.
+layout: page
+sidebar: false
+aside: false
 ---
 
-## Install
+<section class="photon-home">
+  <div class="photon-hero">
+    <div class="photon-hero__copy">
+      <p class="photon-eyebrow">Open source TypeScript runtime for the agentic age</p>
+      <h1>One capability. Every surface agents and humans need.</h1>
+      <p class="photon-lede">
+        Photon turns a single <code>.photon.ts</code> file into MCP tools, CLI commands,
+        Beam apps, embedded chat UIs, web routes, scheduled jobs, webhooks, retries,
+        and verifiable runtime contracts.
+      </p>
+      <div class="photon-actions">
+        <a class="photon-button photon-button--primary" href="/docs/getting-started">Build your first Photon</a>
+        <a class="photon-button" href="https://github.com/portel-dev/photon">Star on GitHub</a>
+      </div>
+      <div class="photon-command" aria-label="Star Photon with GitHub CLI">
+        <span>gh repo star portel-dev/photon</span>
+      </div>
+    </div>
+    <div class="photon-hero__visual">
+      <img src="/assets/showcase/weather/weather-showcase-hero.png" alt="Photon weather app rendered as an embedded UI">
+    </div>
+  </div>
 
-```bash
-bun add -g @portel/photon
-photon new my-tool
-photon mcp install my-tool
-```
+  <div class="photon-proof-grid" aria-label="Photon proof points">
+    <a href="/docs/tutorials/from-method-to-chat-app">
+      <strong>ChatGPT + Claude proof</strong>
+      <span>One weather Photon renders inside both clients.</span>
+    </a>
+    <a href="/docs/concepts">
+      <strong>Low cognitive load</strong>
+      <span>Methods, comments, tags, state, settings, and surfaces.</span>
+    </a>
+    <a href="/docs/reference/DOCBLOCK-TAGS">
+      <strong>Production stack</strong>
+      <span>Routes, webhooks, schedules, locks, auth, formats, and more.</span>
+    </a>
+  </div>
 
-Prefer a one-off run?
+  <section class="photon-section">
+    <div class="photon-section__heading">
+      <p class="photon-eyebrow">The core move</p>
+      <h2>Write intent once. Photon derives the interfaces around it.</h2>
+    </div>
+    <img class="photon-wide-visual" src="/assets/showcase/weather/photon-surface-map.svg" alt="One Photon method becoming CLI, Beam, MCP, Claude Desktop, ChatGPT, and other agent surfaces">
+  </section>
 
-```bash
-bunx @portel/photon new my-tool
-```
+  <section class="photon-section">
+    <div class="photon-section__heading">
+      <p class="photon-eyebrow">Real clients</p>
+      <h2>The same Photon can show up where work actually happens.</h2>
+    </div>
+    <div class="photon-client-grid">
+      <figure>
+        <img src="/assets/showcase/weather/chatgpt-photon-weather-local-dot.png" alt="ChatGPT developer mode rendering a Photon weather app">
+        <figcaption>ChatGPT developer mode through a public HTTPS MCP endpoint.</figcaption>
+      </figure>
+      <figure>
+        <img src="/assets/showcase/weather/claude-weather-real.png" alt="Claude Desktop rendering the same Photon weather app">
+        <figcaption>Claude Desktop through a local MCP server.</figcaption>
+      </figure>
+    </div>
+  </section>
 
-## What Photon Builds
+  <section class="photon-section photon-paths">
+    <div class="photon-section__heading">
+      <p class="photon-eyebrow">Choose your path</p>
+      <h2>Start with the shape of the thing you want to build.</h2>
+    </div>
+    <div class="photon-path-grid">
+      <a href="/docs/getting-started">
+        <span>01</span>
+        <strong>Build a tool</strong>
+        <p>Turn a TypeScript method into CLI, Beam, and MCP in minutes.</p>
+      </a>
+      <a href="/docs/tutorials/from-method-to-chat-app">
+        <span>02</span>
+        <strong>Ship an embedded app</strong>
+        <p>Add <code>@ui</code> and render the result in MCP app-capable chat clients.</p>
+      </a>
+      <a href="/docs/GUIDE">
+        <span>03</span>
+        <strong>Operate a stack</strong>
+        <p>Add state, schedules, webhooks, locks, OAuth, retries, and Cloudflare bindings.</p>
+      </a>
+    </div>
+  </section>
 
-```ts
-export default class Hello {
-  greet(params: { name: string }) {
-    return `Hello, ${params.name}!`;
-  }
-}
-```
+  <section class="photon-section">
+    <div class="photon-section__heading">
+      <p class="photon-eyebrow">Mental model</p>
+      <h2>Small enough to verify. Useful enough to compose.</h2>
+    </div>
+    <img class="photon-wide-visual" src="/assets/photon-agentic-stack.png" alt="Photon agentic stack infographic">
+  </section>
 
-That one file can run as a CLI command, a Beam web dashboard, and an MCP server.
-
-## Documentation Map
-
-| Start here | |
-|---|---|
-| [Getting Started](/docs/getting-started) | Install, build, and run your first photon. |
-| [Core Concepts](/docs/concepts) | Learn the mental model behind methods, comments, formats, state, settings, and surfaces. |
-| [From Method to Chat App](/docs/tutorials/from-method-to-chat-app) | Follow the weather showcase across CLI, Beam, MCP, and embedded chat UI. |
-| [Output Formats](/docs/formats) | Browse visual formats for tables, charts, cards, dashboards, markdown, and more. |
-| [Docblock Tags](/docs/reference/DOCBLOCK-TAGS) | Reference every public docblock tag Photon understands. |
-| [Complete Developer Guide](/docs/GUIDE) | Deep reference for authoring, deploying, and operating photons. |
-
+  <section class="photon-final-cta">
+    <h2>Make a capability agents can trust and humans can operate.</h2>
+    <div class="photon-actions">
+      <a class="photon-button photon-button--primary" href="/docs/getting-started">Get started</a>
+      <a class="photon-button" href="/readme">Read the full README</a>
+      <a class="photon-button" href="https://www.npmjs.com/package/@portel/photon">npm package</a>
+    </div>
+  </section>
+</section>

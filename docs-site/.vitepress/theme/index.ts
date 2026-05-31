@@ -2,6 +2,7 @@ import DefaultTheme from 'vitepress/theme';
 import type { Theme } from 'vitepress';
 import { trackPhotonDocsPageView } from './analytics';
 import { registerPhotonDocsWebMcp } from './webmcp';
+import './style.css';
 
 const theme: Theme = {
   extends: DefaultTheme,
