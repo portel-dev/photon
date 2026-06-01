@@ -11,15 +11,18 @@
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 [![Docs](https://img.shields.io/badge/docs-photon-blue)](https://photon.portel.dev/)
 
-### Define intent once. Deliver everywhere.
+### One TypeScript capability becomes the whole agent stack.
 
-Define the capability once. Photon turns it into the interfaces people now
-expect around AI tools:
+Photon is the fastest way to turn a small, verified TypeScript method into
+something humans can operate and agents can trust. Write the capability once;
+Photon derives the interfaces, contracts, and runtime behavior around it:
 
 - **MCP server** for Claude, ChatGPT, Cursor, and agents
 - **Embedded app UI** for chat clients that support MCP app resources
 - **CLI tool** for scripts, demos, and automation
 - **Beam web interface** for humans
+- **Web routes, schedules, webhooks, retries, state, and audit history** when the
+  capability grows into a production workflow
 
 Photon is free and open source software released under the [MIT license](./LICENSE).
 Full documentation lives at [photon.portel.dev](https://photon.portel.dev/).
@@ -28,6 +31,17 @@ Related Portel project: [NCP](https://portel-dev.github.io/ncp/) gives agents
 one natural MCP interface to discover and run tools across a whole tool
 ecosystem. Photon builds reliable agent-facing capabilities; NCP helps agents
 find and use them alongside every other MCP.
+
+**Try it in two minutes:**
+
+```bash
+bun add -g @portel/photon
+photon new my-tool
+photon
+```
+
+That opens Beam, the generated human UI. Add `photon mcp install my-tool` when
+you want the same capability inside Claude Desktop or another MCP client.
 
 *Interfaces are optional. Intent is mandatory.*
 
