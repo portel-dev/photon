@@ -232,6 +232,24 @@
   background: #0b1220;
 }
 
+.photon-ecosystem {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 28px;
+  align-items: center;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  border-radius: 12px;
+  padding: 28px;
+  background: linear-gradient(135deg, rgba(240, 253, 250, 0.95), rgba(239, 246, 255, 0.95));
+}
+
+.photon-ecosystem p {
+  margin: 0;
+  color: #38506d;
+  font-size: 17px;
+  line-height: 1.55;
+}
+
 .photon-final-cta h2 {
   max-width: 760px;
   color: #fff;
@@ -253,7 +271,8 @@
   .photon-hero,
   .photon-proof-grid,
   .photon-client-grid,
-  .photon-path-grid {
+  .photon-path-grid,
+  .photon-ecosystem {
     grid-template-columns: 1fr;
   }
 

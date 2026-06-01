@@ -4,6 +4,10 @@ import { defineConfig } from 'vitepress';
 
 const root = join(__dirname, '..');
 const gaMeasurementId = process.env.VITE_GA_MEASUREMENT_ID?.trim();
+const docsHostname = (process.env.DOCS_HOSTNAME ?? 'https://portel-dev.github.io/photon').replace(
+  /\/$/,
+  '',
+);
 
 function titleFor(file: string) {
   const markdown = readFileSync(file, 'utf8');
@@ -42,7 +46,7 @@ export default defineConfig({
   ignoreDeadLinks: true,
   lastUpdated: true,
   sitemap: {
-    hostname: process.env.DOCS_HOSTNAME ?? 'https://portel-dev.github.io/photon',
+    hostname: docsHostname,
   },
   head: [
     ['meta', { name: 'theme-color', content: '#0f172a' }],
@@ -98,6 +102,18 @@ export default defineConfig({
         ]
       : []),
   ],
+  transformHead({ page }) {
+    const path = page
+      .replace(/(^|\/)index\.md$/, '$1')
+      .replace(/\.md$/, '')
+      .replace(/\/$/, '');
+    const canonicalUrl = `${docsHostname}${path ? `/${path}` : '/'}`;
+
+    return [
+      ['link', { rel: 'canonical', href: canonicalUrl }],
+      ['meta', { property: 'og:url', content: canonicalUrl }],
+    ];
+  },
   vite: {
     define: {
       __PHOTON_GA_MEASUREMENT_ID__: JSON.stringify(gaMeasurementId ?? ''),
@@ -124,6 +140,7 @@ export default defineConfig({
       { text: 'Concepts', link: '/docs/concepts' },
       { text: 'Reference', link: '/docs/reference/DOCBLOCK-TAGS' },
       { text: 'GitHub', link: 'https://github.com/portel-dev/photon' },
+      { text: 'NCP', link: 'https://portel-dev.github.io/ncp/' },
       { text: 'npm', link: 'https://www.npmjs.com/package/@portel/photon' },
     ],
     sidebar: [

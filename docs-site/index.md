@@ -101,6 +101,22 @@ aside: false
     <img class="photon-wide-visual" src="/assets/photon-agentic-stack.png" alt="Photon agentic stack infographic">
   </section>
 
+  <section class="photon-section photon-ecosystem">
+    <div>
+      <p class="photon-eyebrow">Portel ecosystem</p>
+      <h2>Photon builds reliable capabilities. NCP helps agents find and use them.</h2>
+    </div>
+    <p>
+      Use Photon when you want to turn TypeScript into trusted tools, apps, routes,
+      schedules, and workflows. Use NCP when an agent needs one natural MCP interface
+      over a larger tool ecosystem.
+    </p>
+    <div class="photon-actions">
+      <a class="photon-button photon-button--primary" href="https://portel-dev.github.io/ncp/">Explore NCP</a>
+      <a class="photon-button" href="https://github.com/portel-dev/ncp">NCP on GitHub</a>
+    </div>
+  </section>
+
   <section class="photon-final-cta">
     <h2>Make a capability agents can trust and humans can operate.</h2>
     <div class="photon-actions">
