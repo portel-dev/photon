@@ -438,11 +438,13 @@ const extractCspFromSource = extractCspFromModule;
  * on PWA launch and shows a diagnostic page if something is wrong.
  */
 function generateServiceWorker(workingDir: string): string {
+  const workingDirCacheKey = createHash('sha256').update(workingDir).digest('hex').slice(0, 12);
   return `
 // Photon Beam Service Worker
 // Validates the backend is running and healthy before serving the app.
-const CACHE_NAME = 'photon-pwa-v1';
 const EXPECTED_WORKING_DIR = ${JSON.stringify(workingDir)};
+const WORKING_DIR_CACHE_KEY = ${JSON.stringify(workingDirCacheKey)};
+const CACHE_NAME = 'photon-pwa-v1-' + WORKING_DIR_CACHE_KEY;
 const HEALTH_ENDPOINT = '/api/diagnostics';
 
 function shouldBypassBeamServiceWorkerNavigation(pathname) {
@@ -472,7 +474,11 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((names) =>
-      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+      Promise.all(
+        names
+          .filter((n) => n.startsWith('photon-pwa-v1-') && n !== CACHE_NAME)
+          .map((n) => caches.delete(n))
+      )
     ).then(() => self.clients.claim())
   );
 });

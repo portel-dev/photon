@@ -255,7 +255,7 @@ async function testAppRouteLoads() {
   assert(body.includes('/api/diagnostics'), 'Has diagnostics endpoint reference');
   assert(body.includes('ui/initialize'), 'Has MCP Apps protocol handshake');
   assert(body.includes('ui/notifications/tool-result'), 'Has auto-invoke result delivery');
-  assert(body.includes('/api/invoke'), 'Has invoke endpoint for bridge relay');
+  assert(body.includes('/mcp'), 'Has MCP endpoint for bridge relay');
 }
 
 // ── Main ──

@@ -565,6 +565,48 @@ interface PendingElicitation {
 }
 const pendingElicitations = new Map<string, PendingElicitation>();
 
+const SECRET_PREVIEW_KEY_RE =
+  /pass(word)?|secret|token|api[-_]?key|credential|cookie|authorization|bearer|private[-_]?key/i;
+const MAX_PREVIEW_DEPTH = 4;
+const MAX_PREVIEW_ARRAY_ITEMS = 12;
+const MAX_PREVIEW_OBJECT_KEYS = 40;
+const MAX_PREVIEW_STRING_LENGTH = 500;
+
+function buildSafeToolArgumentPreview(value: unknown, depth = 0): unknown {
+  if (depth >= MAX_PREVIEW_DEPTH) return '[truncated: depth]';
+  if (value == null) return value;
+  if (typeof value === 'string') {
+    if (value.length <= MAX_PREVIEW_STRING_LENGTH) return value;
+    return `${value.slice(0, MAX_PREVIEW_STRING_LENGTH)}... [truncated ${value.length - MAX_PREVIEW_STRING_LENGTH} chars]`;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, MAX_PREVIEW_ARRAY_ITEMS)
+      .map((item) => buildSafeToolArgumentPreview(item, depth + 1));
+    if (value.length > MAX_PREVIEW_ARRAY_ITEMS) {
+      items.push(`[truncated ${value.length - MAX_PREVIEW_ARRAY_ITEMS} items]`);
+    }
+    return items;
+  }
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    const entries = Object.entries(value as Record<string, unknown>);
+    for (const [key, child] of entries.slice(0, MAX_PREVIEW_OBJECT_KEYS)) {
+      out[key] = SECRET_PREVIEW_KEY_RE.test(key)
+        ? '[redacted]'
+        : buildSafeToolArgumentPreview(child, depth + 1);
+    }
+    if (entries.length > MAX_PREVIEW_OBJECT_KEYS) {
+      out.__truncated__ = `${entries.length - MAX_PREVIEW_OBJECT_KEYS} keys`;
+    }
+    return out;
+  }
+  return `[${typeof value}]`;
+}
+
 // Server→client JSON-RPC request tracking. When the daemon initiates
 // a request against a connected Beam session (currently just
 // `sampling/createMessage` — but extensible to any future
@@ -2518,6 +2560,13 @@ const handlers: Record<string, RequestHandler> = {
           methodName,
           methodTitle: methodInfo.title || methodInfo.name,
           risk: 'destructive',
+          _meta: {
+            toolCall: {
+              photon: photonName,
+              method: methodName,
+              argumentPreview: buildSafeToolArgumentPreview(args || {}),
+            },
+          },
         },
         { photonName: serverName, methodName }
       );
@@ -5785,6 +5834,7 @@ function requestBeamElicitation(
     methodName?: string;
     methodTitle?: string;
     risk?: 'destructive' | 'default';
+    _meta?: Record<string, unknown>;
     options?: Array<{ value: string; label: string; selected?: boolean; description?: string }>;
     placeholder?: string;
     default?: any;

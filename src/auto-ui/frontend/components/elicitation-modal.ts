@@ -19,6 +19,7 @@ export interface ElicitationData {
   methodName?: string;
   methodTitle?: string;
   risk?: 'destructive' | 'default';
+  _meta?: Record<string, unknown>;
   placeholder?: string;
   default?: any;
   options?: ElicitationOption[];
@@ -234,6 +235,35 @@ export class ElicitationModal extends LitElement {
         color: var(--t-muted);
         font-size: var(--text-md);
         line-height: 1.5;
+      }
+
+      .approval-preview {
+        margin: 0 0 var(--space-md) 0;
+        padding: var(--space-sm);
+        max-height: 180px;
+        overflow: auto;
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        background: var(--bg-glass);
+      }
+
+      .approval-preview-label {
+        margin-bottom: 6px;
+        color: var(--t-muted);
+        font-size: var(--text-xs);
+        font-weight: 650;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .approval-preview pre {
+        margin: 0;
+        color: var(--t-primary);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       /* Select options */
@@ -946,6 +976,7 @@ export class ElicitationModal extends LitElement {
     const photonName = this.data?.photonName;
     const methodName = this.data?.methodName;
     const methodTitle = this.data?.methodTitle || methodName;
+    const approvalPreview = this._approvalPreviewText();
     const toolLabel =
       photonName && methodName
         ? `${photonName}.${methodName}`
@@ -970,6 +1001,14 @@ export class ElicitationModal extends LitElement {
       ${this.data?.description
         ? html`<p class="confirm-summary">${this.data.description}</p>`
         : nothing}
+      ${approvalPreview
+        ? html`
+            <div class="approval-preview">
+              <div class="approval-preview-label">Request</div>
+              <pre>${approvalPreview}</pre>
+            </div>
+          `
+        : nothing}
       <div class="confirm-actions">
         <button class="btn-secondary" @click=${() => this._submitValue(false)}>
           ${this.data?.cancelLabel || 'Cancel'}
@@ -979,6 +1018,18 @@ export class ElicitationModal extends LitElement {
         </button>
       </div>
     `;
+  }
+
+  private _approvalPreviewText(): string | null {
+    const toolCall = this.data?._meta?.toolCall;
+    if (!toolCall || typeof toolCall !== 'object') return null;
+    const argumentPreview = (toolCall as { argumentPreview?: unknown }).argumentPreview;
+    if (argumentPreview == null) return null;
+    try {
+      return JSON.stringify(argumentPreview, null, 2);
+    } catch {
+      return '[unserializable request]';
+    }
   }
 
   private _renderOAuth() {
