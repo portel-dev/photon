@@ -1,5 +1,8 @@
 # Custom UI Development Guide
 
+> Architecture note: for serious app shells and reusable client-side renderers,
+> see [Client-First UI Architecture](../internals/CLIENT-FIRST-UI-ARCHITECTURE.md).
+
 Build rich interactive UIs for your photons. A global named after your photon file is auto-injected into the iframe — call methods and subscribe to events directly (e.g., `kanban.onTaskMove(cb)`).
 
 ---

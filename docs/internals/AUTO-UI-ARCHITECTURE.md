@@ -1,5 +1,7 @@
 # Auto-UI Architecture
 
+> Related proposal: [Client-First UI Architecture](./CLIENT-FIRST-UI-ARCHITECTURE.md)
+
 ## Overview
 
 Photon's Auto-UI system automatically generates appropriate UI components based on the data returned from `.photon.ts` methods. This allows developers to focus on business logic while the runtime handles presentation across different interfaces (CLI, MCP, Web).
@@ -343,4 +345,3 @@ See:
 - [photon-examples](https://github.com/portel-dev/photon-examples) for example Photon implementations
 - `photon beam` command for interactive demos
 - Tests in `tests/` for component usage
-
