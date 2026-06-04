@@ -219,7 +219,7 @@ export class SessionManager {
    */
   async migrateBaseDir(newBaseDir: string): Promise<void> {
     this.loader.baseDir = newBaseDir;
-    await this.clearInstances();
+    await this.clearInstances('working-dir-renamed');
     this.logger.info('Migrated baseDir', { photon: this.photonName, newBaseDir });
   }
 
@@ -227,7 +227,8 @@ export class SessionManager {
    * Clear all cached instances and reload active sessions from disk.
    * Called when the workingDir is freshly created to avoid stale in-memory state.
    */
-  async clearInstances(): Promise<void> {
+  async clearInstances(reason: string = 'clear-instances'): Promise<void> {
+    await this.shutdownLoadedInstances(reason, 'clearInstances');
     this.instances.clear();
     this.inflightLoads.clear();
     // Snapshot sessions before async iteration — Map may be modified during awaits
@@ -251,6 +252,37 @@ export class SessionManager {
       }
     }
     this.logger.info('Cleared instance cache', { photon: this.photonName });
+  }
+
+  private async shutdownLoadedInstances(reason: string, context: string): Promise<void> {
+    const loadedInstances = new Set<any>();
+    for (const loaded of this.instances.values()) {
+      const instance = loaded?.instance ?? loaded;
+      if (instance) loadedInstances.add(instance);
+    }
+
+    const shutdowns: Promise<void>[] = [];
+    for (const instance of loadedInstances) {
+      if (typeof instance.onShutdown !== 'function') continue;
+      shutdowns.push(
+        (async () => {
+          try {
+            await instance.onShutdown({ reason });
+          } catch (err) {
+            this.logger.warn('onShutdown failed while clearing instances', {
+              context,
+              error: getErrorMessage(err),
+            });
+          }
+        })()
+      );
+    }
+
+    if (shutdowns.length === 0) return;
+    await Promise.race([
+      Promise.allSettled(shutdowns),
+      new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+    ]);
   }
 
   /**

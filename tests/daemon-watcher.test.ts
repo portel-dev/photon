@@ -28,6 +28,7 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
 import { type ChildProcess } from 'child_process';
 import { spawnDaemonPG, stopDaemonPG } from './helpers/daemon-pg.js';
 import type { DaemonRequest, DaemonResponse } from '../dist/daemon/protocol.js';
+import { SessionManager } from '../src/daemon/session-manager.js';
 
 let passed = 0;
 let failed = 0;
@@ -1348,6 +1349,49 @@ async function testSourcePatterns() {
       source.includes('fs.realpathSync(photonPath)'),
       'Expected realpathSync in watchPhotonFile for symlink resolution'
     );
+  });
+
+  await test('Bun directory polling is capped for oversized roots', async () => {
+    const source = await fsPromises.readFile(
+      path.join(process.cwd(), 'src/daemon/server.ts'),
+      'utf-8'
+    );
+    assert.ok(
+      source.includes('PHOTON_BUN_DIR_POLL_MAX_ENTRIES'),
+      'Expected configurable cap for Bun directory polling'
+    );
+    assert.ok(source.includes('shouldSkipBunDirPoll'), 'Expected Bun directory polling skip guard');
+    assert.ok(
+      source.includes('bunPollMaxEntries: BUN_DIR_POLL_MAX_ENTRIES'),
+      'Expected Bun polling cap to be opt-in at root discovery watchers'
+    );
+  });
+
+  await test('clearInstances calls onShutdown with non-terminal clear reason', async () => {
+    const shutdownReasons: string[] = [];
+    let loadCount = 0;
+    const manager = new SessionManager(path.join(TEST_DIR, 'mock.photon.ts'), 'mock-clear');
+    manager.loader.loadFile = async () => {
+      const instanceId = ++loadCount;
+      return {
+        instanceId,
+        async onShutdown(ctx?: { reason?: string }) {
+          shutdownReasons.push(ctx?.reason || '');
+        },
+      };
+    };
+
+    try {
+      await manager.getOrCreateSession('clear-session');
+      await manager.switchInstance('clear-session', 'named');
+
+      await manager.clearInstances();
+
+      assert.deepEqual(shutdownReasons, ['clear-instances', 'clear-instances']);
+      assert.equal(loadCount, 3, 'Expected clearInstances to reload the active named session');
+    } finally {
+      manager.destroy();
+    }
   });
 
   await test('startupWatchPhotons scans photon directory at boot', async () => {

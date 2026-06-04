@@ -1982,7 +1982,9 @@ function watchBaseForProactiveMetadata(basePath: string, _isDefaultBase: boolean
   };
 
   try {
-    const watcher = safeWatchDir(basePath, (_eventType, filename) => onChange(filename));
+    const watcher = safeWatchDir(basePath, (_eventType, filename) => onChange(filename), {
+      bunPollMaxEntries: BUN_DIR_POLL_MAX_ENTRIES,
+    });
     baseDirWatchers.set(basePath, watcher);
   } catch (err) {
     logger.debug('Could not watch base for proactive metadata', {
@@ -3423,7 +3425,7 @@ async function handleRequest(
     const key = compositeKey(photonName, request.workingDir);
     const sessionManager = sessionManagers.get(key);
     if (sessionManager) {
-      await sessionManager.clearInstances();
+      await sessionManager.clearInstances('clear-instances');
     }
     return { type: 'result', id: request.id, success: true, data: { cleared: !!sessionManager } };
   }
@@ -5328,6 +5330,7 @@ async function applyPatchToInstance(
  */
 const IS_BUN = !!process.versions.bun;
 const POLL_INTERVAL_MS = 2000; // 2s — good balance between latency and CPU
+const BUN_DIR_POLL_MAX_ENTRIES = parseNonNegativeEnvInt('PHOTON_BUN_DIR_POLL_MAX_ENTRIES', 512);
 
 interface SafeWatcher {
   close(): void;
@@ -5392,9 +5395,30 @@ function safeWatchFile(
   };
 }
 
+function countDirEntries(dirPath: string): number | null {
+  try {
+    return fs.readdirSync(dirPath).length;
+  } catch {
+    return null;
+  }
+}
+
+function shouldSkipBunDirPoll(dirPath: string, maxEntries: number): boolean {
+  if (!IS_BUN || maxEntries === 0) return false;
+  const count = countDirEntries(dirPath);
+  if (count === null || count <= maxEntries) return false;
+  logger.warn('Skipping Bun directory polling watcher for oversized directory', {
+    dir: dirPath,
+    entries: count,
+    maxEntries,
+  });
+  return true;
+}
+
 function safeWatchDir(
   dirPath: string,
-  callback: (eventType: 'change' | 'rename', filename: string | null) => void
+  callback: (eventType: 'change' | 'rename', filename: string | null) => void,
+  options: { bunPollMaxEntries?: number } = {}
 ): SafeWatcher {
   if (!IS_BUN) {
     const w = fs.watch(dirPath, (eventType, filename) =>
@@ -5404,6 +5428,12 @@ function safeWatchDir(
   }
 
   // Bun fallback: readdir snapshot diffing
+  if (
+    options.bunPollMaxEntries !== undefined &&
+    shouldSkipBunDirPoll(dirPath, options.bunPollMaxEntries)
+  ) {
+    return { close() {} };
+  }
   let prevEntries = new Map<string, number>(); // name -> mtimeMs
   try {
     for (const entry of fs.readdirSync(dirPath)) {
@@ -5549,7 +5579,7 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
             .map(([key]) => key);
           for (const key of keysToDelete) {
             const manager = sessionManagers.get(key);
-            if (manager) await manager.clearInstances();
+            if (manager) await manager.clearInstances('photon-deleted');
             sessionManagers.delete(key);
             photonPaths.delete(key);
             workingDirs.delete(key);
@@ -5629,6 +5659,23 @@ function unwatchPhotonFile(watchPath: string): void {
   if (timer) {
     clearTimeout(timer);
     watchDebounce.delete(watchPath);
+  }
+}
+
+function unwatchPhotonPath(photonPath: string): void {
+  let watchPath = photonPath;
+  try {
+    watchPath = fs.realpathSync(photonPath);
+  } catch {
+    // Symlink target may already be gone; fall back to caller path.
+  }
+  unwatchPhotonFile(watchPath);
+
+  const debounceKey = path.resolve(photonPath);
+  const timer = watchDebounce.get(debounceKey);
+  if (timer) {
+    clearTimeout(timer);
+    watchDebounce.delete(debounceKey);
   }
 }
 
@@ -5757,7 +5804,7 @@ function watchWorkingDir(workingDir: string): void {
               .map(([key]) => key);
             for (const key of deletedDirKeys) {
               const manager = sessionManagers.get(key);
-              if (manager) await manager.clearInstances();
+              if (manager) await manager.clearInstances('working-dir-deleted');
               sessionManagers.delete(key);
               photonPaths.delete(key);
               workingDirs.delete(key);
@@ -5828,7 +5875,7 @@ function watchStateDir(workingDir: string): void {
           const key = compositeKey(filename, workingDir);
           const manager = sessionManagers.get(key);
           if (manager) {
-            await manager.clearInstances();
+            await manager.clearInstances('state-dir-deleted');
           }
         })();
       }, 150);
@@ -6366,34 +6413,36 @@ function startupWatchPhotonDir(photonDir: string, defaultBase: string): void {
 
   // Watch the directory itself for new photon files added after startup
   try {
-    const dirWatcher = safeWatchDir(photonDir, (eventType, filename) => {
-      if (!filename) return;
-      const ext = extensions.find((e) => filename.endsWith(e));
-      if (!ext) return;
+    const dirWatcher = safeWatchDir(
+      photonDir,
+      (eventType, filename) => {
+        if (!filename) return;
+        const ext = extensions.find((e) => filename.endsWith(e));
+        if (!ext) return;
 
-      const photonName = filename.slice(0, -ext.length);
-      const filePath = path.join(photonDir, filename);
+        const photonName = filename.slice(0, -ext.length);
+        const filePath = path.join(photonDir, filename);
 
-      const photonKey = compositeKey(photonName, photonDir);
-      // New file added — register and watch it
-      if (!photonPaths.has(photonKey) && fs.existsSync(filePath)) {
-        photonPaths.set(photonKey, filePath);
-        watchPhotonFile(photonName, filePath);
-        logger.info('Auto-discovered new photon', { photonName, path: filePath });
-      }
-
-      // File removed — clean up
-      if (photonPaths.has(photonKey) && !fs.existsSync(filePath)) {
-        photonPaths.delete(photonKey);
-        // fileWatchers is keyed by file path, not composite key
-        const watcher = fileWatchers.get(filePath);
-        if (watcher) {
-          watcher.close();
-          fileWatchers.delete(filePath);
+        const photonKey = compositeKey(photonName, photonDir);
+        // New file added — register and watch it
+        if (!photonPaths.has(photonKey) && fs.existsSync(filePath)) {
+          photonPaths.set(photonKey, filePath);
+          watchPhotonFile(photonName, filePath);
+          logger.info('Auto-discovered new photon', { photonName, path: filePath });
         }
-        logger.info('Photon file removed', { photonName, path: filePath });
+
+        // File removed — clean up
+        if (photonPaths.has(photonKey) && !fs.existsSync(filePath)) {
+          photonPaths.delete(photonKey);
+          // fileWatchers is keyed by file path, not composite key
+          unwatchPhotonPath(filePath);
+          logger.info('Photon file removed', { photonName, path: filePath });
+        }
+      },
+      {
+        bunPollMaxEntries: BUN_DIR_POLL_MAX_ENTRIES,
       }
-    });
+    );
     if (typeof dirWatcher.on === 'function') {
       dirWatcher.on('error', () => {}); // Non-fatal
     }
