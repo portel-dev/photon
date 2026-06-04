@@ -1,6 +1,6 @@
 {
   "name": "@portel/photon",
-  "version": "1.34.0",
+  "version": "1.34.1",
   "description": "Build MCP servers, CLI tools, and web dashboards for AI agents from a single TypeScript file.",
   "type": "module",
   "packageManager": "bun@1.2.20",
