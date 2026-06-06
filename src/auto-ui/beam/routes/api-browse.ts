@@ -31,8 +31,10 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     let root: string | null = null;
 
     // Resolve photon's workdir as root constraint
+    // Security: only allow photon names present in state.photons to prevent
+    // reading arbitrary *_WORKDIR env vars from the runtime environment.
     const photonParam = url.searchParams.get('photon');
-    if (photonParam) {
+    if (photonParam && state.photons.some((p) => p.name === photonParam)) {
       const envPrefix = photonParam.toUpperCase().replace(/-/g, '_');
       const workdirEnv = process.env[`${envPrefix}_WORKDIR`];
       if (workdirEnv) {
@@ -48,10 +50,15 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     const dirPath = url.searchParams.get('path') || root;
 
     try {
-      const resolved = path.resolve(dirPath);
+      // Security: resolve both paths through fs.realpath to obtain canonical,
+      // symlink-resolved paths. This prevents symlink escape attacks where a
+      // symlink under root points outside the allowed directory — lexical
+      // path.resolve() would pass isPathWithin but the filesystem would follow
+      // the symlink to the escaped target.
+      const [resolvedRoot, resolved] = await Promise.all([fs.realpath(root), fs.realpath(dirPath)]);
 
       // Security: always enforce path boundary using isPathWithin
-      if (!isPathWithin(resolved, root)) {
+      if (!isPathWithin(resolved, resolvedRoot)) {
         res.writeHead(403);
         res.end(JSON.stringify({ error: 'Access denied: outside allowed directory' }));
         return true;
@@ -83,7 +90,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
         JSON.stringify({
           path: resolved,
           parent: path.dirname(resolved),
-          root: root ? path.resolve(root) : null,
+          root: resolvedRoot,
           items,
         })
       );
