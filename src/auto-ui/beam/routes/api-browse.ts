@@ -24,11 +24,15 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   // File browser API
   if (url.pathname === '/api/browse') {
     res.setHeader('Content-Type', 'application/json');
-    let root = url.searchParams.get('root');
+
+    // Security: root is always derived server-side — never from query params.
+    // The client-supplied `root` param is ignored to prevent an attacker from
+    // setting root=/ which would make isPathWithin(anyPath, '/') always true.
+    let root: string | null = null;
 
     // Resolve photon's workdir as root constraint
     const photonParam = url.searchParams.get('photon');
-    if (photonParam && !root) {
+    if (photonParam) {
       const envPrefix = photonParam.toUpperCase().replace(/-/g, '_');
       const workdirEnv = process.env[`${envPrefix}_WORKDIR`];
       if (workdirEnv) {
@@ -36,7 +40,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       }
     }
 
-    // Security: default browse root to workingDir if not specified
+    // Security: default browse root to workingDir if not resolved from photon
     if (!root) {
       root = state.workingDir;
     }
