@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.34.2](https://github.com/portel-dev/photon/compare/v1.34.1...v1.34.2) (2026-06-07)
+
+### Security
+
+* **beam:** prevent path traversal via client-controlled root in /api/browse ([353cc86](https://github.com/portel-dev/photon/commit/353cc86))
+* **auth:** restrict CORS on OAuth AS endpoints to localhost origins ([b87eb0d](https://github.com/portel-dev/photon/commit/b87eb0d))
+* apply realpath symlink checks on /api/local-file, /api/template, /api/pwa/icon, and UI sibling resolution ([57abb54](https://github.com/portel-dev/photon/commit/57abb54))
+* sanitize error messages to prevent internal path leaks, add rate limiting on file I/O endpoints, add OPTIONS preflight handling ([6d099d2](https://github.com/portel-dev/photon/commit/6d099d2))
+
 ## [1.34.1](https://github.com/portel-dev/photon/compare/v1.34.0...v1.34.1) (2026-06-04)
 
 ## [1.34.0](https://github.com/portel-dev/photon/compare/v1.33.4...v1.34.0) (2026-05-28)
