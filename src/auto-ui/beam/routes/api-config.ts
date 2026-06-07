@@ -9,7 +9,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { isLocalRequest, readBody } from '../../../shared/security.js';
+import { isLocalRequest, readBody, getCorsOrigin } from '../../../shared/security.js';
 import { generateOpenAPISpec } from '../../openapi-generator.js';
 import { mcpCommand } from '../../../shared-utils.js';
 import type { RouteHandler } from '../types.js';
@@ -388,7 +388,8 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
   // Serves auto-generated OpenAPI 3.1 spec from loaded photons
   if (url.pathname === '/api/openapi.json') {
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const corsOrigin = getCorsOrigin(req);
+    if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
 
     try {
       const serverUrl = `http://${req.headers.host || 'localhost'}`;

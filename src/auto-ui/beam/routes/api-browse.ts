@@ -117,9 +117,23 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       return true;
     }
 
-    const resolved = path.resolve(filePath);
+    // Security: lexical boundary check first (avoids ENOENT leaking path
+    // existence), then realpath to catch symlink escapes.
+    const candidate = path.resolve(filePath);
+    if (!isPathWithin(candidate, state.workingDir)) {
+      res.writeHead(403);
+      res.end('Access denied: outside allowed directory');
+      return true;
+    }
 
-    // Security: prevent path traversal — file must be within working directory
+    let resolved: string;
+    try {
+      resolved = await fs.realpath(candidate);
+    } catch {
+      res.writeHead(404);
+      res.end('File not found');
+      return true;
+    }
     if (!isPathWithin(resolved, state.workingDir)) {
       res.writeHead(403);
       res.end('Access denied: outside allowed directory');
@@ -367,15 +381,29 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
 
     const fullTemplatePath = path.join(photonDir, templateFile);
 
-    // Security: validate resolved path is within photon directory
+    // Security: lexical boundary check first, then realpath to block symlink escapes.
     if (!isPathWithin(fullTemplatePath, photonDir)) {
       res.writeHead(403);
       res.end(JSON.stringify({ error: 'Template path traversal detected' }));
       return true;
     }
 
+    let resolvedTemplatePath: string;
     try {
-      const templateContent = await fs.readFile(fullTemplatePath, 'utf-8');
+      resolvedTemplatePath = await fs.realpath(fullTemplatePath);
+    } catch {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: `Template not found: ${templateFile}` }));
+      return true;
+    }
+    if (!isPathWithin(resolvedTemplatePath, photonDir)) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ error: 'Template path traversal detected' }));
+      return true;
+    }
+
+    try {
+      const templateContent = await fs.readFile(resolvedTemplatePath, 'utf-8');
       res.setHeader('Content-Type', 'text/html');
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.writeHead(200);
@@ -479,16 +507,30 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       const photonBasename = path.basename(photon.path, '.photon.ts');
       const iconPath = path.resolve(photonDir, photonBasename, iconValue);
 
-      // Security: ensure the resolved path is within the photon directory
+      // Security: lexical boundary check first, then realpath to block symlink escapes.
       if (!isPathWithin(iconPath, photonDir)) {
         res.writeHead(403);
         res.end('Icon path escapes photon directory');
         return true;
       }
 
+      let resolvedIconPath: string;
       try {
-        const iconBuffer = await fs.readFile(iconPath);
-        const ext = path.extname(iconPath).toLowerCase();
+        resolvedIconPath = await fs.realpath(iconPath);
+      } catch {
+        res.writeHead(404);
+        res.end('Icon not found');
+        return true;
+      }
+      if (!isPathWithin(resolvedIconPath, photonDir)) {
+        res.writeHead(403);
+        res.end('Icon path escapes photon directory');
+        return true;
+      }
+
+      try {
+        const iconBuffer = await fs.readFile(resolvedIconPath);
+        const ext = path.extname(resolvedIconPath).toLowerCase();
         const mimeTypes: Record<string, string> = {
           '.png': 'image/png',
           '.svg': 'image/svg+xml',

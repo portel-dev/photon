@@ -3291,9 +3291,21 @@ export class PhotonServer {
               res.writeHead(403).end('Forbidden');
               return;
             }
+            // Resolve symlinks to block symlink escapes that pass the lexical check.
+            let realCandidate: string;
             try {
-              const content = await fs.readFile(candidate);
-              const ext = path.extname(candidate).toLowerCase();
+              realCandidate = await fs.realpath(candidate);
+            } catch {
+              res.writeHead(404).end('Not Found');
+              return;
+            }
+            if (!realCandidate.startsWith(baseWithSep)) {
+              res.writeHead(403).end('Forbidden');
+              return;
+            }
+            try {
+              const content = await fs.readFile(realCandidate);
+              const ext = path.extname(realCandidate).toLowerCase();
               const mime = uiSiblingMime(ext);
               const sibHeaders: Record<string, string> = { 'Content-Type': mime };
               if (corsOrigin) sibHeaders['Access-Control-Allow-Origin'] = corsOrigin;

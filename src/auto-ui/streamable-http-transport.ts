@@ -25,7 +25,7 @@ import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
 import { formatToolError } from '../shared/error-handler.js';
-import { SimpleRateLimiter } from '../shared/security.js';
+import { SimpleRateLimiter, getCorsOrigin } from '../shared/security.js';
 
 // Default rate limit: 600 requests/min per source IP. Beam app UI opens several
 // MCP sessions and can legitimately burst while navigating between photons.
@@ -5277,7 +5277,8 @@ export async function handleStreamableHTTP(
   }
 
   // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const corsOrigin = getCorsOrigin(req);
+  if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',

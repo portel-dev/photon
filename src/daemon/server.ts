@@ -60,6 +60,7 @@ import {
   SimpleRateLimiter,
   ipInAllowlist,
   parseAllowlistEnv,
+  getCorsOrigin,
 } from '../shared/security.js';
 import { audit } from '../shared/audit.js';
 import {
@@ -2234,7 +2235,8 @@ function startWebhookServer(port: number): void {
 
   webhookServer = http.createServer((req, res) => {
     void (async () => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      const corsOrigin = getCorsOrigin(req);
+      if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.setHeader(
         'Access-Control-Allow-Headers',
