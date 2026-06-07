@@ -341,6 +341,209 @@ console.log('\n#4 Dangerous module detection (warnIfDangerous)');
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// 2026-06 FIXES — symlink escapes, CORS, error leaks, rate limits
+// ═══════════════════════════════════════════════════════════════════
+
+console.log('\n--- 2026-06 Security Fixes ---');
+
+// #25 — getCorsOrigin restricts to localhost only
+console.log('\n#25 getCorsOrigin — localhost-only CORS');
+{
+  const { getCorsOrigin } = await import('../dist/shared/security.js');
+
+  // Helper to build a minimal IncomingMessage-like object
+  function makeReq(origin: string | undefined): any {
+    return { headers: origin ? { origin } : {}, socket: { remoteAddress: '127.0.0.1' } };
+  }
+
+  test(
+    getCorsOrigin(makeReq('http://localhost:2111')) === 'http://localhost:2111',
+    'allows localhost origin'
+  );
+  test(
+    getCorsOrigin(makeReq('http://127.0.0.1:2111')) === 'http://127.0.0.1:2111',
+    'allows 127.0.0.1 origin'
+  );
+  test(getCorsOrigin(makeReq('https://evil.com')) === undefined, 'blocks remote origin');
+  test(
+    getCorsOrigin(makeReq(undefined)) === 'http://localhost',
+    'returns localhost fallback when no origin header (same-origin requests)'
+  );
+  test(
+    getCorsOrigin(makeReq('http://localhost.evil.com')) === undefined,
+    'blocks origin that contains localhost as substring'
+  );
+}
+
+// #26 — Two-phase realpath boundary: lexical check prevents ENOENT info leak
+console.log('\n#26 Two-phase path boundary (lexical then realpath)');
+await testAsync(async () => {
+  const fs = await import('fs/promises');
+  const os = await import('os');
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'photon-sec-'));
+  try {
+    // A path outside the root that does not exist should be caught lexically
+    // before realpath is called — no ENOENT thrown, just boundary rejection.
+    const outside = path.join(tmpRoot, '..', 'secret-nonexistent');
+    const candidate = path.resolve(outside);
+    // Lexical check catches it — realpath never called
+    const blocked = !isPathWithin(candidate, tmpRoot);
+    return blocked;
+  } finally {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  }
+}, 'lexical check blocks outside path before realpath (no ENOENT leak)');
+
+// #27 — Symlink escape blocked by second isPathWithin after realpath
+console.log('\n#27 Symlink escape blocked by realpath + second boundary check');
+await testAsync(async () => {
+  const fs = await import('fs/promises');
+  const os = await import('os');
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'photon-sec-'));
+  const escapeTarget = await fs.mkdtemp(path.join(os.tmpdir(), 'photon-escape-'));
+  try {
+    // Create a symlink inside tmpRoot that points outside to escapeTarget
+    const symlink = path.join(tmpRoot, 'evil-link');
+    await fs.symlink(escapeTarget, symlink);
+
+    // Lexical check passes (symlink is inside root)
+    const lexicalOk = isPathWithin(symlink, tmpRoot);
+    // After realpath, the resolved path escapes — second check must block it
+    const resolved = await fs.realpath(symlink);
+    const secondCheckBlocks = !isPathWithin(resolved, tmpRoot);
+    return lexicalOk && secondCheckBlocks;
+  } finally {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+    await fs.rm(escapeTarget, { recursive: true, force: true });
+  }
+}, 'symlink inside root pointing outside is caught by realpath + second isPathWithin');
+
+// #28 — Rate limiter on file I/O routes (browse limiter config: 60/min)
+console.log('\n#28 Browse rate limiter — 60 req/min cap');
+{
+  const limiter = new SimpleRateLimiter(60, 60_000);
+  let allowed = 0;
+  for (let i = 0; i < 65; i++) {
+    if (limiter.isAllowed('127.0.0.1')) allowed++;
+  }
+  test(allowed === 60, `browse limiter allows exactly 60 then blocks (got ${allowed})`);
+  // Different client key is independent
+  test(limiter.isAllowed('127.0.0.2'), 'different IP has its own bucket');
+}
+
+// #29 — Error responses must not contain file system paths
+console.log('\n#29 Error messages do not leak internal paths');
+{
+  // Structural: verify the error strings in api-config source are generic
+  const fs = await import('fs');
+  const configSrc = fs.readFileSync(
+    path.join(
+      path.dirname(new URL(import.meta.url).pathname),
+      '..',
+      'src',
+      'auto-ui',
+      'beam',
+      'routes',
+      'api-config.ts'
+    ),
+    'utf-8'
+  );
+  // After our fix, no raw err.message should be passed as argument to res.end()
+  // Pattern: res.end(...) call must not contain err.message or error.message as payload
+  const resEndCalls = configSrc.match(/res\.end\([^)]{0,400}\)/g) || [];
+  const leaksErrMessage = resEndCalls.some(
+    (b) => b.includes('err.message') || b.includes('error.message')
+  );
+  test(!leaksErrMessage, 'api-config catch blocks do not send err.message to client');
+
+  const marketplaceSrc = fs.readFileSync(
+    path.join(
+      path.dirname(new URL(import.meta.url).pathname),
+      '..',
+      'src',
+      'auto-ui',
+      'beam',
+      'routes',
+      'api-marketplace.ts'
+    ),
+    'utf-8'
+  );
+  const mktCatchBlocks = marketplaceSrc.match(/catch[\s\S]{0,200}?res\.end/g) || [];
+  const mktLeaks = mktCatchBlocks.some((b) => b.includes('.message'));
+  test(!mktLeaks, 'api-marketplace catch blocks do not send err.message to client');
+}
+
+// #30 — OPTIONS preflight handling present in beam.ts
+console.log('\n#30 OPTIONS preflight handler exists for /api/* routes');
+{
+  const fs = await import('fs');
+  const beamSrc = fs.readFileSync(
+    path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'auto-ui', 'beam.ts'),
+    'utf-8'
+  );
+  const hasOptionsHandler =
+    beamSrc.includes("req.method === 'OPTIONS'") &&
+    beamSrc.includes('Access-Control-Allow-Methods') &&
+    beamSrc.includes('204');
+  test(hasOptionsHandler, 'beam.ts handles OPTIONS preflight with 204 + CORS headers');
+}
+
+// #31 — Hardcoded localhost:3000 removed from a2a/card-generator
+console.log('\n#31 No hardcoded localhost:3000 in card-generator');
+{
+  const fs = await import('fs');
+  const src = fs.readFileSync(
+    path.join(
+      path.dirname(new URL(import.meta.url).pathname),
+      '..',
+      'src',
+      'a2a',
+      'card-generator.ts'
+    ),
+    'utf-8'
+  );
+  test(!src.includes('localhost:3000'), 'card-generator uses port 2111, not 3000');
+}
+
+// #32 — fetch() calls in frontend have timeouts
+console.log('\n#32 Frontend fetch() calls have AbortSignal.timeout');
+{
+  const fs = await import('fs');
+  const mcpClientSrc = fs.readFileSync(
+    path.join(
+      path.dirname(new URL(import.meta.url).pathname),
+      '..',
+      'src',
+      'auto-ui',
+      'frontend',
+      'services',
+      'mcp-client.ts'
+    ),
+    'utf-8'
+  );
+  // The resource metadata fetch should now have a timeout
+  const hasTimeout =
+    mcpClientSrc.includes('AbortSignal.timeout') && mcpClientSrc.includes('_resourceMetadataUrl');
+  test(hasTimeout, 'mcp-client resource metadata fetch has AbortSignal.timeout');
+
+  const beamAppSrc = fs.readFileSync(
+    path.join(
+      path.dirname(new URL(import.meta.url).pathname),
+      '..',
+      'src',
+      'auto-ui',
+      'frontend',
+      'components',
+      'beam-app.ts'
+    ),
+    'utf-8'
+  );
+  const beamAppHasTimeout =
+    beamAppSrc.includes('AbortSignal.timeout') && beamAppSrc.includes('/api/create-photon');
+  test(beamAppHasTimeout, 'beam-app create-photon fetch has AbortSignal.timeout');
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PHOTON ISOLATION — photon files must not import runtime internals
 // ═══════════════════════════════════════════════════════════════════
 // Photon files compile to isolated cache directories. Imports that
