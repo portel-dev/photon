@@ -48,7 +48,9 @@ async function getGlobalPhotonPath(): Promise<string | null> {
       })
         .trim()
         .split('\n')[0];
-    } catch {}
+    } catch {
+      // bun not available — fall through to npm
+    }
     if (!globalRoot) {
       globalRoot = execSync('npm root -g', { encoding: 'utf-8' }).trim();
     }

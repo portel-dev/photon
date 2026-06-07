@@ -309,7 +309,7 @@ class MCPClientService {
   } | null> {
     if (!this._resourceMetadataUrl) return null;
     try {
-      const res = await fetch(this._resourceMetadataUrl);
+      const res = await fetch(this._resourceMetadataUrl, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) return null;
       const prm = await res.json();
       return {

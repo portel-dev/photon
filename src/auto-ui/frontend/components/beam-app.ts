@@ -2182,6 +2182,7 @@ export class BeamApp extends LitElement {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename, template }),
+        signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Failed to create photon' }));

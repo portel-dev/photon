@@ -47,7 +47,7 @@ export function generateAgentCard(
   photons: PhotonCardInput[],
   options?: CardGeneratorOptions
 ): AgentCard {
-  const baseUrl = options?.baseUrl || 'http://localhost:3000';
+  const baseUrl = options?.baseUrl || 'http://localhost:2111';
   const capabilities = detectCapabilities(photons);
   const skills = buildSkills(photons);
 

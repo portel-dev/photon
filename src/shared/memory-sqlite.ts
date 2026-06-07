@@ -29,6 +29,7 @@ const SCHEMA = `
 `;
 
 export class SqliteMemoryBackend implements MemoryBackend {
+  // In-process connection pool — intentionally per-process, not shared across processes.
   private dbs = new Map<string, Promise<SqliteDatabase>>();
   private updateLocks = new Map<string, Promise<void>>();
 
