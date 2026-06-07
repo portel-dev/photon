@@ -400,7 +400,7 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
           );
         } catch (err) {
           res.writeHead(400);
-          res.end(JSON.stringify({ error: (err as Error).message }));
+          res.end(JSON.stringify({ error: 'Operation failed' }));
         }
       })();
     });
@@ -436,7 +436,7 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
           res.end(JSON.stringify({ success: true }));
         } catch (err) {
           res.writeHead(400);
-          res.end(JSON.stringify({ error: (err as Error).message }));
+          res.end(JSON.stringify({ error: 'Operation failed' }));
         }
       })();
     });
@@ -472,7 +472,7 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
           res.end(JSON.stringify({ success: true }));
         } catch (err) {
           res.writeHead(500);
-          res.end(JSON.stringify({ error: (err as Error).message }));
+          res.end(JSON.stringify({ error: 'Operation failed' }));
         }
       })();
     });
@@ -509,7 +509,7 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
           }
         } catch (err) {
           res.writeHead(500);
-          res.end(JSON.stringify({ error: (err as Error).message }));
+          res.end(JSON.stringify({ error: 'Operation failed' }));
         }
       })();
     });

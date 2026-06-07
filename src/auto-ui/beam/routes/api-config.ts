@@ -79,7 +79,9 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       const status = err.message?.includes('too large') ? 413 : 500;
       res.setHeader('Content-Type', 'application/json');
       res.writeHead(status);
-      res.end(JSON.stringify({ error: err.message || String(err) }));
+      res.end(
+        JSON.stringify({ error: status === 413 ? 'Request body too large' : 'Invocation failed' })
+      );
     }
     return true;
   }
@@ -121,9 +123,9 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       await fs.rename(tmpPath, filePath);
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ name, filename, path: filePath }));
-    } catch (err: any) {
+    } catch {
       res.writeHead(500);
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: 'Failed to create photon' }));
     }
     return true;
   }
@@ -426,9 +428,9 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       res.setHeader('Content-Type', 'application/json');
       res.writeHead(200);
       res.end(JSON.stringify({ tests }));
-    } catch (error: any) {
+    } catch {
       res.writeHead(500);
-      res.end(JSON.stringify({ error: error.message, tests: [] }));
+      res.end(JSON.stringify({ error: 'Failed to list tests', tests: [] }));
     }
     return true;
   }
@@ -436,6 +438,14 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
   // Test API: Run a single test
   // Supports modes: 'direct' (call instance method), 'mcp' (call via executeTool), 'cli' (spawn subprocess)
   if (url.pathname === '/api/test/run' && req.method === 'POST') {
+    // Rate limit: spawning subprocesses is expensive
+    const clientKey = req.socket?.remoteAddress || 'unknown';
+    if (!state.apiRateLimiter.isAllowed(clientKey)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Too many requests' }));
+      return true;
+    }
+
     return new Promise<boolean>((resolve) => {
       let body = '';
       req.on('data', (chunk) => (body += chunk));

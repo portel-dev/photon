@@ -15,12 +15,31 @@
 import * as fs from 'fs/promises';
 import { lstatSync, realpathSync } from 'fs';
 import * as path from 'path';
-import { isPathWithin } from '../../../shared/security.js';
+import { isPathWithin, SimpleRateLimiter } from '../../../shared/security.js';
 import { logger } from '../../../shared/logger.js';
 import type { RouteHandler } from '../types.js';
 import { resolveUIAssetPath, upgradeToSibling, readUIContent } from '../../ui-resolver.js';
 
+const browseRateLimiter = new SimpleRateLimiter(60, 60_000);
+
 export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => {
+  // Rate limit all disk I/O endpoints
+  const FILE_IO_PATHS = [
+    '/api/browse',
+    '/api/local-file',
+    '/api/ui',
+    '/api/template',
+    '/api/pwa/icon',
+  ];
+  if (FILE_IO_PATHS.includes(url.pathname)) {
+    const clientKey = req.socket?.remoteAddress || 'unknown';
+    if (!browseRateLimiter.isAllowed(clientKey)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Too many requests' }));
+      return true;
+    }
+  }
+
   // File browser API
   if (url.pathname === '/api/browse') {
     res.setHeader('Content-Type', 'application/json');

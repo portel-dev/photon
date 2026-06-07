@@ -1731,6 +1731,18 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // REST API routes (extracted modules)
       // ══════════════════════════════════════════════════════════════════════════
       if (url.pathname.startsWith('/api/')) {
+        // CORS preflight for all API routes
+        if (req.method === 'OPTIONS') {
+          const preflightOrigin = getCorsOrigin(req);
+          const preflightHeaders: Record<string, string> = {
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          };
+          if (preflightOrigin) preflightHeaders['Access-Control-Allow-Origin'] = preflightOrigin;
+          res.writeHead(204, preflightHeaders);
+          res.end();
+          return;
+        }
         if (await handleMarketplaceRoutes(req, res, url, beamState)) return;
         if (await handleBrowseRoutes(req, res, url, beamState)) return;
         if (await handleConfigRoutes(req, res, url, beamState)) return;
