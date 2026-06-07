@@ -50,14 +50,21 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     const dirPath = url.searchParams.get('path') || root;
 
     try {
-      // Security: resolve both paths through fs.realpath to obtain canonical,
-      // symlink-resolved paths. This prevents symlink escape attacks where a
-      // symlink under root points outside the allowed directory — lexical
-      // path.resolve() would pass isPathWithin but the filesystem would follow
-      // the symlink to the escaped target.
-      const [resolvedRoot, resolved] = await Promise.all([fs.realpath(root), fs.realpath(dirPath)]);
+      // Security: resolve root canonically first, then do a fast lexical boundary
+      // check before calling realpath on dirPath. Calling realpath(dirPath) on a
+      // non-existent outside-root path would throw ENOENT and leak path existence
+      // via a 500 before we ever reach the access-denied check.
+      const resolvedRoot = await fs.realpath(root);
+      const candidate = path.resolve(dirPath);
+      if (!isPathWithin(candidate, resolvedRoot)) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: 'Access denied: outside allowed directory' }));
+        return true;
+      }
 
-      // Security: always enforce path boundary using isPathWithin
+      // Path passed the lexical check — now resolve symlinks to get the true
+      // canonical path and re-verify to block symlink escapes.
+      const resolved = await fs.realpath(dirPath);
       if (!isPathWithin(resolved, resolvedRoot)) {
         res.writeHead(403);
         res.end(JSON.stringify({ error: 'Access denied: outside allowed directory' }));
