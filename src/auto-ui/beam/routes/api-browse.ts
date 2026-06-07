@@ -24,11 +24,17 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   // File browser API
   if (url.pathname === '/api/browse') {
     res.setHeader('Content-Type', 'application/json');
-    let root = url.searchParams.get('root');
+
+    // Security: root is always derived server-side — never from query params.
+    // The client-supplied `root` param is ignored to prevent an attacker from
+    // setting root=/ which would make isPathWithin(anyPath, '/') always true.
+    let root: string | null = null;
 
     // Resolve photon's workdir as root constraint
+    // Security: only allow photon names present in state.photons to prevent
+    // reading arbitrary *_WORKDIR env vars from the runtime environment.
     const photonParam = url.searchParams.get('photon');
-    if (photonParam && !root) {
+    if (photonParam && state.photons.some((p) => p.name === photonParam)) {
       const envPrefix = photonParam.toUpperCase().replace(/-/g, '_');
       const workdirEnv = process.env[`${envPrefix}_WORKDIR`];
       if (workdirEnv) {
@@ -36,7 +42,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       }
     }
 
-    // Security: default browse root to workingDir if not specified
+    // Security: default browse root to workingDir if not resolved from photon
     if (!root) {
       root = state.workingDir;
     }
@@ -44,10 +50,22 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     const dirPath = url.searchParams.get('path') || root;
 
     try {
-      const resolved = path.resolve(dirPath);
+      // Security: resolve root canonically first, then do a fast lexical boundary
+      // check before calling realpath on dirPath. Calling realpath(dirPath) on a
+      // non-existent outside-root path would throw ENOENT and leak path existence
+      // via a 500 before we ever reach the access-denied check.
+      const resolvedRoot = await fs.realpath(root);
+      const candidate = path.resolve(dirPath);
+      if (!isPathWithin(candidate, resolvedRoot)) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: 'Access denied: outside allowed directory' }));
+        return true;
+      }
 
-      // Security: always enforce path boundary using isPathWithin
-      if (!isPathWithin(resolved, root)) {
+      // Path passed the lexical check — now resolve symlinks to get the true
+      // canonical path and re-verify to block symlink escapes.
+      const resolved = await fs.realpath(dirPath);
+      if (!isPathWithin(resolved, resolvedRoot)) {
         res.writeHead(403);
         res.end(JSON.stringify({ error: 'Access denied: outside allowed directory' }));
         return true;
@@ -79,7 +97,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
         JSON.stringify({
           path: resolved,
           parent: path.dirname(resolved),
-          root: root ? path.resolve(root) : null,
+          root: resolvedRoot,
           items,
         })
       );
