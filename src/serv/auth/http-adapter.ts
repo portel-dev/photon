@@ -42,6 +42,7 @@ import {
 } from './well-known.js';
 import type { Serv } from '../index.js';
 import type { Tenant } from '../types/index.js';
+import { getCorsOrigin } from '../../shared/security.js';
 
 // ============================================================================
 // Adapter options
@@ -91,8 +92,12 @@ export async function handleAuthServerHTTP(
   const parsed = parsePathname(req, options.singleTenant);
   if (!parsed) return false;
 
-  // CORS + preflight
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS + preflight — restrict to localhost origins, matching the
+  // getCorsOrigin policy used elsewhere in the codebase.
+  const corsOrigin = getCorsOrigin(req);
+  if (corsOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   if (req.method === 'OPTIONS') {
