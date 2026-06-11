@@ -6253,7 +6253,23 @@ interface HealthSnapshot {
   eventBuffers: number;
   pendingPrompts: number;
   pollTimers: number;
+  openFds: number;
   runtime: string;
+}
+
+/**
+ * Count this process's open file descriptors via /dev/fd (macOS/Linux).
+ * The June 2026 subscription-socket leak grew to ~37k daemon FDs and
+ * kernel-wide ENFILE without any signal in the health log — vitals must
+ * include FD count so the next leak is visible long before it lands.
+ * Returns -1 where /dev/fd is unavailable (Windows).
+ */
+function countOpenFds(): number {
+  try {
+    return fs.readdirSync('/dev/fd').length;
+  } catch {
+    return -1;
+  }
 }
 
 function collectHealthSnapshot(): HealthSnapshot {
@@ -6287,11 +6303,17 @@ function collectHealthSnapshot(): HealthSnapshot {
     eventBuffers: channelEventBuffers.size,
     pendingPrompts: pendingPrompts.size,
     pollTimers: pollTimers.size,
+    openFds: countOpenFds(),
     runtime: process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`,
   };
 }
 
 function warnOnHealthAnomalies(snap: HealthSnapshot): void {
+  if (snap.openFds > 2000) {
+    logger.warn('HIGH open file descriptor count — possible socket leak', {
+      openFds: snap.openFds,
+    });
+  }
   if (snap.cpuPercent > 50) {
     logger.warn('HIGH CPU detected', {
       cpuPercent: snap.cpuPercent,
