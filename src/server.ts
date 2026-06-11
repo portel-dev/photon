@@ -1984,6 +1984,164 @@ export class PhotonServer {
   // ─── Transport-specific setup ─────────────────────────────────────
 
   /**
+   * Unified tools/call handling for every MCP transport.
+   *
+   * Both setupHandlers (STDIO) and setupSessionHandlers (SSE) delegate here
+   * so @async fire-and-forget, task-mode dispatch, config elicitation retry,
+   * and error formatting behave identically regardless of how the request
+   * arrived. Session-specific routing (which server gets notifications,
+   * which instance name applies) comes exclusively from ctx.
+   */
+  private async handleCallToolRequest(ctx: HandlerContext, request: any, extra: any): Promise<any> {
+    // Deferred conflict resolution (set only by STDIO startup options)
+    if (!this.mcp && this.options.unresolvedPhoton) {
+      await this.resolveUnresolvedPhoton();
+    }
+
+    // @async fire-and-forget execution
+    if (this.mcp) {
+      const { name: toolName, arguments: args } = request.params;
+      const tool = this.mcp.tools.find((t) => t.name === toolName);
+      if ((tool as ExtractedSchema)?.isAsync) {
+        // Generate a W3C-compatible OTel trace ID (32 hex chars = 128-bit)
+        const traceId = crypto.randomBytes(16).toString('hex');
+        const executionId = traceId;
+        const inputProvider = this.createMCPInputProvider(ctx.server);
+        const samplingProvider = this.createMCPSamplingProvider(ctx.server);
+        const clientProgressToken = (
+          request.params as { _meta?: { progressToken?: string | number } }
+        )?._meta?.progressToken;
+        const progressToken = clientProgressToken ?? `progress_${toolName}`;
+        const outputHandler = (emit: any) => {
+          this.channelManager.publishIfChannel(emit);
+          // Forward emit yields as MCP notifications for async tools
+          if (emit?.emit === 'progress' || emit?.emit === 'status') {
+            const rawValue =
+              emit?.emit === 'progress' && typeof emit.value === 'number' ? emit.value : 0;
+            const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
+            const payload = emit.value ?? emit.data;
+            void ctx.server.notification({
+              method: 'notifications/progress',
+              params: {
+                progressToken,
+                progress,
+                total: 100,
+                message: emit.message || '',
+                ...(payload !== undefined &&
+                (emit?.emit === 'status' || typeof payload !== 'number')
+                  ? { data: payload }
+                  : {}),
+              },
+            });
+          } else if (emit?.emit === 'log') {
+            void ctx.server.notification({
+              method: 'notifications/message',
+              params: {
+                level: emit.level || 'info',
+                data: emit.message || '',
+              },
+            });
+          } else if (emit?.emit === 'render') {
+            try {
+              void ctx.server.notification({
+                method: 'notifications/message',
+                params: {
+                  level: 'info',
+                  data: JSON.stringify({
+                    _render: true,
+                    format: emit.format,
+                    value: emit.value,
+                  }),
+                },
+              });
+            } catch {
+              // Client may not support logging capability
+            }
+          } else if (emit?.emit === 'render:clear') {
+            try {
+              void ctx.server.notification({
+                method: 'notifications/message',
+                params: {
+                  level: 'info',
+                  data: JSON.stringify({ _render: true, clear: true }),
+                },
+              });
+            } catch {
+              // Client may not support logging capability
+            }
+          }
+        };
+
+        this.loader
+          .executeTool(this.mcp, toolName, args || {}, {
+            inputProvider,
+            outputHandler,
+            samplingProvider,
+            traceId,
+            roots: this.rootsByServer.get(ctx.server),
+          })
+          .catch((error) => {
+            this.log('error', `Async tool ${toolName} failed`, {
+              executionId,
+              error: getErrorMessage(error),
+            });
+          });
+
+        // Build W3C traceparent: 00-{traceId}-{spanId}-01
+        const spanId = crypto.randomBytes(8).toString('hex');
+        const traceparent = `00-${traceId}-${spanId}-01`;
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  executionId,
+                  _traceId: traceId,
+                  _traceparent: traceparent,
+                  status: 'running',
+                  photon: this.mcp.name,
+                  method: toolName,
+                  message: `Task started in background. Use execution ID to check status.`,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+    }
+
+    // ── Task mode: when params contain task field, run async ──
+    const taskField = (request.params as Record<string, unknown>)?.task;
+    if (taskField && this.mcp) {
+      const { name: toolName, arguments: args } = request.params;
+      return this.taskExecutor.handleTaskModeCall(this.mcp.name, toolName, args || {}, taskField);
+    }
+
+    try {
+      return await this.handleCallTool(ctx, request, extra);
+    } catch (error) {
+      const { name: toolName, arguments: args } = request.params;
+      if (
+        this.mcp?.instance?._photonConfigError &&
+        this.capabilityNegotiator.supportsElicitation(ctx.server)
+      ) {
+        const retryResult = await this.attemptConfigElicitation(toolName, args || {}, ctx.server);
+        if (retryResult) return retryResult;
+      }
+
+      this.log('error', 'Tool execution failed', {
+        tool: toolName,
+        error: getErrorMessage(error),
+        args: this.options.devMode ? args : undefined,
+      });
+      return this.formatError(error, toolName, args);
+    }
+  }
+
+  /**
    * Set up MCP protocol handlers (STDIO transport)
    */
   private setupHandlers() {
@@ -2011,154 +2169,7 @@ export class PhotonServer {
     });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-      // STDIO-only: deferred conflict resolution
-      if (!this.mcp && this.options.unresolvedPhoton) {
-        await this.resolveUnresolvedPhoton();
-      }
-
-      // STDIO-only: @async fire-and-forget execution
-      if (this.mcp) {
-        const { name: toolName, arguments: args } = request.params;
-        const tool = this.mcp.tools.find((t) => t.name === toolName);
-        if ((tool as ExtractedSchema)?.isAsync) {
-          // Generate a W3C-compatible OTel trace ID (32 hex chars = 128-bit)
-          const traceId = crypto.randomBytes(16).toString('hex');
-          const executionId = traceId;
-          const inputProvider = this.createMCPInputProvider();
-          const samplingProvider = this.createMCPSamplingProvider();
-          const clientProgressToken = (
-            request.params as { _meta?: { progressToken?: string | number } }
-          )?._meta?.progressToken;
-          const progressToken = clientProgressToken ?? `progress_${toolName}`;
-          const outputHandler = (emit: any) => {
-            this.channelManager.publishIfChannel(emit);
-            // Forward emit yields as MCP notifications for async tools
-            if (emit?.emit === 'progress' || emit?.emit === 'status') {
-              const rawValue =
-                emit?.emit === 'progress' && typeof emit.value === 'number' ? emit.value : 0;
-              const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
-              const payload = emit.value ?? emit.data;
-              void this.server?.notification({
-                method: 'notifications/progress',
-                params: {
-                  progressToken,
-                  progress,
-                  total: 100,
-                  message: emit.message || '',
-                  ...(payload !== undefined &&
-                  (emit?.emit === 'status' || typeof payload !== 'number')
-                    ? { data: payload }
-                    : {}),
-                },
-              });
-            } else if (emit?.emit === 'log') {
-              void this.server?.notification({
-                method: 'notifications/message',
-                params: {
-                  level: emit.level || 'info',
-                  data: emit.message || '',
-                },
-              });
-            } else if (emit?.emit === 'render') {
-              try {
-                void this.server?.notification({
-                  method: 'notifications/message',
-                  params: {
-                    level: 'info',
-                    data: JSON.stringify({
-                      _render: true,
-                      format: emit.format,
-                      value: emit.value,
-                    }),
-                  },
-                });
-              } catch {
-                // Client may not support logging capability
-              }
-            } else if (emit?.emit === 'render:clear') {
-              try {
-                void this.server?.notification({
-                  method: 'notifications/message',
-                  params: {
-                    level: 'info',
-                    data: JSON.stringify({ _render: true, clear: true }),
-                  },
-                });
-              } catch {
-                // Client may not support logging capability
-              }
-            }
-          };
-
-          this.loader
-            .executeTool(this.mcp, toolName, args || {}, {
-              inputProvider,
-              outputHandler,
-              samplingProvider,
-              traceId,
-              roots: this.rootsByServer.get(ctx.server),
-            })
-            .catch((error) => {
-              this.log('error', `Async tool ${toolName} failed`, {
-                executionId,
-                error: getErrorMessage(error),
-              });
-            });
-
-          // Build W3C traceparent: 00-{traceId}-{spanId}-01
-          const spanId = crypto.randomBytes(8).toString('hex');
-          const traceparent = `00-${traceId}-${spanId}-01`;
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify(
-                  {
-                    executionId,
-                    _traceId: traceId,
-                    _traceparent: traceparent,
-                    status: 'running',
-                    photon: this.mcp.name,
-                    method: toolName,
-                    message: `Task started in background. Use execution ID to check status.`,
-                  },
-                  null,
-                  2
-                ),
-              },
-            ],
-          };
-        }
-      }
-
-      // ── Task mode: when params contain task field, run async ──
-      const taskField = (request.params as Record<string, unknown>)?.task;
-      if (taskField && this.mcp) {
-        const { name: toolName, arguments: args } = request.params;
-        return this.taskExecutor.handleTaskModeCall(this.mcp.name, toolName, args || {}, taskField);
-      }
-
-      try {
-        return await this.handleCallTool(ctx, request, extra);
-      } catch (error) {
-        // STDIO-only: config elicitation retry
-        const { name: toolName, arguments: args } = request.params;
-        if (
-          this.mcp?.instance?._photonConfigError &&
-          this.capabilityNegotiator.supportsElicitation(this.server)
-        ) {
-          const retryResult = await this.attemptConfigElicitation(toolName, args || {});
-          if (retryResult) return retryResult;
-        }
-
-        // STDIO-only: verbose error logging
-        this.log('error', 'Tool execution failed', {
-          tool: toolName,
-          error: getErrorMessage(error),
-          args: this.options.devMode ? args : undefined,
-        });
-        return this.formatError(error, toolName, args);
-      }
+      return this.handleCallToolRequest(ctx, request, extra);
     });
 
     this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
@@ -2529,7 +2540,8 @@ export class PhotonServer {
    */
   private async attemptConfigElicitation(
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    server: Server = this.server
   ): Promise<unknown> {
     try {
       // Extract constructor params to build form
@@ -2563,7 +2575,7 @@ export class PhotonServer {
 
       if (Object.keys(properties).length === 0) return null;
 
-      const result = await this.server.elicitInput({
+      const result = await server.elicitInput({
         message: `${photonName} requires configuration. Please provide the following:`,
         requestedSchema: {
           type: 'object' as const,
@@ -2588,8 +2600,8 @@ export class PhotonServer {
       await this.notifyListsChanged();
 
       // Retry the original tool call
-      const inputProvider = this.createMCPInputProvider();
-      const samplingProvider = this.createMCPSamplingProvider();
+      const inputProvider = this.createMCPInputProvider(server);
+      const samplingProvider = this.createMCPSamplingProvider(server);
       const outputHandler = (emit: any) => {
         this.channelManager.publishIfChannel(emit);
       };
@@ -3844,12 +3856,7 @@ export class PhotonServer {
     });
 
     sessionServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-      try {
-        return await this.handleCallTool(ctx, request, extra);
-      } catch (error) {
-        const { name: toolName, arguments: args } = request.params;
-        return this.formatError(error, toolName, args);
-      }
+      return this.handleCallToolRequest(ctx, request, extra);
     });
 
     sessionServer.setRequestHandler(ListPromptsRequestSchema, async () => {
