@@ -27,6 +27,9 @@ interface SettingsToolOptions {
 }
 
 export class SettingsPersistence {
+  /** Per-(photon, instance) write chains — see queuePersist. */
+  private persistTails = new Map<string, Promise<void>>();
+
   constructor(
     private readonly baseDir: string | undefined,
     private readonly log: LogFn
@@ -63,6 +66,31 @@ export class SettingsPersistence {
   }
 
   /**
+   * Serialize persists per (photon, instance). settings.json is written
+   * non-atomically, so concurrent writes for the same instance can interleave
+   * or land out of order; chaining them guarantees the last change wins.
+   */
+  private queuePersist(
+    photonName: string,
+    instanceName: string,
+    values: Record<string, any>
+  ): Promise<void> {
+    const key = `${photonName}:${instanceName}`;
+    const tail = this.persistTails.get(key) ?? Promise.resolve();
+    const next = tail.then(() => this.persist(photonName, instanceName, values));
+    this.persistTails.set(
+      key,
+      next.catch(() => {})
+    );
+    return next;
+  }
+
+  /** Wait for all queued settings writes for an instance to reach disk. */
+  async flush(photonName: string, instanceName: string): Promise<void> {
+    await this.persistTails.get(`${photonName}:${instanceName}`);
+  }
+
+  /**
    * Inject settings into a photon instance:
    * - Load persisted values (persisted wins over in-source defaults)
    * - Replace `instance.settings` with a read-only Proxy
@@ -90,8 +118,9 @@ export class SettingsPersistence {
     instance._settingsInstanceName = instanceName;
     instance._settingsSchema = schema;
 
-    const persist = this.persist.bind(this);
+    const queuePersist = this.queuePersist.bind(this);
     const emitChange = this.emitChange.bind(this);
+    const log = this.log;
     instance.settings = new Proxy(backing, {
       get(target, prop) {
         if (typeof prop === 'string') {
@@ -103,7 +132,11 @@ export class SettingsPersistence {
         if (typeof prop === 'string') {
           const oldValue = target[prop];
           target[prop] = value;
-          persist(photonName, instanceName, target).catch(() => {});
+          queuePersist(photonName, instanceName, target).catch((err) => {
+            log(
+              `Settings persist failed for ${photonName}:${instanceName}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          });
           emitChange(instance, prop, oldValue, value);
         }
         return true;
@@ -178,7 +211,7 @@ export class SettingsPersistence {
             this.emitChange(instance, prop.name, oldValue, result);
           }
         }
-        await this.persist(photonName, instanceName, backing);
+        await this.queuePersist(photonName, instanceName, backing);
       }
 
       return { ...backing };
@@ -210,7 +243,7 @@ export class SettingsPersistence {
     }
 
     if (changes.length > 0) {
-      await this.persist(photonName, instanceName, backing);
+      await this.queuePersist(photonName, instanceName, backing);
 
       for (const change of changes) {
         this.log(

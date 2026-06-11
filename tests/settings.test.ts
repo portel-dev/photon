@@ -406,6 +406,40 @@ async function runTests() {
     console.log('✅ Settings with no params returns current values');
   }
 
+  // Test: rapid successive changes persist in order (no concurrent writes)
+  {
+    const { SettingsPersistence } = await import('../src/settings-persistence.js');
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'photon-settings-order-'));
+
+    const sp = new SettingsPersistence(tmpDir, () => {});
+    const completed: number[] = [];
+    let callCount = 0;
+    // Make the first write slow: without per-instance serialization the
+    // second write finishes first and the slow stale write lands last.
+    (
+      sp as unknown as { persist: (p: string, i: string, v: Record<string, any>) => Promise<void> }
+    ).persist = async () => {
+      const callIndex = ++callCount;
+      if (callIndex === 1) await new Promise((r) => setTimeout(r, 50));
+      completed.push(callIndex);
+    };
+
+    const instance: Record<string, unknown> = { settings: { count: 0 } };
+    await sp.inject(instance, 'order-test', 'default', {
+      hasSettings: true,
+      properties: [{ name: 'count', type: 'number' }],
+    });
+
+    (instance.settings as Record<string, any>).count = 1;
+    (instance.settings as Record<string, any>).count = 2;
+    await sp.flush('order-test', 'default');
+
+    assert.deepEqual(completed, [1, 2], 'Persist writes must complete in change order');
+
+    await fs.rm(tmpDir, { recursive: true, force: true });
+    console.log('✅ Rapid settings changes persist in order');
+  }
+
   console.log('\n🎉 All Settings tests passed!');
 }
 
