@@ -3,7 +3,7 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
-import { confirmElicit } from '../utils/elicit.js';
+import { confirmElicit, promptElicit } from '../utils/elicit.js';
 import {
   xMark,
   menu,
@@ -7188,10 +7188,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
   };
 
   // Maker instance method handlers - operate on the current photon
-  private _handleRenamePhoton = () => {
+  private _handleRenamePhoton = async () => {
     this._closeSettingsMenu();
     const currentName = this._selectedPhoton?.name || '';
-    const newName = prompt(`Enter new name for "${currentName}":`, currentName);
+    const newName = await promptElicit(`Enter new name for "${currentName}":`, currentName);
     if (newName && newName !== currentName) {
       void this._invokeMakerMethod('rename', { name: newName });
     }
@@ -8226,8 +8226,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
         showToast('Share link copied to clipboard', 'success');
       })
       .catch(() => {
-        // Fallback: show URL in prompt
-        prompt('Copy this link to share:', shareUrl);
+        // Clipboard unavailable: show the URL in the themed prompt so the
+        // user can copy it manually.
+        void promptElicit('Copy this link to share:', shareUrl);
       });
   }
 
@@ -9308,7 +9309,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             this._toggleVerboseLogging();
             break;
           case 'rename':
-            this._handleRenamePhoton();
+            void this._handleRenamePhoton();
             break;
           case 'view-source':
             void this._handleViewSource();
