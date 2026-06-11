@@ -49,6 +49,7 @@ SUITES=(
   "validation:$RUN tests/validation.test.ts"
   "streamable-http:$RUN tests/streamable-http-transport.test.ts"
   "daemon-pubsub:$RUN tests/daemon-pubsub.test.ts"
+  "daemon-subscribe-reconnect-leak:$RUN tests/daemon-subscribe-reconnect-leak.test.ts"
   "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
   "instance-drift:$RUN tests/instance-drift.test.ts"
   "daemon-stale-binary:$RUN tests/daemon-stale-binary-restart.test.ts"

@@ -600,6 +600,34 @@ export async function subscribeChannel(
   let cancelled = false;
   let lastSeenEventId: string | undefined = options?.lastEventId;
 
+  // Always points at the LIVE socket, including replacements made by the
+  // reconnect path. The unsubscribe closure handed to the caller must
+  // close whatever socket is current, not the one that existed when they
+  // subscribed — closing a stale reference leaks the replacement
+  // connection on both ends (seen in the wild as tens of thousands of
+  // daemon FDs and kernel-wide ENFILE).
+  let currentClient: net.Socket | null = null;
+
+  const teardown = (): void => {
+    cancelled = true;
+    const client = currentClient;
+    currentClient = null;
+    if (client && !client.destroyed) {
+      try {
+        const unsubRequest: DaemonRequest = {
+          type: 'unsubscribe',
+          id: `unsub_${Date.now()}`,
+          photonName,
+          channel,
+        };
+        client.write(JSON.stringify(unsubRequest) + '\n');
+      } catch {
+        // Socket may be mid-close; destroy below still releases the FD
+      }
+      client.end();
+    }
+  };
+
   const connect = async (): Promise<() => void> => {
     await ensureDaemonReady();
     const socketPath = getGlobalSocketPath();
@@ -607,6 +635,7 @@ export async function subscribeChannel(
 
     return new Promise((resolve, reject) => {
       const client = connectToDaemon(socketPath);
+      currentClient = client;
       let subscribed = false;
       let buffer = '';
 
@@ -636,19 +665,7 @@ export async function subscribeChannel(
 
             if (response.id === subscribeId && response.type === 'result') {
               subscribed = true;
-              resolve(() => {
-                cancelled = true;
-                if (!client.destroyed) {
-                  const unsubRequest: DaemonRequest = {
-                    type: 'unsubscribe',
-                    id: `unsub_${Date.now()}`,
-                    photonName,
-                    channel,
-                  };
-                  client.write(JSON.stringify(unsubRequest) + '\n');
-                  client.end();
-                }
-              });
+              resolve(teardown);
             }
 
             if (response.type === 'refresh_needed') {
@@ -697,9 +714,7 @@ export async function subscribeChannel(
         if (!subscribed) {
           if (options?.reconnect && !cancelled) {
             // Initial connection failed — retry (e.g. daemon not running yet)
-            resolve(() => {
-              cancelled = true;
-            });
+            resolve(teardown);
             scheduleReconnect();
           } else {
             reject(new Error(`Connection error: ${getErrorMessage(error)}`));
@@ -713,9 +728,7 @@ export async function subscribeChannel(
       client.on('end', () => {
         if (!subscribed) {
           if (options?.reconnect && !cancelled) {
-            resolve(() => {
-              cancelled = true;
-            });
+            resolve(teardown);
             scheduleReconnect();
           } else {
             reject(new Error('Connection closed before subscription confirmed'));
