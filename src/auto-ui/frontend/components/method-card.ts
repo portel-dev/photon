@@ -389,7 +389,7 @@ export class MethodCard extends LitElement {
       }
 
       /* Emoji Picker */
-      .emoji-picker {
+      .icon-picker {
         position: fixed;
         background: var(--bg-panel);
         border: 1px solid var(--border-glass);
@@ -403,7 +403,7 @@ export class MethodCard extends LitElement {
         max-width: 200px;
       }
 
-      .emoji-picker button {
+      .icon-picker button {
         background: none;
         border: none;
         font-size: var(--text-xl);
@@ -415,12 +415,12 @@ export class MethodCard extends LitElement {
           transform 0.1s ease;
       }
 
-      .emoji-picker button:hover {
+      .icon-picker button:hover {
         background: var(--bg-glass);
         transform: scale(1.15);
       }
 
-      .emoji-picker .remove-btn {
+      .icon-picker .remove-btn {
         font-size: var(--text-xs);
         color: var(--t-muted);
         grid-column: span 6;
@@ -429,7 +429,7 @@ export class MethodCard extends LitElement {
         border-top: 1px solid var(--border-glass);
       }
 
-      .emoji-picker .remove-btn:hover {
+      .icon-picker .remove-btn:hover {
         color: var(--color-error);
         background: var(--color-error-bg);
       }
@@ -452,7 +452,7 @@ export class MethodCard extends LitElement {
           opacity: 0.4;
         }
 
-        .emoji-picker {
+        .icon-picker {
           position: fixed;
           top: 50%;
           left: 50%;
@@ -507,7 +507,7 @@ export class MethodCard extends LitElement {
   private _handleDocumentClick = (e: MouseEvent) => {
     if (this._editingIcon) {
       const path = e.composedPath();
-      const picker = this.shadowRoot?.querySelector('.emoji-picker');
+      const picker = this.shadowRoot?.querySelector('.icon-picker');
       const icon = this.shadowRoot?.querySelector('.method-icon');
       if (picker && !path.includes(picker) && !path.includes(icon!)) {
         this._editingIcon = false;
@@ -621,7 +621,7 @@ export class MethodCard extends LitElement {
               ? html`<span
                   class="badge event"
                   title="Automatically emits event: ${this.method.eventName}"
-                  >📡 Event</span
+                  >Event</span
                 >`
               : ''}
             ${this.method.audience
@@ -700,7 +700,7 @@ export class MethodCard extends LitElement {
             ${requiresInput ? formInput : play}
           </div>`;
         })()}
-        ${this._editingIcon ? this._renderEmojiPicker() : ''}
+        ${this._editingIcon ? this._renderIconPicker() : ''}
       </div>
     `;
   }
@@ -724,54 +724,55 @@ export class MethodCard extends LitElement {
     return methodRequiresInput(this.method);
   }
 
-  private _renderEmojiPicker() {
-    const emojis = [
-      '📥',
-      '📤',
-      '🔍',
-      '🔎',
-      '📊',
-      '📈',
-      '💾',
-      '📁',
-      '📝',
-      '✏️',
-      '🗑️',
-      '➕',
-      '🔄',
-      '⚡',
-      '🔧',
-      '⚙️',
-      '🛠️',
-      '🔨',
-      '🔒',
-      '🔓',
-      '🔑',
-      '🛡️',
-      '👤',
-      '👥',
-      '📧',
-      '💬',
-      '🔔',
-      '📣',
-      '🌐',
-      '🔗',
-      '✅',
-      '❌',
-      '⭐',
-      '🎯',
-      '💡',
-      '🚀',
+  private _renderIconPicker() {
+    // Monochrome text symbols only — emojis are forbidden in the UI (DESIGN.md).
+    const symbols = [
+      '◆',
+      '◇',
+      '●',
+      '○',
+      '■',
+      '□',
+      '▲',
+      '△',
+      '▸',
+      '▹',
+      '★',
+      '☆',
+      '✓',
+      '✗',
+      '→',
+      '←',
+      '↑',
+      '↓',
+      '↻',
+      '⊕',
+      '⊖',
+      '⊗',
+      '§',
+      '¶',
+      '∑',
+      '∆',
+      'Ω',
+      'π',
+      'λ',
+      'ƒ',
+      '#',
+      '@',
+      '&',
+      '%',
+      '+',
+      '~',
     ];
 
     return html`
       <div
-        class="emoji-picker"
+        class="icon-picker"
         style="top:${this._pickerPos.top}px;left:${this._pickerPos.left}px"
         @click=${(e: Event) => e.stopPropagation()}
       >
-        ${emojis.map(
-          (emoji) => html` <button @click=${() => this._selectIcon(emoji)}>${emoji}</button> `
+        ${symbols.map(
+          (symbol) => html` <button @click=${() => this._selectIcon(symbol)}>${symbol}</button> `
         )}
         ${this.method.icon
           ? html`

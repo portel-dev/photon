@@ -2,6 +2,7 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, buttons, forms } from '../styles/index.js';
 import { trapFocus } from '../utils/focus-trap.js';
+import { shieldCheck, sizedIcon } from '../icons.js';
 
 export interface ElicitationData {
   ask: 'text' | 'password' | 'select' | 'confirm' | 'number' | 'oauth' | 'url' | 'form';
@@ -1033,23 +1034,14 @@ export class ElicitationModal extends LitElement {
   }
 
   private _renderOAuth() {
-    const providerIcons: Record<string, string> = {
-      google: '🔵',
-      github: '⚫',
-      microsoft: '🟦',
-      slack: '💜',
-      notion: '⬛',
-      default: '🔐',
-    };
     const provider = this.data?.provider || 'OAuth';
-    const icon = providerIcons[provider.toLowerCase()] || providerIcons.default;
     const scopes = (this.data?.scopes || []).join(', ');
     const customMessage = this.data?.message;
     const buttonLabel = customMessage ? 'Open' : `Authorize ${provider}`;
 
     return html`
       <div class="oauth-content">
-        <div class="oauth-icon">${icon}</div>
+        <div class="oauth-icon">${sizedIcon(shieldCheck, 40)}</div>
         <p class="oauth-message">
           ${customMessage || `Authorization is required to access ${provider}.`}
         </p>

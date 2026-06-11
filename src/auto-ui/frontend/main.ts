@@ -27,4 +27,4 @@ import './components/inputs/segmented-control.js';
 import './components/inputs/code-input.js';
 import './components/inputs/markdown-input.js';
 
-console.log('✨ Beam UI Initialized');
+console.log('Beam UI initialized');
