@@ -111,6 +111,33 @@ await test('existing @validate still enforces rules', async () => {
   }
 });
 
+// ─── Circuit state cleanup on hot reload ───
+
+console.log('\n🧪 Circuit breaker state cleanup\n');
+
+await test('reload clears circuit state for the reloaded photon only', async () => {
+  const tracker = loader as unknown as {
+    circuitHealthTracker: Map<string, { state: string; failures: number; openedAt: number }>;
+    clearCircuitState: (photonName: string) => void;
+  };
+  tracker.circuitHealthTracker.set('reload-me:default:doWork', {
+    state: 'open',
+    failures: 5,
+    openedAt: Date.now(),
+  });
+  tracker.circuitHealthTracker.set('keep-me:default:doWork', {
+    state: 'closed',
+    failures: 0,
+    openedAt: 0,
+  });
+
+  tracker.clearCircuitState('reload-me');
+
+  const health = loader.getCircuitHealth();
+  assert.equal(health['reload-me:default:doWork'], undefined, 'reloaded photon state cleared');
+  assert.ok(health['keep-me:default:doWork'], 'other photon state untouched');
+});
+
 // ─── Summary ───
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

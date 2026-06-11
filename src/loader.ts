@@ -2716,11 +2716,29 @@ export class PhotonLoader {
   }
 
   /**
+   * Drop circuit-breaker state for every instance/tool of a photon.
+   * Called on hot reload so the reloaded code starts with closed circuits
+   * and long-running daemons don't accumulate entries for retired versions.
+   */
+  private clearCircuitState(photonName: string): void {
+    const prefix = `${photonName}:`;
+    for (const key of this.circuitHealthTracker.keys()) {
+      if (key.startsWith(prefix)) this.circuitHealthTracker.delete(key);
+    }
+  }
+
+  /**
    * Reload a Photon MCP file (for hot reload)
    */
   async reloadFile(filePath: string, options?: LoadOptions): Promise<PhotonClassExtended> {
     // Invalidate the cache for this file
     const absolutePath = path.resolve(filePath);
+    this.clearCircuitState(
+      path
+        .basename(absolutePath)
+        .replace(/\.photon\.(ts|js|mjs)$/, '')
+        .replace(/\.(ts|js|mjs)$/, '')
+    );
 
     if (absolutePath.endsWith('.ts')) {
       // Clear the compiled cache
