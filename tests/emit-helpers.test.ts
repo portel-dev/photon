@@ -34,6 +34,17 @@ async function main() {
     }
   );
 
+  // Capture emits from generator path that calls the modern imperative helpers.
+  const generatorHelperEmits: any[] = [];
+  await loader.executeTool(
+    mcp,
+    'generator_helpers',
+    {},
+    {
+      outputHandler: (ev: any) => generatorHelperEmits.push(ev),
+    }
+  );
+
   const strip = (arr: any[]) =>
     arr
       .filter((e) => e?.emit && e.emit !== 'render:clear')
@@ -44,6 +55,7 @@ async function main() {
 
   const imp = strip(imperativeEmits);
   const gen = strip(generatorEmits);
+  const genHelpers = strip(generatorHelperEmits);
 
   // Imperative path should include 'toast' for both this.toast() and render('toast', ...).
   const toastEvents = imp.filter((e) => e.emit === 'toast');
@@ -64,6 +76,27 @@ async function main() {
   for (const k of ['toast', 'status', 'progress', 'log', 'thinking']) {
     assert.ok(impKinds.has(k), `expected imperative emit '${k}'`);
   }
+
+  const genHelperKinds = kinds(genHelpers);
+  for (const k of ['toast', 'status', 'progress', 'log', 'thinking']) {
+    assert.ok(genHelperKinds.has(k), `expected generator helper emit '${k}'`);
+  }
+  assert.ok(
+    genHelpers.some((e) => e.emit === 'status' && e.value?.step === 'status-value'),
+    `status(message, value) payload missing: ${JSON.stringify(genHelpers)}`
+  );
+  assert.ok(
+    genHelpers.some((e) => e.emit === 'status' && e.value?.step === 'object-value'),
+    `status(object) payload missing: ${JSON.stringify(genHelpers)}`
+  );
+  assert.ok(
+    genHelpers.some((e) => e.emit === 'progress' && e.meta?.step === 'progress-meta'),
+    `progress(value, message, meta) payload missing: ${JSON.stringify(genHelpers)}`
+  );
+  assert.ok(
+    genHelpers.some((e) => e.emit === 'progress' && e.meta?.step === 'object-meta'),
+    `progress(object) payload missing: ${JSON.stringify(genHelpers)}`
+  );
 
   // render('toast', ...) must NOT produce a generic 'render' event (was the bug).
   const renderEvents = imp.filter((e) => e.emit === 'render');

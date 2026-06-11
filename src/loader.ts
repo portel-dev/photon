@@ -372,11 +372,36 @@ function injectEmitHelpers(instance: any): void {
     ) => emit({ emit: 'log', message, level: opts.level ?? 'info', data: opts.data });
   }
   if (!('status' in instance)) {
-    instance.status = (message: string) => emit({ emit: 'status', message });
+    instance.status = (
+      message:
+        | string
+        | { message?: string; type?: string; value?: unknown; [key: string]: unknown },
+      value?: unknown
+    ) =>
+      emit(
+        typeof message === 'string'
+          ? { emit: 'status', message, ...(value !== undefined && { value }) }
+          : { emit: 'status', ...message }
+      );
   }
   if (!('progress' in instance)) {
-    instance.progress = (value: number, message?: string) =>
-      emit({ emit: 'progress', value, message });
+    instance.progress = (
+      value:
+        | number
+        | {
+            value?: number;
+            message?: string;
+            meta?: Record<string, unknown>;
+            [key: string]: unknown;
+          },
+      message?: string,
+      meta?: Record<string, unknown>
+    ) =>
+      emit(
+        typeof value === 'number'
+          ? { emit: 'progress', value, ...(message && { message }), ...(meta && { meta }) }
+          : { emit: 'progress', ...value }
+      );
   }
   if (!('thinking' in instance)) {
     instance.thinking = (active = true) => emit({ emit: 'thinking', active });
