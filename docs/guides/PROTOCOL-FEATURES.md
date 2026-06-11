@@ -197,35 +197,32 @@ window.photon.setWidgetState({ selectedItems: ['a', 'b'], viewMode: 'grid' });
 
 ## Persistent Approvals
 
-Human-in-the-loop confirmations that survive page navigation and server restarts. Approvals are stored as JSON files in `~/.photon/approvals/`.
+Human-in-the-loop confirmations that survive page navigation and server restarts. Approvals are stored as JSON files in `~/.photon/state/{photon}/approvals.json`.
 
 ```typescript
-import { io } from '@portel/photon-core';
-
 export default class DeployPipeline {
   /**
    * Deploy a service with persistent approval gate
    * @destructive
    */
   async *deploy(params: { service: string; version: string }) {
-    yield io.emit.status(`Preparing ${params.service} v${params.version}...`);
+    yield { emit: 'status', message: `Preparing ${params.service} v${params.version}...` };
 
     // Persistent confirmation — survives navigation/restart
-    const approved: boolean = yield io.ask.confirm(
-      `Deploy ${params.service} v${params.version} to production?`,
-      {
-        persistent: true,
-        destructive: true,
-        expires: '24h',
-      }
-    );
+    const approved = yield {
+      ask: 'confirm',
+      message: `Deploy ${params.service} v${params.version} to production?`,
+      persistent: true,
+      destructive: true,
+      expires: '24h',
+    };
 
     if (!approved) {
       return { status: 'cancelled' };
     }
 
-    yield io.emit.progress(0.5, 'Deploying...');
-    yield io.emit.progress(1.0, 'Complete');
+    yield { emit: 'progress', value: 0.5, message: 'Deploying...' };
+    yield { emit: 'progress', value: 1.0, message: 'Complete' };
 
     return { status: 'deployed', service: params.service, version: params.version };
   }
@@ -235,7 +232,7 @@ export default class DeployPipeline {
 **Key options:**
 - `persistent: true` — approval survives navigation/restart
 - `destructive: true` — UI shows red/danger styling
-- `expires: '24h'` — auto-reject after duration (supports `m`, `h`, `d`)
+- `expires: '24h'` — auto-expire after duration (supports `m`, `h`, `d`); without it, asks time out after 5 minutes
 
 **When to use:** For destructive operations (deploys, deletions, billing changes) where you need an audit trail and the approval might not happen immediately.
 
@@ -257,12 +254,12 @@ export default class BackgroundJob {
     const total = params.items.length;
 
     for (let i = 0; i < total; i++) {
-      yield io.emit.progress(i / total, `Processing ${params.items[i]}...`);
+      yield { emit: 'progress', value: i / total, message: `Processing ${params.items[i]}...` };
       // Simulate work
       await new Promise(r => setTimeout(r, 100));
     }
 
-    yield io.emit.progress(1.0, 'All items processed');
+    yield { emit: 'progress', value: 1.0, message: 'All items processed' };
 
     return {
       processed: total,
