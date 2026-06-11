@@ -92,16 +92,33 @@ function extractBeamRendererFormats(): string[] {
 }
 
 function extractCliFormatterFormats(): string[] {
-  // Read the CLI formatter from @portel/cli
-  const formatterPath = path.join(ROOT, 'node_modules/@portel/cli/dist/cli-formatter.js');
-  if (!fs.existsSync(formatterPath)) return [];
-
-  const source = fs.readFileSync(formatterPath, 'utf-8');
   const formats: string[] = [];
-  const caseRegex = /case\s+'([^']+)'/g;
-  let m;
-  while ((m = caseRegex.exec(source)) !== null) {
-    formats.push(m[1]);
+
+  // Base structural/content formats from @portel/cli
+  const formatterPath = path.join(ROOT, 'node_modules/@portel/cli/dist/cli-formatter.js');
+  if (fs.existsSync(formatterPath)) {
+    const source = fs.readFileSync(formatterPath, 'utf-8');
+    const caseRegex = /case\s+'([^']+)'/g;
+    let m;
+    while ((m = caseRegex.exec(source)) !== null) {
+      formats.push(m[1]);
+    }
+  }
+
+  // Rich formats mapped to CLI primitives in photon-cli-runner.ts
+  // (gauge, metric, stack, columns, chart:*, a2ui, slides, ...)
+  const runnerPath = path.join(ROOT, 'src/photon-cli-runner.ts');
+  if (fs.existsSync(runnerPath)) {
+    const source = fs.readFileSync(runnerPath, 'utf-8');
+    const hintRegex = /hintStr(?:\.startsWith\(|\s*===\s*)'([^':]+):?'/g;
+    let m;
+    while ((m = hintRegex.exec(source)) !== null) {
+      formats.push(m[1]);
+    }
+    const castRegex = /\(hint as string\)\s*===\s*'([^']+)'/g;
+    while ((m = castRegex.exec(source)) !== null) {
+      formats.push(m[1]);
+    }
   }
 
   return [...new Set(formats)];
@@ -175,6 +192,16 @@ test('CLI handles content formats', () => {
 });
 
 // ── Cross-target parity ──────────────────────────────────────
+
+test('CLI covers every documented OutputFormat (P4.1: no silent drops)', () => {
+  const cliSet = new Set(cliFormats);
+  const missing = outputFormats.filter((f) => !f.includes('$') && !cliSet.has(f));
+  assert.deepEqual(
+    missing,
+    [],
+    `Documented formats with no CLI rendering path (add a mapping in photon-cli-runner.ts): ${missing.join(', ')}`
+  );
+});
 
 test('Beam covers all formats that CLI covers', () => {
   const beamSet = new Set(beamFormats);

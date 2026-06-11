@@ -574,6 +574,29 @@ function injectResourceNotifier(
 }
 
 /**
+ * Formats @portel/cli's formatOutput can render directly. Anything else
+ * (gauge, stack, chart:*, ...) would hit formatDataWithHint's switch with
+ * no matching case and silently drop the data — fall back to auto-detect
+ * instead so the value always stays visible.
+ */
+const CLI_BASE_FORMATS = new Set([
+  'primitive',
+  'list',
+  'table',
+  'tree',
+  'card',
+  'tabs',
+  'accordion',
+  'none',
+  'json',
+  'markdown',
+  'yaml',
+  'xml',
+  'html',
+  'code',
+]);
+
+/**
  * Render a formatted value in the CLI using @portel/cli's formatOutput.
  * Uses clear-and-replace semantics — each call overwrites the previous render.
  * Synchronous to ensure proper line counting in CLIRenderZone.
@@ -591,9 +614,12 @@ function renderCLIFormat(format: string, value: any): void {
       return;
     }
 
+    const safeFormat =
+      CLI_BASE_FORMATS.has(format) || format.startsWith('code:') ? format : undefined;
+
     // Use the eagerly-imported formatter — synchronous, so line counting works
     cliRenderZone.render(() => {
-      cliFormatOutput(value, format);
+      cliFormatOutput(value, safeFormat);
     });
   } catch {
     // Fallback: print as JSON
