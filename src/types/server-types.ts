@@ -6,8 +6,18 @@
  */
 
 import type { PhotonClassExtended } from '@portel/photon-core';
+import type { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 import type { HttpRouteDef } from '../shared/http-route-extractor.js';
 import type { ExposeDef } from '../shared/expose-route-extractor.js';
+
+/**
+ * ServerCapabilities plus Photon's web-app capability extension.
+ * Advertised when a photon has a GET / route or a TSX client app; detected
+ * on the client side by external-mcp.ts (detectWebCapability).
+ */
+export type ServerCapabilitiesWithWeb = ServerCapabilities & {
+  web?: { url: string; description: string };
+};
 
 /**
  * Extended photon class with runtime-only metadata properties.

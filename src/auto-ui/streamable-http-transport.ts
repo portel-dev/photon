@@ -164,7 +164,7 @@ function paginateMCPList<T>(
 function invalidCursorResponse(id: unknown, error: Error): JSONRPCResponse {
   return {
     jsonrpc: '2.0',
-    id: id as any,
+    ...(typeof id === 'string' || typeof id === 'number' ? { id } : {}),
     error: { code: -32602, message: error.message },
   };
 }
@@ -1946,7 +1946,9 @@ const handlers: Record<string, RequestHandler> = {
 
       // Advertise web-app routing for either an explicit @get / route or a
       // TSX client app entry; both are served by /web/{photon}/.
-      const photonClass = ctx.photonMCPs.get(photon.name) as any;
+      const photonClass = ctx.photonMCPs.get(photon.name) as
+        | Parameters<typeof selectWebAppUrl>[1]
+        | undefined;
       const webUrl = selectWebAppUrl(photon, photonClass);
 
       for (const method of photon.methods) {

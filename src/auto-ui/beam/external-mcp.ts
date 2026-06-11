@@ -125,7 +125,7 @@ function toolsToMethods(tools: any[]): MethodInfo[] {
 
 /** Detect web capability from an SDK client (capabilities.web extension) */
 function detectWebCapability(sdkClient: Client, mcpInfo: ExternalMCPInfo): void {
-  const caps = (sdkClient as any).getServerCapabilities?.() as Record<string, any> | undefined;
+  const caps = sdkClient.getServerCapabilities?.() as Record<string, unknown> | undefined;
   const web = caps?.web as { url?: string; description?: string } | undefined;
   if (web?.url) {
     mcpInfo.hasWebApp = true;

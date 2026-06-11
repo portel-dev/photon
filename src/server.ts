@@ -77,6 +77,7 @@ import type {
   MCPToolDefinition,
   MCPTextContent,
   MCPToolResponse,
+  ServerCapabilitiesWithWeb,
 } from './types/server-types.js';
 import { verifyPhotonAuthToken } from './auth/mcp-jwt.js';
 import { loadPhotonAuth } from './cli/commands/auth.js';
@@ -1515,7 +1516,8 @@ export class PhotonServer {
       );
       if (schema.outputFormat) toolDef['x-output-format'] = schema.outputFormat;
       if (schema.layoutHints) toolDef['x-layout-hints'] = schema.layoutHints;
-      if ((schema as any).scopes) toolDef.scopes = (schema as any).scopes;
+      const toolScopes = (schema as ExtractedSchema & { scopes?: string[] }).scopes;
+      if (toolScopes) toolDef.scopes = toolScopes;
       if (schema.buttonLabel) toolDef['x-button-label'] = schema.buttonLabel;
       if (schema.icon) toolDef['x-icon'] = schema.icon;
       if (schema.autorun) toolDef['x-autorun'] = true;
@@ -2734,7 +2736,7 @@ export class PhotonServer {
             photonWithMeta?.description || `${photonWithMeta?.name} web interface`;
           this.server.registerCapabilities({
             web: { url: `http://localhost:${httpPort}`, description: webDescription },
-          } as any);
+          } as ServerCapabilitiesWithWeb);
         }
         await this.startSSE();
       } else {
@@ -2744,7 +2746,7 @@ export class PhotonServer {
             photonWithMeta?.description || `${photonWithMeta?.name} web interface`;
           this.server.registerCapabilities({
             web: { url: `http://localhost:${webPort}`, description: webDescription },
-          } as any);
+          } as ServerCapabilitiesWithWeb);
           await this.startStdio(webPort);
         } else {
           await this.startStdio();
@@ -3003,7 +3005,9 @@ export class PhotonServer {
         );
         // Convert PhotonTool[] to MCP tool format with UI linking
         const uiAssets = loaded.assets?.ui || [];
-        const tools = (loaded.tools as Array<ExtractedSchema & { internal?: boolean }>)
+        const tools = (
+          loaded.tools as Array<ExtractedSchema & { internal?: boolean; scopes?: string[] }>
+        )
           .filter((t) => !t.internal)
           .map((t) => {
             const linkedUI = uiAssets.find(
@@ -3013,7 +3017,7 @@ export class PhotonServer {
               name: t.name,
               description: t.description || '',
               inputSchema: t.inputSchema,
-              ...(Array.isArray((t as any).scopes) ? { scopes: (t as any).scopes } : {}),
+              ...(Array.isArray(t.scopes) ? { scopes: t.scopes } : {}),
               ...(linkedUI ? { linkedUi: linkedUI.id } : {}),
             };
           });
@@ -3725,7 +3729,7 @@ export class PhotonServer {
       const webDescription = this.mcp?.description || `${this.mcp?.name} web interface`;
       sessionServer.registerCapabilities({
         web: { url: `http://localhost:${httpPort}`, description: webDescription },
-      } as any);
+      } as ServerCapabilitiesWithWeb);
     }
 
     // Copy handlers to the session server
