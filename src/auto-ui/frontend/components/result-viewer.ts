@@ -5729,10 +5729,12 @@ export class ResultViewer extends LitElement {
     try {
       const photonName = this.photonName || '';
       const res = await fetch(
-        `/api/platform-bridge?photon=${encodeURIComponent(photonName)}&method=&theme=${encodeURIComponent(this.theme)}`
+        `/api/platform-bridge?photon=${encodeURIComponent(photonName)}&method=&theme=${encodeURIComponent(this.theme)}`,
+        { signal: AbortSignal.timeout(10000) }
       );
       this._slidesBridgeScript = await res.text();
-    } catch {
+    } catch (e) {
+      console.warn('[result-viewer] Failed to load platform bridge script:', e);
       this._slidesBridgeScript = '';
     }
     this._slidesBridgeLoading = false;
@@ -8394,20 +8396,24 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       // Load the renderers script via fetch+eval (avoids strict MIME and quote escaping issues)
       window._photonRenderersLoading = true;
       window._photonRenderersQueue = [doRender];
-      fetch('/api/photon-renderers.js')
+      fetch('/api/photon-renderers.js', { signal: AbortSignal.timeout(10000) })
         .then((r) => r.text())
         .then((code) => {
           try {
             // eslint-disable-next-line no-eval
             (0, eval)(code);
-          } catch {
-            /* renderer eval failed */
+          } catch (e) {
+            console.warn('[result-viewer] Photon renderers eval failed:', e);
           }
+          window._photonRenderersLoading = false;
           const queue = window._photonRenderersQueue || [];
           window._photonRenderersQueue = [];
           queue.forEach((fn: () => void) => fn());
         })
-        .catch(() => {
+        .catch((e) => {
+          console.warn('[result-viewer] Failed to load photon renderers:', e);
+          // Reset so a later render can retry instead of queueing forever.
+          window._photonRenderersLoading = false;
           const queue = window._photonRenderersQueue || [];
           window._photonRenderersQueue = [];
           queue.forEach((fn: () => void) => fn());
