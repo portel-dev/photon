@@ -13,9 +13,10 @@
 import { appendFileSync, mkdirSync, statSync, renameSync, unlinkSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { getAuditPath } from '@portel/photon-core';
+import { getDefaultContext } from '../context.js';
 import type { AuditBackend, AuditQuery } from './audit-sqlite.js';
 
-const AUDIT_FILE = getAuditPath();
+const AUDIT_FILE = getAuditPath(getDefaultContext().baseDir);
 const AUDIT_DIR = dirname(AUDIT_FILE);
 
 /** Rotate when file exceeds this size (5MB) */

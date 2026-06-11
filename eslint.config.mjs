@@ -24,6 +24,36 @@ const commonOverrides = {
   'no-console': 'off',
 };
 
+// Data-path resolvers from @portel/photon-core take an optional trailing
+// baseDir and fall back to PHOTON_DIR/~/.photon when it is omitted. Ambient
+// fallback at call time is how the memory/storage baseDir drift bugs
+// happened. Every call must pass baseDir explicitly (use
+// getDefaultContext().baseDir when the boot context is the right answer).
+// Legacy* variants are migration fallbacks and exempt.
+const explicitBaseDirRules = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector:
+        'CallExpression[callee.name=/^(getDataRoot|getGlobalMemoryDir|getCacheDir|getTasksDir|getAuditPath|getMetadataPath)$/][arguments.length=0]',
+      message:
+        'Pass an explicit baseDir (e.g. getDefaultContext().baseDir) — ambient PHOTON_DIR/~/.photon fallback causes data-path drift.',
+    },
+    {
+      selector:
+        'CallExpression[callee.name=/^(getPhotonDataDir|getPhotonMemoryDir|getPhotonEnvPath|getPhotonContextPath|getPhotonRunsDir|getPhotonLogsDir|getPhotonSchedulesDir|getPhotonConfigPath)$/][arguments.length<3]',
+      message:
+        'Pass an explicit baseDir as the third argument — ambient PHOTON_DIR/~/.photon fallback causes data-path drift.',
+    },
+    {
+      selector:
+        'CallExpression[callee.name=/^(getPhotonStatePath|getPhotonStateLogPath|getSessionMemoryDir)$/][arguments.length<4]',
+      message:
+        'Pass an explicit baseDir as the fourth argument — ambient PHOTON_DIR/~/.photon fallback causes data-path drift.',
+    },
+  ],
+};
+
 export default [
   {
     ignores: ['dist/**', 'node_modules/**', '**/*.js', '**/*.mjs'],
@@ -47,6 +77,7 @@ export default [
     rules: {
       ...typeCheckedRules,
       ...commonOverrides,
+      ...explicitBaseDirRules,
     },
   },
   // Type-aware rules for frontend/ (covered by frontend tsconfig.json)

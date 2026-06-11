@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { getDataRoot } from '@portel/photon-core';
+import { getDefaultContext } from './context.js';
 import { PHOTON_VERSION } from './version.js';
 
 interface VersionCache {
@@ -24,7 +25,7 @@ interface VersionCache {
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 function getCachePath(): string {
-  return path.join(getDataRoot(), '.version-check.json');
+  return path.join(getDataRoot(getDefaultContext().baseDir), '.version-check.json');
 }
 
 function readCache(): VersionCache | null {

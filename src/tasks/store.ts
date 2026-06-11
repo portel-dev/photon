@@ -13,6 +13,7 @@ import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import { type Task, TERMINAL_STATES, DEFAULT_TTL, DEFAULT_POLL_INTERVAL } from './types.js';
 import { getTasksDir, getLegacyTasksDir } from '@portel/photon-core';
+import { getDefaultContext } from '../context.js';
 
 /**
  * Resolve the tasks directory at call time rather than module import.
@@ -25,7 +26,7 @@ import { getTasksDir, getLegacyTasksDir } from '@portel/photon-core';
  * migration pattern used elsewhere.
  */
 function resolveTasksDir(): string {
-  const newDir = getTasksDir();
+  const newDir = getTasksDir(getDefaultContext().baseDir);
   if (existsSync(newDir)) return newDir;
   const legacyDir = getLegacyTasksDir();
   if (existsSync(legacyDir)) return legacyDir;

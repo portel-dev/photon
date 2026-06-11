@@ -137,7 +137,7 @@ interface MarketplaceManifest {
 }
 
 const CONFIG_DIR = getDefaultContext().baseDir;
-const METADATA_FILE = getMetadataPath();
+const METADATA_FILE = getMetadataPath(CONFIG_DIR);
 
 // Cache is considered stale after 24 hours
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
