@@ -655,6 +655,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 
 | Topic | |
 |---|---|
+| [The Photon Daemon](./docs/guides/DAEMON.md) | Lifecycle, PHOTON_DIR resolution, resilience, troubleshooting |
 | [Security](./SECURITY.md) | Best practices and audit checklist |
 | [Marketplace Publishing](./docs/guides/MARKETPLACE-PUBLISHING.md) | Create and share team marketplaces |
 | [Best Practices](./docs/guides/BEST-PRACTICES.md) | Patterns for production photons |
