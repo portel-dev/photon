@@ -15,7 +15,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cliPath = path.join(__dirname, '..', '..', 'dist', 'cli.js');
 const fixturesDir = path.join(__dirname, '..', 'fixtures');
 
-const FIXTURES = [path.join(fixturesDir, 'promise-test.photon.ts')];
+const FIXTURES = [
+  path.join(fixturesDir, 'promise-test.photon.ts'),
+  path.join(fixturesDir, 'conformance-rich.photon.ts'),
+];
 
 async function main() {
   console.log('🧪 Schema-driven conformance matrix\n');
