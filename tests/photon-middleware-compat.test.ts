@@ -1,5 +1,7 @@
 /**
- * Verify existing photons with functional tags work with the new middleware pipeline
+ * Verify photons with functional tags work with the middleware pipeline.
+ * Uses self-contained fixtures — must not depend on PHOTON_DIR or any
+ * photons outside the repo.
  * Run: npx tsx tests/photon-middleware-compat.test.ts
  */
 
@@ -22,42 +24,33 @@ async function test(name: string, fn: () => Promise<void>) {
 
 const loader = new PhotonLoader(false);
 
-// ─── daemon-features (@locked) ───
+// ─── @locked declarations ───
 
-console.log('\n🧪 daemon-features photon (uses @locked)\n');
+console.log('\n🧪 locked-compat photon (uses @locked)\n');
+
+const lockedPhoton = await loader.loadFile('./tests/fixtures/locked-compat.photon.ts');
 
 await test('loads successfully', async () => {
-  const photon = await loader.loadFile('/Users/arul/Projects/photons/daemon-features.photon.ts');
-  if (!photon) throw new Error('failed to load');
-  if (photon.tools.length === 0) throw new Error('no tools');
+  if (!lockedPhoton) throw new Error('failed to load');
+  if (lockedPhoton.tools.length === 0) throw new Error('no tools');
 });
 
-await test('critical method has @locked middleware declaration', async () => {
-  const photon = await loader.loadFile('/Users/arul/Projects/photons/daemon-features.photon.ts');
-  const critical = photon.tools.find((t: any) => t.name === 'critical');
+await test('bare @locked produces a locked middleware declaration', async () => {
+  const critical = lockedPhoton.tools.find((t: any) => t.name === 'critical');
   if (!critical) throw new Error('critical tool not found');
   if (!critical.middleware || critical.middleware.length === 0)
     throw new Error('no middleware on critical');
   const locked = critical.middleware.find((m: any) => m.name === 'locked');
   if (!locked) throw new Error('no locked middleware found');
-  if (locked.config.name !== 'daemon-features:critical') {
-    throw new Error(`expected lock name 'daemon-features:critical', got '${locked.config.name}'`);
+  // Bare @locked stores '' at schema level; the runtime defaults the lock
+  // name to `${photon}:${method}` when the chain executes.
+  if (locked.config.name !== '') {
+    throw new Error(`expected empty schema-level lock name, got '${locked.config.name}'`);
   }
 });
 
-// ─── kanban (@locked) ───
-
-console.log('\n🧪 kanban photon (uses @locked)\n');
-
-await test('loads successfully', async () => {
-  const photon = await loader.loadFile('/Users/arul/Projects/photons/kanban.photon.ts');
-  if (!photon) throw new Error('failed to load');
-  if (photon.tools.length === 0) throw new Error('no tools');
-});
-
-await test('sweep method has @locked middleware declaration', async () => {
-  const photon = await loader.loadFile('/Users/arul/Projects/photons/kanban.photon.ts');
-  const sweep = photon.tools.find((t: any) => t.name === 'sweep');
+await test('@locked with custom name keeps that name', async () => {
+  const sweep = lockedPhoton.tools.find((t: any) => t.name === 'sweep');
   if (!sweep) throw new Error('sweep tool not found');
   if (!sweep.middleware || sweep.middleware.length === 0) throw new Error('no middleware on sweep');
   const locked = sweep.middleware.find((m: any) => m.name === 'locked');
@@ -67,16 +60,36 @@ await test('sweep method has @locked middleware declaration', async () => {
   }
 });
 
-// ─── Sample other photons (no functional tags — should load without middleware) ───
+await test('untagged method on the same photon has no middleware', async () => {
+  const plain = lockedPhoton.tools.find((t: any) => t.name === 'plain');
+  if (!plain) throw new Error('plain tool not found');
+  if (plain.middleware && plain.middleware.length > 0)
+    throw new Error(
+      `unexpected middleware: ${plain.middleware.map((m: any) => m.name).join(', ')}`
+    );
+});
 
-console.log('\n🧪 Sample photons (no functional tags)\n');
+// ─── @locked execution through the pipeline ───
+
+console.log('\n🧪 locked methods execute through the middleware chain\n');
+
+await test('bare @locked method executes (lock acquired and released)', async () => {
+  const result = await loader.executeTool(lockedPhoton, 'critical', {});
+  if (!result?.ok) throw new Error('critical did not return ok');
+});
+
+await test('named @locked method executes', async () => {
+  const result = await loader.executeTool(lockedPhoton, 'sweep', {});
+  if (!result?.swept) throw new Error('sweep did not return swept');
+});
+
+// ─── Photons without functional tags get no middleware ───
+
+console.log('\n🧪 Plain photons (no functional tags)\n');
 
 const samplePhotons = [
-  '/Users/arul/Projects/photons/expenses.photon.ts',
-  '/Users/arul/Projects/photons/web.photon.ts',
-  '/Users/arul/Projects/photons/tasks-basic.photon.ts',
-  '/Users/arul/Projects/photons/hello-world.photon.ts',
-  '/Users/arul/Projects/photons/filesystem.photon.ts',
+  './tests/fixtures/plain-no-tags.photon.ts',
+  './tests/fixtures/emit-helpers.photon.ts',
 ];
 
 for (const p of samplePhotons) {
@@ -84,7 +97,6 @@ for (const p of samplePhotons) {
   await test(`${name} loads and has no middleware declarations`, async () => {
     const photon = await loader.loadFile(p);
     if (!photon) throw new Error('failed to load');
-    // Methods should NOT have middleware (no functional tags used)
     const withMiddleware = photon.tools.filter((t: any) => t.middleware && t.middleware.length > 0);
     if (withMiddleware.length > 0) {
       throw new Error(
