@@ -1655,7 +1655,7 @@ export class PhotonLoader {
           this.log(`🔍 Detected capabilities for ${name}: ${[...caps].join(', ')}`);
         }
 
-        this.injectPathHelpers(instance, tsContent);
+        this.injectPathHelpers(instance);
 
         // Always-inject emit + its helpers (render/toast/log/status/progress/
         // thinking). The injection is a pure closure — zero cost if unused.
@@ -2421,9 +2421,7 @@ export class PhotonLoader {
 
     // Detect and inject capabilities for plain classes
     if (tsContent && typeof instance.executeTool !== 'function') {
-      const caps = detectCapabilities(tsContent);
-      if (detectEmitHelperUsage(tsContent)) caps.add('emit');
-      this.injectPathHelpers(instance, tsContent);
+      this.injectPathHelpers(instance);
 
       // Always-inject emit (see primary path). User-defined wins.
       if (!instance.emit) {
@@ -5647,12 +5645,13 @@ Run: photon mcp ${mcpName} --config
   /**
    * Inject Photon path helpers for plain classes that use them without extending Photon.
    */
-  private injectPathHelpers(instance: Record<string, unknown>, source: string): void {
-    if (!source) {
-      return;
-    }
-
-    if (/this\.storage\s*\(/.test(source) && typeof instance.storage !== 'function') {
+  // Always inject; never gate on source regexes. Regex detection misses
+  // TS-cast call shapes like `(this as any).storage(...)` and silently
+  // leaves the helper undefined — the same blind spot that caused the
+  // memory-injection data-loss bug. Every helper is a lazy closure (zero
+  // cost unless called) and user-defined methods always win.
+  private injectPathHelpers(instance: Record<string, unknown>): void {
+    if (typeof instance.storage !== 'function') {
       instance.storage = (subpath: string) => {
         if (!instance._photonFilePath || typeof instance._photonFilePath !== 'string') {
           throw new Error(
@@ -5668,7 +5667,7 @@ Run: photon mcp ${mcpName} --config
       };
     }
 
-    if (/this\.assets\s*\(/.test(source) && typeof instance.assets !== 'function') {
+    if (typeof instance.assets !== 'function') {
       instance.assets = (
         subpath: string,
         options?: boolean | { load?: boolean; encoding?: BufferEncoding | null }
@@ -5698,7 +5697,7 @@ Run: photon mcp ${mcpName} --config
       };
     }
 
-    if (/this\.assetUrl\s*\(/.test(source) && typeof instance.assetUrl !== 'function') {
+    if (typeof instance.assetUrl !== 'function') {
       instance.assetUrl = (subpath: string) => {
         const name = (
           typeof instance._photonName === 'string' && instance._photonName
