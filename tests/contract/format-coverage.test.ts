@@ -198,10 +198,24 @@ test('Beam switch has default fallback (never silently drops data)', () => {
 
 // ── Format-to-MIME mapping ───────────────────────────────────
 
-test('All documented formats have MIME type mapping', () => {
-  // Verified by the formatToMimeType export existing in photon-core
-  // Runtime check would require async — covered by integration tests
-  assert.ok(true, 'MIME mapping exists in photon-core exports');
+const photonCore = await import('@portel/photon-core');
+
+test('Content formats map to MIME types; layout formats deliberately do not', () => {
+  const core = photonCore;
+
+  // Content-type formats carry a textual payload and must have a MIME mapping
+  const contentFormats = ['json', 'markdown', 'yaml', 'xml', 'html', 'code', 'code:python'];
+  for (const format of contentFormats) {
+    assert.ok(
+      core.formatToMimeType(format),
+      `formatToMimeType('${format}') must return a MIME type`
+    );
+  }
+
+  // Layout formats (table, list, chart, ...) are renderer-level and return
+  // undefined by contract — callers fall back to the default content type
+  assert.equal(core.formatToMimeType('table'), undefined);
+  assert.equal(core.formatToMimeType('chart'), undefined);
 });
 
 // ── A2UI (@format a2ui) wiring ───────────────────────────────
