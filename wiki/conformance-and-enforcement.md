@@ -1,0 +1,91 @@
+> Related: [INDEX.md](INDEX.md) | [daemon-architecture.md](daemon-architecture.md)
+
+# Conformance and Enforcement Architecture
+
+How the runtime guarantees cross-transport parity, format coverage, and
+data-path stability structurally, instead of relying on convention and
+post-hoc QA. Added June 2026.
+
+## Schema-Driven Conformance Matrix
+
+`tests/conformance/matrix.ts` generates parity checks from each fixture
+photon's own extracted schema. For every declared method:
+
+- Tool surface, inputSchema, and annotations must be identical on STDIO
+  MCP and SSE HTTP.
+- The method is invoked with schema-synthesized arguments (respecting
+  @min/@max, enums, formats) across CLI (`--json`), STDIO, and SSE, and
+  the data-level results must be equal.
+
+Adding a method to a fixture adds its checks automatically; nothing to
+remember. Methods marked `@destructive`, `@webhook`, or `@scheduled` get
+schema-parity checks only, never invocation.
+
+Fixtures: `tests/fixtures/promise-test.photon.ts` (basics),
+`tests/fixtures/conformance-rich.photon.ts` (gauge, metric, kv, chips,
+tree, timeline, constrained params). Runner:
+`tests/conformance/conformance.test.ts`, wired into `run-tests.sh` and
+`npm run test:conformance`.
+
+Hand-written regression cases stay in `tests/transport-parity.test.ts`;
+the matrix guarantees coverage breadth, the hand-written file pins
+specific past regressions.
+
+## Unified tools/call Handling
+
+`PhotonServer.handleCallToolRequest()` (src/server.ts) is the single
+tools/call flow for every MCP transport. STDIO and SSE handlers are
+one-line delegates. Before this, @async fire-and-forget, task-mode
+dispatch, config elicitation retry, and error logging existed only on
+STDIO; the same call behaved differently per transport. Session routing
+(notifications, input/sampling providers, elicitation) comes exclusively
+from `HandlerContext.server`.
+
+CLI direct execution shares `loader.executeTool()` with the MCP path, so
+all three transports converge on one execution core.
+
+## Closed Format Registry
+
+`src/formats/format-registry.ts` declares coverage for every literal
+`OutputFormat` value on every render target as
+`Record<CanonicalFormat, Record<RenderTarget, TargetCoverage>>`. Each
+cell is either a real renderer (with its dispatch location) or an
+explicit documented fallback; there is no absent state.
+
+- Adding a format to photon-core's OutputFormat without a coverage
+  decision per target fails `tsc` at build time.
+- `tests/contract/format-coverage.test.ts` cross-checks registry cells
+  against the scraped dispatch code in both directions, so the registry
+  cannot drift from reality.
+- Adding a render target means adding it to `RenderTarget`, forcing an
+  explicit decision for all 30 formats at once.
+
+## Explicit baseDir Enforcement
+
+photon-core's data-path resolvers (`getDataRoot`, `getPhotonDataDir`,
+etc.) fall back to `PHOTON_DIR`/`~/.photon` when baseDir is omitted.
+Ambient resolution at call time caused the memory and storage baseDir
+drift bugs. `eslint.config.mjs` now bans bare calls via
+`no-restricted-syntax` (arity-checked per resolver); every call must
+pass baseDir explicitly, using `getDefaultContext().baseDir` when the
+boot context is the right answer. photon-core's `Photon.storage()` is
+pinned to the loader-set `_baseDir` (regression test in photon-core
+`tests/storage-basedir.test.ts`).
+
+## Always-Inject, Never Regex-Gate
+
+Capability injection for plain classes (emit, memory, storage, assets,
+assetUrl) is unconditional. Source-regex gating (e.g.
+`/this\.storage\s*\(/`) misses TS-cast call shapes like
+`(this as any).storage(...)` and silently leaves helpers undefined.
+All injected helpers are lazy closures (zero cost unless called) and
+user-defined methods always win. `detectCapabilities()` remains
+log-only diagnostics.
+
+## Known Divergence (flagged, needs product decision)
+
+Plain-class `storage()` injected by the loader resolves to
+`<photon dir>/<name>/<subpath>` (next to source), while the Photon base
+class `storage()` resolves under `.data/` via `getPhotonDataDir()`. The
+two layouts differ; converging them relocates existing user data and
+needs a migration story. Tracked, deliberately not changed silently.
