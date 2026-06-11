@@ -33,6 +33,15 @@ function getDaemonReadyTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DAEMON_READY_TIMEOUT_MS;
 }
 
+function shouldStartLightDaemonForCurrentCli(): boolean {
+  const args = process.argv.slice(2);
+  return (
+    args[0] === 'cli' &&
+    args[1] === 'tel' &&
+    ['connect', 'status', 'daemon'].includes(args[2] ?? '')
+  );
+}
+
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -945,6 +954,9 @@ export class DaemonManager {
     const daemonScript = this.resolveDaemonScript();
     this.rotateLogIfTooLarge();
     const env: NodeJS.ProcessEnv = { ...process.env, PHOTON_DAEMON: 'true' };
+    if (shouldStartLightDaemonForCurrentCli()) {
+      env.PHOTON_LIGHT_DAEMON = '1';
+    }
     delete env.PHOTON_DIR;
 
     // Open the log + spawn the daemon, retrying once on FD exhaustion.

@@ -78,7 +78,7 @@ async function waitForSocketReady(target: string, timeoutMs = 10000): Promise<vo
       const connected = await new Promise<boolean>((resolve) => {
         const client = net.createConnection(target);
         client.on('connect', () => {
-          client.destroy();
+          client.end();
           resolve(true);
         });
         client.on('error', () => resolve(false));
@@ -99,11 +99,14 @@ async function waitForExit(child: ChildProcess, timeoutMs = 10000): Promise<void
   throw new Error(`Process ${child.pid} did not exit in time`);
 }
 
-function startDaemon(label: string): { child: ChildProcess; logs: string[] } {
+function startDaemon(
+  label: string,
+  env: NodeJS.ProcessEnv = {}
+): { child: ChildProcess; logs: string[] } {
   const logs: string[] = [];
   const child = spawn(process.execPath, [serverPath, socketPath], {
     cwd: tmpDir,
-    env: { ...process.env, PHOTON_DIR: tmpDir },
+    env: { ...process.env, ...env, PHOTON_DIR: tmpDir },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -177,6 +180,27 @@ async function stopDaemon(child: ChildProcess | null): Promise<void> {
         line.includes('Skipping eager lifecycle load before exclusive ownership confirmation')
       ),
       'second daemon should not attempt eager-load before ownership confirmation'
+    );
+
+    await stopDaemon(second);
+    second = null;
+
+    for (const file of [ownerFile, pidFile, socketPath]) {
+      try {
+        fs.unlinkSync(file);
+      } catch {
+        // Already gone.
+      }
+    }
+
+    const idleRun = startDaemon('idle', { PHOTON_DAEMON_IDLE_TIMEOUT_MS: '300' });
+    second = idleRun.child;
+    await waitForSocketReady(socketPath);
+    await waitForExit(second, 5000);
+    second = null;
+    assert(
+      idleRun.logs.some((line) => line.includes('Idle timeout reached, shutting down')),
+      'idle-configured daemon should retire when no client sockets remain'
     );
 
     console.log('✅ daemon single-owner regression test passed');

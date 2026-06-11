@@ -52,6 +52,7 @@ import type {
 } from '@portel/photon-core';
 import { getDefaultContext } from '../context.js';
 import { EnvStore, resolvePhotonNamespace } from '../context-store.js';
+import { runWithPhotonDir } from '../telemetry/context.js';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import {
@@ -100,6 +101,42 @@ if (!socketPath) {
 const pidFile = path.join(path.dirname(socketPath), 'daemon.pid');
 const ownerFile = getOwnerFilePath(socketPath);
 let daemonOwnershipConfirmed = false;
+const socketDir = path.dirname(socketPath);
+const lightDaemonMode = process.env.PHOTON_LIGHT_DAEMON === '1';
+
+function pathExistsRealpath(candidate: string): string | null {
+  try {
+    return fs.realpathSync(candidate);
+  } catch {
+    return null;
+  }
+}
+
+function pathIsWithin(child: string, parent: string): boolean {
+  return child === parent || child.startsWith(`${parent}${path.sep}`);
+}
+
+function isLikelyTempSocketDir(dir: string): boolean {
+  const resolvedDir = path.resolve(dir);
+  const realDir = pathExistsRealpath(resolvedDir) ?? resolvedDir;
+  const candidateRoots = [os.tmpdir(), '/tmp', '/private/tmp', '/var/tmp']
+    .flatMap((candidate) => [path.resolve(candidate), pathExistsRealpath(candidate)])
+    .filter((candidate): candidate is string => Boolean(candidate));
+
+  const underKnownTempRoot = candidateRoots.some(
+    (root) => pathIsWithin(resolvedDir, root) || pathIsWithin(realDir, root)
+  );
+  const hasSingleOwnerMarker = resolvedDir
+    .split(path.sep)
+    .some((segment) => segment.startsWith('photon-single-owner-'));
+
+  return underKnownTempRoot || hasSingleOwnerMarker;
+}
+
+if (isLikelyTempSocketDir(socketDir)) {
+  process.env.PHOTON_BASES_REGISTRY ??= path.join(socketDir, '.bases.json');
+  process.env.PHOTON_DAEMON_IDLE_TIMEOUT_MS ??= '60000';
+}
 
 async function isSocketResponsive(target: string): Promise<boolean> {
   // Windows named pipes have no filesystem entry; skip the FS gate on
@@ -289,7 +326,7 @@ const EAGER_LIFECYCLE_RSS_LIMIT_MB = parseNonNegativeEnvInt(
   'PHOTON_DAEMON_EAGER_LOAD_RSS_LIMIT_MB',
   768
 );
-const EAGER_LIFECYCLE_MAX = parseNonNegativeEnvInt('PHOTON_DAEMON_EAGER_LOAD_MAX', 0);
+const EAGER_LIFECYCLE_MAX = parseNonNegativeEnvInt('PHOTON_DAEMON_EAGER_LOAD_MAX', 1);
 const EAGER_LIFECYCLE_DISABLED =
   process.env.PHOTON_DAEMON_DISABLE_EAGER_LOAD === '1' ||
   process.env.PHOTON_DAEMON_DISABLE_EAGER_LOAD === 'true';
@@ -465,7 +502,9 @@ function shouldRunInWorker(photonPath: string): boolean {
   }
 }
 
-let idleTimeout = 0; // Daemon stays alive — it manages persistent stateful data
+const configuredIdleTimeout = Number.parseInt(process.env.PHOTON_DAEMON_IDLE_TIMEOUT_MS || '', 10);
+let idleTimeout =
+  Number.isFinite(configuredIdleTimeout) && configuredIdleTimeout > 0 ? configuredIdleTimeout : 0; // Daemon stays alive by default - it manages persistent stateful data
 let idleTimer: NodeJS.Timeout | null = null;
 
 // Track pending prompts waiting for user input
@@ -2612,22 +2651,27 @@ async function getOrCreateSessionManager(
     return null;
   }
 
-  // Deduplicate: if another session manager already exists for the same resolved file path,
-  // reuse it. This handles the case where the same photon is accessed by bare name (via @photon
-  // dependency) and by full path (via CLI) — they should share one instance.
+  // Deduplicate: if another session manager already exists for the same
+  // resolved file path *and the same PHOTON_DIR/base*, reuse it. The base check
+  // matters when a workspace photon is symlinked into ~/.photon: the source file
+  // is identical, but state, memory, config, and hot-reload ownership must stay
+  // scoped to the caller's workingDir.
   try {
     const resolvedPath = fs.realpathSync(pathToUse);
+    const requestedBase = path.resolve(workingDir || defaultBase);
     for (const [existingKey, existingManager] of sessionManagers) {
       if (existingKey === key) continue;
       const existingPath = photonPaths.get(existingKey);
       if (existingPath) {
         try {
-          if (fs.realpathSync(existingPath) === resolvedPath) {
+          const existingBase = path.resolve(existingManager.loader.baseDir || defaultBase);
+          if (existingBase === requestedBase && fs.realpathSync(existingPath) === resolvedPath) {
             logger.info('Deduplicating session manager — same photon file', {
               photonName,
               key,
               existingKey,
               resolvedPath,
+              baseDir: requestedBase,
             });
             sessionManagers.set(key, existingManager);
             photonPaths.set(key, pathToUse);
@@ -4758,15 +4802,17 @@ async function handleRequest(
         // Snapshot state before execution for JSON Patch diffing
         const preSnapshot = await snapshotState(targetInst, photonName, request.workingDir);
 
+        const method = request.method;
         const startTime = Date.now();
         trackExecution(cmdKey);
         let result: any;
         try {
-          result = await sessionManager.loader.executeTool(
-            targetInst,
-            request.method,
-            request.args || {},
-            { outputHandler }
+          result = await runWithPhotonDir(
+            request.workingDir || sessionManager.loader.baseDir || getDefaultContext().baseDir,
+            () =>
+              sessionManager.loader.executeTool(targetInst, method, request.args || {}, {
+                outputHandler,
+              })
           );
         } finally {
           untrackExecution(cmdKey);
@@ -4882,15 +4928,17 @@ async function handleRequest(
       // Snapshot state before execution for JSON Patch diffing
       const preSnapshot = await snapshotState(session.instance, photonName, request.workingDir);
 
+      const method = request.method;
       const startTime = Date.now();
       trackExecution(cmdKey);
       let result: any;
       try {
-        result = await sessionManager.loader.executeTool(
-          session.instance,
-          request.method,
-          request.args || {},
-          { outputHandler }
+        result = await runWithPhotonDir(
+          request.workingDir || sessionManager.loader.baseDir || getDefaultContext().baseDir,
+          () =>
+            sessionManager.loader.executeTool(session.instance, method, request.args || {}, {
+              outputHandler,
+            })
         );
       } finally {
         untrackExecution(cmdKey);
@@ -6124,6 +6172,12 @@ function startIdleTimer(): void {
   if (idleTimeout <= 0) return;
 
   idleTimer = setTimeout(() => {
+    if (connectedSockets.size > 0) {
+      logger.debug('Active daemon sockets, staying alive', { sockets: connectedSockets.size });
+      startIdleTimer();
+      return;
+    }
+
     let activeSubscribers = 0;
     for (const subs of channelSubscriptions.values()) {
       activeSubscribers += subs.size;
@@ -6135,8 +6189,25 @@ function startIdleTimer(): void {
       return;
     }
 
-    // Check if any session manager has recent activity
-    let lastActivity = 0;
+    let activeToolExecutions = 0;
+    for (const tracker of activeExecutions.values()) {
+      activeToolExecutions += tracker.count;
+    }
+    if (activeToolExecutions > 0) {
+      logger.debug('Active tool executions, staying alive', { activeToolExecutions });
+      startIdleTimer();
+      return;
+    }
+
+    if (scheduledJobs.size > 0) {
+      logger.debug('Active scheduled jobs, staying alive', { scheduledJobs: scheduledJobs.size });
+      startIdleTimer();
+      return;
+    }
+
+    // Check if any session manager has recent activity. If no session has
+    // ever been loaded, creation time is the quiet-period baseline.
+    let lastActivity = Date.now() - idleTimeout;
     for (const manager of sessionManagers.values()) {
       const activity = manager.getLastActivity();
       if (activity > lastActivity) {
@@ -6145,8 +6216,11 @@ function startIdleTimer(): void {
     }
 
     const idleTime = Date.now() - lastActivity;
-    if (idleTime >= idleTimeout && sessionManagers.size > 0) {
-      logger.warn('Idle timeout reached, shutting down', { idleTime });
+    if (idleTime >= idleTimeout) {
+      logger.warn('Idle timeout reached, shutting down', {
+        idleTime,
+        sessions: sessionManagers.size,
+      });
       shutdown();
     } else {
       startIdleTimer();
@@ -6505,6 +6579,7 @@ function startServer(): void {
       logger.debug('Client disconnected');
       connectedSockets.delete(socket);
       cleanupSocketSubscriptions(socket);
+      resetIdleTimer();
     });
 
     socket.on('error', (error) => {
@@ -6516,11 +6591,13 @@ function startServer(): void {
       }
       connectedSockets.delete(socket);
       cleanupSocketSubscriptions(socket);
+      resetIdleTimer();
     });
 
     socket.on('close', () => {
       connectedSockets.delete(socket);
       cleanupSocketSubscriptions(socket);
+      resetIdleTimer();
     });
   });
 
@@ -6536,8 +6613,12 @@ function startServer(): void {
     // socket is bound. Catch-up jobs load heavy photons immediately; if they
     // run before listen() completes, clients find the socket unreachable and
     // race to spawn a second daemon.
-    migrateLegacyIpcSchedules();
-    loadAllPersistedSchedules();
+    if (!lightDaemonMode) {
+      migrateLegacyIpcSchedules();
+      loadAllPersistedSchedules();
+    } else {
+      logger.info('Light daemon mode: skipping persisted schedules');
+    }
   });
 
   server.on('error', (error: any) => {
@@ -6742,6 +6823,15 @@ async function claimExclusiveOwnership(): Promise<void> {
   // one currently bound).
   const imposters = findImposterDaemonPids();
   if (imposters.length > 0) {
+    const newerImposters = imposters.filter((pid) => pid > process.pid);
+    if (newerImposters.length > 0) {
+      logger.warn('Newer daemon contender detected via argv scan; yielding ownership', {
+        socketPath,
+        currentPid: process.pid,
+        newerPids: newerImposters,
+      });
+      process.exit(0);
+    }
     logger.warn('Imposter daemon(s) detected via argv scan', {
       socketPath,
       currentPid: process.pid,
@@ -6967,19 +7057,26 @@ void (async () => {
       return evictScheduledJobByRawId(jobId);
     },
   });
-  startupWatchPhotons();
+  if (!lightDaemonMode) {
+    startupWatchPhotons();
+  } else {
+    logger.info('Light daemon mode: skipping startup photon discovery');
+  }
   startServer();
-  void (async () => {
-    await discoverProactiveMetadataAtBoot();
-    syncActiveSchedulesAtBoot();
-    startBaseWatchers();
-    try {
-      sweepExecutionHistoryBases(listActiveBases().map((b) => b.path));
-    } catch (err) {
-      logger.debug('Execution-history sweep skipped', { error: getErrorMessage(err) });
-    }
-  })();
-  startWebhookServer(WEBHOOK_PORT);
+  resetIdleTimer();
+  if (!lightDaemonMode) {
+    void (async () => {
+      await discoverProactiveMetadataAtBoot();
+      syncActiveSchedulesAtBoot();
+      startBaseWatchers();
+      try {
+        sweepExecutionHistoryBases(listActiveBases().map((b) => b.path));
+      } catch (err) {
+        logger.debug('Execution-history sweep skipped', { error: getErrorMessage(err) });
+      }
+    })();
+    startWebhookServer(WEBHOOK_PORT);
+  }
   startIdleTimer();
   startHealthMonitor();
 

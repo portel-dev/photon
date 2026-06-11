@@ -610,16 +610,19 @@ async function testClientInstanceNamePassthrough() {
 async function testIdleTimeoutDisabled() {
   console.log('\nDaemon Idle Timeout:');
 
-  await test('idleTimeout should be 0 in daemon server source', async () => {
+  await test('idleTimeout should default to persistent unless explicitly configured', async () => {
     const fsPromises = await import('fs/promises');
     const serverSource = await fsPromises.readFile(
       path.join(process.cwd(), 'src/daemon/server.ts'),
       'utf-8'
     );
-    // Check that idle timeout is set to 0
     assert.ok(
-      serverSource.includes('let idleTimeout = 0'),
-      'Expected idleTimeout = 0 in daemon server (daemon should not auto-retire)'
+      serverSource.includes('PHOTON_DAEMON_IDLE_TIMEOUT_MS'),
+      'Expected daemon idle timeout to be explicitly configurable'
+    );
+    assert.ok(
+      serverSource.includes(': 0; // Daemon stays alive by default'),
+      'Expected daemon idle timeout to default to 0 so production daemons do not auto-retire'
     );
     // Ensure the old 10-minute timeout is gone
     assert.ok(

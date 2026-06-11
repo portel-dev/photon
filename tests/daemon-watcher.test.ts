@@ -1438,6 +1438,10 @@ async function testSourcePatterns() {
       'Expected RSS guard env var'
     );
     assert.ok(
+      source.includes("parseNonNegativeEnvInt('PHOTON_DAEMON_EAGER_LOAD_MAX', 1)"),
+      'Expected eager lifecycle loading to default to one warm lifecycle photon'
+    );
+    assert.ok(
       source.includes('Skipping remaining eager lifecycle loads due to daemon RSS guard'),
       'Expected high-RSS skip path'
     );
