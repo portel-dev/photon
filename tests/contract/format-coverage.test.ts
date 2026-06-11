@@ -103,6 +103,11 @@ function extractCliFormatterFormats(): string[] {
     while ((m = caseRegex.exec(source)) !== null) {
       formats.push(m[1]);
     }
+    // code/code:* dispatch via equality + startsWith, not a case statement
+    const eqRegex = /format\s*===\s*'([^':]+)'/g;
+    while ((m = eqRegex.exec(source)) !== null) {
+      formats.push(m[1]);
+    }
   }
 
   // Rich formats mapped to CLI primitives in photon-cli-runner.ts
@@ -221,6 +226,49 @@ test('Beam switch has default fallback (never silently drops data)', () => {
   const switchMatch = source.match(/switch\s*\(layout\)\s*\{([\s\S]*?)\n\s{2,4}\}/);
   assert.ok(switchMatch, 'switch found');
   assert.ok(switchMatch[1].includes('default:'), 'switch must have default: case');
+});
+
+// ── Registry cross-check ─────────────────────────────────────
+// src/formats/format-registry.ts closes the format set at the type level:
+// tsc fails when OutputFormat grows without a coverage decision per target.
+// These tests keep the registry honest against the actual dispatch code.
+
+const { FORMAT_COVERAGE } = await import('../../src/formats/format-registry.js');
+
+test('Registry covers every scraped OutputFormat literal', () => {
+  const registryKeys = new Set(Object.keys(FORMAT_COVERAGE));
+  const missing = outputFormats.filter((f) => !f.includes('$') && !registryKeys.has(f));
+  assert.deepEqual(
+    missing,
+    [],
+    `OutputFormat values absent from FORMAT_COVERAGE (tsc should have caught this — check the scraper): ${missing.join(', ')}`
+  );
+});
+
+test('Registry renderer cells match real CLI dispatch code', () => {
+  const cliSet = new Set(cliFormats);
+  const stale: string[] = [];
+  for (const [fmt, targets] of Object.entries(FORMAT_COVERAGE)) {
+    const cell = targets.cli;
+    if (cell.kind === 'renderer' && !cliSet.has(fmt))
+      stale.push(`${fmt} (claims renderer, none found)`);
+    if (cell.kind === 'fallback' && cliSet.has(fmt))
+      stale.push(`${fmt} (claims fallback, renderer exists)`);
+  }
+  assert.deepEqual(stale, [], `Registry CLI cells out of sync with code: ${stale.join('; ')}`);
+});
+
+test('Registry renderer cells match real Beam dispatch code', () => {
+  const beamScraped = new Set(beamFormats);
+  const stale: string[] = [];
+  for (const [fmt, targets] of Object.entries(FORMAT_COVERAGE)) {
+    const cell = targets.beam;
+    if (cell.kind === 'renderer' && !beamScraped.has(fmt))
+      stale.push(`${fmt} (claims renderer, no case found)`);
+    if (cell.kind === 'fallback' && beamScraped.has(fmt))
+      stale.push(`${fmt} (claims fallback, case exists)`);
+  }
+  assert.deepEqual(stale, [], `Registry Beam cells out of sync with code: ${stale.join('; ')}`);
 });
 
 // ── Format-to-MIME mapping ───────────────────────────────────
