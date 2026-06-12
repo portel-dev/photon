@@ -82,6 +82,54 @@ All injected helpers are lazy closures (zero cost unless called) and
 user-defined methods always win. `detectCapabilities()` remains
 log-only diagnostics.
 
+## DOM Render Contract
+
+`tests/contract/render-dom.test.ts` executes every FORMAT_CATALOG entry
+through the real bridge renderers (generateRenderersScript) in headless
+Chromium with network blocked, asserting a real renderer is registered
+(the json fallback must not mask gaps), no page errors, non-empty DOM,
+and that the example's leaf values appear in the output. Closes the
+chain: registry declares coverage, conformance proves transport,
+this proves data reaches the DOM. chart:* asserts on its offline data
+table fallback.
+
+## Daemon Chaos Suite
+
+`tests/daemon-chaos.test.ts` inflicts the daemon's historical failure
+modes deliberately (SIGKILL mid-life, vanished socket, stale pid file,
+spawn race, worker respawn after the daemon's spawn cwd is deleted) in
+isolated HOMEs, asserting one invariant: every recovery path converges
+to clean-boot state. Scenario 5 cache-busts the photon source so the
+respawn recompiles through cwd-sensitive child processes (verified red
+without the chdir fix).
+
+## Identity Module
+
+`src/shared/identity.ts` owns every compound photon identity format:
+ps targets (LAST-colon split), channels (FIRST-colon split), circuit
+keys, loader cache keys; `photonFromCompositeKey` in
+daemon/registry-keys.ts inverts compositeKey. A lint rule bans
+hand-rolled `split(':')`/`lastIndexOf(':')` in backend src; non-identity
+uses carry per-line disables with reasons.
+
+## Security Posture Contract
+
+`tests/contract/security-posture.test.ts` pins default-closed: CORS
+answers localhost origins only (including lookalike-attack unit tests
+and source scans for wildcard or out-of-policy headers), HTTP error
+responses never carry raw error text (paren-balanced payload scan with
+`posture-allow:` exemptions), the four exposed surfaces keep their rate
+limiters, and the playground stays inside the devMode gate.
+
+## Coverage Gate
+
+`tests/contract/coverage-gate.test.ts` makes new surface area arrive
+with its keeper: every DaemonRequest type needs a daemon dispatch site
+AND at least one test; every bridge-rendered format needs a
+FORMAT_CATALOG entry (which auto-feeds the DOM contract). The format
+registry carries `bridge` as a third RenderTarget, cross-checked against
+the actual generated script.
+
 ## Known Divergence (flagged, needs product decision)
 
 Plain-class `storage()` injected by the loader resolves to
