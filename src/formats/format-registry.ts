@@ -22,7 +22,7 @@ import type { OutputFormat } from '@portel/photon-core';
 /** Literal formats; chart:* and code:* variants dispatch through their base. */
 export type CanonicalFormat = Exclude<OutputFormat, `chart:${string}` | `code:${string}`>;
 
-export type RenderTarget = 'cli' | 'beam';
+export type RenderTarget = 'cli' | 'beam' | 'bridge';
 
 export type TargetCoverage = { kind: 'renderer'; via: string } | { kind: 'fallback'; to: string };
 
@@ -34,38 +34,45 @@ const beamCase: TargetCoverage = {
   via: 'result-viewer.ts switch(layout) case',
 };
 const beamJson: TargetCoverage = { kind: 'fallback', to: 'json (result-viewer default case)' };
+// The bridge (generateRenderersScript, served to custom UIs) is a separate
+// renderer set from Beam's result-viewer. Its dispatcher json-falls-back
+// for unregistered formats; cells declare which side of that line each
+// format is on. tests/contract/coverage-gate.test.ts cross-checks
+// renderer cells against the actual generated script.
+const bridgeFn: TargetCoverage = { kind: 'renderer', via: 'bridge renderers.ts registration' };
+const bridgeJson: TargetCoverage = { kind: 'fallback', to: 'json (bridge dispatcher default)' };
 
 export const FORMAT_COVERAGE: Record<CanonicalFormat, Record<RenderTarget, TargetCoverage>> = {
-  primitive: { cli: cliBase, beam: beamJson },
-  table: { cli: cliBase, beam: beamCase },
-  tree: { cli: cliBase, beam: beamCase },
-  list: { cli: cliBase, beam: beamCase },
-  none: { cli: cliBase, beam: beamJson },
-  json: { cli: cliBase, beam: beamCase },
-  markdown: { cli: cliBase, beam: beamCase },
-  yaml: { cli: cliBase, beam: beamJson },
-  xml: { cli: cliBase, beam: beamJson },
-  html: { cli: cliBase, beam: beamCase },
-  code: { cli: cliBase, beam: beamJson },
-  mermaid: { cli: cliRich, beam: beamCase },
-  slides: { cli: cliRich, beam: beamCase },
-  card: { cli: cliBase, beam: beamCase },
-  grid: { cli: cliRich, beam: beamCase },
-  chips: { cli: cliRich, beam: beamCase },
-  kv: { cli: cliRich, beam: beamCase },
-  qr: { cli: cliQr, beam: beamCase },
-  chart: { cli: cliRich, beam: beamCase },
-  metric: { cli: cliRich, beam: beamCase },
-  gauge: { cli: cliRich, beam: beamCase },
-  timeline: { cli: cliRich, beam: beamCase },
-  dashboard: { cli: cliRich, beam: beamCase },
-  cart: { cli: cliRich, beam: beamCase },
-  panels: { cli: cliRich, beam: beamCase },
-  tabs: { cli: cliBase, beam: beamCase },
-  accordion: { cli: cliBase, beam: beamCase },
-  stack: { cli: cliRich, beam: beamCase },
-  columns: { cli: cliRich, beam: beamCase },
-  a2ui: { cli: cliRich, beam: beamCase },
+  primitive: { cli: cliBase, beam: beamJson, bridge: bridgeJson },
+  table: { cli: cliBase, beam: beamCase, bridge: bridgeFn },
+  tree: { cli: cliBase, beam: beamCase, bridge: bridgeFn },
+  list: { cli: cliBase, beam: beamCase, bridge: bridgeFn },
+  none: { cli: cliBase, beam: beamJson, bridge: bridgeJson },
+  json: { cli: cliBase, beam: beamCase, bridge: bridgeFn },
+  markdown: { cli: cliBase, beam: beamCase, bridge: bridgeFn },
+  yaml: { cli: cliBase, beam: beamJson, bridge: bridgeJson },
+  xml: { cli: cliBase, beam: beamJson, bridge: bridgeJson },
+  html: { cli: cliBase, beam: beamCase, bridge: bridgeJson },
+  code: { cli: cliBase, beam: beamJson, bridge: bridgeFn },
+  mermaid: { cli: cliRich, beam: beamCase, bridge: bridgeJson },
+  slides: { cli: cliRich, beam: beamCase, bridge: bridgeJson },
+  card: { cli: cliBase, beam: beamCase, bridge: bridgeFn },
+  grid: { cli: cliRich, beam: beamCase, bridge: bridgeJson },
+  chips: { cli: cliRich, beam: beamCase, bridge: bridgeFn },
+  kv: { cli: cliRich, beam: beamCase, bridge: bridgeFn },
+  qr: { cli: cliQr, beam: beamCase, bridge: bridgeFn },
+  chart: { cli: cliRich, beam: beamCase, bridge: bridgeFn },
+  metric: { cli: cliRich, beam: beamCase, bridge: bridgeFn },
+  gauge: { cli: cliRich, beam: beamCase, bridge: bridgeFn },
+  timeline: { cli: cliRich, beam: beamCase, bridge: bridgeFn },
+  dashboard: { cli: cliRich, beam: beamCase, bridge: bridgeJson },
+  cart: { cli: cliRich, beam: beamCase, bridge: bridgeJson },
+  panels: { cli: cliRich, beam: beamCase, bridge: bridgeJson },
+  tabs: { cli: cliBase, beam: beamCase, bridge: bridgeFn },
+  accordion: { cli: cliBase, beam: beamCase, bridge: bridgeFn },
+  stack: { cli: cliRich, beam: beamCase, bridge: bridgeJson },
+  columns: { cli: cliRich, beam: beamCase, bridge: bridgeJson },
+  a2ui: { cli: cliRich, beam: beamCase, bridge: bridgeFn },
 };
 
 export const RENDER_TARGETS: RenderTarget[] = ['cli', 'beam'];

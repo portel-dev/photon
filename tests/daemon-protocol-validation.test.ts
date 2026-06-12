@@ -77,10 +77,25 @@ async function testRequestValidation() {
     'get_events_since',
     'clear_instances',
     'status',
+    // Schedule lifecycle + circuit telemetry carry optional payload fields
+    // only, so the validator accepts the bare form.
+    'pause_schedule',
+    'resume_schedule',
+    'add_manual_schedule',
+    'get_circuit_health',
   ];
   for (const type of simpleTypes) {
     await test(`accepts valid ${type} request`, () => {
       assert.equal(isValidDaemonRequest({ type, id: 'req-1' }), true);
+    });
+  }
+
+  // ── Lock handoff (require lockName like the other lock ops) ──
+
+  for (const type of ['assign_lock', 'transfer_lock']) {
+    await test(`${type} requires lockName`, () => {
+      assert.equal(isValidDaemonRequest({ type, id: 'req-1' }), false);
+      assert.equal(isValidDaemonRequest({ type, id: 'req-1', lockName: 'sync' }), true);
     });
   }
 

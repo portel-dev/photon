@@ -2267,6 +2267,13 @@ export const FORMAT_CATALOG: Record<string, FormatSpec> = {
   chips: { data: 'Array<string>', example: ['React', 'TypeScript', 'Node.js'] },
 
   // ── Charts ──
+  chart: {
+    data: 'Array<{ label, value }> (type auto-detected)',
+    example: [
+      { quarter: 'Q1', sales: 310 },
+      { quarter: 'Q2', sales: 425 },
+    ],
+  },
   'chart:bar': {
     data: 'Array<{ label, value }>',
     example: [
