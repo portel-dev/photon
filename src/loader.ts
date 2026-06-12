@@ -119,6 +119,7 @@ import {
   type MiddlewareDeclaration,
   type MiddlewareHandler,
   getCacheDir,
+  getPhotonDataDir,
 } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
 import { getInstanceStatePath } from './context-store.js';
@@ -5652,6 +5653,11 @@ Run: photon mcp ${mcpName} --config
   // cost unless called) and user-defined methods always win.
   private injectPathHelpers(instance: Record<string, unknown>): void {
     if (typeof instance.storage !== 'function') {
+      // Mirror Photon.storage() in photon-core base.ts exactly: documented
+      // contract is the data dir (getPhotonDataDir), never next to source.
+      // The previous source-adjacent resolution was copied from assets()
+      // (where source-adjacent is correct) and contradicted every doc.
+      const storageBaseDir = this.baseDir;
       instance.storage = (subpath: string) => {
         if (!instance._photonFilePath || typeof instance._photonFilePath !== 'string') {
           throw new Error(
@@ -5659,9 +5665,12 @@ Run: photon mcp ${mcpName} --config
               'Ensure this photon is loaded through the standard runtime.'
           );
         }
-        const dir = path.dirname(instance._photonFilePath);
-        const name = path.basename(instance._photonFilePath).replace(/\.photon\.(ts|js)$/, '');
-        const target = path.join(dir, name, subpath);
+        const name =
+          (typeof instance._photonName === 'string' && instance._photonName) ||
+          path.basename(instance._photonFilePath).replace(/\.photon\.(ts|js)$/, '');
+        const ns =
+          (typeof instance._photonNamespace === 'string' && instance._photonNamespace) || 'local';
+        const target = path.join(getPhotonDataDir(ns, name, storageBaseDir), subpath);
         mkdirSync(target, { recursive: true });
         return target;
       };
