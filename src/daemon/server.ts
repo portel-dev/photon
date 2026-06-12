@@ -98,6 +98,18 @@ if (!socketPath) {
   process.exit(1);
 }
 
+// Detach from the spawn-time cwd immediately. The daemon is long-lived and
+// is often spawned from transient directories (test tmp dirs, deleted
+// checkouts); if that directory disappears, every process.cwd() call —
+// including Node's own worker spawn path — fails with uv_cwd ENOENT and
+// worker respawns crashloop. All photon resolution uses per-request
+// workingDir, never the daemon's own cwd, so home is always safe.
+try {
+  process.chdir(os.homedir());
+} catch {
+  // homedir unavailable is not fatal; worst case we keep the spawn cwd
+}
+
 const pidFile = path.join(path.dirname(socketPath), 'daemon.pid');
 const ownerFile = getOwnerFilePath(socketPath);
 let daemonOwnershipConfirmed = false;
