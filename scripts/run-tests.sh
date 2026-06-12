@@ -84,6 +84,7 @@ SUITES=(
   "claim-scope-enforcement:$RUN tests/claim-scope-enforcement.test.ts"
   "cimd:$RUN tests/cimd.test.ts"
   "format-coverage:$RUN tests/contract/format-coverage.test.ts"
+  "render-dom:$RUN tests/contract/render-dom.test.ts"
   "daemon-multibase-keys:$RUN tests/daemon-multibase-keys.test.ts"
   "daemon-protocol-validation:$RUN tests/daemon-protocol-validation.test.ts"
   "daemon-schedule-provider:$RUN tests/daemon-schedule-provider.test.ts"

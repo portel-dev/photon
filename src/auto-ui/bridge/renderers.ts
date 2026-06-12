@@ -66,7 +66,15 @@ export function generateRenderersScript(): string {
       var s = document.createElement('script');
       s.src = url;
       s.onload = function() { loaded = true; queue.forEach(function(fn) { fn(); }); queue = []; };
-      s.onerror = function() { queue.forEach(function(fn) { fn(); }); queue = []; };
+      s.onerror = function() {
+        // Reset so the NEXT render retries the load. Leaving loading=true
+        // stranded every later caller in the queue forever — first CDN
+        // failure meant all subsequent renders of the format silently
+        // produced an empty container.
+        loading = false;
+        var q = queue; queue = [];
+        q.forEach(function(fn) { fn(); });
+      };
       document.head.appendChild(s);
     };
   }
@@ -281,6 +289,25 @@ export function generateRenderersScript(): string {
     }
   };
 
+  // ─── Chips (tag pills) ───
+  renderers.chips = function(container, data) {
+    var items = Array.isArray(data) ? data : [data];
+    var h = '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var label = typeof item === 'string' ? item : (item.label || item.name || item.value || JSON.stringify(item));
+      h += '<span style="display:inline-block;padding:4px 12px;border-radius:14px;font-size:12px;font-weight:500;background:' + colors.bgAlt + ';color:' + colors.text + ';border:1px solid ' + colors.border + '">' + esc(String(label)) + '</span>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Plain text ───
+  renderers.text = function(container, data) {
+    var text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    container.innerHTML = '<div style="white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;color:' + colors.text + '">' + esc(text) + '</div>';
+  };
+
   // ─── List ───
   renderers.list = function(container, data, opts) {
     opts = opts || {};
@@ -347,6 +374,15 @@ export function generateRenderersScript(): string {
     _loadChartJS(function() {
       var canvas = document.getElementById(canvasId);
       if (!canvas) return;
+      if (!window.Chart) {
+        // Chart.js failed to load (offline/CSP) — degrade to the data,
+        // never drop it. A table is ugly but complete.
+        container.innerHTML = '<p style="font-size:11px;color:' + colors.textMuted + ';margin:0 0 6px">Chart library unavailable — showing data</p>';
+        var fallbackDiv = document.createElement('div');
+        container.appendChild(fallbackDiv);
+        renderers.table(fallbackDiv, items);
+        return;
+      }
 
       var labels = items.map(function(r) { return r[labelKey]; });
       var datasets = valueKeys.map(function(vk, di) {
