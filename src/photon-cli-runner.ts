@@ -533,6 +533,7 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
 
     // chart / chart:* — render data as table with note
     if (hintStr === 'chart' || hintStr.startsWith('chart:')) {
+      // eslint-disable-next-line no-restricted-syntax -- @format spec (chart:bar), not a photon identity
       const chartType = hintStr.includes(':') ? hintStr.split(':')[1] : 'chart';
       console.log(chalk.dim(`── ${chartType} (data) ──`));
       if (Array.isArray(result)) {

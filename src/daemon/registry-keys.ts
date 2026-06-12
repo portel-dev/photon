@@ -70,6 +70,16 @@ export function compositeKey(
 }
 
 /**
+ * Inverse of compositeKey: recover the photon name. Photon names never
+ * contain colons, so the first segment is always the name regardless of
+ * whether the key carries a `:hash8` qualifier.
+ */
+export function photonFromCompositeKey(key: string): string {
+  const idx = key.indexOf(':');
+  return idx === -1 ? key : key.slice(0, idx);
+}
+
+/**
  * Identity key for declared schedules / scheduled-job timers:
  * `<resolved-base>::<photon>:<method>`. `<resolved-base>` is the absolute
  * path of the owning PHOTON_DIR, `-` when no base is available (legacy

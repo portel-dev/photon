@@ -125,6 +125,7 @@ export class TenantResolver {
    */
   private extractSubdomain(host: string): string | null {
     // Remove port if present
+    // eslint-disable-next-line no-restricted-syntax -- host:port, not a photon identity
     const hostWithoutPort = host.split(':')[0];
 
     // Check if it's a subdomain of our base domain

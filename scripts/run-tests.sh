@@ -53,6 +53,7 @@ SUITES=(
   "storage-injected-location:$RUN tests/storage-injected-location.test.ts"
   "daemon-chaos:$RUN tests/daemon-chaos.test.ts"
   "env-proxy-set:bunx tsx tests/env-proxy-set.test.ts"
+  "identity:$RUN tests/identity.test.ts"
   "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
   "instance-drift:$RUN tests/instance-drift.test.ts"
   "daemon-stale-binary:$RUN tests/daemon-stale-binary-restart.test.ts"

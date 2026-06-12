@@ -9,6 +9,7 @@
 import { subscribeChannel, pingDaemon } from '../../daemon/client.js';
 import { broadcastToBeam, sendToSession } from '../streamable-http-transport.js';
 import { logger } from '../../shared/logger.js';
+import { parseChannel } from '../../shared/identity.js';
 import type { AnyPhotonInfo } from '../types.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -131,7 +132,9 @@ export class SubscriptionManager {
     this.channelSubscriptions.set(channel, subscription);
 
     try {
-      const [photonId, itemId] = channel.split(':');
+      const parsed = parseChannel(channel);
+      const photonId = parsed?.photon ?? channel;
+      const itemId = parsed?.topic;
 
       const photon = this.deps.photons.find((p) => p.id === photonId);
       if (!photon) {

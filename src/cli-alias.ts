@@ -261,6 +261,7 @@ async function findPhotonExecutable(): Promise<string> {
  */
 async function findInPath(cmd: string): Promise<string | null> {
   const pathEnv = process.env.PATH || '';
+  // eslint-disable-next-line no-restricted-syntax -- Unix PATH separator, not a photon identity
   const paths = pathEnv.split(':');
 
   for (const dir of paths) {

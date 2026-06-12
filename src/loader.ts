@@ -15,6 +15,12 @@ import {
   type Dirent,
 } from 'fs';
 import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
+import {
+  qualifyChannel,
+  circuitKey,
+  preloadedCacheKey,
+  instanceCacheKey,
+} from './shared/identity.js';
 import { parseCfBindings } from './cf-bindings-parser.js';
 import { CFLocalRuntime, mergeBindings, type CfBindingsConfig } from './runtime/cf-local.js';
 import { scanCfUsage, type CfUsage } from './cf-usage-scanner.js';
@@ -1679,7 +1685,7 @@ export class PhotonLoader {
             // Also publish to channel broker if channel is specified
             if (data && typeof data.channel === 'string') {
               // Auto-prefix channel with photon name if not already namespaced
-              const channel = data.channel.includes(':') ? data.channel : `${name}:${data.channel}`;
+              const channel = qualifyChannel(name, data.channel);
               import('@portel/photon-core')
                 .then(({ getBroker }) => {
                   const broker = getBroker();
@@ -2437,7 +2443,7 @@ export class PhotonLoader {
             (instance._lastOutputHandler as ((data: any) => void) | undefined);
           if (handler) handler(emitData);
           if (data && typeof data.channel === 'string') {
-            const channel = data.channel.includes(':') ? data.channel : `${name}:${data.channel}`;
+            const channel = qualifyChannel(name, data.channel);
             import('@portel/photon-core')
               .then(({ getBroker }) => {
                 getBroker()
@@ -3599,9 +3605,7 @@ export class PhotonLoader {
           this.log(`  ⚠️ Skipping stub dependency: ${dep.name} (module failed to load)`);
           return undefined;
         }
-        const cacheKey = dep.instanceName
-          ? `preloaded:${dep.name}::${dep.instanceName}`
-          : `preloaded:${dep.name}`;
+        const cacheKey = preloadedCacheKey(dep.name, dep.instanceName);
         if (this.loadedPhotons.has(cacheKey)) {
           return this.loadedPhotons.get(cacheKey)!.instance;
         }
@@ -3622,7 +3626,7 @@ export class PhotonLoader {
     await this.materializeSiblingDependencySymlink(dep, currentPhotonPath, resolvedPath);
 
     // Cache key includes instance name to allow multiple instances of the same photon
-    const cacheKey = dep.instanceName ? `${resolvedPath}::${dep.instanceName}` : resolvedPath;
+    const cacheKey = instanceCacheKey(resolvedPath, dep.instanceName);
 
     // Check cache
     if (this.loadedPhotons.has(cacheKey)) {
@@ -4317,7 +4321,7 @@ Run: photon mcp ${mcpName} --config
       (config: { threshold: number; resetAfterMs: number }, _state: MiddlewareState) => {
         const tracker = this.circuitHealthTracker;
         return async (ctx: MiddlewareContext, next: () => Promise<any>) => {
-          const key = `${ctx.photon}:${ctx.instance}:${ctx.tool}`;
+          const key = circuitKey(ctx.photon, ctx.instance, ctx.tool);
           let circuit = tracker.get(key);
           if (!circuit) {
             circuit = { failures: 0, state: 'closed', openedAt: 0 };
@@ -4351,7 +4355,7 @@ Run: photon mcp ${mcpName} --config
                   channel: `${ctx.photon}:circuits`,
                   event: 'state-change',
                   data: {
-                    key: `${ctx.photon}:${ctx.instance}:${ctx.tool}`,
+                    key: circuitKey(ctx.photon, ctx.instance, ctx.tool),
                     from,
                     to,
                     timestamp: Date.now(),

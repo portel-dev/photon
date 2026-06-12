@@ -30,9 +30,24 @@ const commonOverrides = {
 // happened. Every call must pass baseDir explicitly (use
 // getDefaultContext().baseDir when the boot context is the right answer).
 // Legacy* variants are migration fallbacks and exempt.
+// Photon identity strings (photon:instance ids, channels, circuit keys)
+// have exactly one owner: src/shared/identity.ts. Hand-rolled split(':')
+// picks the wrong end sooner or later ("ps disable photon:hash:method" was
+// a silent no-op for months). Non-identity colon parsing (PATH, host:port,
+// format specs) gets a per-line eslint-disable WITH a reason.
 const explicitBaseDirRules = {
   'no-restricted-syntax': [
     'error',
+    {
+      selector: "CallExpression[callee.property.name='split'][arguments.0.value=':']",
+      message:
+        "Use the helpers in src/shared/identity.ts for photon identity strings (parsePsTarget, parseChannel, ...). If this is genuinely not an identity (PATH, host:port, format spec), add an eslint-disable with the reason.",
+    },
+    {
+      selector: "CallExpression[callee.property.name='lastIndexOf'][arguments.0.value=':']",
+      message:
+        'Use parsePsTarget/parseChannel from src/shared/identity.ts instead of hand-rolled colon arithmetic.',
+    },
     {
       selector:
         'CallExpression[callee.name=/^(getDataRoot|getGlobalMemoryDir|getCacheDir|getTasksDir|getAuditPath|getMetadataPath)$/][arguments.length=0]',

@@ -10,6 +10,7 @@ import * as http from 'http';
 import * as net from 'net';
 import * as fs from 'fs/promises';
 import { readText, readJSON as readJSONFile, writeText } from '../shared/io.js';
+import { parseChannel } from '../shared/identity.js';
 import {
   existsSync,
   lstatSync,
@@ -362,6 +363,8 @@ const getConfigFilePath = getConfigFilePathFromModule;
 
 // PhotonConfig type imported from beam/types.ts
 type PhotonConfig = import('./beam/types.js').PhotonConfig;
+type BeamState = import('./beam/types.js').BeamState;
+const activeBeamStates = new Set<BeamState>();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BEAM CONTEXT — all module-level mutable state lives here
@@ -1602,7 +1605,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               // Buffer event for replay - find photonId from name for consistent channel key
               const photon = photons.find((p) => p.name === msg.photon);
               if (photon && msg.channel) {
-                const [, itemId] = msg.channel.split(':');
+                const itemId = parseChannel(msg.channel)?.topic;
                 const bufferChannel = `${photon.id}:${itemId}`;
                 const eventId = bufferEvent(bufferChannel, 'photon/channel-event', {
                   ...params,
@@ -2602,6 +2605,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       res.end('Not Found');
     })();
   });
+  beamState.server = server;
+  activeBeamStates.add(beamState);
 
   // Broadcast photon changes to all connected clients via MCP SSE
   const broadcastPhotonChange = () => {
@@ -2624,6 +2629,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const pendingAfterLoad = new Set<string>(); // File changes that arrived while a load was active; re-triggered after
   const symlinkWatchedDirs = new Set<string>(); // Track which source dirs already have watchers (prevents duplicates on re-setup)
   const autoRetried = new Set<string>(); // Photons that have already had one auto-retry after a load failure
+  beamState.watchers = watchers;
+  beamState.pendingReloads = pendingReloads;
+  beamState.activeLoads = activeLoads;
 
   const shouldIgnoreAssetWatcherEvent = (
     photonName: string,
@@ -3456,7 +3464,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           },
         }
       )
-        .then(() => {
+        .then((unsubscribe) => {
+          beamState.channelSubscriptions.set(channel, {
+            photonName,
+            channelPattern: channel,
+            refCount: 1,
+            unsubscribe,
+          });
           logger.info(`📡 Subscribed to ${channel} for cross-client sync`);
         })
         .catch((err) => {
@@ -3525,7 +3539,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             onReconnect: () => logger.debug(`📡 Reconnected ${notificationChannel} subscription`),
           }
         )
-          .then(() => {
+          .then((unsubscribe) => {
+            beamState.channelSubscriptions.set(notificationChannel, {
+              photonName,
+              channelPattern: notificationChannel,
+              refCount: 1,
+              unsubscribe,
+            });
             logger.info(
               `📡 Subscribed to ${notificationChannel} for notifications${watchFor ? ` (watching: ${watchFor.join(', ')})` : ''}`
             );
@@ -3788,6 +3808,48 @@ export async function stopBeam(): Promise<void> {
   // Stop session cleanup timer
   stopSessionCleanup();
 
+  const states = Array.from(activeBeamStates);
+  await Promise.all(states.map((state) => __stopBeamStateForTests(state)));
+
   // Close every external MCP SDK client gracefully and clear the maps.
   await ctx.mcp.closeAllSDKClients();
+}
+
+export async function __stopBeamStateForTests(state: BeamState): Promise<void> {
+  activeBeamStates.delete(state);
+
+  for (const timer of state.pendingReloads.values()) {
+    clearTimeout(timer);
+  }
+  state.pendingReloads.clear();
+  state.activeLoads.clear();
+  state.pendingAfterLoad.clear();
+
+  for (const subscription of state.channelSubscriptions.values()) {
+    try {
+      subscription.unsubscribe();
+    } catch {
+      // Best-effort shutdown; the process is already leaving this Beam session.
+    }
+  }
+  state.channelSubscriptions.clear();
+  state.channelEventBuffers.clear();
+  state.sessionViewState.clear();
+
+  for (const watcher of state.watchers) {
+    try {
+      watcher.close();
+    } catch {
+      // Best-effort shutdown; close() can throw after watcher errors.
+    }
+  }
+  state.watchers.splice(0, state.watchers.length);
+
+  const server = state.server;
+  state.server = null;
+  if (server?.listening) {
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
 }

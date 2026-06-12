@@ -473,7 +473,9 @@ import {
   type WebhookRouteKey,
   type LocationKey,
   type PhotonCompositeKey,
+  photonFromCompositeKey,
 } from './registry-keys.js';
+import { parseChannel } from '../shared/identity.js';
 
 /**
  * Create a composite key from photonName + workingDir for map lookups.
@@ -2564,7 +2566,7 @@ function publishToChannel(channel: string, message: unknown, excludeSocket?: net
   }
 
   // Send to wildcard subscribers
-  const channelPrefix = channel.split(':')[0];
+  const channelPrefix = parseChannel(channel)?.photon ?? channel;
   if (channelPrefix) {
     const wildcardChannel = `${channelPrefix}:*`;
     const wildcardSubscribers = channelSubscriptions.get(wildcardChannel);
@@ -3935,7 +3937,7 @@ async function handleRequest(
     }> = [];
     for (const [key, mgr] of sessionManagers.entries()) {
       const stored = workingDirs.get(key);
-      const photonFromKey = key.includes(':') ? key.split(':')[0] : key;
+      const photonFromKey = photonFromCompositeKey(key);
       sessions.push({
         photon: photonFromKey,
         workingDir: stored ?? defaultBase,

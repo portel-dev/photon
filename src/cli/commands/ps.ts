@@ -30,17 +30,11 @@ async function ensureDaemonRunning(): Promise<void> {
   await ensureDaemon(false);
 }
 
-export function parseTarget(target: string): { photon: string; method: string } {
-  // Split on the LAST colon: method names are JS identifiers (no colons),
-  // but a photon id may be instance-qualified (`photon:hash`). Splitting on
-  // the first colon turned `photon:hash:method` into method=`hash:method`,
-  // which matched no enrollment and made `ps disable` a silent no-op.
-  const idx = target.lastIndexOf(':');
-  if (idx <= 0 || idx === target.length - 1) {
-    throw new Error(`Expected <photon>:<method>, got "${target}"`);
-  }
-  return { photon: target.slice(0, idx), method: target.slice(idx + 1) };
-}
+// Re-exported so existing callers/tests keep working; the parsing rule
+// (split on the LAST colon) lives in shared/identity.ts with the other
+// photon identity formats.
+import { parsePsTarget as parseTarget } from '../../shared/identity.js';
+export { parseTarget };
 
 function fmtWhen(ts: number | null | undefined): string {
   if (!ts) return '-';
