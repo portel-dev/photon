@@ -91,7 +91,7 @@
     "test:e2e": "bun run build && playwright test",
     "test:e2e:ui": "bun run build && playwright test --ui",
     "test:visual": "bun run build && bun run build:beam && tsx tests/beam/visual/visual.test.ts",
-    "test:contracts": "tsx tests/contract/format-coverage.test.ts && tsx tests/contract/schema-contract.test.ts && tsx tests/contract/render-dom.test.ts",
+    "test:contracts": "tsx tests/contract/format-coverage.test.ts && tsx tests/contract/schema-contract.test.ts && tsx tests/contract/render-dom.test.ts && tsx tests/contract/security-posture.test.ts",
     "test:conformance": "bun run build && tsx tests/conformance/conformance.test.ts",
     "test:a2ui": "bun run build && tsx tests/a2ui-mapper.test.ts && tsx tests/a2ui-e2e.test.ts && tsx tests/a2ui-renderer-script.test.ts",
     "test:dom": "bun run build && bun run build:beam && tsx tests/contract/dom-structure.test.ts",

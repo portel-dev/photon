@@ -172,7 +172,15 @@ export function isLocalhostOrigin(origin: string | undefined): boolean {
   if (!origin) return true; // same-origin requests have no Origin header
   try {
     const url = new URL(origin);
-    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+    return (
+      url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      // URL.hostname keeps the brackets for IPv6 literals, so a browser on
+      // ::1 sends Origin http://[::1]:port — the bare '::1' form never
+      // matched and IPv6 localhost was silently denied CORS.
+      url.hostname === '[::1]' ||
+      url.hostname === '::1'
+    );
   } catch {
     return false;
   }

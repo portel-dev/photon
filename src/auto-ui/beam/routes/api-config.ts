@@ -10,6 +10,7 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { isLocalRequest, readBody, getCorsOrigin } from '../../../shared/security.js';
+import { logger } from '../../../shared/logger.js';
 import { generateOpenAPISpec } from '../../openapi-generator.js';
 import { mcpCommand } from '../../../shared-utils.js';
 import type { RouteHandler } from '../types.js';
@@ -332,13 +333,11 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       res.writeHead(degraded ? 503 : 200);
       res.end(JSON.stringify(body));
     } catch (e) {
+      // Full detail stays server-side; raw messages carry absolute paths
+      // (ENOENT/EACCES) that must not reach HTTP clients.
+      logger.warn('Health endpoint failed', { error: e instanceof Error ? e.message : String(e) });
       res.writeHead(500);
-      res.end(
-        JSON.stringify({
-          status: 'degraded',
-          error: e instanceof Error ? e.message : String(e),
-        })
-      );
+      res.end(JSON.stringify({ status: 'degraded', error: 'health check failed' }));
     }
     return true;
   }
@@ -583,6 +582,8 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
             } catch (testError: any) {
               const duration = Date.now() - start;
               res.writeHead(200);
+              // posture-allow: assertion failure text IS the product here —
+              // the local dev test runner must show why the test failed.
               res.end(
                 JSON.stringify({
                   passed: false,
@@ -617,8 +618,12 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ instances, autoInstance }));
     } catch (err) {
+      logger.warn('Beam API route failed', {
+        path: url.pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
       res.writeHead(500);
-      res.end(JSON.stringify({ error: String(err) }));
+      res.end(JSON.stringify({ error: 'request failed' }));
     }
     return true;
   }
@@ -653,8 +658,12 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ deleted, instance: instanceName }));
     } catch (err) {
+      logger.warn('Beam API route failed', {
+        path: url.pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
       res.writeHead(500);
-      res.end(JSON.stringify({ error: String(err) }));
+      res.end(JSON.stringify({ error: 'request failed' }));
     }
     return true;
   }
@@ -694,8 +703,12 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ renamed, from: instanceName, to: newName }));
     } catch (err) {
+      logger.warn('Beam API route failed', {
+        path: url.pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
       res.writeHead(500);
-      res.end(JSON.stringify({ error: String(err) }));
+      res.end(JSON.stringify({ error: 'request failed' }));
     }
     return true;
   }
@@ -733,8 +746,12 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ cloned, from: instanceName, to: newName }));
     } catch (err) {
+      logger.warn('Beam API route failed', {
+        path: url.pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
       res.writeHead(500);
-      res.end(JSON.stringify({ error: String(err) }));
+      res.end(JSON.stringify({ error: 'request failed' }));
     }
     return true;
   }

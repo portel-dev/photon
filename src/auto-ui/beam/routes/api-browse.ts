@@ -357,7 +357,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     } catch (error) {
       logger.error(`Failed to read MCP App resource: ${String(error)}`);
       res.writeHead(500);
-      res.end(JSON.stringify({ error: `Failed to read resource: ${String(error)}` }));
+      res.end(JSON.stringify({ error: 'Failed to read resource' }));
     }
     return true;
   }
