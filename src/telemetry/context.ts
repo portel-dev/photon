@@ -105,8 +105,14 @@ function installPhotonDirEnvProxy(): void {
       }
       return Reflect.getOwnPropertyDescriptor(target, prop);
     },
-    set(target, prop, value, receiver) {
-      return Reflect.set(target, prop, value, receiver);
+    set(target, prop, value) {
+      // No receiver: passing the proxy as receiver makes Reflect.set
+      // re-enter the proxy's descriptor machinery, and Node's exotic
+      // process.env object rejects that with
+      // ERR_INVALID_OBJECT_DEFINE_PROPERTY (every `process.env.X = y`
+      // after proxy install threw on Node 25). Write straight to the
+      // backing env.
+      return Reflect.set(target, prop, value);
     },
     deleteProperty(target, prop) {
       return Reflect.deleteProperty(target, prop);

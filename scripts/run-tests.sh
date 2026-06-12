@@ -51,6 +51,8 @@ SUITES=(
   "daemon-pubsub:$RUN tests/daemon-pubsub.test.ts"
   "daemon-subscribe-reconnect-leak:$RUN tests/daemon-subscribe-reconnect-leak.test.ts"
   "storage-injected-location:$RUN tests/storage-injected-location.test.ts"
+  "daemon-chaos:$RUN tests/daemon-chaos.test.ts"
+  "env-proxy-set:bunx tsx tests/env-proxy-set.test.ts"
   "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
   "instance-drift:$RUN tests/instance-drift.test.ts"
   "daemon-stale-binary:$RUN tests/daemon-stale-binary-restart.test.ts"
