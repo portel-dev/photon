@@ -130,10 +130,11 @@ FORMAT_CATALOG entry (which auto-feeds the DOM contract). The format
 registry carries `bridge` as a third RenderTarget, cross-checked against
 the actual generated script.
 
-## Known Divergence (flagged, needs product decision)
+## Resolved Divergence (June 12)
 
-Plain-class `storage()` injected by the loader resolves to
-`<photon dir>/<name>/<subpath>` (next to source), while the Photon base
-class `storage()` resolves under `.data/` via `getPhotonDataDir()`. The
-two layouts differ; converging them relocates existing user data and
-needs a migration story. Tracked, deliberately not changed silently.
+Plain-class `storage()` injected by the loader used to resolve next to
+the photon source file while the Photon base class resolved under
+`.data/`. The documented contract (data dir) won: the injected helper now
+delegates to `getPhotonDataDir(ns, name, baseDir)` exactly like the base
+class, with no legacy fallback (decision: owner). Regression test:
+`tests/storage-injected-location.test.ts`.
