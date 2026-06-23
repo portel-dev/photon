@@ -139,6 +139,166 @@ function createMemoryProxy(ctx: DurableObjectState) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Data provider — ctx.storage backing for this.data
+// ════════════════════════════════════════════════════════════════════════════
+
+function dataSegment(value: string): string {
+  return encodeURIComponent(value).replace(/%/g, '~') || '_';
+}
+
+function dataPrefix(photonName: string, scope: string, kind: 'table' | 'log', name: string): string {
+  const sessionId = requestContext.getStore()?.sessionId;
+  const scoped =
+    scope === 'photon'
+        ? `photon:${dataSegment(photonName)}`
+        : scope === 'session' && sessionId
+          ? `session:${dataSegment(sessionId)}:${dataSegment(photonName)}`
+          : (() => {
+            if (scope === 'global') {
+              throw new Error(
+                'Global-scoped data on Cloudflare requires a shared global data Durable Object binding'
+              );
+            }
+            throw new Error(
+              'Session-scoped data requires Mcp-Session-Id in the Cloudflare request context'
+            );
+          })();
+  return `data:${scoped}:${kind}:${dataSegment(name)}:`;
+}
+
+function createDataProvider(ctx: DurableObjectState, photonName: string) {
+  const cursorOffset = (cursor: string | number | null | undefined): number => {
+    if (cursor === null || cursor === undefined || cursor === '') return 0;
+    const parsed = Number(cursor);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+  };
+  const safeLimit = (limit: number | undefined, fallback = 100): number => {
+    if (limit === undefined) return fallback;
+    if (!Number.isFinite(limit) || limit <= 0) return fallback;
+    return Math.floor(limit);
+  };
+
+  const table = (name: string, scope = 'photon') => ({
+    async get(id: string) {
+      const envelope = await ctx.storage.get<any>(
+        `${dataPrefix(photonName, scope, 'table', name)}${dataSegment(id)}`
+      );
+      return envelope === undefined ? null : envelope.value;
+    },
+    async put(id: string, value: unknown) {
+      await ctx.storage.put(
+        `${dataPrefix(photonName, scope, 'table', name)}${dataSegment(id)}`,
+        { id, value, updated_at: new Date().toISOString() }
+      );
+    },
+    async delete(id: string) {
+      return ctx.storage.delete(`${dataPrefix(photonName, scope, 'table', name)}${dataSegment(id)}`);
+    },
+    async has(id: string) {
+      return (await ctx.storage.get(`${dataPrefix(photonName, scope, 'table', name)}${dataSegment(id)}`)) !== undefined;
+    },
+    async list(options: { prefix?: string; limit?: number; cursor?: string | number | null } = {}) {
+      const prefix = dataPrefix(photonName, scope, 'table', name);
+      const rows = Array.from((await ctx.storage.list<any>({ prefix })).values())
+        .filter((envelope) => !options.prefix || envelope.id.startsWith(options.prefix))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      const total = rows.length;
+      const offset = cursorOffset(options.cursor);
+      const limit = safeLimit(options.limit);
+      const page = rows.slice(offset, offset + limit);
+      return {
+        items: page.map((envelope) => ({
+          id: envelope.id,
+          value: envelope.value,
+          updated_at: envelope.updated_at,
+        })),
+        next_cursor: offset + page.length < total ? String(offset + page.length) : null,
+        total,
+      };
+    },
+    async clear() {
+      const keys = Array.from((await ctx.storage.list({ prefix: dataPrefix(photonName, scope, 'table', name) })).keys());
+      if (keys.length > 0) await ctx.storage.delete(keys);
+    },
+  });
+
+  const log = (name: string, scope = 'photon') => {
+    const prefix = () => dataPrefix(photonName, scope, 'log', name);
+    const metaKey = () => `${prefix()}__meta`;
+    const entryKey = (index: number) => `${prefix()}${String(index).padStart(20, '0')}`;
+    return {
+      async append(value: unknown) {
+        const meta = (await ctx.storage.get<{ nextIndex: number }>(metaKey())) ?? { nextIndex: 0 };
+        const entry = {
+          index: meta.nextIndex,
+          value,
+          timestamp: new Date().toISOString(),
+        };
+        await ctx.storage.put(entryKey(entry.index), { value, timestamp: entry.timestamp });
+        await ctx.storage.put(metaKey(), { nextIndex: entry.index + 1 });
+        return entry;
+      },
+      async read(options: { after?: string | number; before?: string | number; limit?: number } = {}) {
+        const p = prefix();
+        const after = options.after === undefined ? -1 : Number(options.after);
+        const before = options.before === undefined ? Number.POSITIVE_INFINITY : Number(options.before);
+        const entries = Array.from((await ctx.storage.list<any>({ prefix: p })).entries())
+          .filter(([key]) => key !== metaKey())
+          .map(([key, envelope]) => ({
+            index: Number(key.slice(p.length)),
+            value: envelope.value,
+            timestamp: envelope.timestamp,
+          }))
+          .filter((entry) => Number.isFinite(entry.index) && entry.index > after && entry.index < before)
+          .sort((a, b) => a.index - b.index);
+        const total = entries.length;
+        const limit = safeLimit(options.limit);
+        const page = entries.slice(0, limit);
+        return {
+          entries: page,
+          next_cursor: page.length < total && page.length > 0 ? String(page[page.length - 1].index) : null,
+          total,
+        };
+      },
+      async clear() {
+        const keys = Array.from((await ctx.storage.list({ prefix: prefix() })).keys());
+        if (keys.length > 0) await ctx.storage.delete(keys);
+      },
+      async delete() {
+        await this.clear();
+      },
+    };
+  };
+
+  return {
+    table,
+    log,
+    get sql() {
+      const sql = (ctx.storage as any).sql;
+      if (!sql) {
+        throw new Error(
+          'Data SQL is not available on this Durable Object storage; enable SQLite-backed Durable Objects'
+        );
+      }
+      return {
+        exec: async (query: string, params: unknown[] = []) => {
+          const cursor = sql.exec(query, ...params);
+          const rows =
+            typeof cursor?.toArray === 'function'
+              ? cursor.toArray()
+              : Array.isArray(cursor?.rows)
+                ? cursor.rows
+                : Array.isArray(cursor)
+                  ? cursor
+                  : [];
+          return { rows };
+        },
+      };
+    },
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Schedule provider — DO alarm multiplexer
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -428,6 +588,13 @@ function withCfCapabilities(
 ): any {
   Object.defineProperty(instance, 'memory', {
     value: createMemoryProxy(ctx),
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(instance, 'data', {
+    value: createDataProvider(ctx, photonName),
     writable: false,
     enumerable: false,
     configurable: false,
@@ -755,6 +922,8 @@ interface RequestContext {
    * the client didn't supply one.
    */
   progressToken?: string | number;
+  /** Client session id from Mcp-Session-Id, used for session-scoped data. */
+  sessionId?: string;
 }
 
 /**
@@ -1619,12 +1788,20 @@ abstract class BasePhotonDO extends DurableObject<Env> {
     // tool calls from JSON-only clients) use the plain JSON path.
     const accept = request.headers.get('Accept') ?? '';
     const wantsSse = accept.includes('text/event-stream');
+    const sessionId = request.headers.get('Mcp-Session-Id') ?? undefined;
     if (body?.method === 'tools/call' && wantsSse) {
-      return mcpAuthContext.run(authContext, () => this._streamToolCall(body));
+      return mcpAuthContext.run(authContext, () => this._streamToolCall(body, sessionId));
     }
 
-    const result = await mcpAuthContext.run(authContext, () =>
-      handleMCPRequest(body, this.photon, this.photonName, this.toolDefinitions)
+    const result = await requestContext.run(
+      {
+        send: async () => {},
+        pendingRequests: this.pendingRequests,
+        sessionId,
+      },
+      () => mcpAuthContext.run(authContext, () =>
+        handleMCPRequest(body, this.photon, this.photonName, this.toolDefinitions)
+      )
     );
     return Response.json(result, { headers: CORS_HEADERS });
   }
@@ -1635,7 +1812,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
    * MCP requests over the same stream and await the client's responses
    * (which arrive as separate POST /mcp requests routed by `_handleMcpPost`).
    */
-  private _streamToolCall(rpcRequest: any): Response {
+  private _streamToolCall(rpcRequest: any, sessionId?: string): Response {
     this.getPhoton();
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
@@ -1653,6 +1830,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       send,
       pendingRequests: this.pendingRequests,
       progressToken: clientProgressToken ?? `progress_${toolName}`,
+      sessionId,
     };
 
     // Fire-and-forget: the response stream stays open as long as the writer
