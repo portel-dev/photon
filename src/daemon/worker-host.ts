@@ -121,11 +121,33 @@ const pendingDepResolves = new Map<
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function send(msg: WorkerToMainMessage): void {
-  port.postMessage(msg);
+  port.postMessage(toCloneable(msg));
 }
 
 function genId(): string {
   return `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function toCloneable<T>(value: T): T {
+  try {
+    structuredClone(value);
+    return value;
+  } catch {
+    return JSON.parse(
+      JSON.stringify(value, (_key, nested) => {
+        if (typeof nested === 'bigint') return nested.toString();
+        if (nested instanceof Error) {
+          return {
+            name: nested.name,
+            message: nested.message,
+            stack: nested.stack,
+          };
+        }
+        if (typeof nested === 'function' || typeof nested === 'symbol') return undefined;
+        return nested;
+      })
+    ) as T;
+  }
 }
 
 // ─── @photon Dependency Resolution (cross-worker RPC) ────────────────────────
