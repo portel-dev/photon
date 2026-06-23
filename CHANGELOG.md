@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.35.0](https://github.com/portel-dev/photon/compare/v1.34.2...v1.35.0) (2026-06-23)
+
+### Features
+
+* **contract:** coverage gate — new surface area must arrive with enforcement ([313a824](https://github.com/portel-dev/photon/commit/313a824c469ef4781074fcc6c5ec708c561a45fc))
+* **contract:** DOM render contract — every cataloged format renders its data ([cf5757d](https://github.com/portel-dev/photon/commit/cf5757d08c720de3d4df222f11262186e089409f))
+* **contract:** security posture contract — default-closed, pinned ([bc037ab](https://github.com/portel-dev/photon/commit/bc037ab56b2908ce45b7e59bc2e7e65cea385aef))
+* **daemon:** light daemon mode and configurable idle timeout ([4d38d98](https://github.com/portel-dev/photon/commit/4d38d9802b4598cc5a2c779a2fbec2ef321b8b7b))
+* **daemon:** track open file descriptors in health snapshots ([f63f03f](https://github.com/portel-dev/photon/commit/f63f03f976cac93a06dba609c607ff421246dc28))
+* **formats:** close the format-coverage matrix at the type level ([4a7f53e](https://github.com/portel-dev/photon/commit/4a7f53ef940b2ca440e36198642bcd8b370e8625))
+* **loader:** rich overloads for status() and progress() emit helpers ([c472779](https://github.com/portel-dev/photon/commit/c472779e7d2f590872a38cfe4103923917695c70))
+* **test:** daemon chaos suite — every recovery path must equal clean boot ([fbe94c1](https://github.com/portel-dev/photon/commit/fbe94c10697b8a376986cdd04f4b8f14d9f82a4f))
+
+### Bug Fixes
+
+* **beam:** add timeouts to result-viewer fetches, recover from renderer load failure ([44952b2](https://github.com/portel-dev/photon/commit/44952b2524b7fb8d56436b5d49c9ebb700179666))
+* **beam:** remove emojis from UI chrome ([f3be530](https://github.com/portel-dev/photon/commit/f3be53027799b2f3f2a49e88f55317ec7a497599))
+* **beam:** replace native prompt() with themed elicitation modal ([76b19d4](https://github.com/portel-dev/photon/commit/76b19d4e6b72b2fefc9e1c4f0608ef7255cb5e81))
+* **cli:** clear progress renderer before prompts and improve select UX ([85fa709](https://github.com/portel-dev/photon/commit/85fa7093588ca7d22a498ca85ecccdec10ee81e5))
+* **daemon:** chdir to home at boot so a deleted spawn cwd can't break workers ([c510ae4](https://github.com/portel-dev/photon/commit/c510ae435ee13009a5146fb6fcae0a4da044e226))
+* **daemon:** close the live subscription socket on unsubscribe after reconnect ([66a55c8](https://github.com/portel-dev/photon/commit/66a55c8baae049252eaf228aecfc1fba65aa7229))
+* **lint:** resolve recurring pre-commit warnings across 5 files ([f64e62d](https://github.com/portel-dev/photon/commit/f64e62d30ba50e7d19d0ed53288c12ddcf7e8d2f))
+* **loader:** always inject path helpers; drop regex gating and dead detection ([4299e56](https://github.com/portel-dev/photon/commit/4299e56d917430ac7d38774c23af001240491efc))
+* **loader:** clear circuit-breaker state on hot reload ([455a06d](https://github.com/portel-dev/photon/commit/455a06d898d76f10a20375a54aff0b50a0d61202))
+* **loader:** injected storage() resolves under the data dir per documented contract ([933d50d](https://github.com/portel-dev/photon/commit/933d50da72e7856a8611de79ce06e403b36df3cb))
+* **loader:** never silently drop rich formats on CLI render emits ([b89a143](https://github.com/portel-dev/photon/commit/b89a14343213af8877ce8f15420aa105e8b5c4e2))
+* **paths:** require explicit baseDir on all data-path resolver calls ([9d9ac0c](https://github.com/portel-dev/photon/commit/9d9ac0c8a8e2ea99fe71e49ecd2a828026be318c))
+* **settings:** serialize persistence writes per instance ([f4159d5](https://github.com/portel-dev/photon/commit/f4159d5b2e04638b1f6770005021af484d48f475))
+
 ## [1.34.2](https://github.com/portel-dev/photon/compare/v1.34.1...v1.34.2) (2026-06-07)
 
 ### Security
