@@ -93,6 +93,11 @@ chain: registry declares coverage, conformance proves transport,
 this proves data reaches the DOM. chart:* asserts on its offline data
 table fallback.
 
+Release gate: CI, Release, and `scripts/pre-release-check.sh` must install
+Playwright Chromium before the suite runs. A missing browser is a release
+blocker, not a flaky test to rerun around, because it means DOM contract
+coverage did not execute on the release surface.
+
 ## Daemon Chaos Suite
 
 `tests/daemon-chaos.test.ts` inflicts the daemon's historical failure
@@ -102,6 +107,11 @@ isolated HOMEs, asserting one invariant: every recovery path converges
 to clean-boot state. Scenario 5 cache-busts the photon source so the
 respawn recompiles through cwd-sensitive child processes (verified red
 without the chdir fix).
+
+Release gate: every release must address failures here before tagging or
+publishing. The spawn-race scenario protects the one-daemon-per-HOME
+contract; if it fails, fix daemon startup or the process-count assertion
+with evidence before proceeding.
 
 ## Identity Module
 

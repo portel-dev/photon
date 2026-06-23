@@ -89,8 +89,13 @@ function daemonPid() {
 
 function daemonProcessCount() {
   try {
-    const out = execSync('pgrep -f "daemon/server.js ' + sockPath + '"', { encoding: 'utf-8' });
-    return out.trim().split('\\n').filter(Boolean).length;
+    const out = execSync('ps -eo pid=,args=', { encoding: 'utf-8' });
+    return out
+      .trim()
+      .split('\\n')
+      .filter((line) => line.includes('daemon/server.js ' + sockPath))
+      .filter((line) => /\\bnode\\b/.test(line) || /\\/node\\b/.test(line))
+      .length;
   } catch { return 0; }
 }
 

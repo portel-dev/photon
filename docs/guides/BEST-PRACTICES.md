@@ -314,6 +314,9 @@ private async save(data: Data): Promise<void> {
 
 Before release, verify:
 
+- [ ] `scripts/pre-release-check.sh` passes before tagging or publishing
+- [ ] `tests/daemon-chaos.test.ts` passes; daemon spawn races block release
+- [ ] `tests/contract/render-dom.test.ts` passes with Playwright Chromium installed
 - [ ] All methods have JSDoc with descriptions
 - [ ] All parameters are documented
 - [ ] Error cases throw descriptive errors

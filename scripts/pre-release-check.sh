@@ -143,15 +143,21 @@ fi
 echo "  ✓ bun install dry-run passes (bun.lock in sync)"
 echo ""
 
-# ─── 3. Build verification ───────────────────────────
-echo "▶ Step 3: Full build"
+# ─── 3. CI browser dependency pre-flight ─────────────
+echo "▶ Step 3: CI browser dependency"
+bunx playwright install --with-deps chromium
+echo "  ✓ Playwright Chromium is installed for DOM contract tests"
+echo ""
+
+# ─── 4. Build verification ───────────────────────────
+echo "▶ Step 4: Full build"
 bun run build
 bun run build:beam
 echo "  ✓ Build passes"
 echo ""
 
-# ─── 3. Test suite ───────────────────────────────────
-echo "▶ Step 4: Test suite"
+# ─── 5. Test suite ───────────────────────────────────
+echo "▶ Step 5: Test suite"
 if [ "${PHOTON_RELEASE_ASSUME_TESTED:-}" = "1" ]; then
   echo "  ✓ Tests already passed in this release session"
 else
@@ -160,8 +166,15 @@ else
 fi
 echo ""
 
-# ─── 5. Yield pattern check ─────────────────────────
-echo "▶ Step 5: Yield pattern verification"
+# ─── 6. Release-blocker regression checks ────────────
+echo "▶ Step 6: Release-blocker regressions"
+bun tests/daemon-chaos.test.ts
+bun tests/contract/render-dom.test.ts
+echo "  ✓ Daemon spawn-race and DOM rendering regressions pass"
+echo ""
+
+# ─── 7. Yield pattern check ─────────────────────────
+echo "▶ Step 7: Yield pattern verification"
 # Check multi-line yields: line with 'yield {' must be followed by emit:/ask:/checkpoint:
 # Uses awk to pair yield lines with their next line
 # Check that each 'yield {' has emit:/ask:/checkpoint: on same line or next line
@@ -186,8 +199,8 @@ fi
 echo "  ✓ All generator yields use emit pattern"
 echo ""
 
-# ─── 6. Dependency audit ────────────────────────────
-echo "▶ Step 6: Runtime dependency check"
+# ─── 8. Dependency audit ────────────────────────────
+echo "▶ Step 8: Runtime dependency check"
 # Check that key runtime imports are in dependencies, not devDependencies
 DEPS=$(node -e "const p=require('./package.json'); console.log(Object.keys(p.dependencies||{}).join(' '))")
 MISSING=""
@@ -203,8 +216,8 @@ fi
 echo "  ✓ Runtime dependencies present"
 echo ""
 
-# ─── 7. Fresh install simulation ────────────────────
-echo "▶ Step 7: Fresh install simulation"
+# ─── 9. Fresh install simulation ────────────────────
+echo "▶ Step 9: Fresh install simulation"
 FRESH_DIR=$(mktemp -d)
 FRESH_HOME="$FRESH_DIR/.photon-home"
 export PHOTON_DIR="$FRESH_DIR"
@@ -218,7 +231,7 @@ cleanup_fresh() {
 }
 trap cleanup_fresh EXIT
 
-# Test 6a: Beam starts with only internal photons
+# Test 9a: Beam starts with only internal photons
 echo "  Testing Beam startup..."
 BEAM_LOG=$(mktemp)
 PHOTON_DIR="$FRESH_DIR" PHOTON_HOME="$FRESH_HOME" node dist/cli.js beam > "$BEAM_LOG" 2>&1 &
@@ -259,7 +272,7 @@ fi
 echo "  ✓ No errors during startup"
 rm -f "$BEAM_LOG"
 
-# Test 6b: Marketplace search works
+# Test 9b: Marketplace search works
 echo "  Testing marketplace search..."
 SEARCH_OUT=$(PHOTON_DIR="$FRESH_DIR" PHOTON_HOME="$FRESH_HOME" node dist/cli.js search web 2>&1)
 if echo "$SEARCH_OUT" | grep -q "web"; then
@@ -270,7 +283,7 @@ else
   exit 1
 fi
 
-# Test 6c: Photon install works
+# Test 9c: Photon install works
 echo "  Testing photon install..."
 ADD_OUT=$(PHOTON_DIR="$FRESH_DIR" PHOTON_HOME="$FRESH_HOME" node dist/cli.js add web 2>&1)
 if echo "$ADD_OUT" | grep -q "Added web"; then
@@ -286,9 +299,9 @@ rm -rf "$FRESH_DIR"
 unset PHOTON_DIR
 unset PHOTON_HOME
 
-# ─── 8. Visual tests (optional — requires lookout + MLX) ────
+# ─── 10. Visual tests (optional — requires lookout + MLX) ────
 echo ""
-echo "▶ Step 8: Visual tests (lookout AI)"
+echo "▶ Step 10: Visual tests (lookout AI)"
 if command -v photon >/dev/null 2>&1 && photon lookout status -y 2>/dev/null | grep -q '"ready": true\|ready.*true'; then
   echo "  Lookout available — running visual tests..."
   bun run test:visual
@@ -297,16 +310,16 @@ else
   echo "  ⏭ Lookout not available (no MLX or photon not installed) — skipping"
 fi
 
-# ─── 9. Promise validation (core intents — release gate) ────
+# ─── 11. Promise validation (core intents — release gate) ────
 echo ""
-echo "▶ Step 9: Promise validation"
-echo "  ✓ Platform promises validated by Step 4 full suite"
+echo "▶ Step 11: Promise validation"
+echo "  ✓ Platform promises validated by Step 5 full suite"
 # Restore test fixture data files
 git checkout -- tests/fixtures/.data/ 2>/dev/null || true
 
-# ─── 10. Global install simulation ────
+# ─── 12. Global install simulation ────
 echo ""
-echo "▶ Step 10: Global install simulation"
+echo "▶ Step 12: Global install simulation"
 PACK_TGZ=$(bun pm pack --quiet 2>/dev/null | tail -1)
 PACK_ABS="$(pwd)/$PACK_TGZ"
 if [ -f "$PACK_ABS" ]; then
@@ -327,9 +340,9 @@ else
   echo "  ⏭ bun pack failed — skipping install test"
 fi
 
-# ─── 10. Production dependency verification ────
+# ─── 13. Production dependency verification ────
 echo ""
-echo "▶ Step 11: Production dependency verification"
+echo "▶ Step 13: Production dependency verification"
 PROD_DIR=$(mktemp -d)
 PACK_CHECK=$(bun pm pack --quiet 2>/dev/null | tail -1)
 if [ -f "$PACK_CHECK" ]; then
