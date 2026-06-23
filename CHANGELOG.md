@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.35.1](https://github.com/portel-dev/photon/compare/v1.35.0...v1.35.1) (2026-06-23)
+
 ## [1.35.0](https://github.com/portel-dev/photon/compare/v1.34.2...v1.35.0) (2026-06-23)
 
 ### Features
