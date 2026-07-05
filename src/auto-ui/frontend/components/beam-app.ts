@@ -2332,6 +2332,12 @@ export class BeamApp extends LitElement {
   private _nextPanelId = 0;
   // Maps progressToken → panelId so progress events route to the correct split pane
   private _panelProgressTokens = new Map<string | number, string>();
+  private _activeProgressToken: string | number | null = null;
+  private _pendingAutoInvoke: {
+    photonName: string;
+    methodName: string;
+    args: Record<string, any>;
+  } | null = null;
 
   private get _splitViewEnabled() {
     return this._splitPanels.length > 0;
@@ -2677,6 +2683,7 @@ export class BeamApp extends LitElement {
 
           // Add unconfigured photons from configuration schema
           this._addUnconfiguredPhotons();
+          this._flushPendingAutoInvoke();
 
           if (isReconnect) {
             // Reconnect: update selected photon reference but do NOT re-invoke main()
@@ -2707,14 +2714,11 @@ export class BeamApp extends LitElement {
             const firstUserPhoton = this._photons.find((p) => !p.internal);
             if (firstUserPhoton) {
               this._selectedPhoton = firstUserPhoton;
-              // For apps, auto-select main method and invoke — same as _handleRouteChange
+              // For apps, start on Methods. The App tab opens the app surface.
               if (firstUserPhoton.isApp && firstUserPhoton.appEntry) {
-                if (this._willAutoInvoke(firstUserPhoton.appEntry)) {
-                  this._isExecuting = true;
-                }
-                this._selectedMethod = firstUserPhoton.appEntry;
-                this._view = 'form';
-                this._maybeAutoInvoke(firstUserPhoton.appEntry);
+                this._selectedMethod = null;
+                this._view = 'list';
+                this._mainTab = 'methods';
               } else {
                 this._view = 'list';
               }
@@ -2758,15 +2762,12 @@ export class BeamApp extends LitElement {
               const wasApp = this._selectedPhoton.isApp;
               this._selectedPhoton = updated;
               // If photon just became an app (e.g., main method's linkedUi resolved),
-              // switch to app view and auto-invoke
+              // keep the user in Methods. The App tab opens the app surface.
               if (!wasApp && updated.isApp && updated.appEntry && this._view === 'list') {
-                if (this._willAutoInvoke(updated.appEntry)) {
-                  this._isExecuting = true;
-                }
-                this._selectedMethod = updated.appEntry;
-                this._view = 'form';
+                this._selectedMethod = null;
+                this._view = 'list';
+                this._mainTab = 'methods';
                 this._updateRoute(true);
-                this._maybeAutoInvoke(updated.appEntry);
               }
             }
           }
@@ -2828,7 +2829,12 @@ export class BeamApp extends LitElement {
         if (panelId && progressValue) {
           // Route to the specific split panel
           this._updatePanel(panelId, { progress: progressValue });
-        } else if (progressValue) {
+        } else if (
+          progressValue &&
+          this._isExecuting &&
+          this._activeProgressToken != null &&
+          data.progressToken === this._activeProgressToken
+        ) {
           // No panel match — update global progress bar
           this._progress = progressValue;
         }
@@ -3078,10 +3084,12 @@ export class BeamApp extends LitElement {
           if (this._selectedPhoton?.name === configuredPhoton.name) {
             this._selectedPhoton = configuredPhoton;
             if (configuredPhoton.isApp && configuredPhoton.appEntry) {
-              this._selectedMethod = configuredPhoton.appEntry;
-              this._view = 'form';
+              this._selectedMethod = null;
+              this._view = 'list';
+              this._mainTab = 'methods';
             } else {
               this._view = 'list';
+              this._mainTab = 'methods';
             }
             this._updateRoute(true);
           }
@@ -3404,14 +3412,14 @@ export class BeamApp extends LitElement {
                 this._sharedFormParams = sharedParams;
               }
               // Set _isExecuting BEFORE setting state for auto-invoke or view=result mode
-              if (this._willAutoInvoke(method) || this._viewMode === 'result') {
+              if (this._shouldAutoInvokeMethod(method) || this._viewMode === 'result') {
                 this._isExecuting = true;
               }
               this._selectedMethod = method;
               this._view = 'form';
               // Set app tab when loading app entry via URL
               if (photon.isApp && photon.appEntry?.name === method.name) {
-                this._mainTab = 'app';
+                this._mainTab = 'methods';
               } else if (!photon.isApp) {
                 this._mainTab = 'methods';
               }
@@ -3440,17 +3448,13 @@ export class BeamApp extends LitElement {
               }
             }
           } else if (photon.isApp && photon.appEntry) {
-            // For Apps without method specified, auto-select main
-            // Set _isExecuting BEFORE setting state to prevent iframe from rendering
-            // before the tool call starts (which would bypass elicitation)
-            if (this._willAutoInvoke(photon.appEntry)) {
-              this._isExecuting = true;
-            }
-            this._selectedMethod = photon.appEntry;
-            this._view = 'form';
-            this._mainTab = 'app';
-            // Auto-invoke app entry if it has no required params
-            this._maybeAutoInvoke(photon.appEntry);
+            // `/app-name` is the app's Methods tab. Do not auto-select the
+            // app entry here; otherwise refreshing Methods renders the app
+            // surface above the method cards. The App tab selects/invokes
+            // appEntry explicitly when the user asks for it.
+            this._selectedMethod = null;
+            this._view = 'list';
+            this._mainTab = 'methods';
           } else {
             this._selectedMethod = null;
             this._view = 'list';
@@ -5294,7 +5298,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   .method=${this._selectedMethod.name}
                   .uiId=${this._selectedMethod.linkedUi}
                   .theme=${this._theme}
+                  .toolInput=${this._lastFormParams || {}}
                   .initialResult=${this._lastResult}
+                  .hasToolResult=${this._lastResult !== null}
                   .revision=${this._customUiRevision}
                   style="${appFillStyle}"
                 ></custom-ui-renderer>
@@ -5757,18 +5763,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
     }
 
-    // For Apps, automatically select the main method to show Custom UI
+    // For Apps, selecting the photon opens Methods. The App tab is the
+    // explicit affordance for opening the app surface.
     if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
-      // Set _isExecuting BEFORE setting method to prevent iframe rendering before data loads
-      if (this._willAutoInvoke(this._selectedPhoton.appEntry)) {
-        this._isExecuting = true;
-      }
-      this._selectedMethod = this._selectedPhoton.appEntry;
-      this._view = 'form';
-      this._mainTab = 'app';
+      this._selectedMethod = null;
+      this._view = 'list';
+      this._mainTab = 'methods';
       this._updateRoute();
-      // Auto-invoke to load initial data (e.g., kanban board)
-      this._maybeAutoInvoke(this._selectedPhoton.appEntry);
       return;
     } else {
       this._view = 'list';
@@ -6345,7 +6346,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
                         .uiUri=${this._customFormatUri || ''}
                         .uiId=${!this._customFormatUri ? opts.method?.linkedUi || '' : ''}
                         .theme=${this._theme}
+                        .toolInput=${opts.formParams || {}}
                         .initialResult=${opts.result}
+                        .hasToolResult=${opts.result !== null}
                         .revision=${this._customUiRevision}
                       ></custom-ui-renderer>
                     `}
@@ -6774,7 +6777,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
    * Used to set _isExecuting early to prevent iframe from rendering before tool call starts.
    */
   private _willAutoInvoke(method: any): boolean {
-    if (!method || !this._mcpReady) return false;
+    if (!this._mcpReady) return false;
+    return this._shouldAutoInvokeMethod(method);
+  }
+
+  private _shouldAutoInvokeMethod(method: any): boolean {
+    if (!method) return false;
     // Never auto-invoke destructive methods — require explicit user action.
     if (this._isDestructiveMethod(method)) return false;
     const shouldAutorun = method.autorun === true;
@@ -6788,10 +6796,41 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _maybeAutoInvoke(method: any) {
     // In result view mode, always auto-invoke (using shared params from URL if available)
     const forceInvoke = this._viewMode === 'result';
-    if (!forceInvoke && !this._willAutoInvoke(method)) return;
+    if (!forceInvoke && !this._shouldAutoInvokeMethod(method)) return;
     // Auto-invoke with shared params or empty args
     const args = this._sharedFormParams ?? {};
+    if (!this._mcpReady) {
+      if (this._selectedPhoton && method?.name) {
+        this._pendingAutoInvoke = {
+          photonName: this._selectedPhoton.name,
+          methodName: method.name,
+          args,
+        };
+        this._isExecuting = true;
+      }
+      return;
+    }
+    if (
+      this._pendingAutoInvoke?.photonName === this._selectedPhoton?.name &&
+      this._pendingAutoInvoke?.methodName === method?.name
+    ) {
+      this._pendingAutoInvoke = null;
+    }
     void this._handleExecute(new CustomEvent('execute', { detail: { args } }));
+  }
+
+  private _flushPendingAutoInvoke(): void {
+    if (!this._pendingAutoInvoke || !this._mcpReady) return;
+    const pending = this._pendingAutoInvoke;
+    if (
+      this._selectedPhoton?.name !== pending.photonName ||
+      this._selectedMethod?.name !== pending.methodName
+    ) {
+      this._pendingAutoInvoke = null;
+      return;
+    }
+    this._pendingAutoInvoke = null;
+    void this._handleExecute(new CustomEvent('execute', { detail: { args: pending.args } }));
   }
 
   private _methodRequiresInput(method: any): boolean {
@@ -7516,6 +7555,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._customFormatUri = null;
     this._isExecuting = true;
     this._progress = null;
+    const progressToken = `main_${this._selectedPhoton.name}_${this._selectedMethod.name}_${Date.now()}`;
+    this._activeProgressToken = progressToken;
 
     // Clean up previous collection subscriptions
     this._cleanupCollectionSubscriptions();
@@ -7525,7 +7566,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       try {
         const toolName = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
         const execStart = Date.now();
-        const result = await mcpClient.callTool(toolName, args);
+        const result = await mcpClient.callTool(toolName, args, progressToken);
         const execDuration = Date.now() - execStart;
 
         if (result.isError) {
@@ -7587,12 +7628,18 @@ ${photon.errorMessage || 'Unknown error'}</pre
       } finally {
         this._isExecuting = false;
         this._progress = null;
+        if (this._activeProgressToken === progressToken) {
+          this._activeProgressToken = null;
+        }
       }
     } else {
       this._log('error', 'Not connected to server');
       this._showError('Not connected');
       this._isExecuting = false;
       this._progress = null;
+      if (this._activeProgressToken === progressToken) {
+        this._activeProgressToken = null;
+      }
     }
   }
 
@@ -8044,6 +8091,27 @@ ${photon.errorMessage || 'Unknown error'}</pre
         this._modelContext = msg.params || null;
         if (event.source) {
           (event.source as Window).postMessage({ jsonrpc: '2.0', id: msg.id, result: {} }, '*');
+        }
+      }
+
+      // MCP Apps standard: JSON-RPC ui/initialize from iframes
+      if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize' && msg.id != null) {
+        const themeTokens = getThemeTokens(this._theme);
+        if (event.source) {
+          (event.source as Window).postMessage(
+            {
+              jsonrpc: '2.0',
+              id: msg.id,
+              result: {
+                hostContext: {
+                  theme: this._theme,
+                  locale: navigator.language || 'en-US',
+                  styles: { variables: themeTokens },
+                },
+              },
+            },
+            '*'
+          );
         }
       }
 

@@ -562,6 +562,12 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
       return true;
     }
 
+    // kanban — columns and cards, render as a readable tree in terminals
+    if (hintStr === 'kanban') {
+      baseFormatOutput(result, 'tree');
+      return true;
+    }
+
     // cart — itemized list, render as table
     if (hintStr === 'cart') {
       if (Array.isArray(result)) {

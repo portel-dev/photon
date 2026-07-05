@@ -3116,7 +3116,10 @@ export class PhotonServer {
 
         // Serve embedded index.html at root when assets are available
         if (req.method === 'GET' && url.pathname === '/' && this.options.embeddedAssets) {
-          const htmlHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+          const htmlHeaders: Record<string, string> = {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          };
           if (corsOrigin) htmlHeaders['Access-Control-Allow-Origin'] = corsOrigin;
           res.writeHead(200, htmlHeaders);
           res.end(this.options.embeddedAssets.indexHtml);
@@ -3429,7 +3432,10 @@ export class PhotonServer {
           }
 
           if (req.method === 'GET' && url.pathname === '/index.html') {
-            const indexHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+            const indexHeaders: Record<string, string> = {
+              'Content-Type': 'text/html',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+            };
             if (corsOrigin) indexHeaders['Access-Control-Allow-Origin'] = corsOrigin;
             res.writeHead(200, indexHeaders);
             res.end(assets.indexHtml);
@@ -3437,7 +3443,10 @@ export class PhotonServer {
           }
 
           if (req.method === 'GET' && url.pathname === '/beam.bundle.js') {
-            const jsHeaders: Record<string, string> = { 'Content-Type': 'text/javascript' };
+            const jsHeaders: Record<string, string> = {
+              'Content-Type': 'text/javascript',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+            };
             if (corsOrigin) jsHeaders['Access-Control-Allow-Origin'] = corsOrigin;
             res.writeHead(200, jsHeaders);
             res.end(assets.bundleJs);
@@ -3473,7 +3482,10 @@ export class PhotonServer {
 
         // SPA fallback: serve index.html for unmatched GET requests (compiled binary with Beam UI)
         if (req.method === 'GET' && this.options.embeddedAssets) {
-          const fallbackHeaders: Record<string, string> = { 'Content-Type': 'text/html' };
+          const fallbackHeaders: Record<string, string> = {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          };
           if (corsOrigin) fallbackHeaders['Access-Control-Allow-Origin'] = corsOrigin;
           res.writeHead(200, fallbackHeaders);
           res.end(this.options.embeddedAssets.indexHtml);

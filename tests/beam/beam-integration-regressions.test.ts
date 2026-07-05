@@ -73,6 +73,67 @@ export default class SyncList {
 }
 `
   );
+
+  await fs.mkdir(path.join(tmpDir, 'task-board', 'ui'), { recursive: true });
+  await fs.writeFile(
+    path.join(tmpDir, 'task-board.photon.ts'),
+    `
+/**
+ * @description Regression board app
+ * @icon 📋
+ */
+export default class TaskBoard {
+  /**
+   * @ui board ./ui/board.html
+   */
+  main() {
+    return {
+      title: 'Regression Board',
+      columns: ['Backlog', 'Todo', 'Done'],
+      tasks: [],
+    };
+  }
+
+  stats() {
+    return { total: 0 };
+  }
+}
+`
+  );
+  await fs.writeFile(
+    path.join(tmpDir, 'task-board', 'ui', 'board.html'),
+    `<!doctype html>
+<html>
+  <body>
+    <h1 id="title">Loading app result...</h1>
+    <div id="columns"></div>
+    <script>
+      window.addEventListener('message', (event) => {
+        const msg = event.data || {};
+        if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/tool-result') {
+          const result = msg.params && msg.params.result;
+          document.getElementById('title').textContent = result.title || 'Untitled';
+          document.getElementById('columns').textContent = (result.columns || []).join(' | ');
+        }
+        if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize') {
+          event.source && event.source.postMessage({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: { protocolVersion: '2026-01-26' },
+          }, '*');
+          event.source && event.source.postMessage({
+            jsonrpc: '2.0',
+            method: 'ui/notifications/initialized',
+            params: {},
+          }, '*');
+        }
+      });
+      window.parent.postMessage({ jsonrpc: '2.0', method: 'ui/ready' }, '*');
+    </script>
+  </body>
+</html>
+`
+  );
 }
 
 async function startBeam(): Promise<void> {
@@ -219,7 +280,8 @@ async function mcpCallTool(
   sessionId: string,
   toolName: string,
   args: Record<string, any>,
-  callId: number = 3
+  callId: number = 3,
+  timeoutMs = 30000
 ): Promise<any> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
@@ -234,9 +296,66 @@ async function mcpCallTool(
       method: 'tools/call',
       params: { name: toolName, arguments: args },
     }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   return res.json();
+}
+
+function toolMatches(tool: any, name: string): boolean {
+  return (
+    tool?.name === name ||
+    tool?.name === name.replace('.', '/') ||
+    tool?.name === name.replace('/', '.')
+  );
+}
+
+async function waitForTool(
+  sessionId: string,
+  toolName: string,
+  timeoutMs = 15000
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tools = await mcpListTools(sessionId);
+    if (tools.some((t: any) => toolMatches(t, toolName))) return true;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
+}
+
+async function waitForToolsState(
+  sessionId: string,
+  predicate: (tools: any[]) => boolean,
+  timeoutMs = 15000
+): Promise<any[]> {
+  const deadline = Date.now() + timeoutMs;
+  let tools: any[] = [];
+  while (Date.now() < deadline) {
+    tools = await mcpListTools(sessionId);
+    if (predicate(tools)) return tools;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return tools;
+}
+
+async function waitForCallableTool(
+  sessionId: string,
+  toolName: string,
+  args: Record<string, any>,
+  callIdStart: number,
+  timeoutMs = 15000
+): Promise<any> {
+  const deadline = Date.now() + timeoutMs;
+  let callId = callIdStart;
+  let lastResponse: any = null;
+  while (Date.now() < deadline) {
+    lastResponse = await mcpCallTool(sessionId, toolName, args, callId++);
+    const errorText = lastResponse.result?.content?.[0]?.text || lastResponse.error?.message || '';
+    if (!lastResponse.result?.isError && !lastResponse.error) return lastResponse;
+    if (!/Tool not found/i.test(errorText)) return lastResponse;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return lastResponse;
 }
 
 function restartDaemon(): Promise<void> {
@@ -272,6 +391,49 @@ function parseToolResult(response: any): any {
   } catch {
     return text;
   }
+}
+
+async function launchChromiumForRegression(): Promise<any> {
+  const { chromium } = await import('playwright');
+  try {
+    return await chromium.launch({ headless: true });
+  } catch (error) {
+    const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    try {
+      await fs.access(chromePath);
+      return await chromium.launch({ headless: true, executablePath: chromePath });
+    } catch {
+      throw error;
+    }
+  }
+}
+
+async function inspectBeamAppRoute(page: any): Promise<{
+  url: string;
+  mainTab: string | null;
+  hasCustomUi: boolean;
+  methodCards: number;
+  shadowText: string;
+  iframeText: string;
+}> {
+  await page.waitForSelector('beam-app', { timeout: 15000 });
+  await page.waitForTimeout(1500);
+  return page.evaluate(() => {
+    const app = document.querySelector('beam-app') as any;
+    const shadow = app?.shadowRoot;
+    const sidebar = shadow?.querySelector('beam-sidebar') as any;
+    const renderer = shadow?.querySelector('custom-ui-renderer') as any;
+    const iframe = renderer?.shadowRoot?.querySelector('iframe') as HTMLIFrameElement | null;
+    const iframeText = iframe?.contentDocument?.body?.innerText || '';
+    return {
+      url: window.location.href,
+      mainTab: sidebar?.mainTab ?? null,
+      hasCustomUi: !!renderer,
+      methodCards: shadow?.querySelectorAll('method-card').length || 0,
+      shadowText: shadow?.innerText || '',
+      iframeText,
+    };
+  });
 }
 
 /**
@@ -495,26 +657,15 @@ export default class SyncList {
     await fs.writeFile(path.join(tmpDir, 'sync-list.photon.ts'), updatedSource);
 
     // Wait for hot-reload + daemon reload (daemon reload is async)
-    await new Promise((r) => setTimeout(r, 6000));
+    await new Promise((r) => setTimeout(r, 3000));
 
-    // Poll for clear to appear in tools/list (retry up to 5s)
-    let clearFound = false;
-    for (let i = 0; i < 5; i++) {
-      const tools = await mcpListTools(sessionId);
-      if (tools.some((t: any) => t.name === 'sync-list.clear')) {
-        clearFound = true;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 1000));
-    }
+    // Poll for clear to appear in tools/list. File watcher + daemon reload
+    // can complete in separate ticks, so fixed sleeps are unnecessarily flaky.
+    const clearFound = await waitForTool(sessionId, 'sync-list.clear');
     assert(clearFound, 'sync-list.clear should appear in tools after hot-reload');
 
-    // Verify clear is callable (not "Tool not found") — retry once if daemon still reloading
-    let clearResp = await mcpCallTool(sessionId, 'sync-list.clear', {}, 40);
-    if (clearResp.result?.isError && clearResp.result?.content?.[0]?.text?.includes('not found')) {
-      await new Promise((r) => setTimeout(r, 3000));
-      clearResp = await mcpCallTool(sessionId, 'sync-list.clear', {}, 42);
-    }
+    // Verify clear is callable (not "Tool not found") after the daemon view catches up.
+    const clearResp = await waitForCallableTool(sessionId, 'sync-list.clear', {}, 40, 45000);
     assert(
       !clearResp.result?.isError,
       `sync-list.clear should succeed, got: ${clearResp.result?.content?.[0]?.text}`
@@ -574,13 +725,9 @@ export default class StudioTest {
 `;
     await fs.writeFile(path.join(tmpDir, 'studio-test.photon.ts'), studioSource);
 
-    // Wait for initial load
-    await new Promise((r) => setTimeout(r, 5000));
-
-    // Verify initial state
-    let tools = await mcpListTools(sessionId);
+    // Verify initial state. The file watcher is async, so poll for visibility.
     assert(
-      tools.some((t: any) => t.name === 'studio-test/get'),
+      await waitForTool(sessionId, 'studio-test/get'),
       'studio-test/get should be in initial tools'
     );
 
@@ -609,15 +756,13 @@ export default class StudioTest {
       `beam/studio-write should save and reload, got: ${writeResp.result?.content?.[0]?.text}`
     );
 
-    // Verify new methods appear
-    tools = await mcpListTools(sessionId);
     assert(
-      tools.some((t: any) => t.name === 'studio-test/count'),
+      await waitForTool(sessionId, 'studio-test/count'),
       'studio-test/count should appear after studio edit'
     );
 
     // Verify new method is CALLABLE (not "Tool not found")
-    const countResp = await mcpCallTool(sessionId, 'studio-test/count', {}, 50);
+    const countResp = await waitForCallableTool(sessionId, 'studio-test/count', {}, 50);
     assert(
       !countResp.result?.isError,
       `studio-test/count should be callable, got: ${countResp.result?.content?.[0]?.text}`
@@ -726,16 +871,28 @@ export default class RapidSave {
 `;
     await fs.writeFile(path.join(tmpDir, 'rapid-save.photon.ts'), v2);
 
-    // Wait for both reloads to settle
-    await new Promise((r) => setTimeout(r, 6000));
+    // Verify v2's method is present and v1's is gone after the debounced reload settles.
+    const tools = await waitForToolsState(
+      sessionId,
+      (currentTools) =>
+        currentTools.some((t: any) => toolMatches(t, 'rapid-save/methodB')) &&
+        !currentTools.some((t: any) => toolMatches(t, 'rapid-save/methodA')),
+      30000
+    );
+    const rapidTools = tools
+      .filter((t: any) => t.name.startsWith('rapid-save'))
+      .map((t: any) => t.name);
+    const hasMethodB = rapidTools.some((name) => toolMatches({ name }, 'rapid-save/methodB'));
+    const hasMethodA = rapidTools.some((name) => toolMatches({ name }, 'rapid-save/methodA'));
 
-    // Verify v2's method is present and v1's is gone
-    const tools = await mcpListTools(sessionId);
-    const hasMethodB = tools.some((t: any) => t.name === 'rapid-save/methodB');
-    const hasMethodA = tools.some((t: any) => t.name === 'rapid-save/methodA');
-
-    assert(hasMethodB, 'methodB (v2) should be in tools after rapid double-save');
-    assert(!hasMethodA, 'methodA (v1) should NOT be in tools — v2 replaced it');
+    assert(
+      hasMethodB,
+      `methodB (v2) should be in tools after rapid double-save. Rapid tools: ${rapidTools.join(', ')}`
+    );
+    assert(
+      !hasMethodA,
+      `methodA (v1) should NOT be in tools — v2 replaced it. Rapid tools: ${rapidTools.join(', ')}`
+    );
 
     const newLogs = beamLogs.slice(beforeLogCount).join('');
     const loadCount =
@@ -789,7 +946,7 @@ export default class RapidSave {
 
     const callResults: any[] = [];
     for (let i = 0; i < 20; i++) {
-      const response = await mcpCallTool(sessionId, 'sync-list.get', {}, 100 + i);
+      const response = await mcpCallTool(sessionId, 'sync-list.get', {}, 100 + i, 60000);
       callResults.push(response);
       assert(!response.error, `sync-list.get returned JSON-RPC error: ${JSON.stringify(response)}`);
       assert(
@@ -815,6 +972,64 @@ export default class RapidSave {
       !/UnhandledPromiseRejection|unhandled rejection/i.test(newLogs),
       `Beam emitted unhandled rejection during restart:\n${newLogs}`
     );
+  });
+
+  // ─── Test 13: App route tabs do not bleed into Methods ───
+  await test('app Methods route stays methods-only while app route hydrates custom UI', async () => {
+    const browser = await launchChromiumForRegression();
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    try {
+      await page.goto(`${BEAM_URL}/task-board`, { waitUntil: 'domcontentloaded' });
+      const methodsRoute = await inspectBeamAppRoute(page);
+      assert(
+        methodsRoute.mainTab === 'methods',
+        `Expected /task-board to stay on Methods tab, got ${methodsRoute.mainTab}`
+      );
+      assert(
+        !methodsRoute.hasCustomUi,
+        `/task-board should not mount app custom UI; text was: ${methodsRoute.shadowText.slice(0, 300)}`
+      );
+      assert(
+        methodsRoute.methodCards > 0,
+        `/task-board should render method cards, got ${methodsRoute.methodCards}`
+      );
+      assert(
+        !/Regression Board|Backlog\s*\|\s*Todo\s*\|\s*Done/.test(
+          `${methodsRoute.shadowText}\n${methodsRoute.iframeText}`
+        ),
+        '/task-board should not render the app board above Methods'
+      );
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const reloadedMethodsRoute = await inspectBeamAppRoute(page);
+      assert(
+        reloadedMethodsRoute.mainTab === 'methods' && !reloadedMethodsRoute.hasCustomUi,
+        `Reloading /task-board should stay Methods-only, got ${JSON.stringify({
+          mainTab: reloadedMethodsRoute.mainTab,
+          hasCustomUi: reloadedMethodsRoute.hasCustomUi,
+        })}`
+      );
+
+      await page.goto(`${BEAM_URL}/task-board/main`, { waitUntil: 'domcontentloaded' });
+      let appRoute = await inspectBeamAppRoute(page);
+      const deadline = Date.now() + 10000;
+      while (!/Regression Board/.test(appRoute.iframeText) && Date.now() < deadline) {
+        await page.waitForTimeout(500);
+        appRoute = await inspectBeamAppRoute(page);
+      }
+      assert(appRoute.hasCustomUi, '/task-board/main should mount the custom UI');
+      assert(
+        /Regression Board/.test(appRoute.iframeText),
+        `/task-board/main should deliver initial tool result to the app iframe, got: ${appRoute.iframeText}`
+      );
+      assert(
+        /Backlog\s*\|\s*Todo\s*\|\s*Done/.test(appRoute.iframeText),
+        `/task-board/main should render app columns, got: ${appRoute.iframeText}`
+      );
+    } finally {
+      await page.close().catch(() => {});
+      await browser.close().catch(() => {});
+    }
   });
 
   // ─── Summary ───

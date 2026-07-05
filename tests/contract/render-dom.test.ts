@@ -23,6 +23,7 @@
  */
 
 import { strict as assert } from 'assert';
+import * as fs from 'fs/promises';
 import { chromium, type Browser, type Page } from 'playwright';
 import { FORMAT_CATALOG, generateRenderersScript } from '../../dist/auto-ui/bridge/renderers.js';
 
@@ -71,12 +72,26 @@ function check(name: string, ok: boolean, detail: string) {
   }
 }
 
+async function launchChromium(): Promise<Browser> {
+  try {
+    return await chromium.launch({ headless: true });
+  } catch (error) {
+    const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    try {
+      await fs.access(chromePath);
+      return await chromium.launch({ headless: true, executablePath: chromePath });
+    } catch {
+      throw error;
+    }
+  }
+}
+
 async function main() {
   console.log('\n🖼  Format DOM render contract\n');
 
   let browser: Browser | null = null;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchChromium();
     const page: Page = await browser.newPage();
 
     // Hermetic: no CDN fetches. External-lib renderers must degrade

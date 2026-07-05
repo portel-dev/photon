@@ -203,6 +203,10 @@ export class CustomUiRenderer extends LitElement {
   // Fixes timing race: SSE tool-result fires before iframe exists.
   @property({ type: Object }) initialResult: any = null;
 
+  @property({ type: Boolean }) hasToolResult = false;
+
+  @property({ type: Object }) toolInput: Record<string, unknown> = {};
+
   // Bump to force re-fetch of template + bridge (e.g., after tools-changed)
   @property({ type: Number }) revision = 0;
 
@@ -237,20 +241,14 @@ export class CustomUiRenderer extends LitElement {
       this._mountIframe();
     }
 
-    // Deliver result to iframe when initialResult changes after iframe is already loaded
-    if (
-      changedProperties.has('initialResult') &&
-      this.initialResult &&
-      this._iframeRef?.contentWindow
-    ) {
-      this._iframeRef.contentWindow.postMessage(
-        {
-          jsonrpc: '2.0',
-          method: 'ui/notifications/tool-result',
-          params: { result: this.initialResult },
-        },
-        '*'
-      );
+    // Deliver MCP Apps notifications when tool input/output changes after iframe load.
+    if (this._iframeRef?.contentWindow) {
+      if (changedProperties.has('toolInput')) {
+        this._sendToolInput();
+      }
+      if (changedProperties.has('initialResult') || changedProperties.has('hasToolResult')) {
+        this._deliverToolResult();
+      }
     }
 
     // Notify iframe of theme change without reloading
@@ -280,6 +278,45 @@ export class CustomUiRenderer extends LitElement {
         );
       }
     }
+  }
+
+  private _hostContext() {
+    const themeTokens = getBeamThemeTokens(this.theme);
+    return {
+      theme: this.theme,
+      locale: navigator.language || 'en-US',
+      styles: { variables: themeTokens },
+    };
+  }
+
+  private _sendToolInput(): void {
+    this._iframeRef?.contentWindow?.postMessage(
+      {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/tool-input',
+        params: { input: this.toolInput || {} },
+      },
+      '*'
+    );
+  }
+
+  private _sendToolResult(): void {
+    if (!this.hasToolResult) return;
+    this._iframeRef?.contentWindow?.postMessage(
+      {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/tool-result',
+        params: { result: this.initialResult },
+      },
+      '*'
+    );
+  }
+
+  private _deliverToolResult(): void {
+    if (!this.hasToolResult) return;
+    this._sendToolResult();
+    window.setTimeout(() => this._sendToolResult(), 50);
+    window.setTimeout(() => this._sendToolResult(), 250);
   }
 
   /**
@@ -616,17 +653,26 @@ export class CustomUiRenderer extends LitElement {
     const iframe = e.target as HTMLIFrameElement;
     this._iframeRef = iframe;
 
-    // Send initial theme to iframe after load (with tokens for immediate styling)
-    const themeTokens = getBeamThemeTokens(this.theme);
-    // Standard MCP Apps notification
+    // Send MCP Apps initialization and initial input/output after load.
+    const hostContext = this._hostContext();
+    this._iframeRef?.contentWindow?.postMessage(
+      {
+        jsonrpc: '2.0',
+        method: 'ui/initialize',
+        params: {
+          hostContext,
+          appInfo: { name: this.photon || 'photon-app', version: '1.0.0' },
+          appCapabilities: {},
+          protocolVersion: '2026-01-26',
+        },
+      },
+      '*'
+    );
     this._iframeRef?.contentWindow?.postMessage(
       {
         jsonrpc: '2.0',
         method: 'ui/notifications/host-context-changed',
-        params: {
-          theme: this.theme,
-          styles: { variables: themeTokens },
-        },
+        params: hostContext,
       },
       '*'
     );
@@ -635,21 +681,12 @@ export class CustomUiRenderer extends LitElement {
       {
         type: 'photon:theme-change',
         theme: this.theme,
-        themeTokens: { ...themeTokens, ...beamTypographyTokens },
+        themeTokens: { ...hostContext.styles.variables, ...beamTypographyTokens },
       },
       '*'
     );
-    // Deliver cached tool result if the SSE notification fired before this iframe existed
-    if (this.initialResult) {
-      this._iframeRef?.contentWindow?.postMessage(
-        {
-          jsonrpc: '2.0',
-          method: 'ui/notifications/tool-result',
-          params: { result: this.initialResult },
-        },
-        '*'
-      );
-    }
+    this._sendToolInput();
+    this._deliverToolResult();
 
     // Force Safari to repaint the iframe in the next frame
     requestAnimationFrame(() => {

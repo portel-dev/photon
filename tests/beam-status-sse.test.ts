@@ -18,6 +18,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ProgressNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..');
@@ -86,23 +87,18 @@ describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', 
   });
 
   it('progress notifications arrive on the SSE stream', async () => {
-    // Use onprogress so the SDK includes a progressToken in the request and
-    // routes incoming notifications/progress back to this handler.
-    // setNotificationHandler(ProgressNotificationSchema) does NOT work for
-    // progress — the SDK intercepts those in _onprogress() and routes by
-    // token, dropping any with no matching handler.
     const messages: string[] = [];
+    client.setNotificationHandler(ProgressNotificationSchema, (notification) => {
+      const message = notification.params?.message;
+      if (message) messages.push(message);
+    });
 
-    await client.callTool({ name: 'imperative' }, undefined, {
-      onprogress: (p: any) => {
-        if (p.message) messages.push(p.message);
-      },
-    } as any);
+    await client.callTool({ name: 'imperative' });
 
     // Poll until both expected messages arrive or the deadline passes.
     // The SSE delivery is async relative to the POST response, so a fixed
     // sleep is unreliable under load — poll instead.
-    const deadline = Date.now() + 2000;
+    const deadline = Date.now() + 10000;
     while (Date.now() < deadline) {
       if (messages.includes('working') && messages.includes('halfway')) break;
       await new Promise((r) => setTimeout(r, 50));
@@ -111,5 +107,5 @@ describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', 
     // this.status('working') and this.progress(0.5, 'halfway') should both arrive.
     expect(messages).toContain('working');
     expect(messages).toContain('halfway');
-  });
+  }, 15_000);
 });

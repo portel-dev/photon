@@ -1765,7 +1765,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       // OAuth callback handler — receives token from OAuth popup and passes to opener
       if (url.pathname === '/auth/callback') {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        });
         res.end(`<!DOCTYPE html>
 <html><head><title>Auth Complete</title></head>
 <body>
@@ -1796,7 +1799,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           const content = await readText(bundlePath);
           res.writeHead(200, {
             'Content-Type': 'text/javascript',
-            'Cache-Control': 'no-cache',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
           });
           res.end(content);
         } catch {
@@ -2309,7 +2312,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   </script>
 </body>
 </html>`;
-        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        });
         res.end(html);
         return;
       }
@@ -2350,7 +2356,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             );
           }
 
-          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.writeHead(200, {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          });
           res.end(html);
         } catch (err) {
           res.writeHead(500);
@@ -2592,7 +2601,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           }
           // Note: ?view=form and ?view=result are handled by pure-view.html above.
           // This default route only serves the full Beam app for the main UI.
-          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.writeHead(200, {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          });
           res.end(content);
         } catch (err) {
           res.writeHead(500);

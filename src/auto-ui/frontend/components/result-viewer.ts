@@ -84,6 +84,7 @@ type LayoutType =
   | 'gauge'
   | 'timeline'
   | 'dashboard'
+  | 'kanban'
   | 'cart'
   | 'panels'
   | 'tabs'
@@ -3938,6 +3939,7 @@ export class ResultViewer extends LitElement {
           'gauge',
           'timeline',
           'dashboard',
+          'kanban',
           'cart',
           'panels',
           'tabs',
@@ -4269,6 +4271,8 @@ export class ResultViewer extends LitElement {
         return this._renderTimeline(filteredData);
       case 'dashboard':
         return this._renderDashboard(filteredData);
+      case 'kanban':
+        return this._renderExternalFormat(filteredData, 'kanban');
       case 'cart':
         return this._renderCart(filteredData);
       case 'panels':
@@ -4312,17 +4316,28 @@ export class ResultViewer extends LitElement {
    */
   private _renderA2UI(filteredData: unknown): TemplateResult {
     const data = filteredData;
-    const slotId = `a2ui-${Math.random().toString(36).slice(2)}`;
+    return this._renderExternalFormat(data, 'a2ui', 'a2ui-host');
+  }
+
+  private _renderExternalFormat(
+    data: unknown,
+    format: string,
+    className = 'external-format-host'
+  ): TemplateResult {
+    const slotId = `${format.replace(/[^a-z0-9_-]/gi, '-')}-${Math.random().toString(36).slice(2)}`;
     queueMicrotask(() => {
       const target = this.shadowRoot?.getElementById(slotId) as HTMLElement | null;
-      if (target) this._renderSlideFormat(target, data, 'a2ui');
+      if (target) this._renderSlideFormat(target, data, format);
     });
+    if (format !== 'a2ui') {
+      return html`<div id=${slotId} class=${className} style="padding: 4px"></div>`;
+    }
     // The @a2ui:action handler is attached by Lit on every render — Lit
     // reuses the host div across re-renders, so attaching imperatively
     // would stack listeners and cause N-fold action duplication.
     return html`<div
       id=${slotId}
-      class="a2ui-host"
+      class=${className}
       style="padding: 4px"
       @a2ui:action=${this._handleA2UIAction}
     ></div>`;
