@@ -33,6 +33,11 @@ export interface DaemonRequest {
     | 'pause_schedule'
     | 'resume_schedule'
     | 'add_manual_schedule'
+    | 'enable_line'
+    | 'disable_line'
+    | 'pause_line'
+    | 'resume_line'
+    | 'get_line_history'
     | 'get_execution_history'
     | 'list_locks'
     | 'get_events_since'
@@ -45,7 +50,7 @@ export interface DaemonRequest {
   /** Path to photon file for reload command or initial photon setup */
   photonPath?: string;
   sessionId?: string; // Client session identifier for isolation
-  clientType?: 'cli' | 'mcp' | 'code-mode' | 'beam'; // Client type for debugging
+  clientType?: 'cli' | 'mcp' | 'code-mode' | 'beam' | 'line'; // Client type for debugging
   /** Instance name hint for auto-recovery from session drift */
   instanceName?: string;
   /** One-shot instance-scoped execution — runs on this instance without mutating the session */
@@ -149,6 +154,18 @@ export interface PhotonSession {
   clientType?: string;
 }
 
+export type LineRestartPolicy = 'always' | 'on-failure' | 'never';
+export type LineRuntimeState =
+  | 'declared'
+  | 'enrolled'
+  | 'running'
+  | 'connected'
+  | 'stale'
+  | 'refresh_needed'
+  | 'paused'
+  | 'crashed'
+  | 'disabled';
+
 /**
  * Scheduled job information
  */
@@ -211,6 +228,11 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'pause_schedule',
     'resume_schedule',
     'add_manual_schedule',
+    'enable_line',
+    'disable_line',
+    'pause_line',
+    'resume_line',
+    'get_line_history',
     'get_execution_history',
     'list_locks',
     'get_events_since',
@@ -255,6 +277,15 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
 
   // Execution-history query is scoped to a specific photon + method.
   if (req.type === 'get_execution_history') {
+    if (typeof req.photonName !== 'string') return false;
+    if (typeof req.method !== 'string') return false;
+  }
+
+  if (
+    ['enable_line', 'disable_line', 'pause_line', 'resume_line', 'get_line_history'].includes(
+      req.type as string
+    )
+  ) {
     if (typeof req.photonName !== 'string') return false;
     if (typeof req.method !== 'string') return false;
   }

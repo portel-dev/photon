@@ -129,6 +129,7 @@ SUITES=(
   "cf-deploy-codegen:$VITEST tests/cf-deploy-codegen.test.ts"
   "cf-deploy-stale-core:$VITEST tests/cf-deploy-codegen-stale-core.test.ts"
   "daemon-rpc-contract:$RUN tests/daemon-rpc-contract.test.ts"
+  "durable-lines:$RUN tests/durable-lines.test.ts"
   "daemon-parent-watchdog:$RUN tests/daemon-parent-watchdog.test.ts"
   "daemon-health-probe:$RUN tests/daemon-health-probe.test.ts"
   "worker-dep-proxy:$RUN tests/worker-dep-proxy.test.ts"

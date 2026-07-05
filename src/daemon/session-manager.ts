@@ -309,6 +309,7 @@ export class SessionManager {
     const expiredSessions: string[] = [];
 
     for (const [id, session] of this.sessions) {
+      if (session.clientType === 'line') continue;
       const idleTime = now - session.lastActivity;
 
       if (idleTime > this.sessionTimeout) {

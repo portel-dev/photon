@@ -8,6 +8,7 @@
  *   - WEBHOOKS: HTTP routes the daemon is serving (auto-registered from
  *     @webhook tags)
  *   - SESSIONS: photons currently loaded in memory
+ *   - LINES: durable daemon-owned line workloads
  *
  * Subcommands: enable / disable / pause / resume take `<photon>:<method>`.
  */
@@ -59,6 +60,12 @@ function compactError(message: string | null | undefined): string {
   return message.length > 48 ? message.slice(0, 45) + '...' : message;
 }
 
+function commandTypeOption(opts: { type?: string }, cmd: Command): string | undefined {
+  return (
+    opts.type ?? cmd.opts<{ type?: string }>().type ?? cmd.parent?.opts<{ type?: string }>().type
+  );
+}
+
 function renderTable(header: string[], rows: string[][]): string {
   if (rows.length === 0) return '  (none)\n';
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
@@ -75,10 +82,10 @@ function renderTable(header: string[], rows: string[][]): string {
 export function registerPsCommands(program: Command): void {
   const ps = program
     .command('ps')
-    .description('List scheduled jobs, webhook routes, and active sessions the daemon is serving')
+    .description('List scheduled jobs, webhook routes, active sessions, and durable lines')
     .option('--json', 'Output structured JSON')
     .option('--base <dir>', 'Filter to one PHOTON_DIR')
-    .option('--type <kind>', 'Show only "active" | "declared" | "webhooks" | "sessions"')
+    .option('--type <kind>', 'Show only "active" | "declared" | "webhooks" | "sessions" | "line"')
     .action(async (opts: { json?: boolean; base?: string; type?: string }) => {
       try {
         await ensureDaemonRunning();
@@ -93,7 +100,8 @@ export function registerPsCommands(program: Command): void {
         const declared = snap.declared.filter((d) => inBase(d.workingDir));
         const webhooks = snap.webhooks.filter((w) => inBase(w.workingDir));
         const sessions = snap.sessions.filter((s) => inBase(s.workingDir));
-        const filtered = { active, declared, webhooks, sessions };
+        const lines = (snap.lines ?? []).filter((l) => inBase(l.workingDir));
+        const filtered = { active, declared, webhooks, sessions, lines };
 
         if (opts.json) {
           process.stdout.write(JSON.stringify(filtered, null, 2) + '\n');
@@ -106,6 +114,7 @@ export function registerPsCommands(program: Command): void {
           declared: wantAll || typeFilter === 'declared',
           webhooks: wantAll || typeFilter === 'webhooks',
           sessions: wantAll || typeFilter === 'sessions',
+          lines: wantAll || typeFilter === 'line' || typeFilter === 'lines',
         };
 
         const suppressed = snap.suppressed ?? [];
@@ -198,6 +207,24 @@ export function registerPsCommands(program: Command): void {
             )
           );
         }
+        if (show.lines) {
+          process.stdout.write(`\nLINES (${lines.length})\n`);
+          process.stdout.write(
+            renderTable(
+              ['PHOTON_DIR', 'PHOTON', 'METHOD', 'LINE', 'STATE', 'HEARTBEAT', 'RESTART', 'ERROR'],
+              lines.map((l) => [
+                tilde(l.workingDir),
+                l.photon,
+                l.method,
+                l.lineId,
+                l.state,
+                fmtWhen(l.lastHeartbeatAt),
+                l.restart,
+                compactError(l.lastError),
+              ])
+            )
+          );
+        }
       } catch (error) {
         const { printError } = await import('../../cli-formatter.js');
         printError(`photon ps failed: ${getErrorMessage(error)}`);
@@ -208,11 +235,27 @@ export function registerPsCommands(program: Command): void {
   ps.command('enable')
     .argument('<target>', 'Enroll a declared schedule: <photon>:<method>')
     .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
+    .option('--type <kind>', 'Use "line" to enroll a durable line instead of a schedule')
     .description('Activate a declared @scheduled method so its cron fires')
-    .action(async (target: string, opts: { base?: string }) => {
+    .action(async (target: string, opts: { base?: string; type?: string }, cmd: Command) => {
       try {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
+        if (commandTypeOption(opts, cmd)?.toLowerCase() === 'line') {
+          const { enableLine } = await import('../../daemon/client.js');
+          const result = (await enableLine(photon, method, opts.base)) as {
+            photon: string;
+            method: string;
+            base: string;
+            lineId: string;
+            status: string;
+          };
+          const { printSuccess } = await import('../../cli-formatter.js');
+          printSuccess(
+            `Enabled line ${result.photon}:${result.method} (${result.lineId}) under ${tilde(result.base)}: ${result.status}`
+          );
+          return;
+        }
         const { enableSchedule } = await import('../../daemon/client.js');
         const result = (await enableSchedule(photon, method, opts.base)) as {
           photon: string;
@@ -234,11 +277,22 @@ export function registerPsCommands(program: Command): void {
   ps.command('disable')
     .argument('<target>', 'Remove an active schedule: <photon>:<method>')
     .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
+    .option('--type <kind>', 'Use "line" to disable a durable line instead of a schedule')
     .description('Drop a schedule from the active list and cancel its timer')
-    .action(async (target: string, opts: { base?: string }) => {
+    .action(async (target: string, opts: { base?: string; type?: string }, cmd: Command) => {
       try {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
+        if (commandTypeOption(opts, cmd)?.toLowerCase() === 'line') {
+          const { disableLine } = await import('../../daemon/client.js');
+          const res = (await disableLine(photon, method, opts.base)) as {
+            removed?: boolean;
+          } | null;
+          const { printSuccess, printWarning } = await import('../../cli-formatter.js');
+          if (res?.removed) printSuccess(`Disabled line ${photon}:${method}`);
+          else printWarning(`No active line matched ${photon}:${method}`);
+          return;
+        }
         const { disableSchedule } = await import('../../daemon/client.js');
         const res = (await disableSchedule(photon, method, opts.base)) as {
           removed?: boolean;
@@ -266,11 +320,19 @@ export function registerPsCommands(program: Command): void {
   ps.command('pause')
     .argument('<target>', '<photon>:<method>')
     .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
+    .option('--type <kind>', 'Use "line" to pause a durable line instead of a schedule')
     .description('Keep the enrollment record but stop firing until resumed')
-    .action(async (target: string, opts: { base?: string }) => {
+    .action(async (target: string, opts: { base?: string; type?: string }, cmd: Command) => {
       try {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
+        if (commandTypeOption(opts, cmd)?.toLowerCase() === 'line') {
+          const { pauseLine } = await import('../../daemon/client.js');
+          await pauseLine(photon, method, opts.base);
+          const { printSuccess } = await import('../../cli-formatter.js');
+          printSuccess(`Paused line ${photon}:${method}`);
+          return;
+        }
         const { pauseSchedule } = await import('../../daemon/client.js');
         await pauseSchedule(photon, method, opts.base);
         const { printSuccess } = await import('../../cli-formatter.js');
@@ -285,11 +347,19 @@ export function registerPsCommands(program: Command): void {
   ps.command('resume')
     .argument('<target>', '<photon>:<method>')
     .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
+    .option('--type <kind>', 'Use "line" to resume a durable line instead of a schedule')
     .description('Re-enable a paused schedule')
-    .action(async (target: string, opts: { base?: string }) => {
+    .action(async (target: string, opts: { base?: string; type?: string }, cmd: Command) => {
       try {
         await ensureDaemonRunning();
         const { photon, method } = parseTarget(target);
+        if (commandTypeOption(opts, cmd)?.toLowerCase() === 'line') {
+          const { resumeLine } = await import('../../daemon/client.js');
+          await resumeLine(photon, method, opts.base);
+          const { printSuccess } = await import('../../cli-formatter.js');
+          printSuccess(`Resumed line ${photon}:${method}`);
+          return;
+        }
         const { resumeSchedule } = await import('../../daemon/client.js');
         await resumeSchedule(photon, method, opts.base);
         const { printSuccess } = await import('../../cli-formatter.js');
@@ -306,12 +376,13 @@ export function registerPsCommands(program: Command): void {
     .option('--limit <n>', 'Show at most N most-recent entries', '20')
     .option('--since <iso>', 'Only entries at or after this ISO timestamp')
     .option('--base <dir>', 'Target PHOTON_DIR when the photon exists in more than one')
+    .option('--type <kind>', 'Use "line" to show durable line history instead of schedule history')
     .option('--json', 'Output structured JSON')
     .description('Show recent firings of a scheduled method')
     .action(
       async (
         target: string,
-        opts: { limit?: string; since?: string; base?: string; json?: boolean },
+        opts: { limit?: string; since?: string; base?: string; json?: boolean; type?: string },
         cmd: Command
       ) => {
         try {
@@ -322,6 +393,38 @@ export function registerPsCommands(program: Command): void {
           const sinceTs = opts.since ? Date.parse(opts.since) : undefined;
           if (opts.since && (!sinceTs || Number.isNaN(sinceTs))) {
             throw new Error(`Invalid --since value "${opts.since}" (expected ISO 8601)`);
+          }
+          if (commandTypeOption(opts, cmd)?.toLowerCase() === 'line') {
+            const { fetchLineHistory } = await import('../../daemon/client.js');
+            const resp = (await fetchLineHistory(photon, method, {
+              limit,
+              sinceTs,
+              workingDir: opts.base,
+            })) as {
+              photon: string;
+              method: string;
+              entries: Array<{ ts: number; state: string; message?: string; error?: string }>;
+            };
+            const parentOpts: Record<string, unknown> = cmd.parent?.opts() ?? {};
+            const wantJson = Boolean(opts.json || parentOpts.json);
+            if (wantJson) {
+              process.stdout.write(JSON.stringify(resp, null, 2) + '\n');
+              return;
+            }
+            process.stdout.write(
+              `\nLINE HISTORY for ${resp.photon}:${resp.method} (${resp.entries.length})\n`
+            );
+            process.stdout.write(
+              renderTable(
+                ['WHEN', 'STATE', 'DETAIL'],
+                resp.entries.map((e) => [
+                  fmtWhen(e.ts),
+                  e.state.toUpperCase(),
+                  e.error ?? e.message ?? '',
+                ])
+              )
+            );
+            return;
           }
           const resp = await fetchExecutionHistory(photon, method, {
             limit,

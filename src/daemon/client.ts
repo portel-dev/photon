@@ -1042,7 +1042,35 @@ export interface PsSnapshot {
   }>;
   webhooks: Array<{ photon: string; route: string; method: string; workingDir?: string }>;
   sessions: Array<{ photon: string; workingDir?: string; key: string; instanceCount: number }>;
+  lines?: Array<{
+    key: string;
+    photon: string;
+    method: string;
+    lineId: string;
+    workingDir?: string;
+    photonPath?: string;
+    declared: boolean;
+    enrolled: boolean;
+    paused: boolean;
+    state: string;
+    sessionId: string;
+    instanceName: string;
+    startedAt?: number;
+    lastHeartbeatAt?: number;
+    lastEventId?: string;
+    refreshNeeded?: boolean;
+    restart: string;
+    healthIntervalMs: number;
+    lastError?: string;
+    crashCount?: number;
+  }>;
   suppressed?: Array<{ photon: string; method: string; suppressedAt: string; workingDir: string }>;
+  suppressedLines?: Array<{
+    photon: string;
+    method: string;
+    suppressedAt: string;
+    workingDir: string;
+  }>;
 }
 
 /** Fire-and-forget helper for the new RPCs. Returns the parsed result.data. */
@@ -1158,6 +1186,49 @@ export async function addManualSchedule(
     method,
     cron,
     workingDir,
+  });
+}
+
+export async function enableLine(
+  photonName: string,
+  method: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'enable_line', photonName, method, workingDir });
+}
+export async function disableLine(
+  photonName: string,
+  method: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'disable_line', photonName, method, workingDir });
+}
+export async function pauseLine(
+  photonName: string,
+  method: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'pause_line', photonName, method, workingDir });
+}
+export async function resumeLine(
+  photonName: string,
+  method: string,
+  workingDir?: string
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({ type: 'resume_line', photonName, method, workingDir });
+}
+export async function fetchLineHistory(
+  photonName: string,
+  method: string,
+  opts: { limit?: number; sinceTs?: number; workingDir?: string } = {}
+): Promise<unknown> {
+  return sendSimpleDaemonRequest({
+    type: 'get_line_history',
+    photonName,
+    method,
+    limit: opts.limit,
+    sinceTs: opts.sinceTs,
+    workingDir: opts.workingDir,
   });
 }
 

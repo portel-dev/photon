@@ -32,6 +32,11 @@ interface Tool {
   layoutHints?: Record<string, string>;
   exportFormats?: string[];
   scopes?: string[];
+  line?: {
+    id: string;
+    restart?: 'always' | 'on-failure' | 'never';
+    healthIntervalMs?: number;
+  };
 }
 
 type PhotonType = 'workflow' | 'streaming' | 'api';
@@ -827,6 +832,15 @@ export class PhotonDocExtractor {
         ? scopes
         : [`${methodName}:${/@readOnly\b/.test(jsdoc) ? 'read' : 'write'}`];
 
+    const lineMatch = jsdoc.match(/@line(?:\s+([^\r\n*]+))?/i);
+    const restartRaw = jsdoc.match(/@restart\s+([^\r\n*\s]+)/i)?.[1];
+    const restart =
+      restartRaw === 'always' || restartRaw === 'on-failure' || restartRaw === 'never'
+        ? restartRaw
+        : undefined;
+    const healthRaw = jsdoc.match(/@healthIntervalMs\s+(\d+)/i)?.[1];
+    const healthIntervalMs = healthRaw !== undefined ? Number.parseInt(healthRaw, 10) : undefined;
+
     return {
       name: methodName,
       description,
@@ -836,6 +850,19 @@ export class PhotonDocExtractor {
       layoutHints,
       exportFormats,
       scopes: inferredScopes,
+      ...(lineMatch
+        ? {
+            line: {
+              id: (lineMatch[1] ?? methodName).trim().split(/\s+/)[0] || methodName,
+              ...(restart ? { restart } : {}),
+              ...(healthIntervalMs !== undefined &&
+              Number.isFinite(healthIntervalMs) &&
+              healthIntervalMs >= 0
+                ? { healthIntervalMs }
+                : {}),
+            },
+          }
+        : {}),
     };
   }
 
@@ -882,6 +909,10 @@ export class PhotonDocExtractor {
     // webhooks — webhook endpoint patterns
     if (/webhook/i.test(this.content) && /@webhook/.test(this.content)) {
       features.push('webhooks');
+    }
+
+    if (/@line\b/.test(this.content)) {
+      features.push('lines');
     }
 
     // channels — channel in emit patterns

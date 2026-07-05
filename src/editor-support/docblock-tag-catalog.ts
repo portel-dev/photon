@@ -378,6 +378,24 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
       type: 'keyword',
     },
     {
+      label: '@line',
+      detail: 'Durable daemon-owned line',
+      snippetTmpl: '@line ${1:line-id}',
+      type: 'keyword',
+    },
+    {
+      label: '@restart',
+      detail: 'Durable line restart policy',
+      snippetTmpl: '@restart ${1:always}',
+      type: 'keyword',
+    },
+    {
+      label: '@healthIntervalMs',
+      detail: 'Durable line heartbeat interval',
+      snippetTmpl: '@healthIntervalMs ${1:15000}',
+      type: 'keyword',
+    },
+    {
       label: '@cron',
       detail: 'Cron schedule (alias)',
       snippetTmpl: '@cron ${1:0 0 * * *}',

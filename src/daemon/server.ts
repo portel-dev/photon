@@ -30,6 +30,8 @@ import {
   DaemonRequest,
   DaemonResponse,
   isValidDaemonRequest,
+  type LineRestartPolicy,
+  type LineRuntimeState,
   type ScheduledJob,
   type LockInfo,
 } from './protocol.js';
@@ -1739,7 +1741,7 @@ async function scanOneForProactiveMetadata(
     return dropProactiveMetadataFor(photonName, workingDir);
   }
 
-  if (!/@(scheduled|cron|webhook)\b/.test(source) && !/\basync\s+handle[A-Z]/.test(source)) {
+  if (!/@(scheduled|cron|webhook|line)\b/.test(source) && !/\basync\s+handle[A-Z]/.test(source)) {
     // No proactive tags anymore — clear anything we had for this photon.
     return dropProactiveMetadataFor(photonName, workingDir);
   }
@@ -1767,8 +1769,10 @@ async function scanOneForProactiveMetadata(
   // declaredSchedules below can feed its keys straight into .get/.set.
   // See src/daemon/registry-keys.ts for the branded-key rationale.
   const nextSchedules = new Map<ScheduleKey, DeclaredSchedule>();
+  const nextLines = new Map<LineKey, DeclaredLine>();
   const nextRoutes = new Map<string, string>(); // routePath → methodName
   const requiredConfigByMethod = extractRequiredConfigByMethod(source);
+  const lineConfigByMethod = parseLineConfigByMethod(source);
 
   for (const tool of meta.tools) {
     if (tool.scheduled) {
@@ -1784,6 +1788,17 @@ async function scanOneForProactiveMetadata(
     if (tool.webhook !== undefined) {
       const routePath = typeof tool.webhook === 'string' ? tool.webhook : tool.name;
       nextRoutes.set(routePath, tool.name);
+    }
+    const lineConfig = lineConfigByMethod.get(tool.name);
+    if (lineConfig) {
+      nextLines.set(lineKey(photonName, tool.name, workingDir), {
+        photon: photonName,
+        method: tool.name,
+        photonPath: filePath,
+        workingDir,
+        requiredConfig: requiredConfigByMethod.get(tool.name),
+        ...lineConfig,
+      });
     }
   }
 
@@ -1815,6 +1830,36 @@ async function scanOneForProactiveMetadata(
   }
   for (const staleKey of existingScheduleKeys) {
     declaredSchedules.delete(staleKey);
+    changed = true;
+  }
+
+  const existingLineKeys = new Set(
+    Array.from(declaredLines.entries())
+      .filter(([, v]) => {
+        if (v.photon !== photonName) return false;
+        const vBase = v.workingDir ? path.resolve(v.workingDir) : undefined;
+        return vBase === resolvedWorkingDir;
+      })
+      .map(([k]) => k)
+  );
+  for (const [key, decl] of nextLines) {
+    const prev = declaredLines.get(key);
+    if (
+      !prev ||
+      prev.lineId !== decl.lineId ||
+      prev.restart !== decl.restart ||
+      prev.healthIntervalMs !== decl.healthIntervalMs ||
+      prev.photonPath !== decl.photonPath ||
+      prev.workingDir !== decl.workingDir
+    ) {
+      declaredLines.set(key, decl);
+      changed = true;
+    }
+    existingLineKeys.delete(key);
+  }
+  for (const staleKey of existingLineKeys) {
+    declaredLines.delete(staleKey);
+    stopLine(staleKey, 'declaration-removed');
     changed = true;
   }
 
@@ -1869,6 +1914,16 @@ function dropProactiveMetadataFor(photonName: string, workingDir?: string): bool
       if (declDir !== resolvedDir) continue;
     }
     declaredSchedules.delete(key);
+    changed = true;
+  }
+  for (const [key, decl] of declaredLines.entries()) {
+    if (decl.photon !== photonName) continue;
+    if (resolvedDir) {
+      const declDir = decl.workingDir ? path.resolve(decl.workingDir) : undefined;
+      if (declDir !== resolvedDir) continue;
+    }
+    declaredLines.delete(key);
+    stopLine(key, 'declaration-removed');
     changed = true;
   }
   // Webhook routes are keyed by (base, photon). If a workingDir was
@@ -2010,6 +2065,7 @@ function watchBaseForProactiveMetadata(basePath: string, _isDefaultBase: boolean
           if (changed) {
             // Re-sync timers so cron edits take effect immediately.
             syncActiveSchedulesAtBoot();
+            syncActiveLinesAtBoot();
             publishToChannel('system:*', {
               event: 'schedules-changed',
               photon: photonName,
@@ -2978,6 +3034,55 @@ interface DeclaredSchedule {
 }
 const declaredSchedules = new Map<ScheduleKey, DeclaredSchedule>();
 
+interface DeclaredLine {
+  photon: string;
+  method: string;
+  lineId: string;
+  restart: LineRestartPolicy;
+  healthIntervalMs: number;
+  photonPath: string;
+  workingDir?: string;
+  requiredConfig?: string[];
+}
+
+type LineKey = string & { readonly __lineKey: 'line' };
+const declaredLines = new Map<LineKey, DeclaredLine>();
+
+function lineKey(photon: string, method: string, workingDir?: string): LineKey {
+  const base = workingDir ? path.resolve(workingDir) : '-';
+  return `${base}::${photon}:${method}` as LineKey;
+}
+
+function parseLineConfigByMethod(
+  source: string
+): Map<string, { lineId: string; restart: LineRestartPolicy; healthIntervalMs: number }> {
+  const lines = new Map<
+    string,
+    { lineId: string; restart: LineRestartPolicy; healthIntervalMs: number }
+  >();
+  const methodRegex =
+    /\/\*\*([\s\S]*?)\*\/\s*(?:public\s+|private\s+|protected\s+)?(?:async\s+)?\*?\s*([A-Za-z_$][\w$]*)\s*\(/g;
+  for (const match of source.matchAll(methodRegex)) {
+    const jsdoc = match[1] ?? '';
+    const method = match[2];
+    const lineMatch = jsdoc.match(/@line(?:\s+([^\r\n*]+))?/i);
+    if (!lineMatch) continue;
+    const restartRaw = jsdoc.match(/@restart\s+([^\r\n*\s]+)/i)?.[1];
+    const restart: LineRestartPolicy =
+      restartRaw === 'on-failure' || restartRaw === 'never' ? restartRaw : 'always';
+    const healthRaw = jsdoc.match(/@healthIntervalMs\s+(\d+)/i)?.[1];
+    const parsedHealth = healthRaw === undefined ? undefined : Number.parseInt(healthRaw, 10);
+    const healthIntervalMs =
+      parsedHealth !== undefined && Number.isFinite(parsedHealth) ? parsedHealth : 15000;
+    lines.set(method, {
+      lineId: (lineMatch[1] ?? method).trim().split(/\s+/)[0] || method,
+      restart,
+      healthIntervalMs,
+    });
+  }
+  return lines;
+}
+
 function extractRequiredConfigByMethod(source: string): Map<string, string[]> {
   const required = new Map<string, string[]>();
   const methodRegex =
@@ -3182,6 +3287,347 @@ function writeActiveSchedulesFile(baseDir: string, data: ActiveSchedulesFile): v
   fs.renameSync(tmp, file);
 }
 
+interface ActiveLineEntry {
+  photon: string;
+  method: string;
+  enabledAt: string;
+  enabledBy: string;
+  paused?: boolean;
+}
+
+interface ActiveLinesFile {
+  version: 1;
+  active: ActiveLineEntry[];
+  suppressed?: SuppressedEntry[];
+}
+
+interface LineHistoryEntry {
+  ts: number;
+  state: LineRuntimeState;
+  message?: string;
+  error?: string;
+}
+
+interface LineRuntime {
+  key: LineKey;
+  decl: DeclaredLine;
+  state: LineRuntimeState;
+  sessionId: string;
+  instanceName: string;
+  startedAt?: number;
+  lastHeartbeatAt?: number;
+  lastEventId?: string;
+  refreshNeeded?: boolean;
+  lastError?: string;
+  crashCount: number;
+  crashTimestamps: number[];
+  abort?: AbortController;
+  run?: Promise<void>;
+  staleTimer?: NodeJS.Timeout;
+  restartTimer?: NodeJS.Timeout;
+  history: LineHistoryEntry[];
+}
+
+const runningLines = new Map<LineKey, LineRuntime>();
+
+function activeLinesPath(baseDir: string): string {
+  return path.join(baseDir, '.data', '.active-lines.json');
+}
+
+function readActiveLinesFile(baseDir: string): ActiveLinesFile {
+  const file = activeLinesPath(baseDir);
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.active)) {
+      return {
+        version: 1,
+        active: parsed.active
+          .filter(
+            (e: any) =>
+              e &&
+              typeof e.photon === 'string' &&
+              typeof e.method === 'string' &&
+              typeof e.enabledAt === 'string'
+          )
+          .map((e: any) => ({
+            photon: e.photon,
+            method: e.method,
+            enabledAt: e.enabledAt,
+            enabledBy: typeof e.enabledBy === 'string' ? e.enabledBy : 'unknown',
+            paused: !!e.paused,
+          })),
+        suppressed: Array.isArray(parsed.suppressed)
+          ? parsed.suppressed.filter(
+              (s: any) => s && typeof s.photon === 'string' && typeof s.method === 'string'
+            )
+          : undefined,
+      };
+    }
+  } catch {
+    // Missing or malformed is empty.
+  }
+  return { version: 1, active: [] };
+}
+
+function writeActiveLinesFile(baseDir: string, data: ActiveLinesFile): void {
+  const file = activeLinesPath(baseDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ ...data, version: 1 }, null, 2));
+  fs.renameSync(tmp, file);
+}
+
+function findLineDeclarationsFor(
+  photon: string,
+  method: string,
+  preferredBase?: string
+): Array<{ key: LineKey; decl: DeclaredLine }> {
+  const matches: Array<{ key: LineKey; decl: DeclaredLine }> = [];
+  const preferredResolved = preferredBase ? path.resolve(preferredBase) : undefined;
+  for (const [key, decl] of declaredLines.entries()) {
+    if (decl.photon !== photon || decl.method !== method) continue;
+    const declBase = decl.workingDir ? path.resolve(decl.workingDir) : undefined;
+    if (preferredResolved && declBase && declBase !== preferredResolved) continue;
+    matches.push({ key, decl });
+  }
+  return matches;
+}
+
+function pushLineHistory(runtime: LineRuntime, entry: Omit<LineHistoryEntry, 'ts'>): void {
+  runtime.history.push({ ts: Date.now(), ...entry });
+  if (runtime.history.length > 100) runtime.history.splice(0, runtime.history.length - 100);
+}
+
+function setLineState(
+  runtime: LineRuntime,
+  state: LineRuntimeState,
+  details: { message?: string; error?: string; refreshNeeded?: boolean } = {}
+): void {
+  runtime.state = state;
+  if (details.error !== undefined) runtime.lastError = details.error;
+  if (details.refreshNeeded !== undefined) runtime.refreshNeeded = details.refreshNeeded;
+  if (state === 'connected' || state === 'running') runtime.lastHeartbeatAt = Date.now();
+  const eventId = String(Date.now());
+  runtime.lastEventId = eventId;
+  pushLineHistory(runtime, { state, message: details.message, error: details.error });
+  publishToChannel(`lines:${runtime.decl.photon}`, {
+    event: 'line-state',
+    photon: runtime.decl.photon,
+    method: runtime.decl.method,
+    lineId: runtime.decl.lineId,
+    state,
+    message: details.message,
+    error: details.error,
+    timestamp: Date.now(),
+  });
+}
+
+function armLineStaleTimer(runtime: LineRuntime): void {
+  if (runtime.staleTimer) clearInterval(runtime.staleTimer);
+  if (runtime.decl.healthIntervalMs <= 0) return;
+  runtime.staleTimer = setInterval(() => {
+    if (!runtime.lastHeartbeatAt) return;
+    if (runtime.state !== 'connected' && runtime.state !== 'running') return;
+    if (Date.now() - runtime.lastHeartbeatAt > runtime.decl.healthIntervalMs * 3) {
+      setLineState(runtime, 'stale', { message: 'line heartbeat is stale' });
+    }
+  }, runtime.decl.healthIntervalMs);
+  runtime.staleTimer.unref?.();
+}
+
+function stopLine(key: LineKey, reason: string): void {
+  const runtime = runningLines.get(key);
+  if (!runtime) return;
+  if (runtime.staleTimer) clearInterval(runtime.staleTimer);
+  if (runtime.restartTimer) clearTimeout(runtime.restartTimer);
+  runtime.abort?.abort(new Error(reason));
+  runningLines.delete(key);
+  setLineState(runtime, reason === 'pause' ? 'paused' : 'disabled', { message: reason });
+}
+
+function scheduleLineRestart(runtime: LineRuntime): void {
+  if (runtime.decl.restart === 'never') return;
+  const recent = runtime.crashTimestamps.filter((ts) => Date.now() - ts < 5 * 60_000);
+  runtime.crashTimestamps = recent;
+  const delay = Math.min(1000 * Math.pow(2, Math.max(0, recent.length - 1)), 30_000);
+  runtime.restartTimer = setTimeout(() => {
+    if (runningLines.get(runtime.key) === runtime) {
+      runningLines.delete(runtime.key);
+    }
+    void startLine(runtime.key, runtime.decl, 'restart');
+  }, delay);
+  runtime.restartTimer.unref?.();
+}
+
+async function startLine(
+  key: LineKey,
+  decl: DeclaredLine,
+  source: string = 'active-list'
+): Promise<LineRuntime> {
+  const existing = runningLines.get(key);
+  if (
+    existing?.run &&
+    !existing.abort?.signal.aborted &&
+    !['crashed', 'disabled'].includes(existing.state)
+  ) {
+    return existing;
+  }
+  if (shouldRunInWorker(decl.photonPath)) {
+    throw new Error(`@line is not supported on @worker photons in this release: ${decl.photon}`);
+  }
+  const base = path.resolve(decl.workingDir || getDefaultContext().baseDir);
+  if (isHostDisabledBase(base)) {
+    throw new Error(
+      `Cannot start line ${decl.photon}:${decl.method} - base ${base} is host-disabled`
+    );
+  }
+  const missingConfig = missingRequiredConfig(decl.photon, decl.requiredConfig, base);
+  if (missingConfig.length > 0) {
+    throw new Error(
+      `Cannot start line ${decl.photon}:${decl.method} - missing required config: ${missingConfig.join(', ')}`
+    );
+  }
+
+  const sessionId = `line:${decl.lineId}`;
+  const instanceName = `line:${decl.lineId}`;
+  const runtime: LineRuntime = {
+    key,
+    decl,
+    state: 'running',
+    sessionId,
+    instanceName,
+    startedAt: Date.now(),
+    lastHeartbeatAt: Date.now(),
+    crashCount: existing?.crashCount ?? 0,
+    crashTimestamps: existing?.crashTimestamps ?? [],
+    history: existing?.history ?? [],
+  };
+  const abort = new AbortController();
+  runtime.abort = abort;
+  runningLines.set(key, runtime);
+  setLineState(runtime, 'running', { message: source });
+  armLineStaleTimer(runtime);
+
+  runtime.run = (async () => {
+    let manager: SessionManager | null;
+    try {
+      manager = await getOrCreateSessionManager(decl.photon, decl.photonPath, base);
+    } catch (err) {
+      throw new Error(
+        `Cannot initialize @line ${decl.photon}:${decl.method}: ${getErrorMessage(err)}`
+      );
+    }
+    if (!manager) {
+      throw new Error(
+        `Cannot initialize @line ${decl.photon}:${decl.method}: session manager unavailable`
+      );
+    }
+    const session = await manager.getOrCreateSession(sessionId, 'line');
+    if (session.instanceName !== instanceName) {
+      await manager.switchInstance(session.id, instanceName);
+    }
+    const lineSession = await manager.getOrCreateSession(sessionId, 'line');
+    const persistLineState = () => {
+      void persistInstanceState(lineSession.instance, decl.photon, instanceName, base).catch(
+        (err) =>
+          logger.debug('Line state persistence failed', {
+            photon: decl.photon,
+            method: decl.method,
+            error: getErrorMessage(err),
+          })
+      );
+    };
+    const outputHandler = (emit: any) => {
+      if (emit && typeof emit === 'object') {
+        runtime.lastHeartbeatAt = Date.now();
+        runtime.lastError = undefined;
+        runtime.refreshNeeded = emit.emit === 'refresh_needed' || emit.refreshNeeded === true;
+        const state: LineRuntimeState = runtime.refreshNeeded ? 'refresh_needed' : 'connected';
+        setLineState(runtime, state, {
+          message: typeof emit.message === 'string' ? emit.message : undefined,
+          refreshNeeded: runtime.refreshNeeded,
+        });
+        if (emit.channel) publishToChannel(emit.channel, emit);
+        persistLineState();
+      }
+    };
+    trackExecution(compositeKey(decl.photon, base));
+    try {
+      await runWithPhotonDir(base, () =>
+        manager.loader.executeTool(
+          lineSession.instance,
+          decl.method,
+          {},
+          { outputHandler, signal: abort.signal }
+        )
+      );
+      persistLineState();
+      if (!abort.signal.aborted) {
+        setLineState(runtime, 'disabled', { message: 'line completed' });
+        if (runtime.decl.restart === 'always') {
+          scheduleLineRestart(runtime);
+        }
+      }
+    } finally {
+      untrackExecution(compositeKey(decl.photon, base));
+    }
+  })()
+    .catch((err) => {
+      if (abort.signal.aborted) return;
+      runtime.crashCount++;
+      runtime.crashTimestamps.push(Date.now());
+      setLineState(runtime, 'crashed', { error: getErrorMessage(err) });
+      scheduleLineRestart(runtime);
+    })
+    .finally(() => {
+      if (
+        runningLines.get(key) === runtime &&
+        !runtime.restartTimer &&
+        runtime.state !== 'crashed'
+      ) {
+        runningLines.delete(key);
+      }
+    });
+
+  return runtime;
+}
+
+function syncActiveLinesAtBoot(): void {
+  const defaultBase = path.resolve(getDefaultContext().baseDir);
+  const bases = new Set<string>([defaultBase]);
+  for (const b of listActiveBases()) bases.add(b.path);
+  let started = 0;
+  for (const basePath of bases) {
+    if (isHostDisabledBase(basePath)) continue;
+    const file = readActiveLinesFile(basePath);
+    const suppressedSet = new Set((file.suppressed ?? []).map((s) => `${s.photon}:${s.method}`));
+    for (const entry of file.active) {
+      if (entry.paused) continue;
+      if (suppressedSet.has(`${entry.photon}:${entry.method}`)) continue;
+      const key = lineKey(entry.photon, entry.method, basePath);
+      const decl = declaredLines.get(key);
+      if (!decl) {
+        logger.warn('Active line references a declaration that no longer exists', {
+          base: basePath,
+          photon: entry.photon,
+          method: entry.method,
+        });
+        continue;
+      }
+      void startLine(key, decl, 'active-list').catch((err) =>
+        logger.warn('Failed to start active line', {
+          base: basePath,
+          photon: entry.photon,
+          method: entry.method,
+          error: getErrorMessage(err),
+        })
+      );
+      started++;
+    }
+  }
+  if (started > 0) logger.info('Active lines synced', { started, declared: declaredLines.size });
+}
+
 /**
  * Auto-register scheduled jobs and webhook routes from tool metadata.
  * Called once per photon on first session manager creation.
@@ -3240,6 +3686,22 @@ async function autoRegisterFromMetadata(
       readActiveSchedulesFile(sessionWorkingDir ?? getDefaultContext().baseDir).suppressed ?? [];
 
     for (const tool of tools) {
+      const lineMeta = tool.line as
+        | { id?: string; restart?: LineRestartPolicy; healthIntervalMs?: number }
+        | undefined;
+      if (lineMeta) {
+        declaredLines.set(lineKey(photonName, tool.name, sessionWorkingDir), {
+          photon: photonName,
+          method: tool.name,
+          lineId: lineMeta.id || tool.name,
+          restart: lineMeta.restart || 'always',
+          healthIntervalMs: lineMeta.healthIntervalMs ?? 15000,
+          photonPath: sourcePath || '',
+          workingDir: sessionWorkingDir,
+          requiredConfig: requiredConfigByMethod.get(tool.name),
+        });
+      }
+
       if (tool.scheduled) {
         const jobId = declaredKey(photonName, tool.name, sessionWorkingDir);
         if (!scheduledJobs.has(jobId)) {
@@ -3945,6 +4407,92 @@ async function handleRequest(
         instanceCount: mgr.getSessions().length,
       });
     }
+    const lines: Array<{
+      key: string;
+      photon: string;
+      method: string;
+      lineId: string;
+      workingDir?: string;
+      photonPath?: string;
+      declared: boolean;
+      enrolled: boolean;
+      paused: boolean;
+      state: LineRuntimeState;
+      sessionId: string;
+      instanceName: string;
+      startedAt?: number;
+      lastHeartbeatAt?: number;
+      lastEventId?: string;
+      refreshNeeded?: boolean;
+      restart: LineRestartPolicy;
+      healthIntervalMs: number;
+      lastError?: string;
+      crashCount?: number;
+    }> = [];
+    const lineKeysSeen = new Set<LineKey>();
+    const knownLineBases = new Set<string>([defaultBase]);
+    for (const decl of declaredLines.values()) {
+      if (decl.workingDir) knownLineBases.add(path.resolve(decl.workingDir));
+    }
+    for (const base of knownLineBases) {
+      const activeFile = readActiveLinesFile(base);
+      for (const entry of activeFile.active) {
+        const key = lineKey(entry.photon, entry.method, base);
+        const decl = declaredLines.get(key);
+        const runtime = runningLines.get(key);
+        if (!decl && !runtime) continue;
+        const lineId = decl?.lineId ?? runtime?.decl.lineId ?? entry.method;
+        lines.push({
+          key,
+          photon: entry.photon,
+          method: entry.method,
+          lineId,
+          workingDir: base,
+          photonPath: decl?.photonPath ?? runtime?.decl.photonPath,
+          declared: !!decl,
+          enrolled: true,
+          paused: !!entry.paused,
+          state: entry.paused ? 'paused' : (runtime?.state ?? 'enrolled'),
+          sessionId: `line:${lineId}`,
+          instanceName: `line:${lineId}`,
+          startedAt: runtime?.startedAt,
+          lastHeartbeatAt: runtime?.lastHeartbeatAt,
+          lastEventId: runtime?.lastEventId,
+          refreshNeeded: runtime?.refreshNeeded,
+          restart: decl?.restart ?? runtime?.decl.restart ?? 'always',
+          healthIntervalMs: decl?.healthIntervalMs ?? runtime?.decl.healthIntervalMs ?? 15000,
+          lastError: runtime?.lastError,
+          crashCount: runtime?.crashCount,
+        });
+        lineKeysSeen.add(key);
+      }
+    }
+    for (const [key, decl] of declaredLines.entries()) {
+      if (lineKeysSeen.has(key)) continue;
+      const runtime = runningLines.get(key);
+      lines.push({
+        key,
+        photon: decl.photon,
+        method: decl.method,
+        lineId: decl.lineId,
+        workingDir: decl.workingDir ?? defaultBase,
+        photonPath: decl.photonPath,
+        declared: true,
+        enrolled: false,
+        paused: false,
+        state: runtime?.state ?? 'declared',
+        sessionId: `line:${decl.lineId}`,
+        instanceName: `line:${decl.lineId}`,
+        startedAt: runtime?.startedAt,
+        lastHeartbeatAt: runtime?.lastHeartbeatAt,
+        lastEventId: runtime?.lastEventId,
+        refreshNeeded: runtime?.refreshNeeded,
+        restart: decl.restart,
+        healthIntervalMs: decl.healthIntervalMs,
+        lastError: runtime?.lastError,
+        crashCount: runtime?.crashCount,
+      });
+    }
     // Collect suppressed entries across all known bases so the CLI can display them.
     const knownBases = new Set<string>([defaultBase]);
     for (const decl of declaredSchedules.values()) {
@@ -3967,11 +4515,28 @@ async function handleRequest(
         });
       }
     }
+    const suppressedLines: Array<{
+      photon: string;
+      method: string;
+      suppressedAt: string;
+      workingDir: string;
+    }> = [];
+    for (const base of knownLineBases) {
+      const lineFile = readActiveLinesFile(base);
+      for (const s of lineFile.suppressed ?? []) {
+        suppressedLines.push({
+          photon: s.photon,
+          method: s.method,
+          suppressedAt: s.suppressedAt,
+          workingDir: base,
+        });
+      }
+    }
     return {
       type: 'result',
       id: request.id,
       success: true,
-      data: { active, declared, webhooks, sessions, suppressed },
+      data: { active, declared, webhooks, sessions, lines, suppressed, suppressedLines },
     };
   }
 
@@ -4083,6 +4648,165 @@ async function handleRequest(
       id: request.id,
       success: true,
       data: { photon, method, cron, base, status: 'active' },
+    };
+  }
+
+  if (
+    request.type === 'enable_line' ||
+    request.type === 'disable_line' ||
+    request.type === 'pause_line' ||
+    request.type === 'resume_line'
+  ) {
+    const photon = request.photonName;
+    const method = (request as { method?: string }).method;
+    if (!photon || !method) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: `\`${request.type}\` requires photonName and method`,
+      };
+    }
+    const preferredBase = (request as { workingDir?: string }).workingDir;
+    const matches = findLineDeclarationsFor(photon, method, preferredBase);
+    if (matches.length === 0 && request.type !== 'disable_line') {
+      return {
+        type: 'error',
+        id: request.id,
+        error: `No @line declaration found for ${photon}:${method}.`,
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Ambiguous: ${photon}:${method} is declared in multiple PHOTON_DIRs ` +
+          `(${matches.map((m) => m.decl.workingDir ?? '-').join(', ')}). Pass workingDir to target one.`,
+      };
+    }
+
+    const match = matches[0];
+    const base = path.resolve(
+      match?.decl.workingDir ?? preferredBase ?? getDefaultContext().baseDir
+    );
+    const key = match?.key ?? lineKey(photon, method, base);
+
+    if (
+      (request.type === 'enable_line' || request.type === 'resume_line') &&
+      isHostDisabledBase(base)
+    ) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Cannot ${request.type === 'enable_line' ? 'enable' : 'resume'} ${photon}:${method} — ` +
+          `base ${base} is host-disabled (remove ${base}/.photon-no-host to allow lines).`,
+      };
+    }
+
+    const file = readActiveLinesFile(base);
+    const existing = file.active.find((e) => e.photon === photon && e.method === method);
+
+    if (request.type === 'disable_line') {
+      const before = file.active.length;
+      file.active = file.active.filter((e) => !(e.photon === photon && e.method === method));
+      if (match) {
+        const suppressed = file.suppressed ?? [];
+        if (!suppressed.some((s) => s.photon === photon && s.method === method)) {
+          suppressed.push({ photon, method, suppressedAt: new Date().toISOString() });
+          file.suppressed = suppressed;
+        }
+      }
+      writeActiveLinesFile(base, file);
+      stopLine(key, 'disable');
+      return {
+        type: 'result',
+        id: request.id,
+        success: true,
+        data: { photon, method, base, removed: before !== file.active.length, status: 'disabled' },
+      };
+    }
+
+    if (request.type === 'pause_line') {
+      if (!existing) {
+        return {
+          type: 'error',
+          id: request.id,
+          error: `No active line enrollment for ${photon}:${method} under ${base}. Enable it first.`,
+        };
+      }
+      existing.paused = true;
+      writeActiveLinesFile(base, file);
+      stopLine(key, 'pause');
+      return {
+        type: 'result',
+        id: request.id,
+        success: true,
+        data: { photon, method, base, status: 'paused' },
+      };
+    }
+
+    if (!match) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: `No @line declaration found for ${photon}:${method}.`,
+      };
+    }
+    if (shouldRunInWorker(match.decl.photonPath)) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: `@line is not supported on @worker photons in this release: ${photon}`,
+      };
+    }
+    const missingConfig = missingRequiredConfig(photon, match.decl.requiredConfig, base);
+    if (missingConfig.length > 0) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Cannot enable ${photon}:${method} — missing required config: ${missingConfig.join(', ')}. ` +
+          `Set it with: photon config set ${photon} ${missingConfig.map((k) => `${k}=...`).join(' ')}`,
+      };
+    }
+    if (existing) {
+      existing.paused = false;
+    } else {
+      file.active.push({
+        photon,
+        method,
+        enabledAt: new Date().toISOString(),
+        enabledBy: (request as { source?: string }).source || 'rpc',
+      });
+    }
+    if (file.suppressed) {
+      file.suppressed = file.suppressed.filter(
+        (s) => !(s.photon === photon && s.method === method)
+      );
+    }
+    writeActiveLinesFile(base, file);
+    try {
+      touchBase(base);
+    } catch {
+      /* non-fatal */
+    }
+    try {
+      await startLine(key, match.decl, request.type);
+    } catch (err) {
+      return { type: 'error', id: request.id, error: getErrorMessage(err) };
+    }
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: {
+        photon,
+        method,
+        lineId: match.decl.lineId,
+        base,
+        status: runningLines.get(key)?.state ?? 'enrolled',
+      },
     };
   }
 
@@ -4403,6 +5127,46 @@ async function handleRequest(
       id: request.id,
       success: true,
       data: { photon, method, base, status: pause ? 'paused' : 'active' },
+    };
+  }
+
+  if (request.type === 'get_line_history') {
+    const photon = request.photonName;
+    const method = (request as { method?: string }).method;
+    if (!photon || !method) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: '`get_line_history` requires photonName and method',
+      };
+    }
+    const preferredBase = (request as { workingDir?: string }).workingDir;
+    const matches = findLineDeclarationsFor(photon, method, preferredBase);
+    if (matches.length > 1 && !preferredBase) {
+      return {
+        type: 'error',
+        id: request.id,
+        error:
+          `Ambiguous: ${photon}:${method} is declared in multiple PHOTON_DIRs ` +
+          `(${matches.map((m) => m.decl.workingDir ?? '-').join(', ')}). Pass workingDir to target one.`,
+      };
+    }
+    const base = path.resolve(
+      matches[0]?.decl.workingDir ?? preferredBase ?? getDefaultContext().baseDir
+    );
+    const key = matches[0]?.key ?? lineKey(photon, method, base);
+    const runtime = runningLines.get(key);
+    const limit = Math.max(1, Math.min(200, Number(request.limit) || 20));
+    const sinceTs = typeof request.sinceTs === 'number' ? request.sinceTs : 0;
+    const entries = (runtime?.history ?? [])
+      .filter((e) => e.ts >= sinceTs)
+      .slice(-limit)
+      .reverse();
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { photon, method, base, entries },
     };
   }
 
@@ -6039,9 +6803,27 @@ async function doReloadPhoton(
       // First time - just register the path and start watching
       photonPaths.set(key, newPhotonPath);
       watchPhotonFile(photonName, newPhotonPath);
+      await scanOneForProactiveMetadata(
+        photonName,
+        newPhotonPath,
+        workingDir || getDefaultContext().baseDir
+      );
+      syncActiveLinesAtBoot();
       return { success: true, sessionsUpdated: 0 };
     }
     sessionManager.setConstructorEnv(constructorEnv);
+
+    const reloadLineKeys = Array.from(runningLines.entries())
+      .filter(([, runtime]) => {
+        if (runtime.decl.photon !== photonName) return false;
+        const lineBase = path.resolve(runtime.decl.workingDir || getDefaultContext().baseDir);
+        const reloadBase = path.resolve(workingDir || getDefaultContext().baseDir);
+        return lineBase === reloadBase;
+      })
+      .map(([lineRuntimeKey]) => lineRuntimeKey);
+    for (const lineRuntimeKey of reloadLineKeys) {
+      stopLine(lineRuntimeKey, 'hot-reload');
+    }
 
     try {
       await sessionManager.loader.reloadFile(newPhotonPath, {
@@ -6058,6 +6840,7 @@ async function doReloadPhoton(
         timestamp: Date.now(),
         error: errorMessage,
       });
+      syncActiveLinesAtBoot();
       return { success: false, error: errorMessage };
     }
 
@@ -6160,6 +6943,12 @@ async function doReloadPhoton(
       timestamp: Date.now(),
       sessionsUpdated: updatedCount,
     });
+    await scanOneForProactiveMetadata(
+      photonName,
+      newPhotonPath,
+      workingDir || getDefaultContext().baseDir
+    );
+    syncActiveLinesAtBoot();
 
     // Refresh the stat-gate baseline so the next dispatch's stat check
     // sees the file it just loaded (not the stat from before this reload).
@@ -6972,6 +7761,9 @@ function shutdown(): void {
     for (const timer of jobTimers.values()) {
       clearTimeout(timer);
     }
+    for (const key of Array.from(runningLines.keys())) {
+      stopLine(key, 'shutdown');
+    }
     jobTimers.clear();
     scheduledJobs.clear();
     activeLocks.clear();
@@ -7104,6 +7896,7 @@ void (async () => {
     void (async () => {
       await discoverProactiveMetadataAtBoot();
       syncActiveSchedulesAtBoot();
+      syncActiveLinesAtBoot();
       startBaseWatchers();
       try {
         sweepExecutionHistoryBases(listActiveBases().map((b) => b.path));

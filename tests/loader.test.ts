@@ -70,6 +70,37 @@ async function runTests() {
       console.log('✅ Load MCP with mixed types');
     }
 
+    // Test 1b: @line metadata backfill
+    {
+      const testFile = path.join(testDir, 'line-mcp.photon.ts');
+      const content = `
+        export default class LineMCP {
+          /**
+           * Keep a local bridge running
+           * @line tel:port-line
+           * @restart always
+           * @healthIntervalMs 15000
+           */
+          async *daemon() {
+            yield { emit: 'status', message: 'connected' };
+            return { ok: true };
+          }
+        }
+      `;
+
+      await fs.writeFile(testFile, content, 'utf-8');
+
+      const result = await loader.loadFile(testFile);
+      const tool = result.tools.find((t) => t.name === 'daemon') as any;
+      assert.deepEqual(
+        tool.line,
+        { id: 'tel:port-line', restart: 'always', healthIntervalMs: 15000 },
+        'Should expose @line metadata on runtime tool metadata'
+      );
+
+      console.log('✅ @line metadata backfill');
+    }
+
     // Test 1b: File-level metadata docblock with declarations before class
     {
       const testFile = path.join(testDir, 'test-file-docblock.photon.ts');

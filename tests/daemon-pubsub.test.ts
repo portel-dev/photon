@@ -60,11 +60,29 @@ async function testRequestValidation() {
     assert.equal(isValidDaemonRequest({ type: 'shutdown', id: '1' }), true);
   });
 
+  await test('accepts durable line lifecycle requests', () => {
+    for (const type of [
+      'enable_line',
+      'disable_line',
+      'pause_line',
+      'resume_line',
+      'get_line_history',
+    ]) {
+      assert.equal(
+        isValidDaemonRequest({ type, id: '1', photonName: 'tel', method: 'daemon' }),
+        true,
+        `${type} should be valid with photonName and method`
+      );
+      assert.equal(
+        isValidDaemonRequest({ type, id: '1', photonName: 'tel' }),
+        false,
+        `${type} should require method`
+      );
+    }
+  });
+
   await test('accepts command with method', () => {
-    assert.equal(
-      isValidDaemonRequest({ type: 'command', id: '1', method: 'test' }),
-      true
-    );
+    assert.equal(isValidDaemonRequest({ type: 'command', id: '1', method: 'test' }), true);
   });
 
   await test('rejects command without method', () => {
@@ -72,10 +90,7 @@ async function testRequestValidation() {
   });
 
   await test('accepts subscribe with channel', () => {
-    assert.equal(
-      isValidDaemonRequest({ type: 'subscribe', id: '1', channel: 'test' }),
-      true
-    );
+    assert.equal(isValidDaemonRequest({ type: 'subscribe', id: '1', channel: 'test' }), true);
   });
 
   await test('rejects subscribe without channel', () => {
@@ -83,10 +98,7 @@ async function testRequestValidation() {
   });
 
   await test('accepts unsubscribe with channel', () => {
-    assert.equal(
-      isValidDaemonRequest({ type: 'unsubscribe', id: '1', channel: 'test' }),
-      true
-    );
+    assert.equal(isValidDaemonRequest({ type: 'unsubscribe', id: '1', channel: 'test' }), true);
   });
 
   await test('rejects unsubscribe without channel', () => {
@@ -149,17 +161,11 @@ async function testResponseValidation() {
   });
 
   await test('accepts result response', () => {
-    assert.equal(
-      isValidDaemonResponse({ type: 'result', id: '1', success: true }),
-      true
-    );
+    assert.equal(isValidDaemonResponse({ type: 'result', id: '1', success: true }), true);
   });
 
   await test('accepts error response', () => {
-    assert.equal(
-      isValidDaemonResponse({ type: 'error', id: '1', error: 'failed' }),
-      true
-    );
+    assert.equal(isValidDaemonResponse({ type: 'error', id: '1', error: 'failed' }), true);
   });
 
   await test('accepts pong response', () => {
@@ -221,7 +227,9 @@ class MockDaemonServer {
             socket.write(JSON.stringify(response) + '\n');
           }
         } catch (err) {
-          socket.write(JSON.stringify({ type: 'error', id: 'unknown', error: 'Parse error' }) + '\n');
+          socket.write(
+            JSON.stringify({ type: 'error', id: 'unknown', error: 'Parse error' }) + '\n'
+          );
         }
       }
     });
@@ -255,7 +263,12 @@ class MockDaemonServer {
           this.channelSubscriptions.delete(channel);
         }
       }
-      return { type: 'result', id: request.id, success: true, data: { unsubscribed: true, channel } };
+      return {
+        type: 'result',
+        id: request.id,
+        success: true,
+        data: { unsubscribed: true, channel },
+      };
     }
 
     if (request.type === 'publish') {
@@ -272,12 +285,13 @@ class MockDaemonServer {
     const subs = this.channelSubscriptions.get(channel);
     if (!subs) return;
 
-    const payload = JSON.stringify({
-      type: 'channel_message',
-      id: `ch_${Date.now()}`,
-      channel,
-      message,
-    }) + '\n';
+    const payload =
+      JSON.stringify({
+        type: 'channel_message',
+        id: `ch_${Date.now()}`,
+        channel,
+        message,
+      }) + '\n';
 
     for (const socket of subs) {
       if (socket !== excludeSocket && !socket.destroyed) {
@@ -479,7 +493,6 @@ async function testPubSubIntegration() {
 
       assert.equal(server.getSubscriberCount('cleanup-test'), 0);
     });
-
   } finally {
     await server.stop();
     // Clean up socket file
@@ -499,10 +512,7 @@ async function testLockRequestValidation() {
   console.log('\nLock Request Validation:');
 
   await test('accepts lock with lockName', () => {
-    assert.equal(
-      isValidDaemonRequest({ type: 'lock', id: '1', lockName: 'my-lock' }),
-      true
-    );
+    assert.equal(isValidDaemonRequest({ type: 'lock', id: '1', lockName: 'my-lock' }), true);
   });
 
   await test('rejects lock without lockName', () => {
@@ -510,10 +520,7 @@ async function testLockRequestValidation() {
   });
 
   await test('accepts unlock with lockName', () => {
-    assert.equal(
-      isValidDaemonRequest({ type: 'unlock', id: '1', lockName: 'my-lock' }),
-      true
-    );
+    assert.equal(isValidDaemonRequest({ type: 'unlock', id: '1', lockName: 'my-lock' }), true);
   });
 
   await test('rejects unlock without lockName', () => {
@@ -582,10 +589,7 @@ async function testScheduleRequestValidation() {
   });
 
   await test('accepts unschedule with jobId', () => {
-    assert.equal(
-      isValidDaemonRequest({ type: 'unschedule', id: '1', jobId: 'job-1' }),
-      true
-    );
+    assert.equal(isValidDaemonRequest({ type: 'unschedule', id: '1', jobId: 'job-1' }), true);
   });
 
   await test('rejects unschedule without jobId', () => {
@@ -643,7 +647,9 @@ class MockDaemonServerWithLocks {
             socket.write(JSON.stringify(response) + '\n');
           }
         } catch (err) {
-          socket.write(JSON.stringify({ type: 'error', id: 'unknown', error: 'Parse error' }) + '\n');
+          socket.write(
+            JSON.stringify({ type: 'error', id: 'unknown', error: 'Parse error' }) + '\n'
+          );
         }
       }
     });
@@ -676,7 +682,12 @@ class MockDaemonServerWithLocks {
         subs.delete(socket);
         if (subs.size === 0) this.channelSubscriptions.delete(channel);
       }
-      return { type: 'result', id: request.id, success: true, data: { unsubscribed: true, channel } };
+      return {
+        type: 'result',
+        id: request.id,
+        success: true,
+        data: { unsubscribed: true, channel },
+      };
     }
 
     if (request.type === 'publish') {
@@ -696,7 +707,11 @@ class MockDaemonServerWithLocks {
       // Check if lock exists and not expired
       const existing = this.locks.get(lockName);
       if (existing && existing.expiresAt > now && existing.holder !== holder) {
-        return { type: 'result', id: request.id, data: { acquired: false, holder: existing.holder } };
+        return {
+          type: 'result',
+          id: request.id,
+          data: { acquired: false, holder: existing.holder },
+        };
       }
 
       // Acquire lock
@@ -714,10 +729,18 @@ class MockDaemonServerWithLocks {
 
       const existing = this.locks.get(lockName);
       if (!existing) {
-        return { type: 'result', id: request.id, data: { released: false, reason: 'Lock not found' } };
+        return {
+          type: 'result',
+          id: request.id,
+          data: { released: false, reason: 'Lock not found' },
+        };
       }
       if (existing.holder !== holder) {
-        return { type: 'result', id: request.id, data: { released: false, reason: 'Not lock holder' } };
+        return {
+          type: 'result',
+          id: request.id,
+          data: { released: false, reason: 'Not lock holder' },
+        };
       }
 
       this.locks.delete(lockName);
@@ -769,7 +792,12 @@ class MockDaemonServerWithLocks {
     if (request.type === 'reload') {
       const photonPath = request.photonPath;
       if (!photonPath) {
-        return { type: 'result', id: request.id, success: false, data: { error: 'Missing photonPath' } };
+        return {
+          type: 'result',
+          id: request.id,
+          success: false,
+          data: { error: 'Missing photonPath' },
+        };
       }
       // Simulate reload - in real daemon this re-imports the module
       this.reloadCount++;

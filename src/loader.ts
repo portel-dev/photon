@@ -2726,6 +2726,44 @@ export class PhotonLoader {
     return scopesByMethod;
   }
 
+  private extractLineMetadataFromSource(
+    source: string
+  ): Record<
+    string,
+    { id: string; restart?: 'always' | 'on-failure' | 'never'; healthIntervalMs?: number }
+  > {
+    const lines: Record<
+      string,
+      { id: string; restart?: 'always' | 'on-failure' | 'never'; healthIntervalMs?: number }
+    > = {};
+    const methodRegex =
+      /\/\*\*([\s\S]*?)\*\/\s*(?:public\s+|private\s+|protected\s+)?(?:async\s+)?\*?\s*([A-Za-z_$][\w$]*)\s*\(/g;
+    for (const match of source.matchAll(methodRegex)) {
+      const jsdoc = match[1] ?? '';
+      const method = match[2];
+      const lineMatch = jsdoc.match(/@line(?:\s+([^\r\n*]+))?/i);
+      if (!lineMatch) continue;
+      const id = (lineMatch[1] ?? method).trim().split(/\s+/)[0] || method;
+      const restartRaw = jsdoc.match(/@restart\s+([^\r\n*\s]+)/i)?.[1];
+      const restart =
+        restartRaw === 'always' || restartRaw === 'on-failure' || restartRaw === 'never'
+          ? restartRaw
+          : undefined;
+      const healthRaw = jsdoc.match(/@healthIntervalMs\s+(\d+)/i)?.[1];
+      const healthIntervalMs = healthRaw !== undefined ? Number.parseInt(healthRaw, 10) : undefined;
+      lines[method] = {
+        id,
+        ...(restart ? { restart } : {}),
+        ...(healthIntervalMs !== undefined &&
+        Number.isFinite(healthIntervalMs) &&
+        healthIntervalMs >= 0
+          ? { healthIntervalMs }
+          : {}),
+      };
+    }
+    return lines;
+  }
+
   private extractScopesFromDocblock(docblock: string): string[] {
     const scopes: string[] = [];
     const re = /@scope\s+([^\r\n*]+)/g;
@@ -3154,8 +3192,14 @@ export class PhotonLoader {
             (t) => methodNames.includes(t.name) && !routeHandlerNames.has(t.name)
           );
           const scopesByTool = this.extractToolScopesFromSource(source);
+          const lineMetadataByTool = this.extractLineMetadataFromSource(source);
           tools = tools.map(
-            (t) => ({ ...t, scopes: this.inferToolScopes(t, scopesByTool[t.name]) }) as typeof t
+            (t) =>
+              ({
+                ...t,
+                scopes: this.inferToolScopes(t, scopesByTool[t.name]),
+                ...(lineMetadataByTool[t.name] ? { line: lineMetadataByTool[t.name] } : {}),
+              }) as typeof t
           );
           templates = metadata.templates.filter((t) => methodNames.includes(t.name));
           statics = metadata.statics.filter((s) => methodNames.includes(s.name));

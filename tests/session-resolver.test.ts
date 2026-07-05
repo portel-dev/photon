@@ -17,6 +17,7 @@
 import assert from 'node:assert/strict';
 import { resolveWithGlobalFallback } from '../dist/daemon/session-resolver.js';
 import { compositeKey, type PhotonCompositeKey } from '../dist/daemon/registry-keys.js';
+import { SessionManager } from '../dist/daemon/session-manager.js';
 
 async function test(name: string, fn: () => void): Promise<void> {
   try {
@@ -91,6 +92,33 @@ async function main() {
     map.set(compositeKey('lookout', undefined, HOME), 'global');
     const result = resolveWithGlobalFallback('lookout', HOME, HOME, (k) => map.get(k));
     assert.equal(result?.value, 'global');
+  });
+
+  await test('line workload sessions are not expired by idle cleanup', () => {
+    const manager = new SessionManager('/tmp/missing.photon.ts', 'tel', -1);
+    const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
+    sessions.set('line:tel:port-line', {
+      id: 'line:tel:port-line',
+      instance: {} as never,
+      instanceName: 'line:tel:port-line',
+      createdAt: 0,
+      lastActivity: 0,
+      clientType: 'line',
+    });
+    sessions.set('cli-session', {
+      id: 'cli-session',
+      instance: {} as never,
+      instanceName: '',
+      createdAt: 0,
+      lastActivity: 0,
+      clientType: 'cli',
+    });
+
+    (manager as unknown as { cleanup(): void }).cleanup();
+
+    assert.equal(sessions.has('line:tel:port-line'), true);
+    assert.equal(sessions.has('cli-session'), false);
+    manager.destroy();
   });
 
   console.log('\nAll resolveWithGlobalFallback tests passed.');
