@@ -219,53 +219,88 @@ function resolveConventionUIPath(
  * binary template-literal size budget; users hitting that limit should
  * deploy via Cloudflare's [assets] binding instead.
  */
-function discoverAssetTree(sourceFilePath: string): Map<string, string> {
+function walkDirAndAdd(
+  root: string,
+  current: string,
+  tree: Map<string, string>,
+  keyFormatter: (fullPath: string) => string
+): void {
+  const MAX_FILE_BYTES = 16 * 1024 * 1024;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(current, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(current, entry.name);
+    if (entry.isDirectory()) {
+      walkDirAndAdd(root, full, tree, keyFormatter);
+    } else if (entry.isFile()) {
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(full);
+      } catch {
+        continue;
+      }
+      if (stat.size > MAX_FILE_BYTES) {
+        console.warn(
+          chalk.yellow(
+            `  ⚠ skipping ${path.relative(root, full)} (${(stat.size / 1024 / 1024).toFixed(1)} MiB > 16 MiB binary cap)`
+          )
+        );
+        continue;
+      }
+      const relKey = keyFormatter(full);
+      const ext = path.extname(full).toLowerCase();
+      // Read as Buffer so binary siblings round-trip without UTF-8 corruption
+      tree.set(relKey, encodeAssetForEmbed(fs.readFileSync(full), ext));
+    }
+  }
+}
+
+export function discoverAssetTree(
+  sourceFilePath: string,
+  sourceCode?: string
+): Map<string, string> {
   const tree = new Map<string, string>();
   const photonDir = path.dirname(sourceFilePath);
   const photonName = path.basename(sourceFilePath, '.photon.ts').replace('.photon', '');
+
+  // 1. Discover legacy/canonical photonName/assets/**
   const assetsRoot = path.join(photonDir, photonName, 'assets');
-  if (!fs.existsSync(assetsRoot) || !fs.statSync(assetsRoot).isDirectory()) {
-    return tree;
+  if (fs.existsSync(assetsRoot) && fs.statSync(assetsRoot).isDirectory()) {
+    walkDirAndAdd(assetsRoot, assetsRoot, tree, (full) => {
+      return path.relative(assetsRoot, full).split(path.sep).join('/');
+    });
   }
-  const MAX_FILE_BYTES = 16 * 1024 * 1024;
-  const stack: string[] = [assetsRoot];
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    let entries: fs.Dirent[];
+
+  // 2. Discover @ui folders if sourceCode is provided (like in build bundles)
+  let code = sourceCode;
+  if (!code && fs.existsSync(sourceFilePath)) {
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      code = fs.readFileSync(sourceFilePath, 'utf-8');
     } catch {
-      continue;
+      // ignore
     }
-    for (const entry of entries) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(full);
-      } else if (entry.isFile()) {
-        let stat: fs.Stats;
-        try {
-          stat = fs.statSync(full);
-        } catch {
-          continue;
-        }
-        if (stat.size > MAX_FILE_BYTES) {
-          console.warn(
-            chalk.yellow(
-              `  ⚠ skipping ${path.relative(assetsRoot, full)} (${(stat.size / 1024 / 1024).toFixed(1)} MiB > 16 MiB binary cap)`
-            )
-          );
-          continue;
-        }
-        const rel = path.relative(assetsRoot, full).split(path.sep).join('/');
-        // Read as Buffer so binary siblings (.png, .woff2, .wasm, etc.)
-        // round-trip without UTF-8 corruption. The encoder picks UTF-8
-        // text or base64+sentinel based on extension; the runtime serve
-        // path decodes the sentinel back to a Buffer before writing.
-        const ext = path.extname(full).toLowerCase();
-        tree.set(rel, encodeAssetForEmbed(fs.readFileSync(full), ext));
+  }
+
+  if (code) {
+    const uiRegex = /@ui\s+(\w[\w-]*)\s+(\.\/[^\s*]+|\/[^\s*]+)/g;
+    let match;
+    while ((match = uiRegex.exec(code)) !== null) {
+      const [, , uiPath] = match;
+      const resolvedPath = path.isAbsolute(uiPath) ? uiPath : path.resolve(photonDir, uiPath);
+
+      if (fs.existsSync(resolvedPath) && resolvedPath.endsWith('.html')) {
+        const uiDir = path.dirname(resolvedPath);
+        walkDirAndAdd(uiDir, uiDir, tree, (full) => {
+          return path.relative(photonDir, full).split(path.sep).join('/');
+        });
       }
     }
   }
+
   return tree;
 }
 
@@ -439,10 +474,10 @@ export function registerBuildCommand(program: Command) {
           // convention.
           const allAssetTrees = new Map<string, Map<string, string>>();
           const mainPhotonName = path.basename(photonPath, '.photon.ts').replace('.photon', '');
-          const mainTree = discoverAssetTree(photonPath);
+          const mainTree = discoverAssetTree(photonPath, sourceCode);
           if (mainTree.size > 0) allAssetTrees.set(mainPhotonName, mainTree);
           for (const dep of photonDeps) {
-            const depTree = discoverAssetTree(dep.filePath);
+            const depTree = discoverAssetTree(dep.filePath, dep.sourceCode);
             if (depTree.size > 0) {
               const depPhotonName = path
                 .basename(dep.filePath, '.photon.ts')
