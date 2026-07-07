@@ -1,0 +1,19 @@
+{
+  "name": "photon-svelte-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "svelte": "^5.2.11"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0"
+  }
+}

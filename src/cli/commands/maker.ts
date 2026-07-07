@@ -725,6 +725,8 @@ export interface ScaffoldOptions {
   for?: string;
   ui?: string;
   react?: boolean;
+  vue?: boolean;
+  svelte?: boolean;
 }
 
 /**
@@ -769,14 +771,18 @@ export async function scaffoldPhoton(name: string, options: ScaffoldOptions): Pr
     }
 
     const isReact = options.react || options.ui === 'react';
-    if (isReact && options.global) {
+    const isVue = options.vue || options.ui === 'vue';
+    const isSvelte = options.svelte || options.ui === 'svelte';
+    const hasUi = isReact || isVue || isSvelte;
+
+    if (hasUi && options.global) {
       exitWithError(`UI scaffolding is not supported with --global.`, {
         suggestion: `Scaffold locally inside a workspace project instead.`,
       });
     }
 
     // Read template
-    const templateFileName = isReact ? 'photon-react.template.ts' : 'photon.template.ts';
+    const templateFileName = hasUi ? 'photon-react.template.ts' : 'photon.template.ts';
     const templatePath = path.join(__dirname, '..', '..', '..', 'templates', templateFileName);
     let template: string;
 
@@ -784,7 +790,7 @@ export async function scaffoldPhoton(name: string, options: ScaffoldOptions): Pr
       template = await fs.readFile(templatePath, 'utf-8');
     } catch (err) {
       logger.debug(`Template not found at ${templatePath}, using inline template`);
-      template = isReact ? getInlineReactTemplate() : getInlineTemplate();
+      template = hasUi ? getInlineReactTemplate() : getInlineTemplate();
     }
 
     // Replace placeholders
@@ -802,15 +808,25 @@ export async function scaffoldPhoton(name: string, options: ScaffoldOptions): Pr
     const displayPath = options.global ? filePath : `./${fileName}`;
     console.error(`✅ Created ${displayPath}`);
 
-    if (isReact) {
-      const reactTemplateDir = path.join(__dirname, '..', '..', '..', 'templates', 'react-vite');
+    if (hasUi) {
+      let uiTemplateSubdir = 'react-vite';
+      let frameworkName = 'React';
+      if (isVue) {
+        uiTemplateSubdir = 'vue-vite';
+        frameworkName = 'Vue';
+      } else if (isSvelte) {
+        uiTemplateSubdir = 'svelte-vite';
+        frameworkName = 'Svelte';
+      }
+
+      const uiTemplateDir = path.join(__dirname, '..', '..', '..', 'templates', uiTemplateSubdir);
       const destUiDir = path.join(workingDir, 'ui');
       if (options.force) {
         await fs.rm(destUiDir, { recursive: true, force: true }).catch(() => {});
       }
       await fs.mkdir(destUiDir, { recursive: true });
-      await fs.cp(reactTemplateDir, destUiDir, { recursive: true });
-      console.error(`✅ Created ./ui/ (React + Vite project)`);
+      await fs.cp(uiTemplateDir, destUiDir, { recursive: true });
+      console.error(`✅ Created ./ui/ (${frameworkName} + Vite project)`);
 
       try {
         const { detectPM } = await import('../../shared-utils.js');
@@ -874,7 +890,9 @@ export function registerNewCommand(program: Command): void {
       'After scaffolding, register the photon in the named MCP client (e.g. claude)'
     )
     .option('-r, --react', 'Scaffold a new React + Vite UI project in the ui/ directory')
-    .option('--ui <framework>', 'Scaffold a custom UI project (supported: react)')
+    .option('-v, --vue', 'Scaffold a new Vue + Vite UI project in the ui/ directory')
+    .option('-s, --svelte', 'Scaffold a new Svelte + Vite UI project in the ui/ directory')
+    .option('--ui <framework>', 'Scaffold a custom UI project (supported: react, vue, svelte)')
     .description('Create a new photon from template (shortcut for `photon maker new`)')
     .action(async (name: string, options: ScaffoldOptions) => {
       await scaffoldPhoton(name, options);
@@ -910,7 +928,9 @@ export function registerMakerCommands(program: Command): void {
       'After scaffolding, register the photon in the named MCP client (e.g. claude)'
     )
     .option('-r, --react', 'Scaffold a new React + Vite UI project in the ui/ directory')
-    .option('--ui <framework>', 'Scaffold a custom UI project (supported: react)')
+    .option('-v, --vue', 'Scaffold a new Vue + Vite UI project in the ui/ directory')
+    .option('-s, --svelte', 'Scaffold a new Svelte + Vite UI project in the ui/ directory')
+    .option('--ui <framework>', 'Scaffold a custom UI project (supported: react, vue, svelte)')
     .description('Create a new photon from template')
     .action(async (name: string, options: ScaffoldOptions) => {
       await scaffoldPhoton(name, options);

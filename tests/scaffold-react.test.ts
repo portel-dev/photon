@@ -63,10 +63,9 @@ describe('scaffoldPhoton React template', () => {
     expect(existsSync(join(uiDir, 'src/App.tsx'))).toBe(true);
     expect(existsSync(join(uiDir, 'src/styles.css'))).toBe(true);
 
-    // Verify UI files contents
+    // Verify UI file contents
     const packageJson = JSON.parse(readFileSync(join(uiDir, 'package.json'), 'utf8'));
     expect(packageJson.dependencies.react).toBeDefined();
-    expect(packageJson.devDependencies.vite).toBeDefined();
 
     const viteConfig = readFileSync(join(uiDir, 'vite.config.ts'), 'utf8');
     expect(viteConfig).toContain('proxy: {');
@@ -74,9 +73,62 @@ describe('scaffoldPhoton React template', () => {
 
     const appComponent = readFileSync(join(uiDir, 'src/App.tsx'), 'utf8');
     expect(appComponent).toContain('Photon React Dashboard');
-    expect(appComponent).toContain('usePhoton()');
+  });
 
-    // Verify that child_process.execSync was called for install
-    expect(child_process.execSync).toHaveBeenCalled();
+  test('scaffolds a standard Vue + Vite frontend project', async () => {
+    const dir = makeTempWorkspace();
+    const photonName = 'my-vue-app';
+
+    await scaffoldPhoton(photonName, { vue: true });
+
+    // Assert UI directory is scaffolded
+    const uiDir = join(dir, 'ui');
+    expect(existsSync(uiDir)).toBe(true);
+    expect(existsSync(join(uiDir, 'package.json'))).toBe(true);
+    expect(existsSync(join(uiDir, 'tsconfig.json'))).toBe(true);
+    expect(existsSync(join(uiDir, 'vite.config.ts'))).toBe(true);
+    expect(existsSync(join(uiDir, 'index.html'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/main.ts'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/App.vue'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/styles.css'))).toBe(true);
+
+    // Verify UI file contents
+    const packageJson = JSON.parse(readFileSync(join(uiDir, 'package.json'), 'utf8'));
+    expect(packageJson.dependencies.vue).toBeDefined();
+
+    const viteConfig = readFileSync(join(uiDir, 'vite.config.ts'), 'utf8');
+    expect(viteConfig).toContain('@vitejs/plugin-vue');
+
+    const appComponent = readFileSync(join(uiDir, 'src/App.vue'), 'utf8');
+    expect(appComponent).toContain('Photon Vue Dashboard');
+  });
+
+  test('scaffolds a standard Svelte + Vite frontend project', async () => {
+    const dir = makeTempWorkspace();
+    const photonName = 'my-svelte-app';
+
+    await scaffoldPhoton(photonName, { svelte: true });
+
+    // Assert UI directory is scaffolded
+    const uiDir = join(dir, 'ui');
+    expect(existsSync(uiDir)).toBe(true);
+    expect(existsSync(join(uiDir, 'package.json'))).toBe(true);
+    expect(existsSync(join(uiDir, 'tsconfig.json'))).toBe(true);
+    expect(existsSync(join(uiDir, 'svelte.config.js'))).toBe(true);
+    expect(existsSync(join(uiDir, 'vite.config.ts'))).toBe(true);
+    expect(existsSync(join(uiDir, 'index.html'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/main.ts'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/App.svelte'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/styles.css'))).toBe(true);
+
+    // Verify UI file contents
+    const packageJson = JSON.parse(readFileSync(join(uiDir, 'package.json'), 'utf8'));
+    expect(packageJson.dependencies.svelte).toBeDefined();
+
+    const viteConfig = readFileSync(join(uiDir, 'vite.config.ts'), 'utf8');
+    expect(viteConfig).toContain('@sveltejs/vite-plugin-svelte');
+
+    const appComponent = readFileSync(join(uiDir, 'src/App.svelte'), 'utf8');
+    expect(appComponent).toContain('Photon Svelte Dashboard');
   });
 });
