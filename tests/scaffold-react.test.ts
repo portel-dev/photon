@@ -131,4 +131,35 @@ describe('scaffoldPhoton React template', () => {
     const appComponent = readFileSync(join(uiDir, 'src/App.svelte'), 'utf8');
     expect(appComponent).toContain('Photon Svelte Dashboard');
   });
+
+  test('scaffolds a standard Angular frontend project', async () => {
+    const dir = makeTempWorkspace();
+    const photonName = 'my-angular-app';
+
+    await scaffoldPhoton(photonName, { angular: true });
+
+    // Assert UI directory is scaffolded
+    const uiDir = join(dir, 'ui');
+    expect(existsSync(uiDir)).toBe(true);
+    expect(existsSync(join(uiDir, 'package.json'))).toBe(true);
+    expect(existsSync(join(uiDir, 'tsconfig.json'))).toBe(true);
+    expect(existsSync(join(uiDir, 'angular.json'))).toBe(true);
+    expect(existsSync(join(uiDir, 'proxy.conf.json'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/index.html'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/main.ts'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/app/app.config.ts'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/app/app.component.ts'))).toBe(true);
+    expect(existsSync(join(uiDir, 'src/styles.css'))).toBe(true);
+
+    // Verify UI file contents
+    const packageJson = JSON.parse(readFileSync(join(uiDir, 'package.json'), 'utf8'));
+    expect(packageJson.dependencies['@angular/core']).toBeDefined();
+
+    const appComponent = readFileSync(join(uiDir, 'src/app/app.component.ts'), 'utf8');
+    expect(appComponent).toContain('Photon Angular Dashboard');
+
+    // Verify generated photon file redirects to browser index.html
+    const photonFile = readFileSync(join(dir, 'my-angular-app.photon.ts'), 'utf8');
+    expect(photonFile).toContain('./ui/dist/browser/index.html');
+  });
 });

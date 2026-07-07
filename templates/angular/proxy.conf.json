@@ -1,0 +1,18 @@
+{
+  "/api": {
+    "target": "http://127.0.0.1:8888",
+    "secure": false
+  },
+  "/sessions": {
+    "target": "http://127.0.0.1:8888",
+    "secure": false
+  },
+  "/settings": {
+    "target": "http://127.0.0.1:8888",
+    "secure": false
+  },
+  "/pair": {
+    "target": "http://127.0.0.1:8888",
+    "secure": false
+  }
+}
