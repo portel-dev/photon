@@ -1,4 +1,9 @@
-> Related: [INDEX.md](INDEX.md)
+---
+type: Architecture
+title: Daemon Architecture
+description: Overview of runtimes, communication, and resilience mechanisms in the Photon daemon.
+---
+> Related: [index.md](index.md)
 
 # Daemon Architecture: Runtimes, Communication, and Resilience
 

@@ -1,4 +1,9 @@
-> Related: [INDEX.md](INDEX.md) | [daemon-architecture.md](daemon-architecture.md)
+---
+type: Architecture
+title: Conformance and Enforcement Architecture
+description: Structural guarantees for cross-transport parity, format coverage, and data-path stability.
+---
+> Related: [index.md](index.md) | [daemon-architecture.md](daemon-architecture.md)
 
 # Conformance and Enforcement Architecture
 

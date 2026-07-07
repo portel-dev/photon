@@ -1,3 +1,8 @@
+---
+type: Playbook
+title: Photon Runtime Wiki for LLM Agents
+description: Runtime playbook for LLM coding agents working on Photon.
+---
 # Photon Runtime Wiki for LLM Agents
 
 This document is the canonical runtime playbook for coding agents working on Photon.
