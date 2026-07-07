@@ -664,22 +664,74 @@ export default class TemplateName {
 `;
 }
 
+function getInlineReactTemplate(): string {
+  return `/**
+ * TemplateName Photon MCP
+ *
+ * Single-file MCP server with custom React + Vite UI.
+ *
+ * Run with: photon mcp template-name --dev
+ * @ui app ./ui/dist/index.html
+ */
+
+export default class TemplateName {
+  // User-configurable knobs. Photon auto-generates a \`settings\` MCP tool
+  // from this object and persists changes to
+  // ~/.photon/state/<photon>/<instance>-settings.json.
+  protected settings = {
+    /** Title shown in the custom dashboard */
+    title: 'Photon React Starter',
+  };
+
+  /**
+   * Main entry method required for PWA app packaging.
+   */
+  async main() {
+    return {
+      status: 'online',
+      message: 'React backend is ready.',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Echo a message back
+   * @param message Message to echo back
+   */
+  async echo(params: { message: string }) {
+    return \`Echo: \${params.message}\`;
+  }
+
+  /**
+   * Add two numbers together
+   * @param a First number
+   * @param b Second number
+   */
+  async add(params: { a: number; b: number }) {
+    return { a: params.a, b: params.b, sum: params.a + params.b };
+  }
+}
+`;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // COMMAND REGISTRATION
 // ══════════════════════════════════════════════════════════════════════════════
 
-interface ScaffoldOptions {
+export interface ScaffoldOptions {
   global?: boolean;
   force?: boolean;
   /** MCP client to auto-register with after scaffolding (e.g. 'claude'). */
   for?: string;
+  ui?: string;
+  react?: boolean;
 }
 
 /**
  * Scaffold a new .photon.ts file from the bundled template.
  * Shared between `photon maker new` and the `photon new` top-level shortcut.
  */
-async function scaffoldPhoton(name: string, options: ScaffoldOptions): Promise<void> {
+export async function scaffoldPhoton(name: string, options: ScaffoldOptions): Promise<void> {
   try {
     const { announceContext } = await import('../../shared/announce-context.js');
     // --global always means ~/.photon, independent of CWD auto-detection.
@@ -716,15 +768,23 @@ async function scaffoldPhoton(name: string, options: ScaffoldOptions): Promise<v
       }
     }
 
+    const isReact = options.react || options.ui === 'react';
+    if (isReact && options.global) {
+      exitWithError(`UI scaffolding is not supported with --global.`, {
+        suggestion: `Scaffold locally inside a workspace project instead.`,
+      });
+    }
+
     // Read template
-    const templatePath = path.join(__dirname, '..', '..', '..', 'templates', 'photon.template.ts');
+    const templateFileName = isReact ? 'photon-react.template.ts' : 'photon.template.ts';
+    const templatePath = path.join(__dirname, '..', '..', '..', 'templates', templateFileName);
     let template: string;
 
     try {
       template = await fs.readFile(templatePath, 'utf-8');
     } catch (err) {
       logger.debug(`Template not found at ${templatePath}, using inline template`);
-      template = getInlineTemplate();
+      template = isReact ? getInlineReactTemplate() : getInlineTemplate();
     }
 
     // Replace placeholders
@@ -741,6 +801,30 @@ async function scaffoldPhoton(name: string, options: ScaffoldOptions): Promise<v
     // Print a short, path-aware success message
     const displayPath = options.global ? filePath : `./${fileName}`;
     console.error(`✅ Created ${displayPath}`);
+
+    if (isReact) {
+      const reactTemplateDir = path.join(__dirname, '..', '..', '..', 'templates', 'react-vite');
+      const destUiDir = path.join(workingDir, 'ui');
+      if (options.force) {
+        await fs.rm(destUiDir, { recursive: true, force: true }).catch(() => {});
+      }
+      await fs.mkdir(destUiDir, { recursive: true });
+      await fs.cp(reactTemplateDir, destUiDir, { recursive: true });
+      console.error(`✅ Created ./ui/ (React + Vite project)`);
+
+      try {
+        const { detectPM } = await import('../../shared-utils.js');
+        const pm = detectPM();
+        const installCmd = pm === 'bun' ? 'bun install' : 'npm install';
+        console.error(`📦 Installing UI dependencies using ${pm}...`);
+        const { execSync } = await import('child_process');
+        execSync(installCmd, { cwd: destUiDir, stdio: 'inherit' });
+        console.error(`✅ UI dependencies installed`);
+      } catch (err) {
+        console.error(`⚠ UI dependency installation failed: ${getErrorMessage(err)}`);
+        console.error(`  Please run 'npm install' or 'bun install' inside ./ui manually.`);
+      }
+    }
 
     // --for <client>: register in the MCP client immediately so the user is
     // one restart away from a working tool. Deliberately lazy-imports to
@@ -789,6 +873,8 @@ export function registerNewCommand(program: Command): void {
       '--for <client>',
       'After scaffolding, register the photon in the named MCP client (e.g. claude)'
     )
+    .option('-r, --react', 'Scaffold a new React + Vite UI project in the ui/ directory')
+    .option('--ui <framework>', 'Scaffold a custom UI project (supported: react)')
     .description('Create a new photon from template (shortcut for `photon maker new`)')
     .action(async (name: string, options: ScaffoldOptions) => {
       await scaffoldPhoton(name, options);
@@ -823,6 +909,8 @@ export function registerMakerCommands(program: Command): void {
       '--for <client>',
       'After scaffolding, register the photon in the named MCP client (e.g. claude)'
     )
+    .option('-r, --react', 'Scaffold a new React + Vite UI project in the ui/ directory')
+    .option('--ui <framework>', 'Scaffold a custom UI project (supported: react)')
     .description('Create a new photon from template')
     .action(async (name: string, options: ScaffoldOptions) => {
       await scaffoldPhoton(name, options);
