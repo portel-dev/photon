@@ -715,7 +715,7 @@ export class PhotonDocExtractor {
     const sigTypes: Record<string, { type: string; optional: boolean }> = {};
     if (signatureParams) {
       // Handle both flat params (name: string) and object params (params: { name: string; encoding?: string })
-      const objectMatch = signatureParams.match(/^\s*\w+\s*:\s*\{([^}]+)\}/);
+      const objectMatch = signatureParams.match(/^\s*\w+\??\s*:\s*\{([^}]+)\}/);
       const sigContent = objectMatch ? objectMatch[1] : signatureParams;
       // Split on both commas and semicolons (TS object types use semicolons)
       for (const part of sigContent.split(/[,;]/)) {

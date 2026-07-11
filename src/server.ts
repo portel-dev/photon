@@ -2781,7 +2781,7 @@ export class PhotonServer {
   /**
    * Start server with stdio transport.
    * @param webPort - when set, start a companion HTTP server on this port
-   *                  to serve @get/@post web routes for stateful photons.
+   *                  to serve HTTP route tags for stateful photons.
    */
   private async startStdio(webPort?: number) {
     const transport = new StdioServerTransport();
@@ -2819,7 +2819,7 @@ export class PhotonServer {
   }
 
   /**
-   * Dispatch an incoming HTTP request to the photon's @get/@post web routes.
+   * Dispatch an incoming HTTP request to the photon's tagged HTTP routes.
    * Used by the companion HTTP server that runs alongside STDIO stateful photons.
    */
   private async handleWebRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -3206,8 +3206,8 @@ export class PhotonServer {
         // matches with restPath='' and routes to the top-level branch
         // alongside the no-slash form. Without the trailing-slash match,
         // the redirect target below would 404.
-        const uiMatch =
-          req.method === 'GET' && url.pathname.match(/^\/api\/ui\/([^/]+)(?:\/(.*))?$/);
+        const isUiReadRequest = req.method === 'GET' || req.method === 'HEAD';
+        const uiMatch = isUiReadRequest && url.pathname.match(/^\/api\/ui\/([^/]+)(?:\/(.*))?$/);
         if (uiMatch) {
           const uiId = uiMatch[1];
           const restPath = uiMatch[2] ?? '';
@@ -3253,7 +3253,7 @@ export class PhotonServer {
                     tsxHeaders['Cross-Origin-Embedder-Policy'] = 'require-corp';
                   }
                   res.writeHead(r.status, tsxHeaders);
-                  res.end(r.body);
+                  res.end(req.method === 'HEAD' ? undefined : r.body);
                   return;
                 }
                 const content = await readText(ui.resolvedPath);
@@ -3269,7 +3269,7 @@ export class PhotonServer {
                   uiHeaders['Cross-Origin-Embedder-Policy'] = 'require-corp';
                 }
                 res.writeHead(200, uiHeaders);
-                res.end(content);
+                res.end(req.method === 'HEAD' ? undefined : content);
                 return;
               } catch {
                 // Fall through to 404
@@ -3291,7 +3291,7 @@ export class PhotonServer {
               if (corsOrigin) jsHeaders['Access-Control-Allow-Origin'] = corsOrigin;
               jsHeaders['Cross-Origin-Resource-Policy'] = 'same-origin';
               res.writeHead(200, jsHeaders);
-              res.end(r.body);
+              res.end(req.method === 'HEAD' ? undefined : r.body);
               return;
             }
             // Not the bundle (e.g. a static sibling shipped beside the .tsx) —
@@ -3332,7 +3332,7 @@ export class PhotonServer {
               // COEP `require-corp` can fetch its own SPA chunks.
               sibHeaders['Cross-Origin-Resource-Policy'] = 'same-origin';
               res.writeHead(200, sibHeaders);
-              res.end(content);
+              res.end(req.method === 'HEAD' ? undefined : content);
               return;
             } catch {
               // Fall through to embedded tree / 404
@@ -3371,7 +3371,7 @@ export class PhotonServer {
                 const { decodeEmbeddedAsset } = await import('./shared/asset-encoding.js');
                 const decoded = decodeEmbeddedAsset(content);
                 res.writeHead(200, treeHeaders);
-                res.end(decoded.buffer ?? decoded.text);
+                res.end(req.method === 'HEAD' ? undefined : (decoded.buffer ?? decoded.text));
                 return;
               }
             }
@@ -3496,7 +3496,7 @@ export class PhotonServer {
         // Track C: when none match, fall through to the auto-RPC table built
         // from @expose tags below.
         // Track C: auto-RPC. POST /api/<kebab-method> dispatches to @expose'd
-        // methods. Explicit @get/@post takes precedence (matchedRoute already
+        // methods. Explicit HTTP routes take precedence (matchedRoute already
         // set above) so a user can override path/verb for any @expose'd
         // method without surrendering the auto-RPC slot for the rest. The
         // visibility check below decides whether to allow the call.
@@ -3545,7 +3545,7 @@ export class PhotonServer {
         }
 
         if (matchedRoute) {
-          // Track C closure (extended): @get/@post and @expose dispatchers
+          // Track C closure (extended): HTTP route and @expose dispatchers
           // share the same per-claim instance pool that `handleCallTool`
           // uses, so `@stateful` + `@auth` photons isolate state across
           // callers regardless of which HTTP surface invokes the method.
@@ -3578,7 +3578,7 @@ export class PhotonServer {
               });
               // @expose dispatches receive the parsed JSON body as the first
               // arg so handlers share the MCP `addTask({title})`-style
-              // signature; @get/@post handlers keep the Request directly so
+              // signature; HTTP route handlers keep the Request directly so
               // they can read headers / streams. Empty body → empty object.
               let result: unknown;
               if (matchedRoute.expose && req.method !== 'GET') {

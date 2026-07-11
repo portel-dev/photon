@@ -5863,6 +5863,21 @@ async function getStateKeys(photonName: string, photonPath: string): Promise<str
     const keys = injections
       .filter((inj) => inj.injectionType === 'state')
       .map((inj) => inj.stateKey!);
+
+    // Extract property-level @sharedState keys
+    const propertyRegex =
+      /\/\*\*([\s\S]*?)\*\/\s*(?:public\s+|protected\s+|private\s+)?([A-Za-z_$][\w$]*)\s*(?:[:=]|\b[^(\n]*$)/gm;
+    let propMatch;
+    while ((propMatch = propertyRegex.exec(source)) !== null) {
+      const doc = propMatch[1];
+      const name = propMatch[2];
+      if (/@sharedState\b/i.test(doc)) {
+        if (!keys.includes(name)) {
+          keys.push(name);
+        }
+      }
+    }
+
     stateKeysCache.set(photonName, keys);
     logger.debug('State keys extracted', { photon: photonName, keys });
     return keys;

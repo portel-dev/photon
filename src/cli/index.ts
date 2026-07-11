@@ -37,6 +37,8 @@ import { registerAuditCommand } from './commands/audit.js';
 import { registerBuildCommand } from './commands/build.js';
 import { registerClaimCommands } from './commands/claim.js';
 import { registerAuthCommands } from './commands/auth.js';
+import { registerDevCommand } from './commands/dev.js';
+import { registerOpenAPICommand } from './commands/openapi.js';
 import { preprocessArgs } from './commands/run.js';
 
 export function createProgram(): Command {
@@ -109,6 +111,7 @@ Development:
   build <file>            Compile a photon into a standalone executable binary
   test [photon] [test]    Run test methods in photons
     --mode <mode>         Test mode: direct, cli, mcp, all (default: direct)
+  openapi <name>          Generate OpenAPI JSON for a photon
   init <command>          Setup and shell integration
     init cli                Set up shell integration for direct photon commands
     init daemon             Set up daemon auto-start on login (launchd/systemd)
@@ -172,6 +175,8 @@ Run 'photon <command> --help' for detailed usage.
   registerBuildCommand(program);
   registerClaimCommands(program);
   registerAuthCommands(program);
+  registerDevCommand(program);
+  registerOpenAPICommand(program);
 
   return program;
 }

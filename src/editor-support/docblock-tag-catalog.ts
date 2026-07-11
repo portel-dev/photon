@@ -366,6 +366,36 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
       type: 'keyword',
     },
     {
+      label: '@get',
+      detail: 'HTTP-only GET route',
+      snippetTmpl: '@get ${1:/path}',
+      type: 'keyword',
+    },
+    {
+      label: '@post',
+      detail: 'HTTP-only POST route',
+      snippetTmpl: '@post ${1:/path}',
+      type: 'keyword',
+    },
+    {
+      label: '@put',
+      detail: 'HTTP-only PUT route',
+      snippetTmpl: '@put ${1:/path}',
+      type: 'keyword',
+    },
+    {
+      label: '@patch',
+      detail: 'HTTP-only PATCH route',
+      snippetTmpl: '@patch ${1:/path}',
+      type: 'keyword',
+    },
+    {
+      label: '@delete',
+      detail: 'HTTP-only DELETE route',
+      snippetTmpl: '@delete ${1:/path}',
+      type: 'keyword',
+    },
+    {
       label: '@webhook',
       detail: 'HTTP webhook endpoint',
       snippetTmpl: '@webhook ${1:path}',

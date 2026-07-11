@@ -10,7 +10,7 @@
  *
  * Uses the asset-bundle fixture (v1.29 layout, `<photon>/assets/`) so the
  * runtime has to walk the new convention end-to-end. The fixture declares
- * `@ui dashboard ./dashboard/dist/index.html`; the test fetches the
+ * `@ui dashboard ./dashboard/bundle/index.html`; the test fetches the
  * sibling chunk that the index would `<script src>` and asserts the
  * contents come back byte-for-byte.
  *
@@ -92,12 +92,28 @@ describe.skipIf(SKIP)('directory-style asset serving', () => {
     expect(body).toContain('<script src="./chunks/main.js">');
   });
 
+  it('HEAD /api/ui/<id>/ returns headers for the declared @ui file', async () => {
+    const res = await fetch(`${BASE}/api/ui/dashboard/`, { method: 'HEAD' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const body = await res.text();
+    expect(body).toBe('');
+  });
+
   it('GET /api/ui/<id>/<rest> serves a sibling under the @ui directory', async () => {
     const res = await fetch(`${BASE}/api/ui/dashboard/chunks/main.js`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/javascript');
     const body = await res.text();
     expect(body).toContain('asset-bundle dashboard ready');
+  });
+
+  it('HEAD /api/ui/<id>/<rest> returns headers for a sibling asset', async () => {
+    const res = await fetch(`${BASE}/api/ui/dashboard/chunks/main.js`, { method: 'HEAD' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/javascript');
+    const body = await res.text();
+    expect(body).toBe('');
   });
 
   it('GET /api/ui/<id>/../<...> returns 403 (path traversal guard)', async () => {

@@ -1653,6 +1653,8 @@ export class PhotonLoader {
         this.log(`Injected call handler into ${name}`);
       }
 
+      this.wrapSharedStateProperties(instance, name, tsContent || '', options?.instanceName);
+
       // Auto-detect and inject capabilities for plain classes
       // Photon base class already has these built-in, so only inject for plain classes
       if (tsContent && typeof instance.executeTool !== 'function') {
@@ -2210,6 +2212,11 @@ export class PhotonLoader {
       if (extractedAuth) result.auth = extractedAuth;
       if (extractedHttpRoutes?.length) result._httpRoutes = extractedHttpRoutes;
       if (extractedExposes?.length) result._exposes = extractedExposes;
+
+      const sharedStates = this.extractSharedStateProperties(tsContent || '');
+      if (sharedStates.length > 0) {
+        (result as any).sharedStates = sharedStates;
+      }
       // Store class constructor for static method access
       result.classConstructor = MCPClass as unknown as Record<
         string,
@@ -2425,6 +2432,8 @@ export class PhotonLoader {
         });
       };
     }
+
+    this.wrapSharedStateProperties(instance, name, tsContent || '', options?.instanceName);
 
     // Detect and inject capabilities for plain classes
     if (tsContent && typeof instance.executeTool !== 'function') {
@@ -2668,6 +2677,11 @@ export class PhotonLoader {
     if (extractedAuth) result.auth = extractedAuth;
     if (extractedHttpRoutes?.length) result._httpRoutes = extractedHttpRoutes;
     if (extractedExposes?.length) result._exposes = extractedExposes;
+
+    const sharedStates = this.extractSharedStateProperties(tsContent);
+    if (sharedStates.length > 0) {
+      (result as any).sharedStates = sharedStates;
+    }
     result.classConstructor = MCPClass as unknown as Record<
       string,
       (...args: unknown[]) => unknown
@@ -2724,6 +2738,23 @@ export class PhotonLoader {
       if (merged.length > 0) scopesByMethod[name] = merged;
     }
     return scopesByMethod;
+  }
+
+  private extractSharedStateProperties(source: string): string[] {
+    const props: string[] = [];
+    const propertyRegex =
+      /\/\*\*([\s\S]*?)\*\/\s*(?:public\s+|protected\s+|private\s+)?([A-Za-z_$][\w$]*)\s*(?:[:=]|\b[^(\n]*$)/gm;
+    let match;
+    while ((match = propertyRegex.exec(source)) !== null) {
+      const doc = match[1];
+      const name = match[2];
+      if (/@sharedState\b/i.test(doc)) {
+        if (!props.includes(name)) {
+          props.push(name);
+        }
+      }
+    }
+    return props;
   }
 
   private extractLineMetadataFromSource(
@@ -3082,8 +3113,8 @@ export class PhotonLoader {
   }
 
   /**
-   * Extract @get and @post HTTP route declarations from photon source.
-   * Methods tagged with @get or @post are HTTP-only and must NOT appear as MCP tools.
+   * Extract HTTP route declarations from photon source.
+   * Methods tagged with HTTP routes are HTTP-only and must NOT appear as MCP tools.
    * Delegates to the shared module so the cf deploy path uses the same regex.
    */
   private extractHttpRoutesFromSource(
@@ -3183,7 +3214,7 @@ export class PhotonLoader {
           const source = sourceContent || (await readText(sourceFilePath));
           const metadata = extractor.extractAllFromSource(source);
 
-          // Extract @get/@post HTTP routes from source (not in photon-core SchemaExtractor)
+          // Extract HTTP routes from source (not in photon-core SchemaExtractor)
           const httpRoutesFromSource = this.extractHttpRoutesFromSource(source);
           const routeHandlerNames = new Set(httpRoutesFromSource.map((r) => r.handler));
 
@@ -3232,7 +3263,7 @@ export class PhotonLoader {
           // can auto-bind them at /api/<kebab>. We only honour declarations
           // for methods the class actually defines (mirrors the tool/route
           // filter above) so a stray comment never opens a phantom
-          // endpoint. Methods that already carry an explicit @get/@post are
+          // endpoint. Methods that already carry an explicit HTTP route are
           // excluded so the user's path/verb wins — the auto-RPC slot only
           // fills *unclaimed* spots.
           const httpRouteHandlers = new Set(httpRoutesFromSource.map((r) => r.handler));
@@ -5737,6 +5768,56 @@ Run: photon mcp ${mcpName} --config
   // Asset discovery + binding lives in `./asset-resolver.ts` and is reachable
   // via `this.assetResolver`.
 
+  private wrapSharedStateProperties(
+    instance: any,
+    name: string,
+    tsContent: string,
+    instanceName?: string
+  ): void {
+    const sharedStates = this.extractSharedStateProperties(tsContent);
+    if (sharedStates.length === 0) return;
+
+    for (const prop of sharedStates) {
+      if (instance[prop] !== undefined) {
+        let val = instance[prop];
+        const onMutation = (mutationPath: string, value: any, op: 'add' | 'replace' | 'remove') => {
+          if (typeof instance.emit === 'function') {
+            instance.emit({
+              channel: `${name}:${instanceName || 'default'}:state-changed`,
+              event: 'state-changed',
+              data: {
+                photon: name,
+                instance: instanceName || 'default',
+                property: prop,
+                value: instance[prop],
+                patches: [
+                  {
+                    op: op,
+                    path: mutationPath,
+                    value: value,
+                  },
+                ],
+              },
+            });
+          }
+        };
+
+        let proxyVal = makeReactiveProxy(val, onMutation, `/${prop}`);
+        Object.defineProperty(instance, prop, {
+          get() {
+            return proxyVal;
+          },
+          set(newVal) {
+            proxyVal = makeReactiveProxy(newVal, onMutation, `/${prop}`);
+            onMutation(`/${prop}`, newVal, 'replace');
+          },
+          configurable: true,
+          enumerable: true,
+        });
+      }
+    }
+  }
+
   /**
    * Inject Photon path helpers for plain classes that use them without extending Photon.
    */
@@ -5815,4 +5896,50 @@ Run: photon mcp ${mcpName} --config
       };
     }
   }
+}
+
+function makeReactiveProxy(
+  val: any,
+  onMutation: (path: string, val: any, op: 'add' | 'replace' | 'remove') => void,
+  currentPath: string
+): any {
+  if (val && typeof val === 'object') {
+    const isProxySymbol = Symbol.for('__is_photon_proxy');
+    if (val[isProxySymbol]) return val;
+
+    for (const key of Object.keys(val)) {
+      val[key] = makeReactiveProxy(val[key], onMutation, `${currentPath}/${key}`);
+    }
+
+    return new Proxy(val, {
+      get(target, prop, receiver) {
+        if (prop === isProxySymbol) return true;
+        return Reflect.get(target, prop, receiver);
+      },
+      set(target, prop, newVal, receiver) {
+        if (typeof prop === 'symbol') {
+          return Reflect.set(target, prop, newVal, receiver);
+        }
+        if (Array.isArray(target) && prop === 'length') {
+          return Reflect.set(target, prop, newVal, receiver);
+        }
+        const isNew = !(prop in target);
+        const propPath = `${currentPath}/${prop}`;
+        const reactiveNewVal = makeReactiveProxy(newVal, onMutation, propPath);
+        const result = Reflect.set(target, prop, reactiveNewVal, receiver);
+        onMutation(propPath, newVal, isNew ? 'add' : 'replace');
+        return result;
+      },
+      deleteProperty(target, prop) {
+        if (typeof prop === 'symbol') {
+          return Reflect.deleteProperty(target, prop);
+        }
+        const propPath = `${currentPath}/${prop}`;
+        const result = Reflect.deleteProperty(target, prop);
+        onMutation(propPath, undefined, 'remove');
+        return result;
+      },
+    });
+  }
+  return val;
 }

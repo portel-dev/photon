@@ -248,7 +248,7 @@ export class PhotonStudio extends LitElement {
 
     /* ─── Inspector pane ─── */
     .preview-pane {
-      width: 280px;
+      width: 340px;
       border-left: 1px solid var(--border, rgba(255, 255, 255, 0.06));
       overflow-y: auto;
       padding: 12px;

@@ -13,10 +13,10 @@ export default defineConfig({
     port: 5173,
     strictPort: false,
     proxy: {
-      '/api': 'http://127.0.0.1:8888',
-      '/sessions': 'http://127.0.0.1:8888',
-      '/settings': 'http://127.0.0.1:8888',
-      '/pair': 'http://127.0.0.1:8888',
+      '/api': `http://127.0.0.1:${process.env.VITE_DAEMON_PORT || '8888'}`,
+      '/sessions': `http://127.0.0.1:${process.env.VITE_DAEMON_PORT || '8888'}`,
+      '/settings': `http://127.0.0.1:${process.env.VITE_DAEMON_PORT || '8888'}`,
+      '/pair': `http://127.0.0.1:${process.env.VITE_DAEMON_PORT || '8888'}`,
     },
   },
 });

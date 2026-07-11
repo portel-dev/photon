@@ -199,6 +199,24 @@ export default class SimpleApi {
 const apiOnlyPath = path.join(tmpDir, 'simple-api.photon.ts');
 fs.writeFileSync(apiOnlyPath, apiOnlyContent);
 
+const optionalObjectParamsContent = `
+/**
+ * Optional object params photon.
+ */
+export default class OptionalObjectParams {
+  /**
+   * Opens the app.
+   * @param text Initial text
+   * @param pattern Pattern choice
+   */
+  open(params?: { text?: string; pattern?: string }) {
+    return { params };
+  }
+}
+`;
+const optionalObjectParamsPath = path.join(tmpDir, 'optional-object-params.photon.ts');
+fs.writeFileSync(optionalObjectParamsPath, optionalObjectParamsContent);
+
 // A streaming-only photon (generators but no ask/emit)
 const streamingContent = `
 /**
@@ -805,6 +823,17 @@ async function testToolExtraction() {
     const formatParam = fetchTool!.params.find((p) => p.name === 'format');
     assert.equal(formatParam!.optional, true);
   });
+
+  await test('optional object params expose inner optional field types', async () => {
+    const meta = await new PhotonDocExtractor(optionalObjectParamsPath).extractFullMetadata();
+    const openTool = meta.tools?.find((t) => t.name === 'open');
+    const textParam = openTool!.params.find((p) => p.name === 'text');
+    const patternParam = openTool!.params.find((p) => p.name === 'pattern');
+    assert.equal(textParam!.type, 'string');
+    assert.equal(textParam!.optional, true);
+    assert.equal(patternParam!.type, 'string');
+    assert.equal(patternParam!.optional, true);
+  });
 }
 
 async function testConfigParams() {
@@ -853,6 +882,7 @@ async function testConfigParams() {
   try {
     fs.unlinkSync(richFilePath);
     fs.unlinkSync(apiOnlyPath);
+    fs.unlinkSync(optionalObjectParamsPath);
     fs.unlinkSync(streamingPath);
     fs.unlinkSync(workflowPath);
     fs.unlinkSync(featurePath);

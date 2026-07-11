@@ -17,6 +17,8 @@
  * - x-autorun: Auto-execute on selection
  */
 
+import type { HttpRouteDef } from '../shared/http-route-extractor.js';
+
 // OpenAPI 3.1 types (simplified to avoid complex type compatibility issues)
 interface OpenAPIDocument {
   openapi: '3.1.0';
@@ -49,6 +51,7 @@ interface PhotonInfo {
   path: string;
   configured: boolean;
   methods?: MethodInfo[];
+  httpRoutes?: HttpRouteDef[];
   isApp?: boolean;
   requiredParams?: Array<{
     name: string;
@@ -156,6 +159,45 @@ export function generateOpenAPISpec(
       paths[path] = {
         post: operation,
       };
+    }
+
+    // Add HTTP routes explicitly defined via @get, @post, @put, @patch, @delete
+    if (photon.httpRoutes) {
+      for (const route of photon.httpRoutes) {
+        const operationId = `${photon.name}_${route.handler}`;
+        // ensure path starts with /
+        const openApiPath = route.path.startsWith('/') ? route.path : '/' + route.path;
+
+        // Find existing method metadata if possible, although they are mostly filtered out.
+        // We will just generate a generic operation.
+        const operation: Record<string, any> = {
+          operationId,
+          summary: `HTTP ${route.method} route ${route.path}`,
+          tags: [photon.name],
+        };
+
+        // For POST/PUT/PATCH, we might expect a body but without schema it's loose
+        if (['POST', 'PUT', 'PATCH'].includes(route.method.toUpperCase())) {
+          operation.requestBody = {
+            content: {
+              'application/json': { schema: { type: 'object' } },
+            },
+          };
+        }
+
+        operation.responses = {
+          '200': { description: 'Successful execution' },
+        };
+
+        if (route.format) {
+          operation['x-output-format'] = route.format;
+        }
+
+        if (!paths[openApiPath]) {
+          paths[openApiPath] = {};
+        }
+        paths[openApiPath][route.method.toLowerCase()] = operation;
+      }
     }
   }
 

@@ -8,8 +8,8 @@
  *   asset-bundle/
  *     assets/
  *       ui/form.html              ← @ui form ./ui/form.html
- *       dashboard/dist/index.html ← @ui dashboard ./dashboard/dist/index.html
- *       dashboard/dist/chunks/main.js (sibling auto-served, no @ui)
+ *       dashboard/bundle/index.html ← @ui dashboard ./dashboard/bundle/index.html
+ *       dashboard/bundle/chunks/main.js (sibling auto-served, no @ui)
  *       prompts/system.md         (auto-discovered)
  *       resources/config.json     (auto-discovered)
  *
@@ -18,7 +18,7 @@
 export default class AssetBundle {
   /**
    * @ui form ./ui/form.html
-   * @ui dashboard ./dashboard/dist/index.html
+   * @ui dashboard ./dashboard/bundle/index.html
    */
   greet(name: string): string {
     return `hello ${name}`;

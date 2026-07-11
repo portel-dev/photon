@@ -1792,8 +1792,8 @@ async function runTests() {
     console.log('✅ @autorun combined with @icon');
   }
 
-  // @get / @post route extraction (extracted by loader, not SchemaExtractor)
-  // SchemaExtractor does not know about @get/@post — the loader's extractHttpRoutesFromSource
+  // HTTP route extraction (extracted by loader, not SchemaExtractor)
+  // SchemaExtractor does not know about HTTP route tags — the loader's extractHttpRoutesFromSource
   // parses them and filters the handler methods from tools.
   {
     function extractHttpRoutesFromSource(
@@ -1801,7 +1801,7 @@ async function runTests() {
     ): Array<{ method: string; path: string; handler: string }> {
       const routes: Array<{ method: string; path: string; handler: string }> = [];
       const routeRe =
-        /\/\*\*[\s\S]*?@(get|post)\s+(\/[^\s*]*)[\s\S]*?\*\/\s*(?:async\s+)?(\w+)\s*\(/gi;
+        /\/\*\*[\s\S]*?@(get|post|put|patch|delete)\s+(\/[^\s*]*)[\s\S]*?\*\/\s*(?:async\s+)?(\w+)\s*\(/gi;
       let m: RegExpExecArray | null;
       while ((m = routeRe.exec(source)) !== null) {
         routes.push({ method: m[1].toUpperCase(), path: m[2], handler: m[3] });
@@ -1854,6 +1854,33 @@ async function runTests() {
     assert.equal(postRoutes[0].method, 'POST', 'Route method should be POST');
     assert.equal(postRoutes[0].path, '/webhook/stripe', 'Route path should match');
     console.log('✅ @post route extracted, not in tools after loader filtering');
+
+    const verbSource = `
+      export default class Api {
+        /** @put /items/:id */
+        async update(request: Request): Promise<Response> { return new Response('ok'); }
+        /** @patch /items/:id */
+        async patch(request: Request): Promise<Response> { return new Response('ok'); }
+        /** @delete /items/:id */
+        async remove(request: Request): Promise<Response> { return new Response('ok'); }
+        async list() { return []; }
+      }
+    `;
+    const verbRoutes = extractHttpRoutesFromSource(verbSource);
+    assert.deepEqual(
+      verbRoutes.map((route) => route.method),
+      ['PUT', 'PATCH', 'DELETE'],
+      'Should extract PUT/PATCH/DELETE route tags'
+    );
+    const verbHandlerNames = new Set(verbRoutes.map((route) => route.handler));
+    const verbResult = extractor.extractAllFromSource(verbSource);
+    const remainingTools = verbResult.tools.filter((tool) => !verbHandlerNames.has(tool.name));
+    assert.deepEqual(
+      remainingTools.map((tool) => tool.name),
+      ['list'],
+      'Only non-route methods remain as MCP tools'
+    );
+    console.log('✅ @put/@patch/@delete routes extracted, not in tools after loader filtering');
   }
 
   // @auth cf-access

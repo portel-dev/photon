@@ -1,5 +1,5 @@
 /**
- * Source-level extractor for `@get` and `@post` HTTP route declarations.
+ * Source-level extractor for HTTP route declarations.
  *
  * Both the runtime loader and the Cloudflare deploy code-gen need to know
  * which class methods are bound to HTTP routes. The photon-core
@@ -10,7 +10,7 @@
  * Why a separate module: prior to v1.28.1 the regex lived inside the
  * loader as a private method, so the deploy path silently fell back to
  * `metadata.httpRoutes ?? []` from photon-core. With photon-core 2.25.0,
- * that field is always undefined — every Cloudflare deploy with @get/@post
+ * that field is always undefined — every Cloudflare deploy with HTTP route
  * routes (other than `@get /`) shipped an empty subclass route table and
  * 404'd in production. See tests/cf-deploy-codegen.test.ts.
  */
@@ -33,7 +33,7 @@ export interface HttpRouteDef {
 // a class-level docblock that happens to mention `@format` in prose.
 const JSDOC_BLOCK_RE = /\/\*\*([\s\S]*?)\*\//g;
 const METHOD_RE = /^\s*(?:public\s+|private\s+|protected\s+)?(?:async\s+)?(\w+)\s*\(/;
-const ROUTE_TAG_RE = /@(get|post)\s+(\/[^\s*]*)/i;
+const ROUTE_TAG_RE = /@(get|post|put|patch|delete)\s+(\/[^\s*]*)/i;
 const FORMAT_RE = /@format\s+([\w:-]+)/i;
 
 export function extractHttpRoutesFromSource(source: string): HttpRouteDef[] {

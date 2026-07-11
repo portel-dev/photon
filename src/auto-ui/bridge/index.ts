@@ -1595,6 +1595,330 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     }
   }, 5000);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WEB COMPONENTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  class PhotonToolCard extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this._tool = '';
+    }
+
+    static get observedAttributes() {
+      return ['tool'];
+    }
+
+    attributeChangedCallback(name, oldVal, newVal) {
+      if (name === 'tool' && oldVal !== newVal) {
+        this._tool = newVal;
+        this.render();
+      }
+    }
+
+    connectedCallback() {
+      this._tool = this.getAttribute('tool') || '';
+      this.render();
+    }
+
+    async render() {
+      if (!this._tool) {
+        this.shadowRoot.innerHTML = '<div style="color: var(--text-muted, #888); font-size: 0.9rem;">No tool specified</div>';
+        return;
+      }
+
+      var meta = (ctx.methodMeta && ctx.methodMeta[this._tool]) || {};
+      var schema = meta.inputSchema || { type: 'object', properties: {} };
+      var props = schema.properties || {};
+
+      var formHtml = '';
+      for (var key in props) {
+        var prop = props[key];
+        var type = prop.type || 'string';
+        var desc = prop.description || '';
+        var safeKey = escapeHtml(key);
+        var safeDesc = escapeHtml(desc);
+        if (type === 'boolean') {
+          formHtml += '<div class="form-group-checkbox">' +
+            '<input type="checkbox" id="' + safeKey + '">' +
+            '<label for="' + safeKey + '">' +
+              '<strong>' + safeKey + '</strong>' +
+              (desc ? '<span class="desc">' + safeDesc + '</span>' : '') +
+            '</label>' +
+          '</div>';
+        } else {
+          var inputType = type === 'number' || type === 'integer' ? 'number' : 'text';
+          var safeDefault = escapeHtml(prop.default !== undefined ? prop.default : '');
+          formHtml += '<div class="form-group">' +
+            '<label for="' + safeKey + '">' +
+              '<strong>' + safeKey + '</strong>' +
+              (desc ? '<span class="desc">' + safeDesc + '</span>' : '') +
+            '</label>' +
+            '<input type="' + inputType + '" id="' + safeKey + '" placeholder="' + safeDefault + '">' +
+          '</div>';
+        }
+      }
+
+      this.shadowRoot.innerHTML = [
+        '<style>',
+        '  :host {',
+        '    display: block;',
+        '    font-family: "Inter", system-ui, sans-serif;',
+        '    background: var(--bg-card, rgba(30, 41, 59, 0.4));',
+        '    backdrop-filter: blur(12px);',
+        '    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));',
+        '    border-radius: 12px;',
+        '    padding: 20px;',
+        '    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);',
+        '    transition: transform 0.2s ease, border-color 0.2s ease;',
+        '  }',
+        '  :host(:hover) {',
+        '    transform: translateY(-2px);',
+        '    border-color: var(--accent-primary, #d98a00);',
+        '  }',
+        '  .title {',
+        '    font-size: 1.1rem;',
+        '    font-weight: 600;',
+        '    color: var(--text-main, #f8fafc);',
+        '    margin: 0 0 4px 0;',
+        '    text-transform: capitalize;',
+        '  }',
+        '  .subtitle {',
+        '    font-size: 0.8rem;',
+        '    color: var(--text-muted, #94a3b8);',
+        '    margin: 0 0 20px 0;',
+        '  }',
+        '  .form-group {',
+        '    margin-bottom: 16px;',
+        '    display: flex;',
+        '    flex-direction: column;',
+        '    gap: 6px;',
+        '  }',
+        '  .form-group-checkbox {',
+        '    margin-bottom: 16px;',
+        '    display: flex;',
+        '    align-items: flex-start;',
+        '    gap: 10px;',
+        '  }',
+        '  label {',
+        '    font-size: 0.85rem;',
+        '    color: var(--text-main, #f8fafc);',
+        '  }',
+        '  .desc {',
+        '    display: block;',
+        '    font-size: 0.75rem;',
+        '    color: var(--text-muted, #94a3b8);',
+        '    margin-top: 2px;',
+        '  }',
+        '  input[type="text"], input[type="number"] {',
+        '    background: rgba(15, 23, 42, 0.6);',
+        '    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));',
+        '    border-radius: 6px;',
+        '    padding: 8px 12px;',
+        '    color: white;',
+        '    font-size: 0.9rem;',
+        '    outline: none;',
+        '    transition: border-color 0.2s;',
+        '  }',
+        '  input[type="text"]:focus, input[type="number"]:focus {',
+        '    border-color: var(--accent-primary, #d98a00);',
+        '  }',
+        '  button {',
+        '    background: var(--accent-primary, #d98a00);',
+        '    color: white;',
+        '    border: none;',
+        '    border-radius: 6px;',
+        '    padding: 10px 16px;',
+        '    font-size: 0.9rem;',
+        '    font-weight: 600;',
+        '    cursor: pointer;',
+        '    width: 100%;',
+        '    transition: opacity 0.2s, transform 0.1s;',
+        '  }',
+        '  button:hover {',
+        '    opacity: 0.9;',
+        '  }',
+        '  button:active {',
+        '    transform: scale(0.98);',
+        '  }',
+        '  .result-box {',
+        '    margin-top: 20px;',
+        '    background: rgba(15, 23, 42, 0.8);',
+        '    border-radius: 6px;',
+        '    padding: 12px;',
+        '    font-family: monospace;',
+        '    font-size: 0.8rem;',
+        '    color: #38bdf8;',
+        '    max-height: 200px;',
+        '    overflow-y: auto;',
+        '    white-space: pre-wrap;',
+        '    display: none;',
+        '    border: 1px solid rgba(56, 189, 248, 0.2);',
+        '  }',
+        '</style>',
+        '<div class="title">' + escapeHtml(this._tool) + '</div>',
+        '<div class="subtitle">Execute tool via Photon SDK</div>',
+        '<div class="form-container">',
+        '  ' + formHtml,
+        '  <button id="execBtn">Execute</button>',
+        '</div>',
+        '<div class="result-box" id="result"></div>'
+      ].join('\n');
+
+      var btn = this.shadowRoot.getElementById('execBtn');
+      var resultBox = this.shadowRoot.getElementById('result');
+
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Executing...';
+        resultBox.style.display = 'none';
+
+        var args = {};
+        for (var key in props) {
+          var input = this.shadowRoot.getElementById(key);
+          if (input) {
+            if (input.type === 'checkbox') {
+              args[key] = input.checked;
+            } else if (input.type === 'number') {
+              args[key] = Number(input.value);
+            } else {
+              args[key] = input.value;
+            }
+          }
+        }
+
+        try {
+          var res = await window.photon.call(this._tool, args);
+          resultBox.textContent = JSON.stringify(res, null, 2);
+          resultBox.style.color = '#38bdf8';
+          resultBox.style.display = 'block';
+        } catch (err) {
+          resultBox.textContent = 'Error: ' + (err.message || err);
+          resultBox.style.color = '#f87171';
+          resultBox.style.display = 'block';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Execute';
+        }
+      });
+    }
+  }
+
+  class PhotonLogStreamer extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this._photon = '';
+      this._messages = [];
+    }
+
+    connectedCallback() {
+      this._photon = this.getAttribute('photon') || ctx.photon || '';
+      this.render();
+      this.subscribeLogs();
+    }
+
+    subscribeLogs() {
+      if (typeof window.photon?.on === 'function') {
+        const handleLog = (event) => {
+          var timestamp = new Date().toLocaleTimeString();
+          var logMsg = '[' + timestamp + '] [' + (event.event || 'EVENT') + '] ' + JSON.stringify(event.data || event);
+          this._messages.push(logMsg);
+          if (this._messages.length > 50) this._messages.shift();
+          this.updateLogs();
+        };
+
+        window.photon.on('state-changed', handleLog);
+        window.photon.on('tool-executed', handleLog);
+      }
+    }
+
+    updateLogs() {
+      var consoleBox = this.shadowRoot.getElementById('console');
+      if (consoleBox) {
+        consoleBox.innerHTML = this._messages.map(m => '<div>' + escapeHtml(m) + '</div>').join('');
+        consoleBox.scrollTop = consoleBox.scrollHeight;
+      }
+    }
+
+    render() {
+      this.shadowRoot.innerHTML = [
+        '<style>',
+        '  :host {',
+        '    display: block;',
+        '    font-family: monospace;',
+        '    background: #090d16;',
+        '    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));',
+        '    border-radius: 8px;',
+        '    padding: 16px;',
+        '    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);',
+        '  }',
+        '  .header {',
+        '    font-family: "Inter", system-ui, sans-serif;',
+        '    font-size: 0.85rem;',
+        '    color: var(--text-muted, #94a3b8);',
+        '    border-bottom: 1px solid rgba(255, 255, 255, 0.1);',
+        '    padding-bottom: 8px;',
+        '    margin-bottom: 12px;',
+        '    display: flex;',
+        '    justify-content: space-between;',
+        '    align-items: center;',
+        '  }',
+        '  .indicator {',
+        '    display: inline-block;',
+        '    width: 8px;',
+        '    height: 8px;',
+        '    background: #10b981;',
+        '    border-radius: 50%;',
+        '    box-shadow: 0 0 8px #10b981;',
+        '  }',
+        '  .console-box {',
+        '    font-size: 0.8rem;',
+        '    color: #34d399;',
+        '    height: 200px;',
+        '    overflow-y: auto;',
+        '    white-space: pre-wrap;',
+        '    display: flex;',
+        '    flex-direction: column;',
+        '    gap: 4px;',
+        '  }',
+        '  .console-box::-webkit-scrollbar {',
+        '    width: 6px;',
+        '  }',
+        '  .console-box::-webkit-scrollbar-thumb {',
+        '    background: rgba(255, 255, 255, 0.15);',
+        '    border-radius: 3px;',
+        '  }',
+        '</style>',
+        '<div class="header">',
+        '  <span>📡 Photon Live Events Stream (' + escapeHtml(this._photon) + ')</span>',
+        '  <span class="indicator"></span>',
+        '</div>',
+        '<div class="console-box" id="console">',
+        '  <div style="color: #64748b;">Awaiting events stream...</div>',
+        '</div>'
+      ].join('\n');
+    }
+  }
+
+  if (!customElements.get('photon-tool-card')) {
+    customElements.define('photon-tool-card', PhotonToolCard);
+  }
+  if (!customElements.get('photon-log-streamer')) {
+    customElements.define('photon-log-streamer', PhotonLogStreamer);
+  }
+
 })();
 </script>`;
 }

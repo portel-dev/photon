@@ -759,6 +759,10 @@ Pathless `@ui dashboard` resolves by convention from the photon UI folder:
 
 Use the explicit path form only when the file lives outside the convention,
 for example `@ui dashboard ./dashboard/dist/index.html` for a prebuilt app.
+When adapting an existing Vite or framework app, use the focused
+[conversion checklist](guides/CONVERT-FRONTEND-APP.md) to configure relative
+asset paths, sync the marketplace manifest, and verify `/api/ui/<id>/` plus
+sibling JS/CSS chunks.
 When the resolved UI is `.tsx`, Photon treats it as the client application
 shell in Beam: runtime paths such as `/mcp` and declared web routes still win,
 and otherwise GET routes fall through to the TSX app for client-side routing.

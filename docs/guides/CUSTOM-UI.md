@@ -21,6 +21,7 @@ Build rich interactive UIs for your photons. A global named after your photon fi
 - [Using Auto UI Renderers (photon.render)](#using-auto-ui-renderers-photonrender)
 - [Declarative Templates (.photon.html)](#declarative-templates-photonhtml)
 - [TSX Views (.tsx)](#tsx-views-tsx)
+- [Converting Existing Frontend Apps](CONVERT-FRONTEND-APP.md)
 
 ---
 
@@ -542,6 +543,10 @@ Pathless class-level `@ui dashboard` resolves the file by convention:
 Use `@ui dashboard ./some/path/index.html` only when the UI is outside the
 conventional `ui/` folder or when a prebuilt bundle needs sibling chunk
 serving from its own directory.
+
+When adapting an existing Vite or framework app, follow
+[Convert an Existing Frontend App into a Photon](CONVERT-FRONTEND-APP.md) so the
+compiled HTML, JS, CSS, marketplace manifest, and verification steps line up.
 
 ---
 

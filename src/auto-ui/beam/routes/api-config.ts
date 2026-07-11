@@ -385,6 +385,188 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
+  // Swagger UI docs endpoint
+  if (url.pathname === '/api/docs' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'text/html');
+    res.writeHead(200);
+    res.end(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Photon API Documentation</title>
+        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+        <style>
+          body { margin: 0; background: #0b1018; }
+          .swagger-ui { filter: invert(0.9) hue-rotate(180deg); }
+        </style>
+      </head>
+      <body>
+        <div id="swagger-ui"></div>
+        <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+        <script>
+          window.onload = () => {
+            window.ui = SwaggerUIBundle({
+              url: '/api/openapi.json',
+              dom_id: '#swagger-ui',
+              deepLinking: true,
+              presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIBundle.presets.SwaggerUIStandalonePreset
+              ],
+              layout: "BaseLayout"
+            });
+          };
+        </script>
+      </body>
+      </html>
+    `);
+    return true;
+  }
+
+  // REST Gateway: /api/v1/photon/:name/tools/:tool
+  if (url.pathname.startsWith('/api/v1/photon/')) {
+    const parts = url.pathname.slice('/api/v1/photon/'.length).split('/');
+    if (parts.length === 3 && parts[1] === 'tools') {
+      const photonName = decodeURIComponent(parts[0]);
+      const toolName = decodeURIComponent(parts[2]);
+
+      const mcp = state.photonMCPs.get(photonName);
+      if (!mcp) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Photon not found: ${photonName}` }));
+        return true;
+      }
+
+      const clientKey = req.socket?.remoteAddress || 'unknown';
+      if (!state.apiRateLimiter.isAllowed(clientKey)) {
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Too many requests' }));
+        return true;
+      }
+
+      try {
+        let args: Record<string, any> = {};
+        if (req.method === 'POST' || req.method === 'PUT') {
+          const body = await readBody(req);
+          if (body) {
+            args = JSON.parse(body);
+          }
+        } else {
+          for (const [key, value] of url.searchParams.entries()) {
+            args[key] = value;
+          }
+        }
+
+        const authHeader = req.headers['authorization'] || '';
+        let caller = {
+          anonymous: true,
+          id: 'anonymous',
+          name: 'anonymous',
+          claims: {} as Record<string, any>,
+        };
+
+        if (authHeader.startsWith('Bearer ') || authHeader.startsWith('ApiKey ')) {
+          const token = authHeader.slice(authHeader.indexOf(' ') + 1).trim();
+          if (token) {
+            const authMode =
+              process.env.PHOTON_MCP_AUTH_MODE ||
+              (process.env.PHOTON_MCP_BEARER ? 'bearer' : 'legacy');
+            let isVerified = false;
+
+            if (authMode === 'bearer') {
+              const expected = process.env.PHOTON_MCP_BEARER;
+              if (expected && token === expected) {
+                isVerified = true;
+              }
+            } else if (authMode === 'jwt') {
+              try {
+                let issuer = process.env.PHOTON_MCP_JWT_ISSUER || '';
+                const audience = process.env.PHOTON_MCP_JWT_AUDIENCE || '';
+                let jwks: { keys: any[] } = { keys: [] };
+
+                const profileName = process.env.PHOTON_MCP_JWT_PROFILE;
+                if (profileName) {
+                  try {
+                    const { loadPhotonAuth } = await import('../../../cli/commands/auth.js');
+                    const loaded = await loadPhotonAuth(profileName);
+                    issuer = loaded.issuer.issuer;
+                    jwks = loaded.jwks;
+                  } catch (e) {
+                    // Ignore profile load errors
+                  }
+                } else {
+                  const jwksRaw = process.env.PHOTON_MCP_JWT_JWKS;
+                  if (jwksRaw) {
+                    try {
+                      jwks = JSON.parse(jwksRaw);
+                    } catch {}
+                  }
+                }
+
+                const { verifyPhotonAuthToken } = await import('../../../auth/mcp-jwt.js');
+                const verifyResult = verifyPhotonAuthToken(token, {
+                  issuer,
+                  audience,
+                  jwks,
+                });
+                if (verifyResult.ok) {
+                  isVerified = true;
+                  caller.claims = verifyResult.claims;
+                }
+              } catch (e) {
+                // Ignore validation errors, defaults to unverified
+              }
+            }
+
+            if (isVerified) {
+              caller = {
+                anonymous: false,
+                id: token.slice(0, 8),
+                name: 'api-user',
+                claims: { ...caller.claims, token },
+              };
+            }
+          }
+        }
+
+        const result = await state.loader.executeTool(mcp, toolName, args, {
+          caller,
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ result }));
+      } catch (err: any) {
+        // Log detailed stack trace server-side for troubleshooting
+        console.error(`[REST Gateway Error] ${err.stack || err}`);
+
+        const msg = err.message || '';
+        const isAuthErr =
+          msg.includes('Authentication required') || msg.includes('requires authentication');
+        const isNotFound =
+          msg.includes('not found') ||
+          msg.includes('Photon not found') ||
+          msg.includes('Method not found');
+
+        let status = 500;
+        let userMessage = 'Internal Server Error';
+
+        if (isAuthErr) {
+          status = 401;
+          userMessage = 'Authentication required';
+        } else if (isNotFound) {
+          status = 404;
+          userMessage = 'Not found';
+        }
+
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: userMessage }));
+      }
+      return true;
+    }
+  }
+
   // OpenAPI Specification endpoint
   // Serves auto-generated OpenAPI 3.1 spec from loaded photons
   if (url.pathname === '/api/openapi.json') {

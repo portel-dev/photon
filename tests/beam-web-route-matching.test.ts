@@ -32,6 +32,9 @@ const routes = [
   { method: 'GET', path: '/api/threads/:id/stream', handler: 'apiStream' },
   { method: 'POST', path: '/api/threads/:id/stdin', handler: 'apiStdin' },
   { method: 'POST', path: '/api/threads/start', handler: 'apiStart' },
+  { method: 'PUT', path: '/api/threads/:id', handler: 'apiUpdate' },
+  { method: 'PATCH', path: '/api/threads/:id', handler: 'apiPatch' },
+  { method: 'DELETE', path: '/api/threads/:id', handler: 'apiDelete' },
 ];
 
 async function run() {
@@ -48,6 +51,12 @@ async function run() {
 
   await test('prefers exact static routes over dynamic routes', () => {
     assert.equal(findBeamWebRoute(routes, 'POST', '/api/threads/start')?.handler, 'apiStart');
+  });
+
+  await test('matches REST-style mutating verbs', () => {
+    assert.equal(findBeamWebRoute(routes, 'PUT', '/api/threads/t_123')?.handler, 'apiUpdate');
+    assert.equal(findBeamWebRoute(routes, 'PATCH', '/api/threads/t_123')?.handler, 'apiPatch');
+    assert.equal(findBeamWebRoute(routes, 'DELETE', '/api/threads/t_123')?.handler, 'apiDelete');
   });
 
   await test('does not match wrong method or segment count', () => {

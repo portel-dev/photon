@@ -1564,7 +1564,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
           { headers: CORS_HEADERS }
         );
       }
-      // Fall through to the @get/@post route table (handles `@get /`).
+      // Fall through to the tagged HTTP route table (handles `@get /`).
     }
 
     // Dev-only endpoints

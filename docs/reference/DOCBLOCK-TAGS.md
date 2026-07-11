@@ -352,16 +352,19 @@ async generate({ quarter }: { quarter: string }) {
 
 ## HTTP Route Tags
 
-These method-level tags expose a photon method as a public HTTP endpoint. `@get` and `@post` declare the method as HTTP-only — it is **not** registered as an MCP tool and does not appear to LLM clients. Both tags support dynamic path segments using `:param` notation (e.g. `@get /users/:id/posts`); when multiple routes match a request, the most specific one wins (literal segments score higher than parameters). `@expose` is the third option: it auto-binds the method to a kebab-cased path under `/api/` AND keeps the method available as an MCP tool, so the same handler reaches both AI agents and a same-origin SPA. Works on `photon sse` (local) and `photon deploy cloudflare`. Not available over stdio.
+These method-level tags expose a photon method as a public HTTP endpoint. `@get`, `@post`, `@put`, `@patch`, and `@delete` declare the method as HTTP-only — it is **not** registered as an MCP tool and does not appear to LLM clients. Route tags support dynamic path segments using `:param` notation (e.g. `@get /users/:id/posts`); when multiple routes match a request, the most specific one wins (literal segments score higher than parameters). `@expose` is the third option: it auto-binds the method to a kebab-cased path under `/api/` AND keeps the method available as an MCP tool, so the same handler reaches both AI agents and a same-origin SPA. Works on `photon sse` (local) and `photon deploy cloudflare`. Not available over stdio.
 
 | Tag | Description | Example |
 |-----|-------------|---------|
 | `@get /path` | Expose method as an HTTP GET handler. Supports `:param` dynamic segments; literal segments take priority over parameters. | `@get /calendar.ics`, `@get /items/:id` |
 | `@post /path` | Expose method as an HTTP POST handler. Supports `:param` dynamic segments. | `@post /webhook/stripe`, `@post /items/:id/comments` |
+| `@put /path` | Expose method as an HTTP PUT handler. Supports `:param` dynamic segments. | `@put /items/:id` |
+| `@patch /path` | Expose method as an HTTP PATCH handler. Supports `:param` dynamic segments. | `@patch /items/:id` |
+| `@delete /path` | Expose method as an HTTP DELETE handler. Supports `:param` dynamic segments. | `@delete /items/:id` |
 | `@expose` | Auto-bind method to `POST /api/<kebab-method-name>`. Default visibility is `private` (requires browser-set `Sec-Fetch-Site: same-origin`/`same-site`). | `@expose` |
 | `@expose public` | Same as `@expose` but skips the SameSite check — anonymous third-party callers (RSS readers, mobile apps) can hit the endpoint. | `@expose public` |
 
-`@get` and `@post` methods receive a Web-standard `Request` and must return a `Response`:
+HTTP route methods receive a Web-standard `Request` and must return a `Response`:
 
 ```typescript
 /**

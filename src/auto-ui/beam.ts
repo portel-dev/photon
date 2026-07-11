@@ -1255,6 +1255,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         path: photonPath,
         configured: true,
         methods,
+        ...(mcp._httpRoutes && mcp._httpRoutes.length > 0 && { httpRoutes: mcp._httpRoutes }),
         templatePath,
         isApp: !!mainMethod,
         appEntry: mainMethod,
@@ -2369,7 +2370,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       // Web route proxy: /web/{photonName}/{...path} dispatches to the photon's
-      // @get/@post handlers. The prefix is stripped before dispatch so that the
+      // tagged HTTP handlers. The prefix is stripped before dispatch so that the
       // photon's routes look like they're running at the root. HTML responses
       // get a fetch interceptor injected so that absolute fetch('/api/foo')
       // calls inside the photon's UI are transparently rewritten to
@@ -3421,7 +3422,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       subscribeChannel(
         photonName,
         channel,
-        (message: any) => {
+        (rawMessage: any) => {
+          const message =
+            rawMessage && rawMessage.data !== undefined && rawMessage.channel !== undefined
+              ? { ...rawMessage, ...rawMessage.data }
+              : rawMessage;
           // Sync Beam's local instance from the daemon-persisted state file BEFORE
           // notifying the frontend. The daemon persists state to disk after mutations,
           // and Beam's local instance must match before _silentRefresh re-queries it.

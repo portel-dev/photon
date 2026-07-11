@@ -191,7 +191,7 @@ when you need an explicit Worker route pattern.
 | `this.assets(path, { load })` | Synchronously reads files bundled from the photon's companion asset folder |
 | `this.cf.*` (R2/KV/D1/Queues/Vectorize/AI/Images) | Real bindings on the deployed Worker; same shape as local miniflare |
 | `this.sample` / `this.confirm` / `this.elicit` | Forwarded over the SSE response stream |
-| `@get /path` / `@post /path` | Dispatched by the Worker fetch handler before MCP routing |
+| `@get` / `@post` / `@put` / `@patch` / `@delete` | Dispatched by the Worker fetch handler before MCP routing |
 | `@env MY_KEY` | Read from `wrangler.toml` `[vars]` or CF Secrets |
 | `--mcp-auth jwt` | Protect MCP `tools/call` with signed, scoped JWTs |
 | `@auth cf-access` | Each CF Access email maps to its own DO instance |
@@ -240,7 +240,7 @@ async syncData() {
 
 ### HTTP Routes on CF
 
-`@get` and `@post` tags work on Cloudflare deployments. The Worker fetch handler dispatches to the annotated method before falling through to MCP routing:
+HTTP route tags (`@get`, `@post`, `@put`, `@patch`, and `@delete`) work on Cloudflare deployments. The Worker fetch handler dispatches to the annotated method before falling through to MCP routing:
 
 ```typescript
 /**

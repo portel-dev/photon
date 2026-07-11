@@ -19,8 +19,10 @@ or scheduling semantics).
 
 1. `docs/reference/DOCBLOCK-TAGS.md` (tool/class metadata and runtime annotations)
 2. `docs/guides/CUSTOM-UI.md` (iframe bridge, event patterns, sandbox constraints)
-3. `docs/reference/LONG-RUNNING-METHODS.md` (heartbeat + progress contract)
-4. The target photon file and any existing `@ui` HTML for concrete behavior
+3. `docs/guides/CONVERT-FRONTEND-APP.md` when adapting an existing frontend app
+   into a Photon UI
+4. `docs/reference/LONG-RUNNING-METHODS.md` (heartbeat + progress contract)
+5. The target photon file and any existing `@ui` HTML for concrete behavior
 
 If this list is missing behavior you need, add it here before implementing more.
 
@@ -74,6 +76,10 @@ If this list is missing behavior you need, add it here before implementing more.
   `ui/<name>.photon.tsx`, `ui/<name>.tsx`, `ui/<name>.photon.html`,
   `ui/<name>.html`. Use `@ui <name> <path>` only for non-conventional
   locations such as prebuilt bundles.
+- For existing Vite/framework apps, set the frontend build to emit relative
+  asset URLs (for Vite, `base: './'`), then verify with GET requests against
+  `/api/ui/<name>/` and `/api/ui/<name>/<asset-path>`. `photon maker validate`
+  does not prove browser chunks load.
 - A resolved `.tsx` UI is a client application shell. In Beam, `/mcp` runtime
   paths and declared web routes win; otherwise GET routes fall through to the
   TSX app so the client router owns navigation.

@@ -224,6 +224,7 @@ export interface PhotonInfo {
   configured: true;
   /** Available methods/tools */
   methods: MethodInfo[];
+  httpRoutes?: import('../shared/http-route-extractor.js').HttpRouteDef[];
   /** Legacy @ui template path (deprecated, use assets.ui) */
   templatePath?: string;
   /** True if photon has main() - listed under Apps section */
@@ -359,7 +360,7 @@ export interface ExternalMCPInfo {
   appResourceUris?: string[];
   /** True if this MCP has an MCP App extension */
   hasApp?: boolean;
-  /** True if this MCP has @get/@post web routes exposed at a stable URL */
+  /** True if this MCP has tagged HTTP routes exposed at a stable URL */
   hasWebApp?: boolean;
   /** Base URL of the photon's web interface (from MCP capabilities.web) */
   webUrl?: string;

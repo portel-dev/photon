@@ -28,7 +28,7 @@ export class TemplateManager {
   private hashFile: string;
 
   // Current template version - increment when templates are updated
-  private static readonly TEMPLATE_VERSION = '4.0.0';
+  private static readonly TEMPLATE_VERSION = '4.0.1';
 
   constructor(workingDir: string) {
     this.marketplaceDir = path.join(workingDir, '.marketplace');
@@ -93,6 +93,10 @@ export class TemplateManager {
       },
       $default: (value: any, defaultValue: any): any => {
         return value !== undefined && value !== null && value !== '' ? value : defaultValue;
+      },
+      mdCell: (value: any): string => {
+        const text = value === undefined || value === null || value === '' ? '-' : String(value);
+        return text.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
       },
       properName: (desc: string, fallbackName: string): string => {
         // Use first paragraph only for name extraction
@@ -488,7 +492,7 @@ PRs welcome for focused, well-tested photons. Keep the gallery small: polished a
 \${$if(tool.params && tool.params.length > 0, \`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-\${each(tool.params, (p) => \`| \\\`\${p.name}\\\` | \${p.type} | \${p.optional ? 'No' : 'Yes'} | \${p.description || '-'}\${p.constraintsFormatted ? \` [\${p.constraintsFormatted}]\` : ''}\${p.example ? \` (e.g. \\\`\${p.example}\\\`)\` : ''} |\\n\`)}
+\${each(tool.params, (p) => \`| \\\`\${mdCell(p.name)}\\\` | \${mdCell(p.type)} | \${p.optional ? 'No' : 'Yes'} | \${mdCell(\`\${p.description || '-'}\${p.constraintsFormatted ? \` [\${p.constraintsFormatted}]\` : ''}\${p.example ? \` (e.g. \\\`\${p.example}\\\`)\` : ''}\`)} |\\n\`)}
 \`)}
 
 \${$if(tool.example, \`

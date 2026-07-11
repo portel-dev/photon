@@ -878,7 +878,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     binding: string;
     /** Tool definitions for this photon's MCP surface */
     toolDefs: any[];
-    /** HTTP routes from @get/@post tags */
+    /** HTTP routes from route tags */
     routeDefs: any[];
     /** @expose'd methods bound to /api/<kebab> with a SameSite check */
     exposeDefs: ExposeDef[];
@@ -1065,6 +1065,34 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
 
   let assetsBlock = '';
   const publicDir = path.join(outputDir, 'public');
+  // Compile and bundle companion UI project if present
+  const uiDir = path.join(path.dirname(absolutePath), 'ui');
+  if (existsSync(uiDir)) {
+    try {
+      logger.info('📦 Found companion UI project. Compiling UI...');
+      const pm = existsSync(path.join(path.dirname(absolutePath), 'bun.lockb')) ? 'bun' : 'npm';
+      const buildCmd = pm === 'bun' ? 'bun run build' : 'npm run build';
+      execSync(buildCmd, { cwd: uiDir, stdio: 'inherit' });
+
+      const distDir = existsSync(path.join(uiDir, 'dist', 'browser'))
+        ? path.join(uiDir, 'dist', 'browser')
+        : path.join(uiDir, 'dist');
+
+      if (existsSync(distDir)) {
+        await fs.mkdir(publicDir, { recursive: true });
+        logger.info(
+          `📦 Copying compiled UI assets from ${distDir} to Cloudflare Assets public root...`
+        );
+        await fs.cp(distDir, publicDir, { recursive: true });
+      } else {
+        throw new Error(`Compiled UI output directory not found under ${uiDir}/dist/`);
+      }
+    } catch (e: any) {
+      logger.error(`❌ UI compilation failed: ${e.message || e}`);
+      throw e;
+    }
+  }
+
   const embeddedAssetContents: Record<string, Record<string, string>> = {};
 
   // Copy companion folders and legacy `assets/**` contents into public/.

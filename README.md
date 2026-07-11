@@ -199,7 +199,7 @@ When forms aren't the right interface for what you're building, you can replace 
 
 > Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
 
-Photons that declare `@get` or `@post` HTTP routes are shown in Beam as web apps. Routes support dynamic path segments (e.g. `@get /items/:id`) matched by specificity: literal segments win over parameters. Beam proxies requests to those routes and injects an `x-photon-base-path` header so the app can construct correct absolute paths regardless of where Beam is hosted.
+Photons that declare HTTP routes with `@get`, `@post`, `@put`, `@patch`, or `@delete` are shown in Beam as web apps. Routes support dynamic path segments (e.g. `@get /items/:id`) matched by specificity: literal segments win over parameters. Beam proxies requests to those routes and injects an `x-photon-base-path` header so the app can construct correct absolute paths regardless of where Beam is hosted.
 
 ---
 
@@ -606,6 +606,9 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | `@expose` | Method | Auto-bind to `POST /api/<kebab>` for SPA fetch (`public` skips the SameSite gate) |
 | `@get /path` | Method | HTTP-only GET route; shown as a web app in Beam, not an MCP tool. Supports `:param` segments |
 | `@post /path` | Method | HTTP-only POST route; shown as a web app in Beam, not an MCP tool. Supports `:param` segments |
+| `@put /path` | Method | HTTP-only PUT route; shown as a web app in Beam, not an MCP tool. Supports `:param` segments |
+| `@patch /path` | Method | HTTP-only PATCH route; shown as a web app in Beam, not an MCP tool. Supports `:param` segments |
+| `@delete /path` | Method | HTTP-only DELETE route; shown as a web app in Beam, not an MCP tool. Supports `:param` segments |
 | `@resource <uri>` | Method | Dynamic MCP resource resolver (canonical form; replaces `@Static`) |
 | `@prompt` | Method | MCP prompt template (canonical form; replaces `@Template`) |
 | `@webhook` | Method | Expose as HTTP endpoint |
