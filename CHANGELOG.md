@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.36.0](https://github.com/portel-dev/photon/compare/v1.35.1...v1.36.0) (2026-07-11)
+
+### Features
+
+* add frontend app development workflow ([379539c](https://github.com/portel-dev/photon/commit/379539cedca3d4043d70ffaa8cc84d9df0457e29))
+* **build:** recursively collect and embed [@ui](https://github.com/ui) sibling assets in compiled binaries ([63dd1ae](https://github.com/portel-dev/photon/commit/63dd1aebe08e0b22b108fec4d096430b398d8a39))
+* **cli:** add Angular UI scaffolding template and options ([9662ee3](https://github.com/portel-dev/photon/commit/9662ee363e2f72ccb33d2f78cf68c3f934d59748))
+* **cli:** add React + Vite UI scaffolding templates and options ([5cf0b1c](https://github.com/portel-dev/photon/commit/5cf0b1c765fd1f54f818043592669dcc5f1d0fe3))
+* **cli:** add Vue + Vite and Svelte + Vite UI scaffolding support ([eb3c6c0](https://github.com/portel-dev/photon/commit/eb3c6c031b0c27768d44c5437e86b91d90621b2e))
+
+### Bug Fixes
+
+* harden frontend workflow contracts ([d01b6bd](https://github.com/portel-dev/photon/commit/d01b6bdf1102595c735028de81b9a3ab063f0745))
+* remove unrelated skill links ([d11f827](https://github.com/portel-dev/photon/commit/d11f8273fa5665e77df0a6b1800519f081c2fc78))
+
 ## [1.35.1](https://github.com/portel-dev/photon/compare/v1.35.0...v1.35.1) (2026-06-23)
 
 ## [1.35.0](https://github.com/portel-dev/photon/compare/v1.34.2...v1.35.0) (2026-06-23)
