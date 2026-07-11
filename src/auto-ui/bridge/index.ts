@@ -1821,12 +1821,18 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       this.attachShadow({ mode: 'open' });
       this._photon = '';
       this._messages = [];
+      this._unsubscribers = [];
     }
 
     connectedCallback() {
       this._photon = this.getAttribute('photon') || ctx.photon || '';
       this.render();
       this.subscribeLogs();
+    }
+
+    disconnectedCallback() {
+      this._unsubscribers.forEach(function(unsubscribe) { unsubscribe(); });
+      this._unsubscribers = [];
     }
 
     subscribeLogs() {
@@ -1839,8 +1845,8 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           this.updateLogs();
         };
 
-        window.photon.on('state-changed', handleLog);
-        window.photon.on('tool-executed', handleLog);
+        this._unsubscribers.push(window.photon.on('state-changed', handleLog));
+        this._unsubscribers.push(window.photon.on('tool-executed', handleLog));
       }
     }
 

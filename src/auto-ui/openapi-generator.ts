@@ -74,10 +74,9 @@ export function generateOpenAPISpec(
   const paths: Record<string, any> = {};
   const tags: Array<{ name: string; description?: string; [key: string]: any }> = [];
 
-  // Only include configured photons with methods
+  // Include every configured photon that exposes an MCP method or HTTP route.
   const configuredPhotons = photons.filter(
-    (p): p is PhotonInfo & { methods: MethodInfo[] } =>
-      p.configured && Array.isArray(p.methods) && p.methods.length > 0
+    (p) => p.configured && ((p.methods?.length ?? 0) > 0 || (p.httpRoutes?.length ?? 0) > 0)
   );
 
   for (const photon of configuredPhotons) {
@@ -88,9 +87,9 @@ export function generateOpenAPISpec(
       ...(photon.isApp && { 'x-app': true }),
     });
 
-    for (const method of photon.methods) {
+    for (const method of photon.methods ?? []) {
       const operationId = `${photon.name}_${method.name}`;
-      const path = `/photon/${photon.name}/${method.name}`;
+      const path = `/api/v1/photon/${encodeURIComponent(photon.name)}/tools/${encodeURIComponent(method.name)}`;
 
       // Convert params schema to OpenAPI request body
       const requestSchema = convertToOpenAPISchema(method.params);
@@ -100,6 +99,7 @@ export function generateOpenAPISpec(
         operationId,
         summary: method.description || `Execute ${method.name}`,
         tags: [photon.name],
+        security: [{ PhotonBearer: [] }, { PhotonRequest: [] }],
         requestBody: hasProperties(method.params)
           ? {
               required: true,
@@ -166,7 +166,13 @@ export function generateOpenAPISpec(
       for (const route of photon.httpRoutes) {
         const operationId = `${photon.name}_${route.handler}`;
         // ensure path starts with /
-        const openApiPath = route.path.startsWith('/') ? route.path : '/' + route.path;
+        const routePath = route.path.startsWith('/') ? route.path : '/' + route.path;
+        const pathParams: string[] = [];
+        const openApiRoutePath = routePath.replace(/:([A-Za-z_$][\w$]*)/g, (_match, name) => {
+          pathParams.push(name);
+          return `{${name}}`;
+        });
+        const openApiPath = `/web/${encodeURIComponent(photon.name)}${openApiRoutePath}`;
 
         // Find existing method metadata if possible, although they are mostly filtered out.
         // We will just generate a generic operation.
@@ -174,6 +180,14 @@ export function generateOpenAPISpec(
           operationId,
           summary: `HTTP ${route.method} route ${route.path}`,
           tags: [photon.name],
+          ...(pathParams.length > 0 && {
+            parameters: pathParams.map((name) => ({
+              name,
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+            })),
+          }),
         };
 
         // For POST/PUT/PATCH, we might expect a body but without schema it's loose
@@ -220,6 +234,12 @@ export function generateOpenAPISpec(
     ],
     tags,
     paths,
+    components: {
+      securitySchemes: {
+        PhotonBearer: { type: 'http', scheme: 'bearer' },
+        PhotonRequest: { type: 'apiKey', in: 'header', name: 'X-Photon-Request' },
+      },
+    },
   };
 
   // Add unconfigured photons info as extension

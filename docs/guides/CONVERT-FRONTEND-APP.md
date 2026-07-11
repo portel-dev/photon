@@ -67,7 +67,7 @@ The built HTML should reference sibling assets relatively:
 
 ```html
 <script type="module" src="./assets/main.js"></script>
-<link rel="stylesheet" href="./assets/main.css">
+<link rel="stylesheet" href="./assets/main.css" />
 ```
 
 If the generated HTML still contains `/assets/...`, fix the frontend build before debugging Photon.
@@ -143,15 +143,28 @@ Use `GET`, not `HEAD`. Browser asset loads use GET, and some Photon UI routes ma
 
 All three checks should return `200`.
 
+## Calling Tools from a Standalone Frontend
+
+Beam exposes tools through `POST /api/v1/photon/<name>/tools/<method>`. Local browser and CLI clients must include `X-Photon-Request`; remote clients must use a configured Bearer token. Tool invocation is POST-only so cross-origin navigation cannot trigger mutations.
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/v1/photon/stereogram/tools/open \
+  -H 'Content-Type: application/json' \
+  -H 'X-Photon-Request: 1' \
+  --data '{"text":"3D","preset":"torus"}'
+```
+
+Generate the matching OpenAPI 3.1 document with `photon openapi stereogram`, or open `/api/docs` while Beam is running.
+
 ## Common Failure Modes
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| HTML loads but JS/CSS 404 | Built HTML uses `/assets/...` | Set Vite `base: './'` and rebuild |
-| `@ui` asset is registered but route 404s | UI declaration does not match companion layout | Prefer pathless `@ui main` with `photon-name/ui/main.html` |
-| `photon maker validate` passes but app is blank | Validation does not load browser chunks | Run the SSE `GET /api/ui/...` checks |
-| Generated docs show malformed parameter types | Optional object or complex union type confused extraction/docs | Use `params: { ... } = {}` and docblock `{@choice ...}` |
-| `photon add` cannot install from repo | Marketplace manifest missing or stale | Run `photon maker sync` and commit `.marketplace/photons.json` |
+| Symptom                                         | Likely cause                                                   | Fix                                                            |
+| ----------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------- |
+| HTML loads but JS/CSS 404                       | Built HTML uses `/assets/...`                                  | Set Vite `base: './'` and rebuild                              |
+| `@ui` asset is registered but route 404s        | UI declaration does not match companion layout                 | Prefer pathless `@ui main` with `photon-name/ui/main.html`     |
+| `photon maker validate` passes but app is blank | Validation does not load browser chunks                        | Run the SSE `GET /api/ui/...` checks                           |
+| Generated docs show malformed parameter types   | Optional object or complex union type confused extraction/docs | Use `params: { ... } = {}` and docblock `{@choice ...}`        |
+| `photon add` cannot install from repo           | Marketplace manifest missing or stale                          | Run `photon maker sync` and commit `.marketplace/photons.json` |
 
 ## Done Checklist
 

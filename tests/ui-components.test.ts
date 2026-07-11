@@ -31,5 +31,7 @@ describe('Beam-aligned Web Components UI Kit in Platform Bridge', () => {
     expect(script).toContain("customElements.define('photon-log-streamer'");
     expect(script).toContain('class PhotonToolCard extends HTMLElement');
     expect(script).toContain('class PhotonLogStreamer extends HTMLElement');
+    expect(script).toContain('disconnectedCallback()');
+    expect(script).toContain('this._unsubscribers.forEach');
   });
 });

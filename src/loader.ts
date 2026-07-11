@@ -5802,14 +5802,15 @@ Run: photon mcp ${mcpName} --config
           }
         };
 
-        let proxyVal = makeReactiveProxy(val, onMutation, `/${prop}`);
+        const rootPath = `/${encodeJsonPointerSegment(prop)}`;
+        let proxyVal = makeReactiveProxy(val, onMutation, rootPath);
         Object.defineProperty(instance, prop, {
           get() {
             return proxyVal;
           },
           set(newVal) {
-            proxyVal = makeReactiveProxy(newVal, onMutation, `/${prop}`);
-            onMutation(`/${prop}`, newVal, 'replace');
+            proxyVal = makeReactiveProxy(newVal, onMutation, rootPath);
+            onMutation(rootPath, newVal, 'replace');
           },
           configurable: true,
           enumerable: true,
@@ -5908,7 +5909,11 @@ function makeReactiveProxy(
     if (val[isProxySymbol]) return val;
 
     for (const key of Object.keys(val)) {
-      val[key] = makeReactiveProxy(val[key], onMutation, `${currentPath}/${key}`);
+      val[key] = makeReactiveProxy(
+        val[key],
+        onMutation,
+        `${currentPath}/${encodeJsonPointerSegment(key)}`
+      );
     }
 
     return new Proxy(val, {
@@ -5924,7 +5929,7 @@ function makeReactiveProxy(
           return Reflect.set(target, prop, newVal, receiver);
         }
         const isNew = !(prop in target);
-        const propPath = `${currentPath}/${prop}`;
+        const propPath = `${currentPath}/${encodeJsonPointerSegment(prop)}`;
         const reactiveNewVal = makeReactiveProxy(newVal, onMutation, propPath);
         const result = Reflect.set(target, prop, reactiveNewVal, receiver);
         onMutation(propPath, newVal, isNew ? 'add' : 'replace');
@@ -5934,7 +5939,7 @@ function makeReactiveProxy(
         if (typeof prop === 'symbol') {
           return Reflect.deleteProperty(target, prop);
         }
-        const propPath = `${currentPath}/${prop}`;
+        const propPath = `${currentPath}/${encodeJsonPointerSegment(prop)}`;
         const result = Reflect.deleteProperty(target, prop);
         onMutation(propPath, undefined, 'remove');
         return result;
@@ -5942,4 +5947,8 @@ function makeReactiveProxy(
     });
   }
   return val;
+}
+
+function encodeJsonPointerSegment(value: string | number): string {
+  return String(value).replace(/~/g, '~0').replace(/\//g, '~1');
 }

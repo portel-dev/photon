@@ -84,8 +84,8 @@ describe('photon dev command registration', () => {
     const photonPath = join(workspace, 'my-calc.photon.ts');
     writeFileSync(photonPath, 'export default class MyCalc {}');
 
-    // Create ui/ containing angular.json
-    const uiDir = join(workspace, 'ui');
+    // Create the selected photon's conventional companion UI directory.
+    const uiDir = join(workspace, 'my-calc', 'ui');
     mkdirSync(uiDir, { recursive: true });
     writeFileSync(join(uiDir, 'angular.json'), '{}');
 
@@ -115,6 +115,9 @@ describe('photon dev command registration', () => {
     // Check spawn was called with env VITE_DAEMON_PORT
     expect(spawnMock).toHaveBeenCalled();
     const spawnCall = spawnMock.mock.calls[0];
+    expect(spawnCall[2].cwd).toBe(uiDir);
+    expect(spawnCall[1]).toContain('--proxy-config');
+    expect(spawnCall[1]).toContain('proxy.conf.json');
     const env = spawnCall[2].env;
     expect(env.VITE_DAEMON_PORT).toBe('9092');
   });

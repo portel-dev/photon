@@ -9,7 +9,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { isLocalRequest, readBody, getCorsOrigin } from '../../../shared/security.js';
+import {
+  isLocalRequest,
+  readBody,
+  getCorsOrigin,
+  timingSafeEqual,
+} from '../../../shared/security.js';
 import { logger } from '../../../shared/logger.js';
 import { generateOpenAPISpec } from '../../openapi-generator.js';
 import { mcpCommand } from '../../../shared-utils.js';
@@ -396,7 +401,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Photon API Documentation</title>
-        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
         <style>
           body { margin: 0; background: #0b1018; }
           .swagger-ui { filter: invert(0.9) hue-rotate(180deg); }
@@ -404,7 +409,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       </head>
       <body>
         <div id="swagger-ui"></div>
-        <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+        <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
         <script>
           window.onload = () => {
             window.ui = SwaggerUIBundle({
@@ -429,6 +434,19 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
   if (url.pathname.startsWith('/api/v1/photon/')) {
     const parts = url.pathname.slice('/api/v1/photon/'.length).split('/');
     if (parts.length === 3 && parts[1] === 'tools') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'POST' });
+        res.end(JSON.stringify({ error: 'Method not allowed' }));
+        return true;
+      }
+
+      const localRequest = isLocalRequest(req);
+      if (localRequest && !req.headers['x-photon-request']) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing X-Photon-Request header' }));
+        return true;
+      }
+
       const photonName = decodeURIComponent(parts[0]);
       const toolName = decodeURIComponent(parts[2]);
 
@@ -448,16 +466,8 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
 
       try {
         let args: Record<string, any> = {};
-        if (req.method === 'POST' || req.method === 'PUT') {
-          const body = await readBody(req);
-          if (body) {
-            args = JSON.parse(body);
-          }
-        } else {
-          for (const [key, value] of url.searchParams.entries()) {
-            args[key] = value;
-          }
-        }
+        const body = await readBody(req);
+        if (body) args = JSON.parse(body);
 
         const authHeader = req.headers['authorization'] || '';
         let caller = {
@@ -477,7 +487,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
 
             if (authMode === 'bearer') {
               const expected = process.env.PHOTON_MCP_BEARER;
-              if (expected && token === expected) {
+              if (expected && timingSafeEqual(token, expected)) {
                 isVerified = true;
               }
             } else if (authMode === 'jwt') {
@@ -527,8 +537,18 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
                 name: 'api-user',
                 claims: { ...caller.claims, token },
               };
+            } else {
+              res.writeHead(401, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Invalid credentials' }));
+              return true;
             }
           }
+        }
+
+        if (!localRequest && caller.anonymous) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Authentication required' }));
+          return true;
         }
 
         const result = await state.loader.executeTool(mcp, toolName, args, {

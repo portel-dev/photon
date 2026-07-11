@@ -27,6 +27,10 @@ function decodePointer(path: string): string[] {
     .map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'));
 }
 
+function encodePointerSegment(value: string): string {
+  return value.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
 function applyPatch(current: unknown, patch: JsonPatch): unknown {
   const next = clone(current ?? {});
   const parts = decodePointer(patch.path);
@@ -53,12 +57,13 @@ function applyPatch(current: unknown, patch: JsonPatch): unknown {
 }
 
 function patchesForKey(key: string, patches?: JsonPatch[]): JsonPatch[] {
+  const root = `/${encodePointerSegment(key)}`;
   return (
     patches
-      ?.filter((patch) => patch.path === `/${key}` || patch.path.startsWith(`/${key}/`))
+      ?.filter((patch) => patch.path === root || patch.path.startsWith(`${root}/`))
       .map((patch) => ({
         ...patch,
-        path: patch.path === `/${key}` ? '' : patch.path.slice(key.length + 1),
+        path: patch.path === root ? '' : patch.path.slice(root.length),
       })) ?? []
   );
 }

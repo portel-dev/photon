@@ -82,6 +82,11 @@ describe('Stateful synchronization and @sharedState metadata', () => {
       const lastCall = emitMock.mock.calls[0][0];
       expect(lastCall.event).toBe('state-changed');
       expect(lastCall.channel).toContain('state-changed');
+
+      instance.todos.push({ 'label/with~separator': 'value' } as any);
+      instance.todos[1]['label/with~separator'] = 'updated';
+      const escapedPatch = emitMock.mock.calls.at(-1)?.[0].data.patches[0];
+      expect(escapedPatch.path).toContain('label~1with~0separator');
     } finally {
       if (fs.existsSync(tempFile)) {
         fs.unlinkSync(tempFile);

@@ -37,10 +37,37 @@ function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-function isBeamRuntimeRunning(port: number): Promise<boolean> {
+function isBeamRuntimeForWorkspace(
+  port: number,
+  workingDir: string,
+  photonName: string
+): Promise<boolean> {
   return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/api/openapi.json`, { timeout: 1000 }, (res) => {
-      resolve(res.statusCode === 200);
+    const req = http.get(`http://127.0.0.1:${port}/api/diagnostics`, { timeout: 1000 }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        resolve(false);
+        return;
+      }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        body += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const diagnostics = JSON.parse(body) as {
+            workingDir?: string;
+            photons?: Array<{ name?: string }>;
+          };
+          resolve(
+            path.resolve(diagnostics.workingDir || '') === path.resolve(workingDir) &&
+              diagnostics.photons?.some((photon) => photon.name === photonName) === true
+          );
+        } catch {
+          resolve(false);
+        }
+      });
     });
     req.on('error', () => resolve(false));
     req.on('timeout', () => {
@@ -48,6 +75,17 @@ function isBeamRuntimeRunning(port: number): Promise<boolean> {
       resolve(false);
     });
   });
+}
+
+function resolveUiDir(photonPath: string, workingDir: string): string | null {
+  const photonDir = path.dirname(photonPath);
+  const photonBaseName = path.basename(photonPath, '.photon.ts');
+  const candidates = [
+    path.join(photonDir, photonBaseName, 'ui'),
+    path.join(photonDir, 'ui'),
+    path.join(workingDir, 'ui'),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
 }
 
 async function findAvailablePort(startPort: number, maxAttempts: number = 20): Promise<number> {
@@ -109,10 +147,16 @@ export function registerDevCommand(program: Command): void {
           });
         }
 
-        // Verify ui/ directory exists
-        const uiDir = path.join(workingDir, 'ui');
-        if (!fs.existsSync(uiDir)) {
-          exitWithError(`UI directory not found at ${uiDir}`, {
+        const relativePhotonPath = path.relative(workingDir, filePath);
+        const backendWorkingDir =
+          relativePhotonPath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePhotonPath)
+            ? path.dirname(filePath)
+            : workingDir;
+
+        // Resolve the selected photon's companion UI, with the legacy workspace/ui fallback.
+        const uiDir = resolveUiDir(filePath, workingDir);
+        if (!uiDir) {
+          exitWithError(`UI directory not found for ${name}`, {
             suggestion: `Run 'photon new ${name} --react' or similar to scaffold a UI project first.`,
           });
         }
@@ -129,7 +173,7 @@ export function registerDevCommand(program: Command): void {
         let backendPort = preferredBackendPort;
         let startLocalBackend = true;
 
-        if (await isBeamRuntimeRunning(preferredBackendPort)) {
+        if (await isBeamRuntimeForWorkspace(preferredBackendPort, backendWorkingDir, name)) {
           console.error(
             `⚙️ Discovered active Beam runtime on port ${preferredBackendPort}. Reusing it.`
           );
@@ -169,16 +213,14 @@ export function registerDevCommand(program: Command): void {
         if (startLocalBackend) {
           console.error(`⚙️ Starting Beam backend on http://localhost:${backendPort}...`);
           const { startBeam } = await import('../../auto-ui/beam.js');
-          await startBeam(workingDir, backendPort);
+          await startBeam(backendWorkingDir, backendPort);
         }
 
         // 5. Spin up Framework Frontend Dev Server
         const pm = detectPM();
         const runCmd = pm === 'bun' ? 'bun' : 'npm';
-        const runArgs =
-          pm === 'bun'
-            ? ['run', 'dev', '--', '--port', String(uiPort)]
-            : ['run', 'dev', '--', '--port', String(uiPort)];
+        const runArgs = ['run', 'dev', '--', '--port', String(uiPort)];
+        if (isAngular) runArgs.push('--proxy-config', 'proxy.conf.json');
 
         console.error(`🚀 Starting UI frontend dev server via ${pm}...`);
         const childEnv = {

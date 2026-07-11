@@ -4,6 +4,7 @@ import { join } from 'path';
 import { Command } from 'commander';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { registerOpenAPICommand } from '../src/cli/commands/openapi.js';
+import { generateOpenAPISpec } from '../src/auto-ui/openapi-generator.js';
 
 const tmpDirs: string[] = [];
 
@@ -15,7 +16,28 @@ afterEach(() => {
 });
 
 describe('photon openapi command', () => {
-  test('generates OpenAPI JSON for callable methods only', async () => {
+  test('keeps configured photons that expose only HTTP routes', () => {
+    const spec = generateOpenAPISpec([
+      {
+        name: 'health-only',
+        path: '/tmp/health-only.photon.ts',
+        configured: true,
+        methods: [],
+        httpRoutes: [{ method: 'GET', path: '/health/:region', handler: 'health' }],
+      },
+    ]);
+
+    const route = spec.paths['/web/health-only/health/{region}'].get;
+    expect(route.operationId).toBe('health-only_health');
+    expect(route.parameters).toContainEqual({
+      name: 'region',
+      in: 'path',
+      required: true,
+      schema: { type: 'string' },
+    });
+  });
+
+  test('generates executable OpenAPI paths for tools and HTTP routes', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'photon-openapi-test-'));
     tmpDirs.push(workspace);
     vi.stubEnv('PHOTON_DIR', workspace);
@@ -65,11 +87,12 @@ export default class Calculator {
     const paths = Object.keys(spec.paths);
     expect(spec.openapi).toBe('3.1.0');
     expect(spec.servers[0].url).toBe('https://api.example.test');
-    expect(paths).toContain('/photon/calculator/add');
-    expect(paths).not.toContain('/photon/calculator/health');
+    const toolPath = '/api/v1/photon/calculator/tools/add';
+    expect(paths).toContain(toolPath);
+    expect(paths).toContain('/web/calculator/health');
     expect(
-      spec.paths['/photon/calculator/add'].post.requestBody.content['application/json'].schema
-        .properties.a.type
+      spec.paths[toolPath].post.requestBody.content['application/json'].schema.properties.a.type
     ).toBe('number');
+    expect(spec.paths[toolPath].post.security).toContainEqual({ PhotonRequest: [] });
   });
 });
