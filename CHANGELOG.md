@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.36.1](https://github.com/portel-dev/photon/compare/v1.36.0...v1.36.1) (2026-07-16)
+
+### Bug Fixes
+
+* prevent Photon UI loading regressions ([a3570ed](https://github.com/portel-dev/photon/commit/a3570ed30ca5fb5fce2be0122b5732327350e249))
+
 ## [1.36.0](https://github.com/portel-dev/photon/compare/v1.35.1...v1.36.0) (2026-07-11)
 
 ### Features
