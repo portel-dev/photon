@@ -9,6 +9,23 @@ export interface ParsedBeamRoute {
   methodNames: string[];
 }
 
+export interface BeamAppLike {
+  isApp?: boolean;
+  appEntry?: { name?: string };
+}
+
+/**
+ * App photons open their App tab when the route is the photon root or names
+ * their app-entry method explicitly. Other method routes remain in Methods.
+ */
+export function shouldOpenAppTab(photon: BeamAppLike, methodName?: string): boolean {
+  return !!(
+    photon.isApp &&
+    photon.appEntry &&
+    (!methodName || photon.appEntry.name === methodName)
+  );
+}
+
 export function decodeBeamPathSegments(pathname: string): string[] {
   return pathname
     .split('/')

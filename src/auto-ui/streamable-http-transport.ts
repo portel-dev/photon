@@ -87,7 +87,10 @@ function selectClientAppUi(photon: PhotonInfo | undefined): string | undefined {
   const linkedUi = photon?.appEntry?.linkedUi;
   if (linkedUi) {
     const linkedAsset = uiAssets.find((ui) => ui.id === linkedUi);
-    if (!linkedAsset || isTsxUiAsset(linkedAsset)) return linkedUi;
+    // Only a known TSX asset owns the direct /web client-app route. A missing
+    // asset may be a legacy HTML @ui, which needs the Photon bridge injected by
+    // Beam's custom-ui renderer instead.
+    if (linkedAsset && isTsxUiAsset(linkedAsset)) return linkedUi;
   }
 
   const namedApp = uiAssets.find((ui) => ui.id === 'app' && isTsxUiAsset(ui));

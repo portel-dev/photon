@@ -75,6 +75,16 @@ async function run(): Promise<void> {
     );
   });
 
+  await test('Beam acknowledges the bridge handshake for blob-based custom UIs', () => {
+    const beamSource = source('src/auto-ui/beam.ts');
+
+    assert.match(
+      beamSource,
+      /if \(msg\.type === 'photon:hello'\)[\s\S]*?postMessage\(\{ type: 'photon:ack', id: msg\.id \}/,
+      'Beam must acknowledge photon:hello so custom UIs use postMessage instead of blob: fetch fallback'
+    );
+  });
+
   await test('destructive MCP confirmations include actionable tool context without extending elicitation params', () => {
     const transportSource = source('src/auto-ui/streamable-http-transport.ts');
     const destructiveBlockMatch = transportSource.match(

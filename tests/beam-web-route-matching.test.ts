@@ -8,6 +8,7 @@ import {
   shouldHandleBeamServiceWorkerNavigation,
   shouldServeLinkedAppForWebPath,
 } from '../src/auto-ui/beam.js';
+import { shouldOpenAppTab } from '../src/auto-ui/frontend/utils/beam-route.js';
 
 let passed = 0;
 let failed = 0;
@@ -141,6 +142,23 @@ async function run() {
       },
     };
     assert.equal(selectClientAppUi(photon), 'app');
+  });
+
+  await test('opens app photons on the App tab at their root and main route', () => {
+    const app: any = { isApp: true, appEntry: { name: 'main' } };
+    assert.equal(shouldOpenAppTab(app), true);
+    assert.equal(shouldOpenAppTab(app, 'main'), true);
+    assert.equal(shouldOpenAppTab(app, 'board'), false);
+    assert.equal(shouldOpenAppTab({ isApp: false, appEntry: { name: 'main' } }), false);
+  });
+
+  await test('does not classify a missing linked legacy HTML UI as a client app', () => {
+    const photon: any = {
+      configured: true,
+      appEntry: { linkedUi: 'board' },
+      assets: { ui: [] },
+    };
+    assert.equal(selectClientAppUi(photon), undefined);
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

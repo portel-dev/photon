@@ -43,7 +43,7 @@ import {
 } from '../services/photon-instance-manager.js';
 import { ViewportAwareProxy } from '../services/viewport-aware-proxy.js';
 import { ViewportManager, getPageSizeForClient } from '../services/viewport-manager.js';
-import { buildBeamRoutePath, parseBeamRoutePath } from '../utils/beam-route.js';
+import { buildBeamRoutePath, parseBeamRoutePath, shouldOpenAppTab } from '../utils/beam-route.js';
 import { formatLabel } from '../utils/format-label.js';
 import { getIntentOutputFormat, isDestructiveIntent, methodRequiresInput } from '../../intent.js';
 
@@ -3417,10 +3417,11 @@ export class BeamApp extends LitElement {
               }
               this._selectedMethod = method;
               this._view = 'form';
-              // Set app tab when loading app entry via URL
-              if (photon.isApp && photon.appEntry?.name === method.name) {
-                this._mainTab = 'methods';
-              } else if (!photon.isApp) {
+              // App-entry routes open the App tab; ordinary method routes open
+              // Methods. This also keeps /boards and /boards/main consistent.
+              if (shouldOpenAppTab(photon, method.name)) {
+                this._mainTab = 'app';
+              } else {
                 this._mainTab = 'methods';
               }
               // Auto-invoke for URL-based routing (same as click-based method select)
@@ -3448,13 +3449,13 @@ export class BeamApp extends LitElement {
               }
             }
           } else if (photon.isApp && photon.appEntry) {
-            // `/app-name` is the app's Methods tab. Do not auto-select the
-            // app entry here; otherwise refreshing Methods renders the app
-            // surface above the method cards. The App tab selects/invokes
-            // appEntry explicitly when the user asks for it.
-            this._selectedMethod = null;
-            this._view = 'list';
-            this._mainTab = 'methods';
+            // The photon root is the app's canonical landing page. Select and
+            // invoke the entry method so refreshing /boards restores the App
+            // view instead of falling back to the Methods list.
+            this._mainTab = 'app';
+            this._selectedMethod = photon.appEntry;
+            this._view = 'form';
+            this._maybeAutoInvoke(photon.appEntry);
           } else {
             this._selectedMethod = null;
             this._view = 'list';

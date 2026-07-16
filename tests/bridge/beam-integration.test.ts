@@ -191,7 +191,10 @@ await test('/api/platform-bridge returns valid JavaScript', async () => {
   const body = await res.text();
 
   // Extract JavaScript from script tags
-  const jsCode = body.replace('<script>', '').replace('</script>', '').trim();
+  const jsCode = body
+    .replace(/^\s*<script>\s*/, '')
+    .replace(/\s*<\/script>\s*$/, '')
+    .trim();
 
   // Try to parse as JavaScript (basic syntax check)
   try {

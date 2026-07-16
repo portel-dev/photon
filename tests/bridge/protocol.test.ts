@@ -40,7 +40,9 @@ function assert(condition: boolean, message: string) {
 
 function assertEqual(actual: any, expected: any, message: string) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`${message}\n   Expected: ${JSON.stringify(expected)}\n   Actual: ${JSON.stringify(actual)}`);
+    throw new Error(
+      `${message}\n   Expected: ${JSON.stringify(expected)}\n   Actual: ${JSON.stringify(actual)}`
+    );
   }
 }
 
@@ -52,6 +54,7 @@ function createMockBrowser() {
   const messageListeners: ((e: { data: any }) => void)[] = [];
 
   const mockWindow: any = {
+    location: { origin: 'http://localhost', pathname: '/' },
     parent: {
       postMessage: (msg: any, _origin: string) => {
         sentMessages.push(msg);
@@ -66,22 +69,38 @@ function createMockBrowser() {
     open: () => {},
     dispatchEvent: () => {},
     CustomEvent: class CustomEvent {
-      constructor(public type: string, public detail: any) {}
+      constructor(
+        public type: string,
+        public detail: any
+      ) {}
     },
   };
 
   const mockDocument: any = {
+    head: {
+      appendChild: () => {},
+    },
     documentElement: {
       classList: {
         _classes: new Set(),
-        add(c: string) { this._classes.add(c); },
-        remove(c: string) { this._classes.delete(c); },
-        contains(c: string) { return this._classes.has(c); },
+        add(c: string) {
+          this._classes.add(c);
+        },
+        remove(c: string) {
+          this._classes.delete(c);
+        },
+        contains(c: string) {
+          return this._classes.has(c);
+        },
       },
       style: {
         _props: {} as Record<string, string>,
-        setProperty(name: string, value: string) { this._props[name] = value; },
-        getPropertyValue(name: string) { return this._props[name]; },
+        setProperty(name: string, value: string) {
+          this._props[name] = value;
+        },
+        getPropertyValue(name: string) {
+          return this._props[name];
+        },
         colorScheme: '',
         backgroundColor: '',
       },
@@ -91,7 +110,25 @@ function createMockBrowser() {
       style: { backgroundColor: '', color: '' },
       scrollWidth: 800,
       scrollHeight: 600,
+      appendChild: () => {},
     },
+    createElement: (tag: string) => ({
+      tagName: tag.toUpperCase(),
+      className: '',
+      textContent: '',
+      innerHTML: '',
+      style: { cssText: '', setProperty: () => {} },
+      classList: { add: () => {}, remove: () => {}, contains: () => false },
+      appendChild: () => {},
+      append: () => {},
+      remove: () => {},
+      setAttribute: () => {},
+      getAttribute: () => null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    }),
     querySelector: (selector: string) => {
       // Mock mcp:ui-size meta tag
       if (selector === 'meta[name="mcp:ui-size"]') {
@@ -110,7 +147,9 @@ function createMockBrowser() {
 
   // Function to get messages sent by the iframe
   const getMessages = () => [...sentMessages];
-  const clearMessages = () => { sentMessages.length = 0; };
+  const clearMessages = () => {
+    sentMessages.length = 0;
+  };
   const getLastMessage = () => sentMessages[sentMessages.length - 1];
 
   return {
@@ -131,8 +170,8 @@ function executeBridgeScript(mock: ReturnType<typeof createMockBrowser>) {
 
   // Extract just the JavaScript (remove script tags)
   const jsCode = script
-    .replace('<script>', '')
-    .replace('</script>', '')
+    .replace(/^\s*<script>\s*/, '')
+    .replace(/\s*<\/script>\s*$/, '')
     .trim();
 
   // Track timeouts for manual control
@@ -143,6 +182,9 @@ function executeBridgeScript(mock: ReturnType<typeof createMockBrowser>) {
   const context = vm.createContext({
     window: mock.window,
     document: mock.document,
+    HTMLElement: class HTMLElement {},
+    customElements: { define: () => {}, get: () => undefined },
+    CustomEvent: mock.window.CustomEvent,
     console,
     setTimeout: (fn: () => void, ms: number) => {
       const id = ++timeoutIdCounter;
@@ -198,9 +240,7 @@ await test('Bridge sends ui/initialize request', () => {
   executeBridgeScript(mock);
 
   const messages = mock.getMessages();
-  const initMsg = messages.find((m: any) =>
-    m.jsonrpc === '2.0' && m.method === 'ui/initialize'
-  );
+  const initMsg = messages.find((m: any) => m.jsonrpc === '2.0' && m.method === 'ui/initialize');
   assert(initMsg !== undefined, 'Should send ui/initialize');
   assert(initMsg.id !== undefined, 'Should have request id');
   assert(initMsg.params.appInfo !== undefined, 'Should include appInfo');
@@ -231,9 +271,7 @@ await test('Bridge sends ui/notifications/initialized after successful init', ()
   });
 
   const newMessages = mock.getMessages();
-  const initializedMsg = newMessages.find((m: any) =>
-    m.method === 'ui/notifications/initialized'
-  );
+  const initializedMsg = newMessages.find((m: any) => m.method === 'ui/notifications/initialized');
   assert(initializedMsg !== undefined, 'Should send initialized notification');
 });
 
@@ -453,7 +491,11 @@ await test('photon/notifications/progress triggers onProgress', () => {
     params: { percent: 50, message: 'Halfway there' },
   });
 
-  assertEqual(receivedProgress, { percent: 50, message: 'Halfway there' }, 'Should receive progress');
+  assertEqual(
+    receivedProgress,
+    { percent: 50, message: 'Halfway there' },
+    'Should receive progress'
+  );
 });
 
 await test('photon/notifications/status triggers onStatus', () => {

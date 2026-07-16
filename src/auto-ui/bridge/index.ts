@@ -1774,7 +1774,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         '  <button id="execBtn">Execute</button>',
         '</div>',
         '<div class="result-box" id="result"></div>'
-      ].join('\n');
+      ].join('\\n');
 
       var btn = this.shadowRoot.getElementById('execBtn');
       var resultBox = this.shadowRoot.getElementById('result');
@@ -1914,7 +1914,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         '<div class="console-box" id="console">',
         '  <div style="color: #64748b;">Awaiting events stream...</div>',
         '</div>'
-      ].join('\n');
+      ].join('\\n');
     }
   }
 

@@ -148,7 +148,11 @@ export function selectClientAppUi(photonInfo: PhotonInfo | undefined): string | 
   const linkedUi = photonInfo.appEntry?.linkedUi;
   if (linkedUi) {
     const linkedAsset = uiAssets.find((ui) => ui.id === linkedUi);
-    if (!linkedAsset || isTsxUIAsset(linkedAsset)) {
+    // A missing asset is not evidence that the linked UI is a TSX client app.
+    // Legacy HTML UIs can be represented by app metadata without being present
+    // in the loader's asset list; those must continue through custom-ui-renderer
+    // so the Photon bridge is injected.
+    if (linkedAsset && isTsxUIAsset(linkedAsset)) {
       return linkedUi;
     }
   }
@@ -2093,6 +2097,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       window.addEventListener('message', async (e) => {
         const msg = e.data;
         if (!msg || typeof msg !== 'object') return;
+
+        // The platform bridge probes its host before choosing transport. Beam
+        // must acknowledge this so custom UIs rendered from blob: iframes use
+        // the postMessage path instead of trying to resolve /api/* relative
+        // to the blob URL.
+        if (msg.type === 'photon:hello') {
+          iframe.contentWindow?.postMessage({ type: 'photon:ack', id: msg.id }, '*');
+          return;
+        }
 
         // Handle MCP Apps ui/initialize request — respond so bridge sends initialized
         if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize' && msg.id != null) {

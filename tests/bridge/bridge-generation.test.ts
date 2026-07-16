@@ -121,7 +121,10 @@ test('window.openai has callTool function', () => {
 
 test('window.openai has notifyIntrinsicHeight function', () => {
   const script = generateBridgeScript(TEST_CONTEXT);
-  assert(script.includes('notifyIntrinsicHeight: function(height)'), 'Should have notifyIntrinsicHeight');
+  assert(
+    script.includes('notifyIntrinsicHeight: function(height)'),
+    'Should have notifyIntrinsicHeight'
+  );
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -159,10 +162,7 @@ test('handles ui/notifications/host-context-changed', () => {
 
 test('handles ui/resource-teardown', () => {
   const script = generateBridgeScript(TEST_CONTEXT);
-  assert(
-    script.includes("m.method === 'ui/resource-teardown'"),
-    'Should handle resource-teardown'
-  );
+  assert(script.includes("m.method === 'ui/resource-teardown'"), 'Should handle resource-teardown');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -208,15 +208,32 @@ test('handles photon/notifications/emit', () => {
 test('sends tools/call with JSON-RPC format', () => {
   const script = generateBridgeScript(TEST_CONTEXT);
   assert(script.includes("method: 'tools/call'"), 'Should send tools/call');
-  assert(script.includes('jsonrpc: \'2.0\''), 'Should use JSON-RPC 2.0');
+  assert(script.includes("jsonrpc: '2.0'"), 'Should use JSON-RPC 2.0');
 });
 
 test('callTool includes name and arguments', () => {
   const script = generateBridgeScript(TEST_CONTEXT);
   assert(
-    script.includes('params: { name: name, arguments: args || {} }'),
+    script.includes('name: name') && script.includes('arguments: callArgs'),
     'Should include name and arguments'
   );
+});
+
+test('generated bridge is syntactically valid JavaScript', () => {
+  const script = generateBridgeScript({
+    ...TEST_CONTEXT,
+    photon: 'boards',
+    method: 'main',
+  });
+  const jsCode = script
+    .replace(/^\s*<script>\s*/, '')
+    .replace(/\s*<\/script>\s*$/, '')
+    .trim();
+  try {
+    new Function(jsCode);
+  } catch (error: any) {
+    throw new Error(`Generated bridge must parse as JavaScript: ${error.message}`);
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -230,7 +247,7 @@ test('has parseSizeMeta function', () => {
 
 test('parseSizeMeta looks for mcp:ui-size meta tag', () => {
   const script = generateBridgeScript(TEST_CONTEXT);
-  assert(script.includes("meta[name=\"mcp:ui-size\"]"), 'Should look for mcp:ui-size');
+  assert(script.includes('meta[name="mcp:ui-size"]'), 'Should look for mcp:ui-size');
 });
 
 test('sends ui/notifications/size-changed', () => {
@@ -290,7 +307,10 @@ test('applies theme tokens to CSS variables', () => {
 
 test('applies theme class to documentElement', () => {
   const script = generateBridgeScript(TEST_CONTEXT);
-  assert(script.includes('document.documentElement.classList.add(ctx.theme)'), 'Should add theme class');
+  assert(
+    script.includes('document.documentElement.classList.add(ctx.theme)'),
+    'Should add theme class'
+  );
 });
 
 test('sets data-theme attribute', () => {
