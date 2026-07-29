@@ -26,6 +26,8 @@ import {
   generateWwwAuthenticate,
 } from '../src/serv/auth/well-known.js';
 import { OAuthElicitationRequired } from '../src/serv/runtime/oauth-context.js';
+import { AuthMiddleware } from '../src/serv/middleware/auth.js';
+import { MemorySessionStore } from '../src/serv/session/store.js';
 import type { Tenant, Session } from '../src/serv/types/index.js';
 
 // ============================================================================
@@ -244,6 +246,117 @@ async function testJwtService() {
 
   await test('RS256 without privateKey throws on construction', () => {
     assert.throws(() => new JwtService({ issuer: 'https://x', algorithm: 'RS256' }), /privateKey/);
+  });
+
+  await test('OAuth access tokens require exact issuer, resource, tenant, and scopes', () => {
+    const resource = 'https://resource.example/mcp';
+    const token = jwt.generateAccessToken({
+      sub: 'user-1',
+      tenantId: tenant.id,
+      scope: 'mcp:read records:write',
+      clientId: 'client-1',
+      expiresInSeconds: 900,
+      issuer: TEST_ISSUER,
+      audience: resource,
+    });
+    assert.ok(
+      jwt.verifyAccessToken(token, {
+        issuer: TEST_ISSUER,
+        audience: resource,
+        tenantId: tenant.id,
+        requiredScopes: ['mcp:read', 'records:write'],
+      })
+    );
+    assert.equal(
+      jwt.verifyAccessToken(token, {
+        issuer: 'https://rotated.example',
+        audience: resource,
+      }),
+      null
+    );
+    assert.equal(
+      jwt.verifyAccessToken(token, {
+        issuer: TEST_ISSUER,
+        audience: 'https://other-resource.example/mcp',
+      }),
+      null
+    );
+    assert.equal(
+      jwt.verifyAccessToken(token, {
+        issuer: TEST_ISSUER,
+        audience: resource,
+        tenantId: 'other-tenant',
+      }),
+      null
+    );
+    assert.equal(
+      jwt.verifyAccessToken(token, {
+        issuer: TEST_ISSUER,
+        audience: resource,
+        requiredScopes: ['mcp:admin'],
+      }),
+      null
+    );
+  });
+
+  await test('OAuth access-token verification rejects expiry, not-before, and tampering', () => {
+    const resource = 'https://resource.example/mcp';
+    const issuedAt = new Date('2026-01-01T00:00:00.000Z');
+    const expired = jwt.generateAccessToken({
+      sub: 'user-1',
+      tenantId: tenant.id,
+      scope: 'mcp:read',
+      clientId: 'client-1',
+      expiresInSeconds: 10,
+      issuer: TEST_ISSUER,
+      audience: resource,
+      now: issuedAt,
+    });
+    assert.equal(
+      jwt.verifyAccessToken(expired, {
+        issuer: TEST_ISSUER,
+        audience: resource,
+        now: new Date('2026-01-01T00:00:11.000Z'),
+        clockSkewSeconds: 0,
+      }),
+      null
+    );
+
+    const future = jwt.exchangeSign({
+      iss: TEST_ISSUER,
+      sub: 'user-1',
+      aud: resource,
+      tenant_id: tenant.id,
+      scope: 'mcp:read',
+      iat: Math.floor(issuedAt.getTime() / 1000),
+      nbf: Math.floor(issuedAt.getTime() / 1000) + 120,
+      exp: Math.floor(issuedAt.getTime() / 1000) + 900,
+    });
+    assert.equal(
+      jwt.verifyAccessToken(future, {
+        issuer: TEST_ISSUER,
+        audience: resource,
+        now: issuedAt,
+        clockSkewSeconds: 0,
+      }),
+      null
+    );
+
+    const parts = future.split('.');
+    parts[1] = Buffer.from(
+      JSON.stringify({
+        ...JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')),
+        sub: 'attacker',
+      })
+    ).toString('base64url');
+    assert.equal(
+      jwt.verifyAccessToken(parts.join('.'), {
+        issuer: TEST_ISSUER,
+        audience: resource,
+        now: issuedAt,
+      }),
+      null
+    );
   });
 }
 
@@ -572,7 +685,8 @@ async function testWellKnown() {
   await test('protectedResource metadata has correct resource URI', () => {
     const meta = generateProtectedResourceMetadata(config, tenant);
     assert.equal(meta.resource, 'https://serv.example.com/tenant/test-tenant/mcp');
-    assert.ok(meta.authorization_servers.length > 0);
+    assert.deepEqual(meta.authorization_servers, ['https://serv.example.com/tenant/test-tenant']);
+    assert.deepEqual(meta.bearer_methods_supported, ['header']);
   });
 
   await test('authServer metadata has required endpoints', () => {
@@ -582,13 +696,18 @@ async function testWellKnown() {
     assert.ok(meta.token_endpoint.endsWith('/token'));
     assert.deepEqual(meta.response_types_supported, ['code']);
     assert.ok(meta.code_challenge_methods_supported!.includes('S256'));
+    assert.equal(meta.authorization_response_iss_parameter_supported, true);
   });
 
   await test('wwwAuthenticate includes realm and resource_metadata', () => {
     const header = generateWwwAuthenticate('https://serv.example.com', tenant);
     assert.ok(header.startsWith('Bearer'));
     assert.ok(header.includes('realm="test-tenant"'));
-    assert.ok(header.includes('resource_metadata='));
+    assert.ok(
+      header.includes(
+        'resource_metadata="https://serv.example.com/tenant/test-tenant/.well-known/oauth-protected-resource"'
+      )
+    );
   });
 
   await test('wwwAuthenticate includes error when provided', () => {
@@ -601,6 +720,94 @@ async function testWellKnown() {
     assert.ok(header.includes('error="invalid_token"'));
     assert.ok(header.includes('error_description="Token expired"'));
   });
+}
+
+async function testMcpOAuthResourceMiddleware() {
+  console.log('\nMCP OAuth resource middleware:');
+
+  const jwt = new JwtService({ secret: TEST_SECRET, issuer: TEST_ISSUER });
+  const tenant = makeTenant();
+  const sessions = new MemorySessionStore();
+  const issuer = `${TEST_ISSUER}/tenant/${tenant.slug}`;
+  const resource = `${issuer}/mcp`;
+  const resourceMetadataUrl = `${issuer}/.well-known/oauth-protected-resource`;
+  const middleware = new AuthMiddleware({
+    jwtService: jwt,
+    sessionStore: sessions,
+    oauthResource: () => ({
+      issuer,
+      resource,
+      resourceMetadataUrl,
+      requiredScopes: ['mcp:read'],
+    }),
+  });
+
+  try {
+    await test('accepts a signed, resource-bound access token without transport session state', async () => {
+      const token = jwt.generateAccessToken({
+        sub: 'user-oauth',
+        tenantId: tenant.id,
+        scope: 'mcp:read mcp:write',
+        clientId: 'oauth-client',
+        expiresInSeconds: 900,
+        issuer,
+        audience: resource,
+      });
+      const result = await middleware.authenticate(tenant, `Bearer ${token}`);
+      assert.equal(result.success, true);
+      assert.equal(result.context?.tenant.id, tenant.id);
+      assert.equal(result.context?.session, undefined);
+    });
+
+    await test('returns canonical challenge for missing, invalid, and under-scoped tokens', async () => {
+      const missing = await middleware.authenticate(tenant);
+      assert.equal(missing.error?.code, 401);
+      assert.ok(
+        missing.error?.wwwAuthenticate?.includes(`resource_metadata="${resourceMetadataUrl}"`)
+      );
+      assert.ok(missing.error?.wwwAuthenticate?.includes('scope="mcp:read"'));
+
+      const wrongAudience = jwt.generateAccessToken({
+        sub: 'user-oauth',
+        tenantId: tenant.id,
+        scope: 'mcp:read',
+        clientId: 'oauth-client',
+        expiresInSeconds: 900,
+        issuer,
+        audience: 'https://other-resource.example/mcp',
+      });
+      const invalid = await middleware.authenticate(tenant, `Bearer ${wrongAudience}`);
+      assert.equal(invalid.error?.code, 401);
+      assert.ok(invalid.error?.wwwAuthenticate?.includes('error="invalid_token"'));
+
+      const underScoped = jwt.generateAccessToken({
+        sub: 'user-oauth',
+        tenantId: tenant.id,
+        scope: 'profile',
+        clientId: 'oauth-client',
+        expiresInSeconds: 900,
+        issuer,
+        audience: resource,
+      });
+      const forbidden = await middleware.authenticate(tenant, `Bearer ${underScoped}`);
+      assert.equal(forbidden.error?.code, 403);
+      assert.ok(forbidden.error?.wwwAuthenticate?.includes('error="insufficient_scope"'));
+    });
+
+    await test('keeps legacy session bearer tokens working during migration', async () => {
+      const session = await sessions.create({
+        tenantId: tenant.id,
+        userId: 'legacy-user',
+        clientId: 'legacy-client',
+      });
+      const token = jwt.generateSessionToken(session, tenant);
+      const result = await middleware.authenticate(tenant, `Bearer ${token}`);
+      assert.equal(result.success, true);
+      assert.equal(result.context?.session?.id, session.id);
+    });
+  } finally {
+    await sessions.close();
+  }
 }
 
 // ============================================================================
@@ -993,6 +1200,7 @@ async function testEndToEndFlow() {
   await testGrantStore();
   await testLocalTokenVault();
   await testWellKnown();
+  await testMcpOAuthResourceMiddleware();
   await testOAuthElicitationRequired();
   await testOAuthFlowHandler();
   await testOAuthContext();

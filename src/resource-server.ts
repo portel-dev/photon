@@ -737,11 +737,24 @@ export class ResourceServer {
         delete pendingCalls[m.id];
         if (m.error) {
           pending.reject(new Error(m.error.message));
+        } else if (m.result && m.result.isError) {
+          var errorContent = m.result.content && m.result.content.find(function(i) { return i.type === 'text'; });
+          var toolError = new Error(errorContent && errorContent.text ? errorContent.text : 'Tool returned an error');
+          var photonError = m.result._meta && m.result._meta['io.portel.photon/error'];
+          if (photonError) {
+            toolError.code = photonError.code;
+            toolError.correlationId = photonError.correlationId;
+            toolError.retryable = photonError.retryable;
+          }
+          pending.reject(toolError);
         } else {
           // Extract clean data from MCP result format
           var result = m.result;
           var cleanData = result;
-          if (result && result.structuredContent) {
+          if (
+            result &&
+            Object.prototype.hasOwnProperty.call(result, 'structuredContent')
+          ) {
             cleanData = result.structuredContent;
           } else if (result && result.content && Array.isArray(result.content)) {
             var textItem = result.content.find(function(i) { return i.type === 'text'; });
@@ -756,9 +769,19 @@ export class ResourceServer {
 
       // Tool result notification
       if (m.method === 'ui/notifications/tool-result') {
-        var result = m.params;
+        var envelope = m.params || {};
+        var result = envelope.result || envelope;
+        if (result && result.isError) {
+          window.dispatchEvent(new CustomEvent('photon:tool-error', {
+            detail: {
+              result: result,
+              error: result._meta && result._meta['io.portel.photon/error']
+            }
+          }));
+          return;
+        }
         // Extract data from MCP result format
-        if (result.structuredContent) {
+        if (Object.prototype.hasOwnProperty.call(result, 'structuredContent')) {
           toolResult = result.structuredContent;
         } else if (result.content && Array.isArray(result.content)) {
           var textItem = result.content.find(function(i) { return i.type === 'text'; });

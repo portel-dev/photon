@@ -172,6 +172,17 @@ export class LocalServ {
       sessionStore: this.sessions,
       userStore: this.users,
       membershipStore: this.memberships,
+      oauthResource: (tenant) => {
+        const issuer = tenant.settings.customDomain
+          ? `https://${tenant.settings.customDomain}`
+          : `${this.baseUrl}/tenant/${tenant.slug}`;
+        return {
+          issuer,
+          resource: `${issuer}/mcp`,
+          resourceMetadataUrl: `${issuer}/.well-known/oauth-protected-resource`,
+          requiredScopes: ['mcp:read'],
+        };
+      },
     });
 
     // Initialize OAuth

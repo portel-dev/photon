@@ -1104,14 +1104,14 @@ export default class StartupTest {
   await test('file edit detected on daemon that was freshly started', async () => {
     clearDaemonLog();
 
-    // Edit the test file — watcher was set up during the first command
+    // Edit the test file — watcher was set up during the first command.
+    // Poll for the event instead of using a fixed sleep: macOS watcher
+    // delivery and the reload debounce vary under load.
     fs.appendFileSync(PHOTON_FILE, '\n// startup-watcher-test\n');
-    await new Promise((r) => setTimeout(r, 1500));
-
-    const log = getDaemonLog().join('\n');
-    assert.ok(
-      log.includes('File changed, auto-reloading'),
-      'Expected file change detection on fresh daemon'
+    await waitForDaemonLog(
+      (log) => log.includes('File changed, auto-reloading'),
+      'Expected file change detection on fresh daemon',
+      10_000
     );
   });
 }

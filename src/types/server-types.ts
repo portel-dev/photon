@@ -6,9 +6,10 @@
  */
 
 import type { PhotonClassExtended } from '@portel/photon-core';
-import type { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import type { ServerCapabilities } from '../mcp/sdk-v1-2025/types.js';
 import type { HttpRouteDef } from '../shared/http-route-extractor.js';
 import type { ExposeDef } from '../shared/expose-route-extractor.js';
+import type { FiniteJSONValue, JSONSchema202012 } from '../mcp/protocol/json-schema.js';
 
 /**
  * ServerCapabilities plus Photon's web-app capability extension.
@@ -58,7 +59,7 @@ export interface MCPToolDefinition {
   description: string;
   inputSchema: Record<string, unknown>;
   annotations?: Record<string, unknown>;
-  outputSchema?: Record<string, unknown>;
+  outputSchema?: JSONSchema202012;
   icons?: Array<{ src: string; mimeType?: string; sizes?: string; theme?: string }>;
   _meta?: Record<string, unknown>;
   /** Allow MCP extension properties such as x-output-format during migration. */
@@ -74,13 +75,21 @@ export interface MCPTextContent {
   annotations?: Record<string, unknown>;
 }
 
+/** MCP media content block. The data field is base64 without the data: prefix. */
+export interface MCPImageContent {
+  type: 'image';
+  data: string;
+  mimeType: string;
+  annotations?: Record<string, unknown>;
+}
+
 /**
  * MCP tool call response.
  */
 export interface MCPToolResponse {
-  content: MCPTextContent[];
+  content: Array<MCPTextContent | MCPImageContent>;
   isError: boolean;
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: FiniteJSONValue;
   _meta?: Record<string, unknown>;
   /** Extension field for format-aware clients */
   'x-output-format'?: string;

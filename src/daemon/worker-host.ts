@@ -18,6 +18,7 @@ import type {
 } from '@portel/photon-core';
 import type { MainToWorkerMessage, WorkerInit, WorkerToMainMessage } from './worker-protocol.js';
 import { createWorkerDepProxy } from './worker-dep-proxy.js';
+import type { PhotonExecutionRequestContext } from '../telemetry/context.js';
 
 if (!parentPort) {
   throw new Error('worker-host must run inside a worker thread');
@@ -227,7 +228,20 @@ async function handleMessage(msg: MainToWorkerMessage): Promise<void> {
       }
       const start = Date.now();
       try {
-        const result = await loader.executeTool(loadedInstance, msg.method, msg.args);
+        const requestContext: PhotonExecutionRequestContext = {
+          transport: 'daemon-worker',
+          protocolVersion: 'internal',
+          client: {
+            protocolVersion: 'internal',
+            clientName: 'photon-daemon-worker',
+            mode: 'unknown',
+          },
+          ...msg.traceContext,
+        };
+        const result = await loader.executeTool(loadedInstance, msg.method, msg.args, {
+          parentTraceparent: msg.traceContext?.traceparent,
+          requestContext,
+        });
 
         // Handle generator results (yields)
         if (result && typeof result === 'object' && Symbol.asyncIterator in result) {

@@ -11,6 +11,7 @@ import * as net from 'net';
 import * as fs from 'fs/promises';
 import { readText, readJSON as readJSONFile, writeText } from '../shared/io.js';
 import { parseChannel } from '../shared/identity.js';
+import { normalizeFormatDeclaration } from '../format/aliases.js';
 import {
   existsSync,
   lstatSync,
@@ -23,13 +24,43 @@ import {
 import * as path from 'path';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
+import { extractA2AHandler, extractA2ASkills } from '../a2a/handler.js';
+import type { A2AEvent, A2AMessage, A2AInvocationContext } from '../a2a/types.js';
+import { extractApplicationManifest } from './app-manifest.js';
 import {
   setSecurityHeaders,
   SimpleRateLimiter,
   escapeHtml,
   getCorsOrigin,
 } from '../shared/security.js';
+
+function normalizeBeamFormatSchemas(schemas: any[], source: string): any[] {
+  return schemas.map((schema) => {
+    const methodName =
+      String(schema.name || '')
+        .split(/[./]/)
+        .pop() || schema.name;
+    const escaped = methodName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const methodMatch = new RegExp(`(?:^|\\n)\\s*(?:async\\s+)?${escaped}\\s*\\(`).exec(source);
+    if (!methodMatch) return schema;
+    const prefix = source.slice(0, methodMatch.index);
+    const start = prefix.lastIndexOf('/**');
+    const end = prefix.lastIndexOf('*/');
+    if (start < 0 || end <= start) return schema;
+    const doc = prefix.slice(start, end + 2);
+    const declared = doc.match(/@format\\s+([^\\s@*]+)/i)?.[1];
+    if (!declared) return schema;
+    const normalized = normalizeFormatDeclaration(declared);
+    return {
+      ...schema,
+      outputFormat: normalized.outputFormat,
+      formatKind: normalized.kind,
+      ...(normalized.alias ? { formatAlias: normalized.alias } : {}),
+      ...(normalized.mimeType ? { mimeType: normalized.mimeType } : {}),
+    };
+  });
+}
 
 /**
  * Check if shell integration has been installed (photon init cli).
@@ -131,6 +162,24 @@ export function shouldBypassBeamServiceWorkerNavigation(pathname: string): boole
 
 export function shouldHandleBeamServiceWorkerNavigation(pathname: string): boolean {
   return pathname === '/' || pathname.startsWith('/app/');
+}
+
+function validMCPAuthorizationServer(value: string | undefined): value is string {
+  if (!value || value !== value.trim()) return false;
+  try {
+    const url = new URL(value);
+    const loopback =
+      url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+    return (
+      (url.protocol === 'https:' || (url.protocol === 'http:' && loopback)) &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
 }
 
 function uiAssetPath(asset: NonNullable<PhotonInfo['assets']>['ui'][number]): string {
@@ -308,6 +357,7 @@ import { resolveUIAssetPath, readUIContent, readUICompiled } from './ui-resolver
 import type { CompiledTsx } from '../tsx-compiler.js';
 import {
   handleStreamableHTTP,
+  broadcastMCPListChanges,
   broadcastNotification,
   broadcastToBeam,
   stopSessionCleanup,
@@ -361,6 +411,7 @@ import {
 export type { PhotonConfig } from './beam/types.js';
 export type { BeamState } from './beam/types.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
+import { generateAgentCardV1 } from '../a2a/card-v1.js';
 
 // Delegate to extracted module
 const getConfigFilePath = getConfigFilePathFromModule;
@@ -771,6 +822,16 @@ const BOOT_PAGE = \`<!DOCTYPE html>
 }
 
 export async function startBeam(rawWorkingDir: string, port: number): Promise<void> {
+  type A2ATaskState = {
+    taskId: string;
+    contextId: string;
+    photon: string;
+    callerId?: string;
+    status: 'working' | 'completed' | 'failed' | 'input-required' | 'cancelled';
+    result?: unknown;
+    events: A2AEvent[];
+  };
+  const a2aTasks = new Map<string, A2ATaskState>();
   const workingDir = path.resolve(rawWorkingDir);
   const { PHOTON_VERSION } = await import('../version.js');
 
@@ -1077,7 +1138,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Extract schema for UI — reuse source read from above
       const schemaSource = source || (await readText(photonPath));
       const metadata = extractor.extractAllFromSource(schemaSource);
-      const schemas = metadata.tools;
+      const schemas = normalizeBeamFormatSchemas(metadata.tools, schemaSource);
       const templates = metadata.templates;
       mcp.schemas = schemas;
 
@@ -1132,6 +1193,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             returns: { type: 'object' },
             autorun: schema.autorun || false,
             outputFormat: schema.outputFormat,
+            formatKind: schema.formatKind,
+            formatAlias: schema.formatAlias,
+            mimeType: schema.mimeType,
             layoutHints: schema.layoutHints,
             buttonLabel: schema.buttonLabel,
             icon: schema.icon,
@@ -1142,6 +1206,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               ? { scheduled: schema.scheduled || schema.cron }
               : {}),
             ...(schema.locked ? { locked: schema.locked } : {}),
+            ...(schema.isAsync ? { isAsync: true } : {}),
             // MCP standard annotations
             ...(schema.title ? { title: schema.title } : {}),
             ...(schema.readOnlyHint ? { readOnlyHint: true } : {}),
@@ -1197,10 +1262,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       // Check if this is an App. Prefer main(), but any linked UI method can
       // be the app entry for photons that expose a named dashboard method.
-      const mainMethod = methods.find((m) => m.name === 'main') ?? methods.find((m) => m.linkedUi);
-
       // Extract class-level metadata — reuse source already read
       const classMetadata = extractClassMetadataFromSource(schemaSource);
+      const mainMethod = methods.find((m) => m.name === 'main') ?? methods.find((m) => m.linkedUi);
+      const appManifest = extractApplicationManifest(methods, {
+        entry: mainMethod?.name,
+        settings: !!mcp.settingsSchema?.hasSettings,
+        name: classMetadata.label,
+      });
 
       // Extract class-level @csp metadata and apply to all UI assets.
       // `csp` is a runtime extension on UIAsset (consumed by custom-ui-renderer);
@@ -1263,6 +1332,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         templatePath,
         isApp: !!mainMethod,
         appEntry: mainMethod,
+        ...(appManifest ? { appManifest } : {}),
         assets: mcp.assets,
         description: classMetadata.description || mcp.description || `${name} MCP`,
         label: classMetadata.label || prettifyName(name),
@@ -1416,6 +1486,148 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       setSecurityHeaders(res);
       const url = new URL(req.url || '/', `http://${req.headers.host}`);
 
+      // Optional A2A 1.0 task adapter. Photon remains the capability layer;
+      // the declared @a2aHandler owns agent reasoning and model selection.
+      if (
+        url.pathname === '/a2a/message:send' ||
+        url.pathname === '/a2a/message:stream' ||
+        url.pathname === '/message:send' ||
+        url.pathname === '/message:stream'
+      ) {
+        if (
+          process.env.PHOTON_A2A_AUTH === '1' &&
+          !String(req.headers.authorization || '').startsWith('Bearer ')
+        ) {
+          res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' });
+          res.end(JSON.stringify({ error: 'A2A authentication required' }));
+          return;
+        }
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        let message: A2AMessage;
+        try {
+          message = JSON.parse(body || '{}') as A2AMessage;
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON message' }));
+          return;
+        }
+        const requestedPhoton = url.searchParams.get('photon');
+        const photon = photons.find(
+          (p) => p.configured && !p.internal && (!requestedPhoton || p.name === requestedPhoton)
+        );
+        if (!photon) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No matching configured Photon' }));
+          return;
+        }
+        const mcp = photonMCPs.get(photon.name);
+        const handler = mcp ? await loader.getA2AHandler(mcp, photon.path) : undefined;
+        if (!handler) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Photon has no @a2aHandler' }));
+          return;
+        }
+        const taskId = message.taskId || randomUUID();
+        const contextId = message.contextId || randomUUID();
+        const existingTask = a2aTasks.get(taskId);
+        if (existingTask && existingTask.status !== 'input-required') {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Idempotency-Key': taskId });
+          res.end(JSON.stringify(existingTask));
+          return;
+        }
+        const callerId = req.headers['x-photon-caller']?.toString();
+        const task: A2ATaskState = {
+          taskId,
+          contextId,
+          photon: photon.name,
+          callerId,
+          status: 'working',
+          events: [],
+        };
+        a2aTasks.set(taskId, task);
+        const invocation: A2AInvocationContext = { taskId, contextId, callerId };
+        try {
+          const output = await handler(message, invocation);
+          if (
+            output &&
+            typeof (output as AsyncIterable<A2AEvent>)[Symbol.asyncIterator] === 'function'
+          ) {
+            for await (const event of output as AsyncIterable<A2AEvent>) task.events.push(event);
+            task.status = 'completed';
+            task.result = task.events[task.events.length - 1];
+          } else {
+            task.status =
+              (output as any).status === 'input-required' ? 'input-required' : 'completed';
+            task.result = output;
+          }
+        } catch (error) {
+          task.status = 'failed';
+          task.result = { error: error instanceof Error ? error.message : String(error) };
+        }
+        if (url.pathname.endsWith(':stream')) {
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+          });
+          for (const event of task.events) res.write(`data: ${JSON.stringify(event)}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({ taskId, status: task.status, result: task.result })}\n\n`
+          );
+          res.end();
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Idempotency-Key': taskId });
+          res.end(JSON.stringify({ taskId, contextId, status: task.status, result: task.result }));
+        }
+        return;
+      }
+
+      const taskMatch = url.pathname.match(/^(?:\/a2a)?\/tasks\/([^/]+)$/);
+      if (taskMatch && (req.method === 'GET' || req.method === 'DELETE')) {
+        if (
+          process.env.PHOTON_A2A_AUTH === '1' &&
+          !String(req.headers.authorization || '').startsWith('Bearer ')
+        ) {
+          res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' });
+          res.end(JSON.stringify({ error: 'A2A authentication required' }));
+          return;
+        }
+        const task = a2aTasks.get(taskMatch[1]);
+        if (!task) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Task not found' }));
+          return;
+        }
+        const callerId = req.headers['x-photon-caller']?.toString();
+        if (task.callerId && task.callerId !== callerId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Task is owned by another caller' }));
+          return;
+        }
+        if (req.method === 'DELETE') task.status = 'cancelled';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(task));
+        return;
+      }
+      if ((url.pathname === '/tasks' || url.pathname === '/a2a/tasks') && req.method === 'GET') {
+        if (
+          process.env.PHOTON_A2A_AUTH === '1' &&
+          !String(req.headers.authorization || '').startsWith('Bearer ')
+        ) {
+          res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' });
+          res.end(JSON.stringify({ error: 'A2A authentication required' }));
+          return;
+        }
+        const callerId = req.headers['x-photon-caller']?.toString();
+        const tasks = [...a2aTasks.values()].filter(
+          (task) => !task.callerId || task.callerId === callerId
+        );
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ tasks }));
+        return;
+      }
+
       // Access logging for API and MCP routes (debug-level to avoid noise)
       res.on('finish', () => {
         if (url.pathname.startsWith('/api/') || url.pathname === '/mcp') {
@@ -1457,37 +1669,119 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
 
+      // A2A 1.0 discovery. The current Beam adapter is discovery-only until a
+      // user-supplied @a2aHandler is configured; the legacy path above remains
+      // for compatibility and is explicitly marked deprecated.
+      if (url.pathname === '/.well-known/agent-card.json') {
+        const configuredPhotons = photons
+          .filter((p): p is PhotonInfo => p.configured)
+          .filter((p) => !p.internal)
+          .filter((p) => {
+            try {
+              const source = readFileSync(p.path, 'utf8');
+              return !!extractA2AHandler(source);
+            } catch {
+              return false;
+            }
+          });
+        if (configuredPhotons.length === 0) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No @a2aHandler configured' }));
+          return;
+        }
+        const skills = configuredPhotons.flatMap((p) =>
+          p.methods
+            .filter((m) => {
+              try {
+                const source = readFileSync(p.path, 'utf8');
+                return extractA2ASkills(source).includes(m.name);
+              } catch {
+                return false;
+              }
+            })
+            .map((m) => ({
+              id: `${p.name}/${m.name}`,
+              name: `${p.name} ${m.name}`,
+              description: m.description || m.name,
+              inputSchema: Object.keys(m.params).length ? m.params : undefined,
+            }))
+        );
+        const card = generateAgentCardV1(
+          configuredPhotons.length === 1 ? configuredPhotons[0].name : 'photon-agent',
+          configuredPhotons
+            .map((p) => p.description)
+            .filter(Boolean)
+            .join(' ') || 'Photon agent',
+          `http://${req.headers.host}`,
+          skills,
+          { version: PHOTON_VERSION, authenticated: process.env.PHOTON_A2A_AUTH === '1' }
+        );
+        const cardHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+          Deprecation: 'true',
+          Link: '</.well-known/agent.json>; rel="deprecation"',
+        };
+        const cardCorsOrigin = getCorsOrigin(req);
+        if (cardCorsOrigin) cardHeaders['Access-Control-Allow-Origin'] = cardCorsOrigin;
+        res.writeHead(200, cardHeaders);
+        res.end(JSON.stringify(card));
+        return;
+      }
+
       // ══════════════════════════════════════════════════════════════════════════
       // MCP OAuth Protected Resource Metadata (RFC 9728)
       // Tells MCP clients where to authenticate when @auth is required
       // ══════════════════════════════════════════════════════════════════════════
       if (url.pathname === '/.well-known/oauth-protected-resource') {
-        // Find any photon with @auth — use its auth provider URL
-        const authPhoton = photons.find(
-          (p): p is PhotonInfo => p.configured && !!('auth' in p && p.auth)
+        const protectedPhotons = photons.filter(
+          (p): p is PhotonInfo => p.configured && !!('auth' in p && p.auth && p.auth !== 'optional')
         );
-        const authValue = authPhoton?.auth;
-
-        if (!authValue || authValue === 'optional') {
+        if (protectedPhotons.length === 0) {
           res.writeHead(404);
           res.end(JSON.stringify({ error: 'No auth-required photons loaded' }));
           return;
         }
 
-        // If @auth is a URL, it's the OIDC provider; otherwise use a placeholder
-        const authServer = authValue !== 'required' ? authValue : undefined;
-        const serverUrl = `http://${req.headers.host}`;
+        const authorizationServers = new Set(
+          protectedPhotons
+            .map((photon) => photon.auth)
+            .filter((value): value is string => validMCPAuthorizationServer(value))
+        );
+        const configuredAuthorizationServer =
+          process.env.PHOTON_MCP_AUTHORIZATION_SERVER ??
+          (/^https?:\/\//.test(process.env.PHOTON_MCP_JWT_ISSUER ?? '')
+            ? process.env.PHOTON_MCP_JWT_ISSUER
+            : undefined);
+        if (validMCPAuthorizationServer(configuredAuthorizationServer)) {
+          authorizationServers.add(configuredAuthorizationServer);
+        }
+        if (authorizationServers.size === 0) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: 'MCP authorization server is not configured',
+            })
+          );
+          return;
+        }
 
+        const serverUrl = (process.env.PHOTON_PUBLIC_URL ?? `http://127.0.0.1:${port}`).replace(
+          /\/+$/,
+          ''
+        );
+        const resource = process.env.PHOTON_MCP_JWT_AUDIENCE ?? `${serverUrl}/mcp`;
         const prm: Record<string, unknown> = {
-          resource: `${serverUrl}/mcp`,
+          resource,
+          authorization_servers: [...authorizationServers].sort(),
           bearer_methods_supported: ['header'],
           scopes_supported: ['mcp:tools'],
         };
-        if (authServer) {
-          prm.authorization_servers = [authServer];
-        }
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        const prmCorsOrigin = getCorsOrigin(req);
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=300',
+          ...(prmCorsOrigin ? { 'Access-Control-Allow-Origin': prmCorsOrigin } : {}),
+        });
         res.end(JSON.stringify(prm));
         return;
       }
@@ -2024,6 +2318,23 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         // Step 1: Discover the template URL
         let templateUrl = '/api/template?photon=' + encodeURIComponent(PHOTON);
         let bridgeMethod = 'main';
+        let appManifest = null;
+        try {
+          const manifestRes = await fetch('/api/diagnostics', { signal: AbortSignal.timeout(10000) });
+          if (manifestRes.ok) {
+            const manifestDiag = await manifestRes.json();
+            const manifestPhoton = (manifestDiag.photons || []).find(function(p) { return p.name === PHOTON; });
+            appManifest = manifestPhoton && manifestPhoton.appManifest;
+            const requestedScreen = new URLSearchParams(window.location.search).get('screen');
+            const selectedScreen = appManifest && (appManifest.screens || []).find(function(s) {
+              return s.id === requestedScreen;
+            });
+            if (selectedScreen && selectedScreen.route) {
+              templateUrl = '/api/ui?photon=' + encodeURIComponent(PHOTON) + '&id=' + encodeURIComponent(selectedScreen.route);
+              bridgeMethod = selectedScreen.method || bridgeMethod;
+            }
+          }
+        } catch { /* app manifest is optional */ }
 
         // Try class-level @ui first
         let templateRes = await fetch(templateUrl, { signal: AbortSignal.timeout(10000) });
@@ -2146,13 +2457,27 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             var error = undefined;
             if (mcpData.error) {
               error = { code: mcpData.error.code || -32000, message: mcpData.error.message || 'Unknown error' };
+            } else if (mcpData.result && mcpData.result.isError) {
+              var errorContent = (mcpData.result.content || []).find(function(c) { return c.type === 'text'; });
+              var photonError = mcpData.result._meta && mcpData.result._meta['io.portel.photon/error'];
+              error = {
+                code: -32000,
+                message: (errorContent && errorContent.text) || 'Tool returned an error',
+                data: photonError || undefined,
+              };
             } else if (mcpData.result) {
               var content = mcpData.result.content || [];
               var textParts = content.filter(function(c) { return c.type === 'text'; });
               if (textParts.length > 0) {
                 try { result = JSON.parse(textParts[0].text); } catch(e) { result = textParts[0].text; }
               }
-              if (mcpData.result.structuredContent) result = mcpData.result.structuredContent;
+              if (result === undefined) {
+                var imagePart = content.find(function(c) { return c.type === 'image' && c.data && c.mimeType; });
+                if (imagePart) result = 'data:' + imagePart.mimeType + ';base64,' + imagePart.data;
+              }
+              if (Object.prototype.hasOwnProperty.call(mcpData.result, 'structuredContent')) {
+                result = mcpData.result.structuredContent;
+              }
             }
             iframe.contentWindow.postMessage({
               jsonrpc: '2.0', id: msg.id, result: result, error: error,
@@ -2170,7 +2495,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       iframe.onload = () => {
         iframe.contentWindow.postMessage({
           type: 'photon:init',
-          context: { photon: PHOTON, theme: 'dark', displayMode: 'standalone' }
+          context: { photon: PHOTON, theme: 'dark', displayMode: 'standalone', appManifest: appManifest }
         }, '*');
       };
 
@@ -2201,14 +2526,20 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             signal: AbortSignal.timeout(30000),
           });
           var mcpData = await invokeRes.json();
-          if (!mcpData.error && mcpData.result) {
+          if (!mcpData.error && mcpData.result && !mcpData.result.isError) {
             var content = mcpData.result.content || [];
             var textParts = content.filter(function(c) { return c.type === 'text'; });
             var result = undefined;
             if (textParts.length > 0) {
               try { result = JSON.parse(textParts[0].text); } catch(e) { result = textParts[0].text; }
             }
-            if (mcpData.result.structuredContent) result = mcpData.result.structuredContent;
+            if (result === undefined) {
+              var imagePart = content.find(function(c) { return c.type === 'image' && c.data && c.mimeType; });
+              if (imagePart) result = 'data:' + imagePart.mimeType + ';base64,' + imagePart.data;
+            }
+            if (Object.prototype.hasOwnProperty.call(mcpData.result, 'structuredContent')) {
+              result = mcpData.result.structuredContent;
+            }
             if (result !== undefined) {
               iframe.contentWindow.postMessage({
                 jsonrpc: '2.0',
@@ -2276,14 +2607,20 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 }),
                 signal: AbortSignal.timeout(15000),
               }).then(function(r) { return r.json(); }).then(function(mcpData) {
-                if (!mcpData.error && mcpData.result) {
+                if (!mcpData.error && mcpData.result && !mcpData.result.isError) {
                   var content = mcpData.result.content || [];
                   var textParts = content.filter(function(c) { return c.type === 'text'; });
                   var result = undefined;
                   if (textParts.length > 0) {
                     try { result = JSON.parse(textParts[0].text); } catch(e) { result = textParts[0].text; }
                   }
-                  if (mcpData.result.structuredContent) result = mcpData.result.structuredContent;
+                  if (result === undefined) {
+                    var imagePart = content.find(function(c) { return c.type === 'image' && c.data && c.mimeType; });
+                    if (imagePart) result = 'data:' + imagePart.mimeType + ';base64,' + imagePart.data;
+                  }
+                  if (Object.prototype.hasOwnProperty.call(mcpData.result, 'structuredContent')) {
+                    result = mcpData.result.structuredContent;
+                  }
                   if (result !== undefined) {
                     iframe.contentWindow.postMessage({
                       jsonrpc: '2.0',
@@ -2637,7 +2974,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Broadcast photon changes to all connected clients via MCP SSE
   const broadcastPhotonChange = () => {
     // MCP Streamable HTTP clients (SSE) get tools/list_changed notification
-    broadcastNotification('notifications/tools/list_changed');
+    broadcastMCPListChanges();
     // Beam SSE clients get full photons list
     broadcastToBeam('beam/photons', { photons });
   };
@@ -2991,7 +3328,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 () => {}
               );
               const reloadMetadata = extractor.extractAllFromSource(reloadSource);
-              const schemas = reloadMetadata.tools;
+              const schemas = normalizeBeamFormatSchemas(reloadMetadata.tools, reloadSource);
               const templates = reloadMetadata.templates;
               mcp.schemas = schemas; // Store schemas for result rendering
 
@@ -3021,10 +3358,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                     returns: { type: 'object' },
                     autorun: schema.autorun || false,
                     outputFormat: schema.outputFormat,
+                    formatKind: schema.formatKind,
+                    formatAlias: schema.formatAlias,
+                    mimeType: schema.mimeType,
                     layoutHints: schema.layoutHints,
                     buttonLabel: schema.buttonLabel,
                     icon: schema.icon,
                     linkedUi: linkedAsset?.id,
+                    ...(schema.isAsync ? { isAsync: true } : {}),
                     // MCP standard annotations
                     ...(schema.title ? { title: schema.title } : {}),
                     ...(schema.readOnlyHint ? { readOnlyHint: true } : {}),
@@ -3085,10 +3426,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               applyMethodVisibility(reloadSource, methods);
 
               // Check if this is an App (has main() method with @ui)
-              const mainMethod = methods.find((m) => m.name === 'main');
-
               // Extract class metadata from source
               const reloadClassMeta = extractClassMetadataFromSource(reloadSource);
+              const mainMethod = methods.find((m) => m.name === 'main');
+              const appManifest = extractApplicationManifest(methods, {
+                entry: mainMethod?.name,
+                settings: !!mcp.settingsSchema?.hasSettings,
+                name: reloadClassMeta.label,
+              });
 
               // Extract constructor params for reconfiguration support
               let reloadConstructorParams: ConfigParam[] = [];
@@ -3116,6 +3461,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 methods,
                 isApp: !!mainMethod,
                 appEntry: mainMethod,
+                ...(appManifest ? { appManifest } : {}),
                 description: reloadClassMeta.description,
                 icon: reloadClassMeta.icon,
                 internal: reloadClassMeta.internal,

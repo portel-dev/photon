@@ -14,6 +14,7 @@
  */
 
 import { getRequestContext } from './context.js';
+import { parseTraceparent } from './propagation.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let otelLogsApi: any;
@@ -62,6 +63,27 @@ export interface OtelLogRecord {
   attributes?: Record<string, unknown>;
 }
 
+export function buildOtelLogAttributes(
+  input: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const attributes: Record<string, unknown> = { ...input };
+  const ctx = getRequestContext();
+  if (!ctx) return attributes;
+  if (ctx.photon && attributes['photon.name'] == null) attributes['photon.name'] = ctx.photon;
+  if (ctx.tool && attributes['photon.tool'] == null) attributes['photon.tool'] = ctx.tool;
+  const traceId = ctx.traceId ?? parseTraceparent(ctx.parentTraceparent)?.traceId;
+  if (traceId && attributes['photon.trace_id'] == null) attributes['photon.trace_id'] = traceId;
+  if (ctx.parentTraceparent && attributes['photon.traceparent'] == null)
+    attributes['photon.traceparent'] = ctx.parentTraceparent;
+  if (ctx.tracestate && attributes['photon.tracestate'] == null)
+    attributes['photon.tracestate'] = ctx.tracestate;
+  if (ctx.baggage && attributes['photon.baggage'] == null)
+    attributes['photon.baggage'] = ctx.baggage;
+  if (ctx.caller?.id && attributes['photon.caller_id'] == null)
+    attributes['photon.caller_id'] = ctx.caller.id;
+  return attributes;
+}
+
 /**
  * Emit a log record to OpenTelemetry if the SDK is installed. No-op otherwise.
  * The ambient request context (photon/tool/traceId/callerId) is pulled lazily
@@ -71,16 +93,7 @@ export function emitOtelLog(record: OtelLogRecord): void {
   const otelLogger = getOtelLogger();
   if (!otelLogger) return;
 
-  const attributes: Record<string, unknown> = { ...(record.attributes ?? {}) };
-  const ctx = getRequestContext();
-  if (ctx) {
-    if (ctx.photon && attributes['photon.name'] == null) attributes['photon.name'] = ctx.photon;
-    if (ctx.tool && attributes['photon.tool'] == null) attributes['photon.tool'] = ctx.tool;
-    if (ctx.traceId && attributes['photon.trace_id'] == null)
-      attributes['photon.trace_id'] = ctx.traceId;
-    if (ctx.caller?.id && attributes['photon.caller_id'] == null)
-      attributes['photon.caller_id'] = ctx.caller.id;
-  }
+  const attributes = buildOtelLogAttributes(record.attributes);
 
   try {
     otelLogger.emit({

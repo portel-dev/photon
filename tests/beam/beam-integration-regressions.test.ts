@@ -975,39 +975,50 @@ export default class RapidSave {
   });
 
   // ─── Test 13: App route tabs do not bleed into Methods ───
-  await test('app Methods route stays methods-only while app route hydrates custom UI', async () => {
+  await test('app routes and sidebar selection land on the App tab while method routes stay in Methods', async () => {
     const browser = await launchChromiumForRegression();
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     try {
       await page.goto(`${BEAM_URL}/task-board`, { waitUntil: 'domcontentloaded' });
-      const methodsRoute = await inspectBeamAppRoute(page);
+      let rootAppRoute = await inspectBeamAppRoute(page);
+      const rootAppDeadline = Date.now() + 10000;
+      while (!/Regression Board/.test(rootAppRoute.iframeText) && Date.now() < rootAppDeadline) {
+        await page.waitForTimeout(500);
+        rootAppRoute = await inspectBeamAppRoute(page);
+      }
       assert(
-        methodsRoute.mainTab === 'methods',
-        `Expected /task-board to stay on Methods tab, got ${methodsRoute.mainTab}`
+        rootAppRoute.mainTab === 'app',
+        `Expected /task-board to open App tab, got ${rootAppRoute.mainTab}`
       );
+      assert(rootAppRoute.hasCustomUi, '/task-board should mount the app custom UI');
       assert(
-        !methodsRoute.hasCustomUi,
-        `/task-board should not mount app custom UI; text was: ${methodsRoute.shadowText.slice(0, 300)}`
-      );
-      assert(
-        methodsRoute.methodCards > 0,
-        `/task-board should render method cards, got ${methodsRoute.methodCards}`
-      );
-      assert(
-        !/Regression Board|Backlog\s*\|\s*Todo\s*\|\s*Done/.test(
-          `${methodsRoute.shadowText}\n${methodsRoute.iframeText}`
-        ),
-        '/task-board should not render the app board above Methods'
+        /Regression Board/.test(rootAppRoute.iframeText),
+        `/task-board should deliver initial tool result to the app iframe, got: ${rootAppRoute.iframeText}`
       );
 
       await page.reload({ waitUntil: 'domcontentloaded' });
-      const reloadedMethodsRoute = await inspectBeamAppRoute(page);
+      const reloadedAppRoute = await inspectBeamAppRoute(page);
       assert(
-        reloadedMethodsRoute.mainTab === 'methods' && !reloadedMethodsRoute.hasCustomUi,
-        `Reloading /task-board should stay Methods-only, got ${JSON.stringify({
-          mainTab: reloadedMethodsRoute.mainTab,
-          hasCustomUi: reloadedMethodsRoute.hasCustomUi,
+        reloadedAppRoute.mainTab === 'app' && reloadedAppRoute.hasCustomUi,
+        `Reloading /task-board should stay on the App tab, got ${JSON.stringify({
+          mainTab: reloadedAppRoute.mainTab,
+          hasCustomUi: reloadedAppRoute.hasCustomUi,
         })}`
+      );
+
+      await page.goto(`${BEAM_URL}/task-board/stats`, { waitUntil: 'domcontentloaded' });
+      const methodsRoute = await inspectBeamAppRoute(page);
+      assert(
+        methodsRoute.mainTab === 'methods',
+        `Expected /task-board/stats to stay on Methods tab, got ${methodsRoute.mainTab}`
+      );
+      assert(
+        !methodsRoute.hasCustomUi,
+        `/task-board/stats should not mount app custom UI; text was: ${methodsRoute.shadowText.slice(0, 300)}`
+      );
+      assert(
+        methodsRoute.methodCards > 0,
+        `/task-board/stats should render method cards, got ${methodsRoute.methodCards}`
       );
 
       await page.goto(`${BEAM_URL}/task-board/main`, { waitUntil: 'domcontentloaded' });
@@ -1025,6 +1036,36 @@ export default class RapidSave {
       assert(
         /Backlog\s*\|\s*Todo\s*\|\s*Done/.test(appRoute.iframeText),
         `/task-board/main should render app columns, got: ${appRoute.iframeText}`
+      );
+
+      // Selecting an app photon from the sidebar should land on the App tab,
+      // just like its canonical root URL. Methods remain available via the
+      // secondary Methods tab, but should not be the initial surface.
+      await page.goto(`${BEAM_URL}/`, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1000);
+      const visiblePhotonNames = await page
+        .locator('beam-app')
+        .locator('beam-sidebar')
+        .locator('[role="option"] .photon-name')
+        .allTextContents();
+      assert(
+        !visiblePhotonNames.some((name: string) => name.trim() === 'beam'),
+        `Beam control-plane tools must not appear as a sidebar photon: ${visiblePhotonNames.join(', ')}`
+      );
+      const boardOption = page
+        .locator('beam-app')
+        .locator('beam-sidebar')
+        .locator('[role="option"]', { hasText: 'task-board' });
+      await boardOption.first().click();
+      await page.waitForTimeout(1500);
+      const selectedFromSidebar = await inspectBeamAppRoute(page);
+      assert(
+        selectedFromSidebar.mainTab === 'app',
+        `Selecting task-board should open App tab, got ${selectedFromSidebar.mainTab}`
+      );
+      assert(
+        selectedFromSidebar.hasCustomUi,
+        'Selecting task-board from the sidebar should mount its app UI'
       );
     } finally {
       await page.close().catch(() => {});

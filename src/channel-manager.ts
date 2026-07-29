@@ -116,8 +116,14 @@ export class ChannelManager {
    * Returns extra server constructor options (e.g. instructions) for channel mode.
    */
   getExtraServerOptions(): Record<string, any> {
-    if (!this.options.channelMode || !this.options.channelInstructions) return {};
+    if (!this.options.channelInstructions) return {};
     return { instructions: this.options.channelInstructions };
+  }
+
+  appendInstructions(instructions: string): void {
+    if (!instructions.trim()) return;
+    const current = this.options.channelInstructions?.trim();
+    this.options.channelInstructions = current ? `${current}\n\n${instructions}` : instructions;
   }
 
   // ---------------------------------------------------------------------------

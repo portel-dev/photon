@@ -5,10 +5,12 @@
  * Supports both stdio and SSE transports
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import {
+  Server,
+  StdioServerTransport,
+  SSEServerTransport,
+  type Transport,
+} from './mcp/sdk-v1-2025/server.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -24,11 +26,14 @@ import {
   ListTasksRequestSchema,
   CancelTaskRequestSchema,
   GetTaskPayloadRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import type { ServerNotification } from '@modelcontextprotocol/sdk/types.js';
+  type ServerNotification,
+} from './mcp/sdk-v1-2025/types.js';
 import { readText } from './shared/io.js';
 import { detectIsolationMode } from './shared/cross-origin-headers.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
+import type { Duplex } from 'node:stream';
+import { WebSocket as NodeWebSocket, WebSocketServer } from 'ws';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { JsonWebKey } from 'node:crypto';
@@ -40,7 +45,7 @@ import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
 import { createLogger, Logger, LoggerOptions, LogLevel } from './shared/logger.js';
-import { getErrorMessage, formatToolError } from './shared/error-handler.js';
+import { getErrorMessage, sanitizePublicErrorMessage } from './shared/error-handler.js';
 import {
   validateOrThrow,
   assertString,
@@ -64,8 +69,9 @@ import {
 } from './channel-manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isLocalRequest, setSecurityHeaders, getCorsOrigin } from './shared/security.js';
-import { audit } from './shared/audit.js';
 import { TaskExecutor } from './task-executor.js';
+import { validateAppContext, type PhotonAppContext } from './app-context.js';
+import { extractSkillDeclarations, readSkillWithin } from './skills.js';
 import { CapabilityNegotiator } from './capability-negotiator.js';
 import {
   ResourceServer,
@@ -76,11 +82,20 @@ import type {
   PhotonClassWithMeta,
   MCPToolDefinition,
   MCPTextContent,
+  MCPImageContent,
   MCPToolResponse,
   ServerCapabilitiesWithWeb,
 } from './types/server-types.js';
 import { verifyPhotonAuthToken } from './auth/mcp-jwt.js';
 import { loadPhotonAuth } from './cli/commands/auth.js';
+import {
+  installLocalWebSocketPair,
+  type LocalWebSocketEndpoint,
+} from './shared/local-websocket-pair.js';
+import { validateStructuredOutput, type FiniteJSONValue } from './mcp/protocol/json-schema.js';
+import { buildMCPToolError, PHOTON_TOOL_ERROR_CODES } from './mcp/protocol/tool-errors.js';
+
+installLocalWebSocketPair();
 
 let cachedJwtProfile: {
   name: string;
@@ -432,9 +447,11 @@ function localMcpAuthMode(): string {
 function authHeaderToken(req: IncomingMessage): string | null {
   const header = req.headers.authorization ?? '';
   const match = Array.isArray(header)
-    ? header[0]?.match(/^Bearer\s+(.+)$/i)
-    : header.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : null;
+    ? header.length === 1
+      ? header[0]?.match(/^Bearer[ \t]+([^\s,]+)$/i)
+      : null
+    : header.match(/^Bearer[ \t]+([^\s,]+)$/i);
+  return match ? match[1] : null;
 }
 
 function unauthorizedJson(
@@ -460,6 +477,42 @@ function unauthorizedJson(
       error: { code, message, data: { reason } },
     })
   );
+}
+
+function localMcpWwwAuthenticate(
+  req: IncomingMessage,
+  error: 'invalid_token' | 'insufficient_scope',
+  scopes: string[] = [],
+  audience = process.env.PHOTON_MCP_JWT_AUDIENCE
+): string {
+  let resourceMetadata = process.env.PHOTON_MCP_RESOURCE_METADATA_URL;
+  if (!resourceMetadata) {
+    const publicResource =
+      audience ??
+      (process.env.PHOTON_PUBLIC_URL
+        ? `${process.env.PHOTON_PUBLIC_URL.replace(/\/+$/, '')}/mcp`
+        : undefined);
+    if (publicResource) {
+      try {
+        resourceMetadata = new URL(
+          '/.well-known/oauth-protected-resource',
+          publicResource
+        ).toString();
+      } catch {
+        resourceMetadata = undefined;
+      }
+    }
+  }
+  if (!resourceMetadata) {
+    const port = req.socket.localPort ? `:${req.socket.localPort}` : '';
+    resourceMetadata = `http://127.0.0.1${port}/.well-known/oauth-protected-resource`;
+  }
+  return [
+    'Bearer realm="photon"',
+    `resource_metadata="${resourceMetadata.replace(/["\\]/g, '')}"`,
+    `error="${error}"`,
+    ...(scopes.length ? [`scope="${scopes.join(' ')}"`] : []),
+  ].join(', ');
 }
 
 function mcpTokenMatches(actual: string | null, expected: string | undefined): boolean {
@@ -693,7 +746,7 @@ class BeamCompatTransport implements Transport {
             -32001,
             'Unauthorized',
             'missing_token',
-            'Bearer realm="photon", error="invalid_token"',
+            localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes, audience),
             corsOrigin
           );
           return;
@@ -713,9 +766,12 @@ class BeamCompatTransport implements Transport {
             insufficientScope ? -32003 : -32001,
             insufficientScope ? 'Forbidden' : 'Unauthorized',
             result.reason,
-            insufficientScope
-              ? `Bearer realm="photon", error="insufficient_scope", scope="${requiredScopes.join(' ')}"`
-              : 'Bearer realm="photon", error="invalid_token"',
+            localMcpWwwAuthenticate(
+              req,
+              insufficientScope ? 'insufficient_scope' : 'invalid_token',
+              requiredScopes,
+              audience
+            ),
             corsOrigin
           );
           return;
@@ -736,7 +792,7 @@ class BeamCompatTransport implements Transport {
               : token
                 ? 'bearer token does not match PHOTON_MCP_BEARER'
                 : 'Authorization: Bearer <token> header missing',
-            'Bearer realm="photon"',
+            localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes),
             corsOrigin
           );
           return;
@@ -869,6 +925,7 @@ export class PhotonServer {
   private options: PhotonServerOptions;
   private mcpClientFactory: SDKMCPClientFactory | null = null;
   private httpServer: ReturnType<typeof createServer> | null = null;
+  private webSocketServer = new WebSocketServer({ noServer: true });
   private sseSessions: Map<string, SSESession> = new Map();
   private devMode: boolean;
   private hotReloadDisabled = false;
@@ -975,6 +1032,31 @@ export class PhotonServer {
 
     this.options = options;
     this.devMode = options.devMode || false;
+
+    // Progressive skill disclosure: descriptors are safe to include in the
+    // initial server instructions; full bodies remain available through the
+    // explicit photon_skill_read tool.
+    if (!options.unresolvedPhoton && options.filePath) {
+      try {
+        const declarations = extractSkillDeclarations(readFileSync(options.filePath, 'utf8'));
+        const descriptors = declarations.map((declaration) => {
+          try {
+            const skill = readSkillWithin(path.dirname(options.filePath), declaration.path);
+            return `${skill.name}: ${skill.description || 'additional task guidance'}`;
+          } catch {
+            return `${declaration.name}: additional task guidance`;
+          }
+        });
+        if (descriptors.length) {
+          const skillInstructions = `Available Photon skills (read with photon_skill_read): ${descriptors.join('; ')}`;
+          options.channelInstructions = options.channelInstructions
+            ? `${options.channelInstructions}\n\n${skillInstructions}`
+            : skillInstructions;
+        }
+      } catch {
+        // Skill discovery is advisory; loading must remain unaffected.
+      }
+    }
 
     const baseLoggerOptions: LoggerOptions = {
       component: 'photon-server',
@@ -1402,6 +1484,35 @@ export class PhotonServer {
 
   /** Cache for @choice-from resolved values: key = "toolName.field", value = { values, resolvedAt } */
   private choiceFromCache = new Map<string, { values: string[]; resolvedAt: number }>();
+  private appContexts = new Map<string, PhotonAppContext>();
+  private skillCatalog?: string;
+
+  private async getSkillCatalog(): Promise<string> {
+    if (this.skillCatalog !== undefined) return this.skillCatalog;
+    try {
+      const source = await readText(this.options.filePath);
+      const declarations = extractSkillDeclarations(source);
+      const entries = declarations.map((declaration) => {
+        try {
+          const skill = readSkillWithin(path.dirname(this.options.filePath), declaration.path);
+          return `${skill.name}: ${skill.description || 'additional task guidance'}`;
+        } catch {
+          return `${declaration.name}: additional task guidance`;
+        }
+      });
+      this.skillCatalog = entries.length ? entries.join('; ') : '';
+    } catch {
+      this.skillCatalog = '';
+    }
+    return this.skillCatalog;
+  }
+
+  private readAppContextResource(request: any, ctx: HandlerContext): any {
+    const uri = request.params?.uri;
+    if (typeof uri !== 'string' || !/^photon:\/\/[^/]+\/context\/current$/.test(uri)) return null;
+    const context = this.appContexts.get(ctx.sessionId || 'anonymous') || {};
+    return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(context) }] };
+  }
   private static readonly CHOICE_FROM_CACHE_TTL = 30_000; // 30 seconds
 
   /**
@@ -1472,71 +1583,122 @@ export class PhotonServer {
       return { tools: [] };
     }
     const mcpName = this.mcp.name;
-    const tools = this.mcp.tools.map((tool) => {
-      // Append deprecation notice to tool description if tagged
-      let description = tool.description;
-      const deprecated = (tool as ExtractedSchema).deprecated;
-      if (deprecated) {
-        const notice = typeof deprecated === 'string' ? deprecated : 'This tool is deprecated.';
-        description = `[DEPRECATED: ${notice}] ${description}`;
-      }
+    const tools = this.mcp.tools
+      .filter((tool) => {
+        const surfaces = (tool as ExtractedSchema & { surfaces?: string[] }).surfaces;
+        return !surfaces || surfaces.includes('mcp');
+      })
+      .map((tool) => {
+        // Append deprecation notice to tool description if tagged
+        let description = tool.description;
+        const deprecated = (tool as ExtractedSchema).deprecated;
+        if (deprecated) {
+          const notice = typeof deprecated === 'string' ? deprecated : 'This tool is deprecated.';
+          description = `[DEPRECATED: ${notice}] ${description}`;
+        }
 
-      const slashlessName = tool.name.includes('/') ? tool.name.split('/').pop()! : tool.name;
-      const toolName = slashlessName.includes('.')
-        ? slashlessName.split('.').pop()!
-        : slashlessName;
+        const slashlessName = tool.name.includes('/') ? tool.name.split('/').pop()! : tool.name;
+        const toolName = slashlessName.includes('.')
+          ? slashlessName.split('.').pop()!
+          : slashlessName;
 
-      const toolDef: MCPToolDefinition = {
-        name: toolName,
-        description,
-        inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)),
-      };
-
-      // MCP standard annotations (2025-11-25 spec)
-      const schema = tool as ExtractedSchema;
-      const annotations: Record<string, unknown> = {};
-      if (schema.title) annotations.title = schema.title;
-      if (schema.readOnlyHint) annotations.readOnlyHint = true;
-      if (schema.destructiveHint) annotations.destructiveHint = true;
-      if (schema.idempotentHint) annotations.idempotentHint = true;
-      if (schema.openWorldHint !== undefined) annotations.openWorldHint = schema.openWorldHint;
-      if (Object.keys(annotations).length > 0) toolDef.annotations = annotations;
-
-      // MCP structured output schema
-      if (schema.outputSchema) toolDef.outputSchema = schema.outputSchema;
-
-      // MCP tool icons (resolve image paths to data URIs)
-      if (tool.iconImages && tool.iconImages.length > 0) {
-        const icons = this.resourceServer.resolveIconImages(tool.iconImages);
-        if (icons.length > 0) toolDef.icons = icons;
-      }
-
-      const linkedUI = this.mcp?.assets?.ui.find(
-        (u) => u.linkedTool === tool.name || u.linkedTools?.includes(tool.name)
-      );
-      if (schema.outputFormat) toolDef['x-output-format'] = schema.outputFormat;
-      if (schema.layoutHints) toolDef['x-layout-hints'] = schema.layoutHints;
-      const toolScopes = (schema as ExtractedSchema & { scopes?: string[] }).scopes;
-      if (toolScopes) toolDef.scopes = toolScopes;
-      if (schema.buttonLabel) toolDef['x-button-label'] = schema.buttonLabel;
-      if (schema.icon) toolDef['x-icon'] = schema.icon;
-      if (schema.autorun) toolDef['x-autorun'] = true;
-
-      const renderMeta = buildPhotonRenderMeta(schema, {
-        uiResourceUri: linkedUI ? `ui://${mcpName}/${linkedUI.id}` : undefined,
-      });
-      if (renderMeta) {
-        toolDef._meta = { ...toolDef._meta, [PHOTON_RENDER_META_KEY]: renderMeta };
-      }
-      if (linkedUI && this.capabilityNegotiator.supportsUI(ctx.server)) {
-        toolDef._meta = {
-          ...toolDef._meta,
-          ...this.resourceServer.buildUIToolMeta(this.mcp!.name, linkedUI.id),
+        const toolDef: MCPToolDefinition = {
+          name: toolName,
+          description,
+          inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)),
         };
-      }
 
-      return toolDef;
-    });
+        // MCP standard annotations (2025-11-25 spec)
+        const schema = tool as ExtractedSchema;
+        const annotations: Record<string, unknown> = {};
+        if (schema.title) annotations.title = schema.title;
+        if (schema.readOnlyHint) annotations.readOnlyHint = true;
+        if (schema.destructiveHint) annotations.destructiveHint = true;
+        if (schema.idempotentHint) annotations.idempotentHint = true;
+        if (schema.openWorldHint !== undefined) annotations.openWorldHint = schema.openWorldHint;
+        if (Object.keys(annotations).length > 0) toolDef.annotations = annotations;
+
+        // MCP structured output schema
+        if (schema.outputSchema !== undefined) {
+          toolDef.outputSchema = schema.outputSchema;
+        }
+
+        // MCP tool icons (resolve image paths to data URIs)
+        if (tool.iconImages && tool.iconImages.length > 0) {
+          const icons = this.resourceServer.resolveIconImages(tool.iconImages);
+          if (icons.length > 0) toolDef.icons = icons;
+        }
+
+        const linkedUI = this.mcp?.assets?.ui.find(
+          (u) => u.linkedTool === tool.name || u.linkedTools?.includes(tool.name)
+        );
+        if (schema.outputFormat) toolDef['x-output-format'] = schema.outputFormat;
+        const formatMeta = schema as ExtractedSchema & {
+          formatKind?: string;
+          formatAlias?: string;
+          mimeType?: string;
+        };
+        if (formatMeta.formatKind) toolDef['x-format-kind'] = formatMeta.formatKind;
+        if (formatMeta.formatAlias) toolDef['x-format-alias'] = formatMeta.formatAlias;
+        if (formatMeta.mimeType) toolDef['x-mime-type'] = formatMeta.mimeType;
+        if (schema.layoutHints) toolDef['x-layout-hints'] = schema.layoutHints;
+        const toolScopes = (schema as ExtractedSchema & { scopes?: string[] }).scopes;
+        if (toolScopes) toolDef.scopes = toolScopes;
+        const surfaces = (schema as ExtractedSchema & { surfaces?: string[] }).surfaces;
+        if (surfaces?.length) toolDef['x-photon-surfaces'] = surfaces;
+        if (schema.buttonLabel) toolDef['x-button-label'] = schema.buttonLabel;
+        if (schema.icon) toolDef['x-icon'] = schema.icon;
+        if (schema.autorun) toolDef['x-autorun'] = true;
+
+        const renderMeta = buildPhotonRenderMeta(schema, {
+          uiResourceUri: linkedUI ? `ui://${mcpName}/${linkedUI.id}` : undefined,
+        });
+        if (renderMeta) {
+          toolDef._meta = { ...toolDef._meta, [PHOTON_RENDER_META_KEY]: renderMeta };
+        }
+        if (linkedUI && this.capabilityNegotiator.supportsUI(ctx.server)) {
+          toolDef._meta = {
+            ...toolDef._meta,
+            ...this.resourceServer.buildUIToolMeta(this.mcp!.name, linkedUI.id),
+          };
+        }
+
+        return toolDef;
+      });
+
+    const skillCatalog = await this.getSkillCatalog();
+    tools.push(
+      {
+        name: 'photon_context_get',
+        description: 'Read the current semantic Beam/application context for this session.',
+        inputSchema: { type: 'object', properties: {} },
+        annotations: { readOnlyHint: true },
+      },
+      {
+        name: 'photon_navigate',
+        description: 'Request navigation to a registered Photon view in the current application.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            photon: { type: 'string' },
+            method: { type: 'string' },
+            instance: { type: 'string' },
+            view: { type: 'string' },
+          },
+          required: ['photon'],
+        },
+      },
+      {
+        name: 'photon_skill_read',
+        description: `Read a declared Photon SKILL.md by name when more guidance is needed.${skillCatalog ? ` Available skills: ${skillCatalog}` : ''}`,
+        inputSchema: {
+          type: 'object',
+          properties: { name: { type: 'string' } },
+          required: ['name'],
+        },
+        annotations: { readOnlyHint: true },
+      }
+    );
 
     // Add runtime-injected instance tools for stateful photons
     if (this.daemonName) {
@@ -1632,6 +1794,13 @@ export class PhotonServer {
     const targetMcp = await this.resolveInstanceMcp(extra);
 
     const { name: toolName, arguments: args } = request.params;
+    const declaredTool = targetMcp.tools.find((tool) => tool.name === toolName);
+    const declaredSurfaces = (
+      declaredTool as (ExtractedSchema & { surfaces?: string[] }) | undefined
+    )?.surfaces;
+    if (declaredSurfaces && !declaredSurfaces.includes('mcp')) {
+      throw new Error(`Tool '${toolName}' is not exposed on the MCP surface`);
+    }
     // Per MCP spec, the server must echo the client-supplied progressToken
     // from request _meta back in notifications/progress so clients can match
     // streamed progress to their original request. Fall back to a synthetic
@@ -1639,6 +1808,26 @@ export class PhotonServer {
     const clientProgressToken = (request.params as { _meta?: { progressToken?: string | number } })
       ?._meta?.progressToken;
     const progressToken = clientProgressToken ?? `progress_${toolName}`;
+
+    const sessionKey = ctx.sessionId || 'anonymous';
+    if (toolName === 'photon_context_get') {
+      return {
+        content: [{ type: 'text', text: JSON.stringify(this.appContexts.get(sessionKey) || {}) }],
+      };
+    }
+    if (toolName === 'photon_navigate') {
+      const context = validateAppContext({ navigation: args || {}, source: 'agent' });
+      this.appContexts.set(sessionKey, context);
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, context }) }] };
+    }
+    if (toolName === 'photon_skill_read') {
+      const name = typeof args?.name === 'string' ? args.name : '';
+      const source = await readText(this.options.filePath);
+      const declaration = extractSkillDeclarations(source).find((skill) => skill.name === name);
+      if (!declaration) throw new Error(`Unknown Photon skill: ${name}`);
+      const skill = readSkillWithin(path.dirname(this.options.filePath), declaration.path);
+      return { content: [{ type: 'text', text: skill.body }] };
+    }
 
     // Route _use, _instances, _undo, _redo through daemon for stateful photons
     if (
@@ -1837,6 +2026,7 @@ export class PhotonServer {
       samplingProvider,
       roots: this.rootsByServer.get(ctx.server),
       caller,
+      appContext: this.appContexts.get(ctx.sessionId || 'anonymous'),
     });
     const durationMs = Date.now() - startTime;
     const transport = this.options.transport || 'stdio';
@@ -1845,17 +2035,40 @@ export class PhotonServer {
       photon: this.mcp?.name,
       transport,
     });
-    audit({
-      ts: new Date().toISOString(),
-      event: 'tool_call',
-      photon: this.mcp?.name,
-      method: toolName,
-      client: transport,
-      durationMs,
-    });
-
     const isStateful = result && typeof result === 'object' && result._stateful === true;
     const actualResult = isStateful ? result.result : result;
+    const schema = tool as ExtractedSchema;
+    let validatedStructuredResult: FiniteJSONValue | undefined;
+    if (schema?.outputSchema !== undefined) {
+      const validation = await validateStructuredOutput(schema.outputSchema, actualResult);
+      if (!validation.ok) {
+        const failure = buildMCPToolError(toolName, validation.message, {
+          code: PHOTON_TOOL_ERROR_CODES.OUTPUT_INVALID,
+          category: 'tool_output',
+          errorType: 'output_validation',
+          retryable: false,
+          publicMessage: 'Tool output validation failed',
+          details: {
+            validationKind: validation.kind,
+            issueCount: validation.issues?.length ?? 0,
+          },
+        });
+        failure._meta['photon/outputValidation'] = {
+          kind: validation.kind,
+          message: sanitizePublicErrorMessage(validation.message),
+          ...(validation.issues
+            ? {
+                issues: validation.issues.map((issue) => ({
+                  ...issue,
+                  message: sanitizePublicErrorMessage(issue.message),
+                })),
+              }
+            : {}),
+        };
+        return failure;
+      }
+      validatedStructuredResult = validation.value;
+    }
 
     // _meta format transformation: if the result was transformed by _meta.format,
     // return the pre-formatted text with its MIME type directly
@@ -1867,15 +2080,23 @@ export class PhotonServer {
       return { content: [content], isError: false };
     }
 
+    // MCP has a native image content type. Photons commonly return a data URI
+    // because it is also directly consumable by browser UIs; promote image
+    // data URIs at the protocol boundary so MCP clients do not have to parse
+    // an image as ordinary text.
     // Build content with optional annotations
-    const content: MCPTextContent = {
+    const declaredMimeType = (schema as ExtractedSchema & { mimeType?: string }).mimeType;
+    const formattedResult = this.formatResult(actualResult);
+    const imageContent =
+      this.imageContentFromResult(actualResult, declaredMimeType) ||
+      this.imageContentFromResult(formattedResult, declaredMimeType);
+    const content: MCPTextContent | MCPImageContent = imageContent || {
       type: 'text',
-      text: this.formatResult(actualResult),
+      text: formattedResult,
     };
 
     // Content annotations: audience and priority from schema, mimeType from format
     const contentAnnotations: Record<string, unknown> = {};
-    const schema = tool as ExtractedSchema;
     if (schema?.audience) contentAnnotations.audience = schema.audience;
     if (schema?.contentPriority !== undefined) contentAnnotations.priority = schema.contentPriority;
     if (outputFormat) {
@@ -1891,12 +2112,12 @@ export class PhotonServer {
 
     // Structured output: include structuredContent when outputSchema is declared
     if (
-      schema?.outputSchema &&
-      actualResult &&
-      typeof actualResult === 'object' &&
-      !Array.isArray(actualResult)
+      schema?.outputSchema !== undefined &&
+      validatedStructuredResult &&
+      typeof validatedStructuredResult === 'object' &&
+      !Array.isArray(validatedStructuredResult)
     ) {
-      response.structuredContent = actualResult;
+      response.structuredContent = validatedStructuredResult;
     }
 
     const linkedUI = this.mcp?.assets?.ui.find(
@@ -1926,7 +2147,11 @@ export class PhotonServer {
 
     // Enrich response with structuredContent + _meta for tools with linked UIs
     if (supportsLinkedUI) {
-      if (actualResult !== undefined && actualResult !== null) {
+      if (
+        schema?.outputSchema === undefined &&
+        actualResult !== undefined &&
+        actualResult !== null
+      ) {
         response.structuredContent =
           typeof actualResult === 'string' ? { text: actualResult } : actualResult;
       }
@@ -2121,7 +2346,40 @@ export class PhotonServer {
     }
 
     try {
-      return await this.handleCallTool(ctx, request, extra);
+      const response = await this.handleCallTool(ctx, request, extra);
+      // Some Photon execution paths cross a JSON boundary before reaching the
+      // MCP handler, turning Uint8Array into a numeric-key object or JSON text.
+      // Recover that representation here so Beam still emits native MCP image
+      // content instead of exposing implementation details to the client.
+      const firstContent = response?.content?.[0];
+      if (firstContent?.type === 'text' && typeof firstContent.text === 'string') {
+        try {
+          const parsed = JSON.parse(firstContent.text) as Record<string, unknown>;
+          const entries = Object.entries(parsed);
+          if (
+            entries.length > 2 &&
+            entries.every(([key, value]) => /^\d+$/.test(key) && Number.isInteger(value)) &&
+            Number(parsed['0']) === 0x42 &&
+            Number(parsed['1']) === 0x4d
+          ) {
+            const ordered = entries.sort(([a], [b]) => Number(a) - Number(b));
+            const bytes = Uint8Array.from(ordered.map(([, value]) => Number(value)));
+            return {
+              ...response,
+              content: [
+                {
+                  type: 'image',
+                  data: Buffer.from(bytes).toString('base64'),
+                  mimeType: 'image/bmp',
+                },
+              ],
+            };
+          }
+        } catch {
+          // Ordinary text results remain unchanged.
+        }
+      }
+      return response;
     } catch (error) {
       const { name: toolName, arguments: args } = request.params;
       if (
@@ -2134,8 +2392,7 @@ export class PhotonServer {
 
       this.log('error', 'Tool execution failed', {
         tool: toolName,
-        error: getErrorMessage(error),
-        args: this.options.devMode ? args : undefined,
+        error: sanitizePublicErrorMessage(error),
       });
       return this.formatError(error, toolName, args);
     }
@@ -2191,7 +2448,14 @@ export class PhotonServer {
     });
 
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      return this.resourceServer.handleListResources(this.mcp);
+      const result = this.resourceServer.handleListResources(this.mcp);
+      result.resources.push({
+        uri: `photon://${this.mcp?.name || 'photon'}/context/current`,
+        name: 'Current application context',
+        description: 'Semantic navigation and selection context for this session',
+        mimeType: 'application/json',
+      });
+      return result;
     });
 
     this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
@@ -2199,6 +2463,8 @@ export class PhotonServer {
     });
 
     this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const contextResource = this.readAppContextResource(request, ctx);
+      if (contextResource) return contextResource;
       return this.resourceServer.handleReadResource(request, this.mcp);
     });
 
@@ -2308,6 +2574,57 @@ export class PhotonServer {
     return String(result);
   }
 
+  private imageContentFromResult(
+    value: unknown,
+    declaredMimeType?: string
+  ): {
+    type: 'image';
+    data: string;
+    mimeType: string;
+  } | null {
+    if (typeof value === 'string') {
+      const match = value.match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i);
+      if (match) return { type: 'image', mimeType: match[1], data: match[2].replace(/\s/g, '') };
+      if (value.trimStart().startsWith('{')) {
+        try {
+          return this.imageContentFromResult(JSON.parse(value), declaredMimeType);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+    let bytes: Uint8Array | null = null;
+    if (value instanceof Uint8Array) bytes = value;
+    else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+    else if (value && typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (
+        entries.length > 0 &&
+        entries.every(([key, item]) => /^\d+$/.test(key) && Number.isInteger(item))
+      ) {
+        const ordered = entries.sort(([a], [b]) => Number(a) - Number(b));
+        bytes = Uint8Array.from(ordered.map(([, item]) => Number(item)));
+      }
+    }
+    if (!bytes) return null;
+    const detectedMimeType =
+      declaredMimeType ||
+      (bytes[0] === 0x42 && bytes[1] === 0x4d
+        ? 'image/bmp'
+        : bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+          ? 'image/png'
+          : bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+            ? 'image/jpeg'
+            : undefined);
+    if (!detectedMimeType?.startsWith('image/')) return null;
+    return {
+      type: 'image',
+      mimeType: detectedMimeType,
+      data: Buffer.from(bytes).toString('base64'),
+    };
+  }
+
   /**
    * Format template result to MCP prompt response
    */
@@ -2368,47 +2685,11 @@ export class PhotonServer {
    * Format error for AI consumption
    * Provides structured, actionable error messages
    */
-  private formatError(error: any, toolName: string, args: any): any {
-    const { text, errorType, retryable } = formatToolError(toolName, error);
-
-    // Add dev-mode extras
-    let devExtras = '';
-    if (this.options.devMode && Object.keys(args || {}).length > 0) {
-      devExtras += `\nParameters provided:\n${JSON.stringify(args, null, 2)}\n`;
-    }
-    if (this.options.devMode && error.stack) {
-      devExtras += `\nStack trace:\n${error.stack}\n`;
-    }
-
-    // Log to stderr for debugging
-    this.log('error', `[Photon Error] ${toolName}: ${getErrorMessage(error)}`);
-    if (this.options.devMode && error.stack) {
-      this.log('debug', error.stack);
-    }
-
-    // Emit structured error metadata in addition to the human-readable text
-    // so MCP clients can make typed retry decisions without parsing prose.
-    // `_meta.photon` is the non-standard extension namespace; `structuredContent`
-    // is the MCP-spec field for machine-readable result data.
-    const structured = {
-      error: {
-        type: errorType,
-        retryable,
-        message: getErrorMessage(error),
-      },
-    };
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: text + devExtras,
-        },
-      ],
-      isError: true,
-      structuredContent: structured,
-      _meta: { photon: structured.error },
-    };
+  private formatError(error: any, toolName: string, _args: any): any {
+    // The wire response is identical in development and production: arguments
+    // and stack traces are private diagnostics and must never reach a client.
+    this.log('error', `[Photon Error] ${toolName}: ${sanitizePublicErrorMessage(error)}`);
+    return buildMCPToolError(toolName, error);
   }
 
   /**
@@ -2962,6 +3243,119 @@ export class PhotonServer {
   /**
    * Start server with SSE transport (HTTP)
    */
+  private async handleWebSocketUpgrade(
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer
+  ): Promise<void> {
+    const reject = (status: number, statusText: string, body = statusText): void => {
+      if (socket.destroyed) return;
+      const payload = Buffer.from(body);
+      socket.write(
+        `HTTP/1.1 ${status} ${statusText}\r\n` +
+          'Connection: close\r\n' +
+          'Content-Type: text/plain; charset=utf-8\r\n' +
+          `Content-Length: ${payload.length}\r\n\r\n`
+      );
+      socket.write(payload);
+      socket.destroy();
+    };
+
+    try {
+      if (!req.url || req.method !== 'GET') {
+        reject(400, 'Bad Request');
+        return;
+      }
+      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const route = findServerWebRoute(this.mcp?._httpRoutes, req.method, url.pathname);
+      if (!route) {
+        reject(404, 'Not Found');
+        return;
+      }
+
+      const { extractClaimsFromHeaders } = await import('./shared/extract-claims.js');
+      const httpClaims = extractClaimsFromHeaders(req.headers);
+      const targetMcp = await this.resolveInstanceMcp(
+        httpClaims ? { authInfo: { extra: httpClaims } } : undefined
+      );
+      const photonInstance = targetMcp?.instance;
+      const fn = photonInstance?.[route.handler];
+      if (typeof fn !== 'function') {
+        reject(404, 'Not Found');
+        return;
+      }
+
+      const webReq = new Request(url.toString(), {
+        method: req.method,
+        headers: req.headers as Record<string, string>,
+      });
+      const result: unknown = await fn.call(photonInstance, webReq);
+      if (!(result instanceof Response)) {
+        reject(500, 'Internal Server Error', 'WebSocket route did not return a Response');
+        return;
+      }
+      if (result.status !== 101) {
+        reject(
+          result.status,
+          result.statusText || 'WebSocket upgrade rejected',
+          await result.text()
+        );
+        return;
+      }
+      const endpoint = (result as Response & { webSocket?: LocalWebSocketEndpoint }).webSocket;
+      if (!endpoint) {
+        reject(500, 'Internal Server Error', 'WebSocket route did not attach an endpoint');
+        return;
+      }
+
+      this.webSocketServer.handleUpgrade(req, socket, head, (browser) => {
+        endpoint.accept();
+        browser.on('message', (data, isBinary) => {
+          if (endpoint.readyState !== 1) return;
+          const payload = Array.isArray(data)
+            ? Buffer.concat(data)
+            : data instanceof ArrayBuffer
+              ? Buffer.from(data)
+              : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+          endpoint.send(isBinary ? new Uint8Array(payload) : payload.toString('utf8'));
+        });
+        const forward = (event: Event) => {
+          if (browser.readyState !== NodeWebSocket.OPEN) return;
+          const data = (
+            event as Event & {
+              data: string | ArrayBuffer | ArrayBufferView;
+            }
+          ).data;
+          if (typeof data === 'string') browser.send(data);
+          else if (ArrayBuffer.isView(data)) {
+            browser.send(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+          } else {
+            browser.send(Buffer.from(data));
+          }
+        };
+        const closeBrowser = (event: Event) => {
+          const close = event as Event & { code?: number; reason?: string };
+          if (browser.readyState < NodeWebSocket.CLOSING) {
+            browser.close(close.code || 1000, close.reason || '');
+          }
+        };
+        endpoint.addEventListener('message', forward);
+        endpoint.addEventListener('close', closeBrowser);
+        browser.on('close', (code, reason) => {
+          endpoint.removeEventListener('message', forward);
+          endpoint.removeEventListener('close', closeBrowser);
+          endpoint.close(code || 1000, reason.toString());
+        });
+        browser.on('error', () => endpoint.close(1011, 'browser websocket error'));
+      });
+    } catch (error) {
+      this.log('warn', 'WebSocket upgrade failed', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      reject(500, 'Internal Server Error');
+    }
+  }
+
   private async startSSE() {
     const port = this.options.port || 3000;
     const ssePath = '/mcp';
@@ -3052,6 +3446,17 @@ export class PhotonServer {
             // Wrap raw result in MCP content format if not already wrapped
             if (result && result.content && Array.isArray(result.content)) {
               return result;
+            }
+            if (result instanceof Uint8Array && result[0] === 0x42 && result[1] === 0x4d) {
+              return {
+                content: [
+                  {
+                    type: 'image',
+                    data: Buffer.from(result).toString('base64'),
+                    mimeType: 'image/bmp',
+                  },
+                ],
+              };
             }
             return {
               content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -3652,6 +4057,9 @@ export class PhotonServer {
       this.log('warn', 'HTTP client error', { message: err.message });
       socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     });
+    this.httpServer.on('upgrade', (req, socket, head) => {
+      void this.handleWebSocketUpgrade(req, socket, head);
+    });
 
     await new Promise<void>((resolve) => {
       this.httpServer!.listen(port, () => {
@@ -3880,7 +4288,14 @@ export class PhotonServer {
     });
 
     sessionServer.setRequestHandler(ListResourcesRequestSchema, async () => {
-      return this.resourceServer.handleListResources(this.mcp);
+      const result = this.resourceServer.handleListResources(this.mcp);
+      result.resources.push({
+        uri: `photon://${this.mcp?.name || 'photon'}/context/current`,
+        name: 'Current application context',
+        description: 'Semantic navigation and selection context for this session',
+        mimeType: 'application/json',
+      });
+      return result;
     });
 
     sessionServer.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
@@ -3888,6 +4303,8 @@ export class PhotonServer {
     });
 
     sessionServer.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const contextResource = this.readAppContextResource(request, ctx);
+      if (contextResource) return contextResource;
       return this.resourceServer.handleReadResource(request, this.mcp);
     });
 
@@ -3934,6 +4351,10 @@ export class PhotonServer {
         client.end();
       }
       this.statusClients.clear();
+
+      // Upgraded sockets are not normal HTTP connections, so Node's
+      // closeAllConnections() does not include them.
+      for (const browser of this.webSocketServer.clients) browser.terminate();
 
       // Close HTTP server if running — destroy lingering connections so .close() resolves
       if (this.httpServer) {

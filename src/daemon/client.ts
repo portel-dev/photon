@@ -16,6 +16,11 @@ import { getGlobalSocketPath, ensureDaemon } from './manager.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { ProgressRenderer, SchemaExtractor } from '@portel/photon-core';
+import { getRequestContext } from '../telemetry/context.js';
+import {
+  validateTracePropagation,
+  type TracePropagationContext,
+} from '../telemetry/propagation.js';
 
 // Generate session ID for this process
 // This ensures all commands from the same terminal session share the same photon instance
@@ -315,10 +320,24 @@ export async function sendCommand(
     targetInstance?: string;
     workingDir?: string;
     clientType?: DaemonRequest['clientType'];
+    /** Explicit propagation overrides the ambient Photon execution context. */
+    traceContext?: TracePropagationContext;
   }
 ): Promise<any> {
   const maxRetries = options?.maxRetries ?? DEFAULT_DAEMON_COMMAND_RETRIES;
   const isRetryable = RETRYABLE_METHODS.has(method);
+  const ambient = getRequestContext();
+  const propagation = validateTracePropagation(
+    options?.traceContext ?? {
+      traceparent: ambient?.request?.traceparent ?? ambient?.parentTraceparent,
+      tracestate: ambient?.request?.tracestate ?? ambient?.tracestate,
+      baggage: ambient?.request?.baggage ?? ambient?.baggage,
+    }
+  );
+  if (!propagation.ok && options?.traceContext) {
+    throw new Error(`Invalid ${propagation.field}: ${propagation.reason}`);
+  }
+  const traceContext = propagation.ok ? propagation.context : undefined;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -332,7 +351,8 @@ export async function sendCommand(
         options?.instanceName,
         options?.workingDir,
         options?.targetInstance,
-        options?.clientType
+        options?.clientType,
+        traceContext
       );
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
@@ -445,7 +465,8 @@ async function sendCommandDirect(
   instanceName?: string,
   workingDir?: string,
   targetInstance?: string,
-  clientType?: DaemonRequest['clientType']
+  clientType?: DaemonRequest['clientType'],
+  traceContext?: TracePropagationContext
 ): Promise<any> {
   const socketPath = getGlobalSocketPath();
   const requestId = `req_${Date.now()}_${Math.random()}`;
@@ -485,6 +506,7 @@ async function sendCommandDirect(
         targetInstance,
         workingDir,
         constructorEnv: captureConstructorEnvForPhoton(photonName, photonPath),
+        ...(traceContext && Object.keys(traceContext).length > 0 ? { traceContext } : {}),
       };
 
       client.write(JSON.stringify(request) + '\n');

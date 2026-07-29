@@ -13,8 +13,24 @@ Comprehensive guide to diagnosing and fixing common Photon MCP issues.
 - [Marketplace Problems](#marketplace-problems)
 - [Performance Issues](#performance-issues)
 - [MCP Protocol Errors](#mcp-protocol-errors)
+- [WebSocket Route Stays Connecting](#websocket-route-stays-connecting)
 - [Stale Cache After Upgrade](#stale-cache-after-upgrade)
 - [bunx / pnpm dlx Quick Reset Guide](#bunx--pnpm-dlx-quick-reset-guide)
+
+---
+
+## WebSocket Route Stays Connecting
+
+For an application WebSocket, declare a `@get` route, require
+`Upgrade: websocket`, create a `WebSocketPair`, call `accept()` on the server
+endpoint, and return `createWebSocketUpgradeResponse(client)`. Returning an
+ordinary status-200 `Response`, or constructing status 101 without attaching
+the client endpoint, causes the browser to remain in `CONNECTING` or receive an
+HTTP error. Run `bun run test:websocket` in the Photon repository to exercise a
+real upgrade and bidirectional echo.
+
+This applies to user-owned web routes. Do not change Beam's MCP transport to
+WebSocket; Beam uses Streamable HTTP/SSE.
 
 ---
 

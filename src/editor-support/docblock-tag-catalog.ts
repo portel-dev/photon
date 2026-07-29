@@ -168,6 +168,12 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
       type: 'keyword',
     },
     { label: '@internal', detail: 'Hidden from main UI', apply: '@internal', type: 'keyword' },
+    {
+      label: '@skill',
+      detail: 'Progressive-disclosure SKILL.md guidance',
+      snippetTmpl: '@skill ${1:name} ${2:skills/name/SKILL.md}',
+      type: 'keyword',
+    },
   ];
 
   const methodLevelTags: PhotonDocblockTagDef[] = [
@@ -203,6 +209,18 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
       type: 'keyword',
     },
     { label: '@autorun', detail: 'Auto-execute in Beam UI', apply: '@autorun', type: 'keyword' },
+    {
+      label: '@surface',
+      detail: 'Expose on selected Photon surfaces',
+      snippetTmpl: '@surface ${1:mcp cli}',
+      type: 'keyword',
+    },
+    {
+      label: '@a2aHandler',
+      detail: 'Opt in as the A2A receiving agent handler',
+      apply: '@a2aHandler',
+      type: 'keyword',
+    },
     {
       label: '@scope',
       detail: 'OAuth scopes required by this tool',

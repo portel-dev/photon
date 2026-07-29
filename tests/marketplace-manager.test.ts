@@ -4,6 +4,9 @@
 
 import { MarketplaceManager } from '../dist/marketplace-manager.js';
 import { strict as assert } from 'assert';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 async function runTests() {
   console.log('🧪 Running Marketplace Manager Tests...\n');
@@ -239,6 +242,50 @@ async function runTests() {
       'URI with multiple {params} should be template'
     );
     console.log('✅ URI template regex detection');
+  }
+
+  // Test 16: Binary marketplace assets preserve their bytes
+  {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'photon-marketplace-assets-'));
+    try {
+      const assetPath = 'walkthrough/hero.png';
+      const original = Buffer.from([
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a, // PNG signature
+        0x00,
+        0xff,
+        0xfe,
+        0x80,
+        0x01,
+        0x02,
+        0x03,
+      ]);
+      await mkdir(join(fixtureRoot, 'walkthrough'), { recursive: true });
+      await writeFile(join(fixtureRoot, assetPath), original);
+
+      const fetched = await manager.fetchAssets(
+        {
+          name: 'local-fixture',
+          repo: '',
+          url: `file://${fixtureRoot}`,
+          sourceType: 'local',
+          source: fixtureRoot,
+          enabled: true,
+        },
+        [assetPath]
+      );
+
+      assert.deepEqual(fetched.get(assetPath), original, 'binary asset bytes must be unchanged');
+      console.log('✅ Binary marketplace assets preserve their bytes');
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   }
 
   console.log('\n✅ All Marketplace Manager tests passed!');

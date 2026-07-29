@@ -26,6 +26,7 @@ type LoadedTool = {
   ['x-output-format']?: string;
   ['x-layout-hints']?: Record<string, string>;
   ['x-button-label']?: string;
+  surfaces?: string[];
 };
 
 function toOpenAPIMethod(tool: LoadedTool) {
@@ -40,6 +41,7 @@ function toOpenAPIMethod(tool: LoadedTool) {
     layoutHints: tool.layoutHints || tool['x-layout-hints'],
     buttonLabel: tool.buttonLabel || tool['x-button-label'],
     linkedUi: tool.linkedUi,
+    surfaces: tool.surfaces,
   };
 }
 

@@ -669,7 +669,7 @@ export class McpAppRenderer extends LitElement {
    */
   private _extractResultData(result: any): any {
     // Prefer structuredContent if available
-    if (result.structuredContent) {
+    if (Object.prototype.hasOwnProperty.call(result, 'structuredContent')) {
       return result.structuredContent;
     }
 
@@ -684,6 +684,10 @@ export class McpAppRenderer extends LitElement {
           // If not JSON, return the raw text
           return textItem.text;
         }
+      }
+      const imageItem = result.content.find((item: any) => item.type === 'image');
+      if (imageItem?.data && imageItem.mimeType) {
+        return `data:${imageItem.mimeType};base64,${imageItem.data}`;
       }
     }
 

@@ -1,0 +1,28 @@
+name: MCP SDK compatibility
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  newest-allowed-v1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Install newest allowed MCP SDK v1 patch
+        run: |
+          SDK_RANGE=$(node -p "require('./tests/conformance/pins.json').typescriptSdkV1.compatRange")
+          bun add --no-save "@modelcontextprotocol/sdk@${SDK_RANGE}"
+          node -e "console.log('Testing @modelcontextprotocol/sdk', require('@modelcontextprotocol/sdk/package.json').version)"
+
+      - run: bun run test:mcp-sdk-compat

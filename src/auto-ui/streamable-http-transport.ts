@@ -18,13 +18,13 @@
  */
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
-import { randomUUID } from 'crypto';
+import { randomUUID, timingSafeEqual, type JsonWebKey } from 'crypto';
 import { readdir, stat, readFile, writeFile } from 'fs/promises';
 import { readText } from '../shared/io.js';
 import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
-import { formatToolError } from '../shared/error-handler.js';
+import { formatToolError, sanitizePublicErrorMessage } from '../shared/error-handler.js';
 import { SimpleRateLimiter, getCorsOrigin } from '../shared/security.js';
 
 // Default rate limit: 600 requests/min per source IP. Beam app UI opens several
@@ -66,13 +66,22 @@ import {
   createTask,
   getTask,
   updateTask,
+  transitionTask,
   listTasks,
   registerController,
   unregisterController,
   getController,
   taskEvents,
 } from '../tasks/store.js';
-import { toWireFormat, relatedTaskMeta, TERMINAL_STATES, type Task } from '../tasks/types.js';
+import {
+  toWireFormat,
+  toModernTaskWire,
+  taskErrorMessage,
+  relatedTaskMeta,
+  TERMINAL_STATES,
+  type Task,
+  type TaskAccessBinding,
+} from '../tasks/types.js';
 
 function uiAssetPath(asset: { path?: string; resolvedPath?: string }): string {
   return asset.resolvedPath || asset.path || '';
@@ -112,11 +121,71 @@ function selectWebAppUrl(
   if (!hasWebRoot && !selectClientAppUi(photon)) return undefined;
   return `/web/${photon.name}/`;
 }
-import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from '../tasks/executor.js';
+import {
+  runTaskExecution,
+  requestTaskInput,
+  resolveTaskInput,
+  rejectTaskInput,
+  submitTaskInputResponses,
+  waitForTerminalOrInput,
+} from '../tasks/executor.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
 import { isPathInScope } from '../daemon/claims.js';
+import {
+  MCP_PROTOCOL_VERSIONS,
+  SUPPORTED_MCP_PROTOCOL_VERSIONS,
+  isStatelessMCPProtocolVersion,
+  isSupportedMCPProtocolVersion,
+} from '../mcp/protocol/versions.js';
+import { validateMCPRequestBatch } from '../mcp/protocol/request-validation.js';
+import { JSON_RPC_ERROR_CODES, MCP_2026_ERROR_CODES } from '../mcp/protocol/errors.js';
+import {
+  MCP_TASKS_EXTENSION_ID,
+  PHOTON_EXTENSION_ID,
+  clientSupportsMCPApps,
+  hasClientExtension,
+  isPhotonPrivateMetadataKey,
+} from '../mcp/protocol/extensions.js';
+import {
+  validateStructuredOutput,
+  type FiniteJSONValue,
+  type JSONSchemaValidationFailure,
+} from '../mcp/protocol/json-schema.js';
+import {
+  buildMCPErrorReference,
+  buildMCPToolError,
+  PHOTON_TOOL_ERROR_CODES,
+  PHOTON_TOOL_ERROR_META_KEY,
+  type PhotonToolErrorContext,
+  type PhotonToolErrorResult,
+} from '../mcp/protocol/tool-errors.js';
+import {
+  canonicalizeMCPResponse,
+  selectMCPWireAdapter,
+  type MCPWireAdapter,
+} from '../mcp/protocol/response-adapter.js';
+import {
+  DurableStatelessInputStateStore,
+  hashInputStateValue,
+  StatelessInputStateError,
+  type MCPInputResponses,
+  type StatelessInputBinding,
+} from '../mcp/protocol/input-required.js';
+import {
+  parseMCPHeaderBindings,
+  validateMCPParamHeaders,
+} from '../mcp/protocol/routing-headers.js';
+import { verifyPhotonAuthToken, type PhotonJwtVerifyReason } from '../auth/mcp-jwt.js';
+import {
+  validateTracePropagation,
+  type TracePropagationContext,
+  type TracePropagationValidation,
+} from '../telemetry/propagation.js';
+import { AppSessionHandleStore, type AppSessionBinding } from '../mcp/protocol/app-sessions.js';
+import { IdempotencyStore, PHOTON_IDEMPOTENCY_META_KEY } from '../mcp/protocol/idempotency.js';
 
 const MCP_LIST_PAGE_SIZE = 100;
+const MAX_MCP_REQUEST_BODY_BYTES = 1_048_576;
 
 class InvalidCursorError extends Error {
   constructor(cursor: unknown) {
@@ -125,7 +194,7 @@ class InvalidCursorError extends Error {
 }
 
 function encodeListCursor(offset: number): string {
-  return Buffer.from(JSON.stringify({ offset }), 'utf8').toString('base64url');
+  return Buffer.from(JSON.stringify({ v: 1, offset }), 'utf8').toString('base64url');
 }
 
 function decodeListCursor(cursor: unknown): number {
@@ -134,13 +203,23 @@ function decodeListCursor(cursor: unknown): number {
 
   // Accept the old task-style numeric cursor shape defensively, but emit opaque
   // base64url cursors for all new paginated list results.
-  if (/^\d+$/.test(cursor)) return Number(cursor);
+  if (/^\d+$/.test(cursor)) {
+    const offset = Number(cursor);
+    if (Number.isSafeInteger(offset)) return offset;
+    throw new InvalidCursorError(cursor);
+  }
 
   try {
     const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      v?: unknown;
       offset?: unknown;
     };
-    if (!Number.isInteger(decoded.offset) || (decoded.offset as number) < 0) {
+    // Unversioned {offset} cursors were emitted before WP3. Continue accepting
+    // them alongside the new v1 shape, but reject unknown future versions.
+    if (decoded.v !== undefined && decoded.v !== 1) {
+      throw new Error('unsupported cursor version');
+    }
+    if (!Number.isSafeInteger(decoded.offset) || (decoded.offset as number) < 0) {
       throw new Error('cursor offset must be a non-negative integer');
     }
     return decoded.offset as number;
@@ -164,6 +243,29 @@ function paginateMCPList<T>(
   };
 }
 
+function compareCanonicalIdentifier(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function stableSortMCPList<T>(
+  items: readonly T[],
+  identifier: (item: T) => string,
+  tieBreaker?: (item: T) => string
+): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const primary = compareCanonicalIdentifier(identifier(left.item), identifier(right.item));
+      if (primary !== 0) return primary;
+      if (tieBreaker) {
+        const secondary = compareCanonicalIdentifier(tieBreaker(left.item), tieBreaker(right.item));
+        if (secondary !== 0) return secondary;
+      }
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
 function invalidCursorResponse(id: unknown, error: Error): JSONRPCResponse {
   return {
     jsonrpc: '2.0',
@@ -176,28 +278,129 @@ function invalidCursorResponse(id: unknown, error: Error): JSONRPCResponse {
 // JWT HELPERS
 // ════════════════════════════════════════════════════════════════════════════════
 
-/**
- * Decode a JWT payload without verification (validation is done by the auth server).
- * Returns CallerInfo from the standard OIDC claims.
- */
-function decodeJWTCaller(authHeader: string | string[] | undefined): CallerInfo | undefined {
-  if (Array.isArray(authHeader)) authHeader = authHeader[0];
-  if (!authHeader?.startsWith('Bearer ')) return undefined;
-  const token = authHeader.slice(7);
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return undefined;
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-    return {
-      id: payload.sub || payload.client_id || 'unknown',
-      name: payload.name || payload.preferred_username,
-      anonymous: false,
-      scope: payload.scope,
-      claims: payload,
-    };
-  } catch {
-    return undefined;
+export interface MCPBearerVerificationContext {
+  resource: string;
+  expectedIssuer?: string;
+  requiredScopes: string[];
+}
+
+export type MCPBearerVerificationResult =
+  | {
+      ok: true;
+      claims: Record<string, unknown> & {
+        sub?: string;
+        client_id?: string;
+        scope?: string;
+        name?: string;
+        preferred_username?: string;
+      };
+    }
+  | { ok: false; reason: PhotonJwtVerifyReason | 'configuration_error' };
+
+function bearerToken(authHeader: string | string[] | undefined): string | null {
+  if (Array.isArray(authHeader) || typeof authHeader !== 'string') return null;
+  const match = authHeader.match(/^Bearer[ \t]+([^\s,]+)$/i);
+  return match?.[1] ?? null;
+}
+
+function constantTimeTokenMatch(actual: string, expected: string): boolean {
+  const actualBytes = Buffer.from(actual);
+  const expectedBytes = Buffer.from(expected);
+  return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
+}
+
+let cachedMCPJwtProfile: { name: string; issuer: string; jwks: { keys: JsonWebKey[] } } | undefined;
+
+async function configuredMCPJwtProfile(): Promise<{
+  issuer: string;
+  jwks: { keys: JsonWebKey[] };
+} | null> {
+  const profileName = process.env.PHOTON_MCP_JWT_PROFILE;
+  if (profileName) {
+    if (cachedMCPJwtProfile?.name === profileName) return cachedMCPJwtProfile;
+    try {
+      const { loadPhotonAuth } = await import('../cli/commands/auth.js');
+      const loaded = await loadPhotonAuth(profileName);
+      cachedMCPJwtProfile = {
+        name: profileName,
+        issuer: loaded.issuer.issuer,
+        jwks: loaded.jwks,
+      };
+      return cachedMCPJwtProfile;
+    } catch {
+      return null;
+    }
   }
+
+  const issuer = process.env.PHOTON_MCP_JWT_ISSUER;
+  if (!issuer || !process.env.PHOTON_MCP_JWT_JWKS) return null;
+  try {
+    const jwks = JSON.parse(process.env.PHOTON_MCP_JWT_JWKS) as { keys: JsonWebKey[] };
+    return Array.isArray(jwks.keys) ? { issuer, jwks } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function verifyConfiguredMCPBearer(
+  token: string,
+  context: MCPBearerVerificationContext
+): Promise<MCPBearerVerificationResult> {
+  const authMode =
+    process.env.PHOTON_MCP_AUTH_MODE || (process.env.PHOTON_MCP_BEARER ? 'bearer' : 'legacy');
+  if (authMode === 'bearer') {
+    const expected = process.env.PHOTON_MCP_BEARER;
+    if (!expected || !constantTimeTokenMatch(token, expected)) {
+      return { ok: false, reason: 'bad_signature' };
+    }
+    return {
+      ok: true,
+      claims: {
+        sub: 'photon-static-bearer',
+        client_id: 'photon-static-bearer',
+        scope: context.requiredScopes.join(' '),
+        aud: context.resource,
+      },
+    };
+  }
+  if (authMode !== 'jwt') return { ok: false, reason: 'configuration_error' };
+
+  const profile = await configuredMCPJwtProfile();
+  const audience = process.env.PHOTON_MCP_JWT_AUDIENCE;
+  if (
+    !profile ||
+    !audience ||
+    audience !== context.resource ||
+    (context.expectedIssuer !== undefined && profile.issuer !== context.expectedIssuer)
+  ) {
+    return { ok: false, reason: 'configuration_error' };
+  }
+  const verified = verifyPhotonAuthToken(token, {
+    issuer: profile.issuer,
+    audience,
+    jwks: profile.jwks,
+    requiredScopes: context.requiredScopes,
+  });
+  return verified.ok
+    ? { ok: true, claims: verified.claims }
+    : { ok: false, reason: verified.reason };
+}
+
+function callerFromVerifiedClaims(claims: MCPBearerVerificationResult & { ok: true }): CallerInfo {
+  const value = claims.claims;
+  return {
+    id:
+      (typeof value.sub === 'string' && value.sub) ||
+      (typeof value.client_id === 'string' && value.client_id) ||
+      'verified-caller',
+    name:
+      (typeof value.name === 'string' && value.name) ||
+      (typeof value.preferred_username === 'string' && value.preferred_username) ||
+      undefined,
+    anonymous: false,
+    scope: typeof value.scope === 'string' ? value.scope : undefined,
+    claims: value,
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -217,6 +420,8 @@ interface MCPSession {
   clientInfo?: { name: string; version: string };
   clientCapabilities?: Record<string, unknown>;
   clientProfile?: ClientProfile;
+  /** Principal bound to this legacy transport session after verified OAuth. */
+  caller?: CallerInfo;
   /** Tracked instance name for daemon drift recovery */
   instanceName?: string;
   /**
@@ -241,6 +446,7 @@ export interface ClientProfile {
     resources: boolean;
     sampling: boolean;
     mcpApps: boolean;
+    photon: boolean;
     tasks: 'none' | 'legacy-core' | 'extension';
     cacheMetadata: boolean;
   };
@@ -258,12 +464,15 @@ export interface PhotonRequestContext {
   client: ClientProfile;
   caller?: CallerInfo;
   traceparent?: string;
+  tracestate?: string;
+  baggage?: string;
   legacyTransportSessionId?: string;
   appSessionId?: string;
   appSessionSource:
     | 'explicit-meta'
     | 'explicit-argument'
     | 'header'
+    | 'issued'
     | 'legacy-mcp-session'
     | 'caller-default'
     | 'anonymous-default';
@@ -327,70 +536,12 @@ function requestParamRecord(request: JSONRPCRequest | undefined): Record<string,
   return request && isRecord(request.params) ? request.params : {};
 }
 
-function requestDeclaredName(request: JSONRPCRequest): string | undefined {
-  const params = requestParamRecord(request);
-  const value = params.name ?? params.uri;
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function validateStatelessRoutingHeaders(
-  request: JSONRPCRequest,
-  headers: IncomingHttpHeaders
-): JSONRPCResponse | null {
-  const headerProtocol = firstHeaderValue(headers['mcp-protocol-version']);
-  const headerMethod = firstHeaderValue(headers['mcp-method']);
-  const headerName = firstHeaderValue(headers['mcp-name']);
-  const isStatelessRequest = headerProtocol === '2026-07-28' || !!headerMethod;
-
-  if (!isStatelessRequest) return null;
-
-  if (!headerMethod) {
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      error: {
-        code: -32600,
-        message: 'Mcp-Method header is required for stateless MCP requests',
-      },
-    };
-  }
-
-  if (headerMethod !== request.method) {
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      error: {
-        code: -32600,
-        message: `Mcp-Method header (${headerMethod}) does not match request method (${request.method})`,
-      },
-    };
-  }
-
-  const declaredName = requestDeclaredName(request);
-  if (headerName && declaredName && headerName !== declaredName) {
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      error: {
-        code: -32602,
-        message: `Mcp-Name header (${headerName}) does not match request name (${declaredName})`,
-      },
-    };
-  }
-
-  return null;
-}
-
 function resolveClientProfile(
   request: JSONRPCRequest | undefined,
   session: MCPSession,
   headers: IncomingHttpHeaders
 ): ClientProfile {
   const meta = request ? requestMeta(request) : {};
-  const metaClient = {
-    ...capabilitiesFrom(meta.client),
-    ...capabilitiesFrom(meta['io.modelcontextprotocol/clientInfo']),
-  };
   const params = requestParamRecord(request);
   const paramClientInfo = capabilitiesFrom(params.clientInfo);
   const paramCapabilities = capabilitiesFrom(params.capabilities);
@@ -402,47 +553,67 @@ function resolveClientProfile(
 
   const headerProtocol = firstHeaderValue(headers['mcp-protocol-version']);
   const protocolVersion =
-    stringFromRecord(meta, ['protocolVersion', 'mcp/protocolVersion']) ||
+    stringFromRecord(meta, [
+      'io.modelcontextprotocol/protocolVersion',
+      'protocolVersion',
+      'mcp/protocolVersion',
+    ]) ||
     headerProtocol ||
     (typeof params.protocolVersion === 'string' ? params.protocolVersion : undefined) ||
     session.clientProfile?.protocolVersion ||
     '2025-11-25';
+  const isStateless = isStatelessMCPProtocolVersion(protocolVersion);
+  const metaClient = isStateless
+    ? capabilitiesFrom(meta['io.modelcontextprotocol/clientInfo'])
+    : {
+        ...capabilitiesFrom(meta.client),
+        ...capabilitiesFrom(meta['io.modelcontextprotocol/clientInfo']),
+      };
 
   const clientName =
     stringFromRecord(metaClient, ['name']) ||
-    stringFromRecord(meta, ['clientName', 'mcp/clientName']) ||
-    (typeof paramClientInfo.name === 'string' ? paramClientInfo.name : undefined) ||
-    session.clientInfo?.name;
+    (!isStateless
+      ? stringFromRecord(meta, ['clientName', 'mcp/clientName']) ||
+        (typeof paramClientInfo.name === 'string' ? paramClientInfo.name : undefined) ||
+        session.clientInfo?.name
+      : undefined);
   const clientVersion =
     stringFromRecord(metaClient, ['version']) ||
-    stringFromRecord(meta, ['clientVersion', 'mcp/clientVersion']) ||
-    (typeof paramClientInfo.version === 'string' ? paramClientInfo.version : undefined) ||
-    session.clientInfo?.version;
+    (!isStateless
+      ? stringFromRecord(meta, ['clientVersion', 'mcp/clientVersion']) ||
+        (typeof paramClientInfo.version === 'string' ? paramClientInfo.version : undefined) ||
+        session.clientInfo?.version
+      : undefined);
   const normalizedName = clientName?.toLowerCase();
-  const mode: MCPProtocolMode =
-    protocolVersion >= '2026-07-28' || firstHeaderValue(headers['mcp-method'])
-      ? 'stateless'
-      : 'legacy-sessionful';
+  const mode: MCPProtocolMode = isStateless ? 'stateless' : 'legacy-sessionful';
 
-  const mergedCapabilities = {
-    ...sessionCapabilities,
-    ...paramCapabilities,
-    ...metaCapabilities,
-  };
+  const mergedCapabilities = isStateless
+    ? capabilitiesFrom(meta['io.modelcontextprotocol/clientCapabilities'])
+    : {
+        ...sessionCapabilities,
+        ...paramCapabilities,
+        ...metaCapabilities,
+      };
   const experimental = capabilitiesFrom(mergedCapabilities.experimental);
-  const extensions = {
-    ...capabilitiesFrom(mergedCapabilities.extensions),
-    ...capabilitiesFrom(meta.extensions),
-  };
+  const extensions = isStateless
+    ? capabilitiesFrom(mergedCapabilities.extensions)
+    : {
+        ...capabilitiesFrom(mergedCapabilities.extensions),
+        ...capabilitiesFrom(meta.extensions),
+      };
 
   const mcpApps =
-    !!extensions['mcp-apps'] ||
-    !!extensions.apps ||
-    !!experimental['mcp-apps'] ||
-    !!experimental.apps ||
-    normalizedName === 'chatgpt' ||
-    !!normalizedName?.includes('openai') ||
-    session.isBeam === true;
+    mode === 'stateless'
+      ? clientSupportsMCPApps(mergedCapabilities)
+      : !!extensions['mcp-apps'] ||
+        !!extensions.apps ||
+        !!experimental['mcp-apps'] ||
+        !!experimental.apps ||
+        normalizedName === 'chatgpt' ||
+        !!normalizedName?.includes('openai') ||
+        session.isBeam === true;
+  const photon =
+    mode === 'stateless' ? hasClientExtension(mergedCapabilities, PHOTON_EXTENSION_ID) : true;
 
   return {
     protocolVersion,
@@ -455,13 +626,22 @@ function resolveClientProfile(
       resources: mergedCapabilities.resources !== false,
       sampling: !!mergedCapabilities.sampling,
       mcpApps,
-      tasks: mode === 'stateless' ? 'extension' : 'legacy-core',
+      photon,
+      tasks:
+        mode === 'stateless'
+          ? Object.prototype.hasOwnProperty.call(extensions, 'io.modelcontextprotocol/tasks')
+            ? 'extension'
+            : 'none'
+          : 'legacy-core',
       cacheMetadata: mode === 'stateless',
     },
     quirks: {
-      unnamespacedToolNames: normalizedName === 'chatgpt' || !!normalizedName?.includes('openai'),
+      unnamespacedToolNames:
+        mode === 'legacy-sessionful' &&
+        (normalizedName === 'chatgpt' || !!normalizedName?.includes('openai')),
       prefersOpenAIAppMetadata:
-        normalizedName === 'chatgpt' || !!normalizedName?.includes('openai'),
+        mode === 'legacy-sessionful' &&
+        (normalizedName === 'chatgpt' || !!normalizedName?.includes('openai')),
       requiresLegacyInitializeConfigSchema: mode === 'legacy-sessionful',
     },
   };
@@ -478,13 +658,20 @@ function resolvePhotonRequestContext(input: {
   const args =
     isRecord(request.params) && isRecord(request.params.arguments) ? request.params.arguments : {};
   const client = resolveClientProfile(request, session, headers);
-  const explicitMetaSession = stringFromRecord(meta, [
-    'photon/appSessionId',
-    'appSessionId',
-    'photon/sessionId',
-  ]);
-  const explicitArgSession = stringFromRecord(args, ['appSessionId', 'photonSessionId']);
-  const headerSession = firstHeaderValue(headers['x-photon-app-session-id']);
+  const explicitMetaSession =
+    client.mode === 'stateless'
+      ? client.capabilities.photon
+        ? stringFromRecord(meta, [`${PHOTON_EXTENSION_ID}/appSessionId`])
+        : undefined
+      : stringFromRecord(meta, ['photon/appSessionId', 'appSessionId', 'photon/sessionId']);
+  const explicitArgSession =
+    client.mode === 'legacy-sessionful'
+      ? stringFromRecord(args, ['appSessionId', 'photonSessionId'])
+      : undefined;
+  const headerSession =
+    client.mode === 'legacy-sessionful'
+      ? firstHeaderValue(headers['x-photon-app-session-id'])
+      : undefined;
   const fallbackSessionId =
     client.mode === 'legacy-sessionful'
       ? session.id
@@ -493,6 +680,8 @@ function resolvePhotonRequestContext(input: {
         : 'anonymous';
   const appSessionId =
     explicitMetaSession || explicitArgSession || headerSession || fallbackSessionId;
+  const traceValidation = resolveRequestTracePropagation(request, headers);
+  const traceContext = traceValidation.ok ? traceValidation.context : {};
 
   return {
     requestId: request.id,
@@ -500,7 +689,7 @@ function resolvePhotonRequestContext(input: {
     transport: 'streamable-http',
     client,
     caller,
-    traceparent: stringFromRecord(meta, ['traceparent']) || firstHeaderValue(headers.traceparent),
+    ...traceContext,
     legacyTransportSessionId: session.id,
     appSessionId,
     appSessionSource: explicitMetaSession
@@ -518,9 +707,140 @@ function resolvePhotonRequestContext(input: {
   };
 }
 
+function resolveRequestTracePropagation(
+  request: JSONRPCRequest,
+  headers: IncomingHttpHeaders
+): TracePropagationValidation {
+  const meta = requestMeta(request);
+  const input: TracePropagationContext = {};
+  for (const field of ['traceparent', 'tracestate', 'baggage'] as const) {
+    const hasMeta = Object.prototype.hasOwnProperty.call(meta, field);
+    const metaValue = hasMeta ? meta[field] : undefined;
+    const headerValue = headers[field];
+    if (
+      (hasMeta && typeof metaValue !== 'string') ||
+      (headerValue !== undefined && typeof headerValue !== 'string')
+    ) {
+      return { ok: false, field, reason: `${field} must be a single string` };
+    }
+    if (
+      typeof metaValue === 'string' &&
+      typeof headerValue === 'string' &&
+      metaValue !== headerValue
+    ) {
+      return { ok: false, field, reason: `${field} metadata and HTTP header disagree` };
+    }
+    const value =
+      typeof metaValue === 'string'
+        ? metaValue
+        : typeof headerValue === 'string'
+          ? headerValue
+          : undefined;
+    if (value !== undefined) input[field] = value;
+  }
+  return validateTracePropagation(input);
+}
+
+function buildStatelessInputBinding(
+  context: HandlerContext,
+  target: string,
+  args: unknown,
+  purpose: 'execute' | 'destructive' = 'execute',
+  protocolMethod = 'tools/call'
+): StatelessInputBinding {
+  const caller = context.caller;
+  const claims = caller?.claims;
+  const principal = hashInputStateValue({
+    id: caller?.id ?? 'anonymous',
+    issuer: typeof claims?.iss === 'string' ? claims.iss : '',
+    audience:
+      typeof claims?.aud === 'string' ? claims.aud : Array.isArray(claims?.aud) ? claims.aud : [],
+    clientId: typeof claims?.client_id === 'string' ? claims.client_id : '',
+  });
+  const scope = hashInputStateValue({
+    oauthScope: caller?.scope ?? '',
+    claimScopeDir: context.requestContext?.scopeDir ?? '',
+  });
+  const requestContext = context.requestContext;
+  const appSession =
+    requestContext &&
+    (requestContext.appSessionSource === 'explicit-meta' ||
+      requestContext.appSessionSource === 'explicit-argument' ||
+      requestContext.appSessionSource === 'header' ||
+      requestContext.appSessionSource === 'issued')
+      ? hashInputStateValue(requestContext.appSessionId ?? '')
+      : '';
+  return {
+    protocolVersion: requestContext?.protocolVersion ?? MCP_PROTOCOL_VERSIONS.STATELESS_2026_07_28,
+    principal,
+    scope,
+    appSession,
+    method: protocolMethod,
+    target: `${target}#${purpose}`,
+    argumentsHash: hashInputStateValue(args ?? {}),
+  };
+}
+
+function buildCallerScopeBinding(
+  caller: CallerInfo | undefined,
+  requestContext: PhotonRequestContext | undefined
+): AppSessionBinding {
+  const claims = caller?.claims;
+  return {
+    principal: hashInputStateValue({
+      id: caller?.id ?? 'anonymous',
+      issuer: typeof claims?.iss === 'string' ? claims.iss : '',
+      audience:
+        typeof claims?.aud === 'string' ? claims.aud : Array.isArray(claims?.aud) ? claims.aud : [],
+      clientId: typeof claims?.client_id === 'string' ? claims.client_id : '',
+    }),
+    scope: hashInputStateValue({
+      oauthScope: caller?.scope ?? '',
+      claimScopeDir: requestContext?.scopeDir ?? '',
+    }),
+  };
+}
+
+function buildTaskAccessBinding(context: HandlerContext): TaskAccessBinding {
+  const binding = buildStatelessInputBinding(context, 'tasks', {}, 'execute');
+  return {
+    principal: binding.principal,
+    scope: binding.scope,
+    ...(binding.appSession ? { appSession: binding.appSession } : {}),
+  };
+}
+
+function buildAppSessionBinding(context: HandlerContext): AppSessionBinding {
+  return buildCallerScopeBinding(context.caller, context.requestContext);
+}
+
+function taskAccessMatches(task: Task, context: HandlerContext): boolean {
+  if (task.protocol !== 'extension-2026' || !task.owner) return false;
+  const owner = buildTaskAccessBinding(context);
+  return (
+    task.owner.principal === owner.principal &&
+    task.owner.scope === owner.scope &&
+    (task.owner.appSession ?? '') === (owner.appSession ?? '')
+  );
+}
+
 export const __streamableHttpTransportInternals = {
   resolveClientProfile,
   resolvePhotonRequestContext,
+  resolveRequestTracePropagation,
+  cacheScopeForRequest,
+  sanitizeStatelessSubscriptionFilters: (candidate: Record<string, unknown>) =>
+    sanitizeStatelessSubscriptionFilters(candidate),
+  statelessSubscriptionLimits: () => ({
+    global: MAX_STATELESS_SUBSCRIPTIONS,
+    perPrincipal: MAX_STATELESS_SUBSCRIPTIONS_PER_PRINCIPAL,
+    resourceFilters: MAX_STATELESS_RESOURCE_FILTERS,
+    resourceUriLength: MAX_STATELESS_RESOURCE_URI_LENGTH,
+    queuedBytes: MAX_STATELESS_BLOCKED_BYTES,
+    keepaliveMs: STATELESS_SUBSCRIPTION_KEEPALIVE_MS,
+    backpressureTimeoutMs: STATELESS_SUBSCRIPTION_BACKPRESSURE_TIMEOUT_MS,
+  }),
+  activeStatelessSubscriptionCount: () => statelessSubscriptions.size,
 };
 
 function splitNamespacedToolName(name: string): { serverName: string; methodName: string } | null {
@@ -543,6 +863,217 @@ function splitNamespacedToolName(name: string): { serverName: string; methodName
   return null;
 }
 
+function methodInfoForTool(
+  name: string,
+  photons: AnyPhotonInfo[],
+  externalMCPs: ExternalMCPInfo[] | undefined
+): MethodInfo | undefined {
+  const split = splitNamespacedToolName(name);
+  if (!split) return undefined;
+  const photon = photons.find((candidate) => candidate.name === split.serverName);
+  const native = photon?.configured
+    ? photon.methods?.find((method) => method.name === split.methodName)
+    : undefined;
+  if (native) return native;
+  return externalMCPs
+    ?.find((candidate) => candidate.name === split.serverName)
+    ?.methods?.find((method) => method.name === split.methodName);
+}
+
+function nativePhotonAndMethodForTool(
+  name: string,
+  photons: AnyPhotonInfo[]
+): { photon: PhotonInfo; method: MethodInfo } | undefined {
+  const split = splitNamespacedToolName(name);
+  if (split) {
+    const photon = photons.find(
+      (candidate): candidate is PhotonInfo =>
+        candidate.configured && candidate.name === split.serverName
+    );
+    const method = photon?.methods?.find((candidate) => candidate.name === split.methodName);
+    return photon && method ? { photon, method } : undefined;
+  }
+  const matches = photons.flatMap((candidate) => {
+    if (!candidate.configured) return [];
+    const method = candidate.methods?.find((item) => item.name === name);
+    return method ? [{ photon: candidate, method }] : [];
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function oauthResourceForRequest(req: IncomingMessage, options: StreamableHTTPOptions): string {
+  if (options.oauthResource) return options.oauthResource;
+  if (process.env.PHOTON_MCP_JWT_AUDIENCE) return process.env.PHOTON_MCP_JWT_AUDIENCE;
+  if (process.env.PHOTON_PUBLIC_URL) {
+    return `${process.env.PHOTON_PUBLIC_URL.replace(/\/+$/, '')}/mcp`;
+  }
+  const port = req.socket.localPort ? `:${req.socket.localPort}` : '';
+  return `http://127.0.0.1${port}/mcp`;
+}
+
+function oauthResourceMetadataForRequest(
+  req: IncomingMessage,
+  options: StreamableHTTPOptions,
+  resource: string
+): string {
+  if (options.oauthResourceMetadataUrl) return options.oauthResourceMetadataUrl;
+  if (process.env.PHOTON_MCP_RESOURCE_METADATA_URL) {
+    return process.env.PHOTON_MCP_RESOURCE_METADATA_URL;
+  }
+  try {
+    return new URL('/.well-known/oauth-protected-resource', resource).toString();
+  } catch {
+    const port = req.socket.localPort ? `:${req.socket.localPort}` : '';
+    return `http://127.0.0.1${port}/.well-known/oauth-protected-resource`;
+  }
+}
+
+function authorizationRequirements(
+  requests: readonly JSONRPCRequest[],
+  photons: AnyPhotonInfo[],
+  externalMCPs: ExternalMCPInfo[] | undefined
+): {
+  protected: boolean;
+  requiredScopes: string[];
+  expectedIssuer?: string;
+  requestId?: string | number;
+  configurationError?: boolean;
+} {
+  const authMode =
+    process.env.PHOTON_MCP_AUTH_MODE || (process.env.PHOTON_MCP_BEARER ? 'bearer' : 'legacy');
+  const scopes = new Set<string>();
+  const issuers = new Set<string>();
+  let isProtected = false;
+  let requestId: string | number | undefined;
+
+  for (const request of requests) {
+    if (
+      request.method !== 'tools/call' ||
+      !isRecord(request.params) ||
+      typeof request.params.name !== 'string'
+    ) {
+      continue;
+    }
+    const target = nativePhotonAndMethodForTool(request.params.name, photons);
+    const method = target?.method ?? methodInfoForTool(request.params.name, photons, externalMCPs);
+    const auth = target?.photon.auth;
+    const protectsTarget =
+      authMode === 'jwt' ||
+      authMode === 'bearer' ||
+      (typeof auth === 'string' && auth !== '' && auth !== 'optional');
+    if (!protectsTarget) continue;
+    isProtected = true;
+    if (
+      requestId === undefined &&
+      (typeof request.id === 'string' || typeof request.id === 'number')
+    ) {
+      requestId = request.id;
+    }
+    for (const scope of method?.scopes ?? []) {
+      if (typeof scope === 'string' && scope.trim()) scopes.add(scope.trim());
+    }
+    if (auth && auth !== 'required' && auth !== 'optional') issuers.add(auth);
+  }
+
+  return {
+    protected: isProtected,
+    requiredScopes: [...scopes].sort(),
+    ...(issuers.size === 1 ? { expectedIssuer: [...issuers][0] } : {}),
+    ...(requestId !== undefined ? { requestId } : {}),
+    ...(issuers.size > 1 ? { configurationError: true } : {}),
+  };
+}
+
+function legacyStreamAuthorizationRequirements(photons: AnyPhotonInfo[]): {
+  protected: boolean;
+  expectedIssuer?: string;
+  configurationError?: boolean;
+} {
+  const authMode =
+    process.env.PHOTON_MCP_AUTH_MODE || (process.env.PHOTON_MCP_BEARER ? 'bearer' : 'legacy');
+  const issuers = new Set<string>();
+  let isProtected = authMode === 'jwt' || authMode === 'bearer';
+  for (const photon of photons) {
+    if (!photon.configured || !photon.auth || photon.auth === 'optional') continue;
+    isProtected = true;
+    if (photon.auth !== 'required') issuers.add(photon.auth);
+  }
+  return {
+    protected: isProtected,
+    ...(issuers.size === 1 ? { expectedIssuer: [...issuers][0] } : {}),
+    ...(issuers.size > 1 ? { configurationError: true } : {}),
+  };
+}
+
+function sendMCPAuthorizationFailure(
+  res: ServerResponse,
+  input: {
+    status: 401 | 403;
+    id?: string | number;
+    reason: string;
+    resourceMetadataUrl: string;
+    scopes: string[];
+  }
+): void {
+  const parameters = [
+    `resource_metadata="${input.resourceMetadataUrl.replace(/["\\]/g, '')}"`,
+    ...(input.status === 403 ? ['error="insufficient_scope"'] : ['error="invalid_token"']),
+    ...(input.scopes.length ? [`scope="${input.scopes.join(' ')}"`] : []),
+  ];
+  res.writeHead(input.status, {
+    'Content-Type': 'application/json',
+    'WWW-Authenticate': `Bearer ${parameters.join(', ')}`,
+  });
+  res.end(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: input.id ?? null,
+      error: {
+        code: input.status === 403 ? -32003 : -32001,
+        message: input.status === 403 ? 'Forbidden' : 'Unauthorized',
+        data: { reason: input.reason },
+      },
+    })
+  );
+}
+
+function duplicateRawMCPHeader(rawHeaders: readonly string[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (let index = 0; index + 1 < rawHeaders.length; index += 2) {
+    const name = rawHeaders[index].toLowerCase();
+    if (
+      name === 'mcp-method' ||
+      name === 'mcp-name' ||
+      name === 'mcp-protocol-version' ||
+      name.startsWith('mcp-param-')
+    ) {
+      const count = (counts.get(name) ?? 0) + 1;
+      if (count > 1) return rawHeaders[index];
+      counts.set(name, count);
+    }
+  }
+  return undefined;
+}
+
+function advertisedMCPParamHeaders(
+  photons: AnyPhotonInfo[],
+  externalMCPs: ExternalMCPInfo[] | undefined
+): string[] {
+  const names = new Map<string, string>();
+  const methods = [
+    ...photons.flatMap((photon) => (photon.configured ? (photon.methods ?? []) : [])),
+    ...(externalMCPs ?? []).flatMap((mcp) => mcp.methods ?? []),
+  ];
+  for (const method of methods) {
+    const parsed = parseMCPHeaderBindings(method.params);
+    if (!parsed.ok) continue;
+    for (const binding of parsed.bindings) {
+      names.set(binding.headerName.toLowerCase(), binding.headerName);
+    }
+  }
+  return [...names.values()].sort((left, right) => left.localeCompare(right));
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // SESSION MANAGEMENT
 // ════════════════════════════════════════════════════════════════════════════════
@@ -560,13 +1091,73 @@ interface PendingElicitation {
   sessionId: string;
   timer?: ReturnType<typeof setTimeout>;
   deferTimer?: ReturnType<typeof setTimeout>;
-  keepaliveInterval?: ReturnType<typeof setInterval>;
   approvalId?: string;
   photonName?: string;
   methodName?: string;
   message?: string;
 }
 const pendingElicitations = new Map<string, PendingElicitation>();
+const statelessInputStores = new Map<
+  string,
+  {
+    tool: DurableStatelessInputStateStore;
+    destructive: DurableStatelessInputStateStore;
+  }
+>();
+const appSessionStores = new Map<string, AppSessionHandleStore>();
+const idempotencyStores = new Map<string, IdempotencyStore>();
+
+function inputStoresFor(context: HandlerContext): {
+  tool: DurableStatelessInputStateStore;
+  destructive: DurableStatelessInputStateStore;
+} {
+  const baseDir = resolve(
+    context.workingDir || process.env.PHOTON_DIR || join(homedir(), '.photon')
+  );
+  const existing = statelessInputStores.get(baseDir);
+  if (existing) return existing;
+  const directory = join(baseDir, '.data', 'mcp-request-state');
+  const stores = {
+    tool: new DurableStatelessInputStateStore({
+      directory,
+      namespace: 'tool',
+    }),
+    destructive: new DurableStatelessInputStateStore({
+      directory,
+      namespace: 'destructive',
+      maxEntries: 64,
+      maxEntriesPerPrincipal: 4,
+    }),
+  };
+  statelessInputStores.set(baseDir, stores);
+  return stores;
+}
+
+function appSessionStoreFor(context: HandlerContext): AppSessionHandleStore {
+  const baseDir = resolve(
+    context.workingDir || process.env.PHOTON_DIR || join(homedir(), '.photon')
+  );
+  const existing = appSessionStores.get(baseDir);
+  if (existing) return existing;
+  const store = new AppSessionHandleStore({
+    directory: join(baseDir, '.data', 'mcp-app-sessions'),
+  });
+  appSessionStores.set(baseDir, store);
+  return store;
+}
+
+function idempotencyStoreFor(context: HandlerContext): IdempotencyStore {
+  const baseDir = resolve(
+    context.workingDir || process.env.PHOTON_DIR || join(homedir(), '.photon')
+  );
+  const existing = idempotencyStores.get(baseDir);
+  if (existing) return existing;
+  const store = new IdempotencyStore({
+    directory: join(baseDir, '.data', 'mcp-idempotency'),
+  });
+  idempotencyStores.set(baseDir, store);
+  return store;
+}
 
 const SECRET_PREVIEW_KEY_RE =
   /pass(word)?|secret|token|api[-_]?key|credential|cookie|authorization|bearer|private[-_]?key/i;
@@ -638,6 +1229,199 @@ let nextServerRequestId = 1;
  */
 const streamableSubscriptions = new SubscriptionRegistry();
 const sessionSubscriptionSinks = new Map<string, ResourceUpdateSink>();
+
+/**
+ * MCP 2026 subscriptions are request-scoped POST/SSE streams, rather than the
+ * transport-level GET/SSE connection used by 2025 clients. Keep their state
+ * separate so a stateless request can never inherit a legacy session.
+ */
+interface StatelessSubscriptionFilters {
+  toolsListChanged?: true;
+  promptsListChanged?: true;
+  resourcesListChanged?: true;
+  resourceSubscriptions?: string[];
+}
+
+interface StatelessSubscription {
+  id: string | number;
+  filters: StatelessSubscriptionFilters;
+  response: ServerResponse;
+  principal: string;
+  resourceSink?: ResourceUpdateSink;
+  keepalive?: ReturnType<typeof setInterval>;
+  backpressureTimer?: ReturnType<typeof setTimeout>;
+  blocked: boolean;
+  queuedPayloads: string[];
+  queuedBytes: number;
+}
+
+const statelessSubscriptions = new Set<StatelessSubscription>();
+const MAX_STATELESS_SUBSCRIPTIONS = Math.max(
+  1,
+  Number.parseInt(process.env.PHOTON_MCP_MAX_SUBSCRIPTIONS || '1024', 10) || 1_024
+);
+const MAX_STATELESS_SUBSCRIPTIONS_PER_PRINCIPAL = Math.max(
+  1,
+  Number.parseInt(process.env.PHOTON_MCP_MAX_SUBSCRIPTIONS_PER_PRINCIPAL || '16', 10) || 16
+);
+const MAX_STATELESS_RESOURCE_FILTERS = 64;
+const MAX_STATELESS_RESOURCE_URI_LENGTH = 2_048;
+const MAX_STATELESS_BLOCKED_BYTES = 256 * 1_024;
+const STATELESS_SUBSCRIPTION_KEEPALIVE_MS = 15_000;
+const STATELESS_SUBSCRIPTION_BACKPRESSURE_TIMEOUT_MS = 5_000;
+
+function sanitizeStatelessSubscriptionFilters(
+  candidate: Record<string, unknown>
+): { ok: true; filters: StatelessSubscriptionFilters } | { ok: false; reason: string } {
+  const filters: StatelessSubscriptionFilters = {};
+  for (const key of ['toolsListChanged', 'promptsListChanged', 'resourcesListChanged'] as const) {
+    if (candidate[key] === true) filters[key] = true;
+  }
+  if (Array.isArray(candidate.resourceSubscriptions)) {
+    if (candidate.resourceSubscriptions.length > MAX_STATELESS_RESOURCE_FILTERS) {
+      return {
+        ok: false,
+        reason: `resourceSubscriptions exceeds ${MAX_STATELESS_RESOURCE_FILTERS} entries`,
+      };
+    }
+    if (
+      candidate.resourceSubscriptions.some(
+        (value) =>
+          typeof value !== 'string' ||
+          value.length === 0 ||
+          value.length > MAX_STATELESS_RESOURCE_URI_LENGTH
+      )
+    ) {
+      return { ok: false, reason: 'resourceSubscriptions contains an invalid URI filter' };
+    }
+    const uris = [...new Set(candidate.resourceSubscriptions as string[])];
+    if (uris.length > 0) filters.resourceSubscriptions = uris;
+  }
+  if (Object.keys(filters).length === 0) {
+    return { ok: false, reason: 'At least one supported notification filter is required' };
+  }
+  return { ok: true, filters };
+}
+
+function sendStatelessSubscriptionNotification(
+  subscription: StatelessSubscription,
+  method: string,
+  params?: Record<string, unknown>
+): void {
+  if (subscription.response.writableEnded || subscription.response.destroyed) return;
+  const wireAdapter = selectMCPWireAdapter(
+    MCP_PROTOCOL_VERSIONS.STATELESS_2026_07_28,
+    buildServerInfo()
+  );
+  const notification = wireAdapter.notification(method, {
+    ...(params || {}),
+    _meta: {
+      ...(isRecord(params?._meta) ? params._meta : {}),
+      'io.modelcontextprotocol/subscriptionId': subscription.id,
+    },
+  });
+  const payload = `data: ${JSON.stringify(notification)}\n\n`;
+  if (subscription.blocked) {
+    subscription.queuedPayloads.push(payload);
+    subscription.queuedBytes += Buffer.byteLength(payload);
+    if (subscription.queuedBytes > MAX_STATELESS_BLOCKED_BYTES) {
+      closeStatelessSubscription(subscription);
+    }
+    return;
+  }
+  try {
+    if (!subscription.response.write(payload)) {
+      markStatelessSubscriptionBlocked(subscription);
+    }
+  } catch {
+    closeStatelessSubscription(subscription);
+  }
+}
+
+function markStatelessSubscriptionBlocked(subscription: StatelessSubscription): void {
+  if (subscription.blocked) return;
+  subscription.blocked = true;
+  subscription.response.once('drain', () => {
+    if (!statelessSubscriptions.has(subscription)) return;
+    subscription.blocked = false;
+    if (subscription.backpressureTimer) clearTimeout(subscription.backpressureTimer);
+    subscription.backpressureTimer = undefined;
+    while (subscription.queuedPayloads.length > 0) {
+      const payload = subscription.queuedPayloads.shift()!;
+      subscription.queuedBytes -= Buffer.byteLength(payload);
+      try {
+        if (!subscription.response.write(payload)) {
+          markStatelessSubscriptionBlocked(subscription);
+          return;
+        }
+      } catch {
+        closeStatelessSubscription(subscription);
+        return;
+      }
+    }
+    subscription.queuedBytes = 0;
+  });
+  subscription.backpressureTimer = setTimeout(() => {
+    if (subscription.blocked) closeStatelessSubscription(subscription);
+  }, STATELESS_SUBSCRIPTION_BACKPRESSURE_TIMEOUT_MS);
+  subscription.backpressureTimer.unref?.();
+}
+
+function closeStatelessSubscription(subscription: StatelessSubscription, graceful = false): void {
+  statelessSubscriptions.delete(subscription);
+  if (subscription.keepalive) clearInterval(subscription.keepalive);
+  if (subscription.backpressureTimer) clearTimeout(subscription.backpressureTimer);
+  subscription.queuedPayloads.length = 0;
+  subscription.queuedBytes = 0;
+  if (subscription.resourceSink) streamableSubscriptions.disconnect(subscription.resourceSink);
+  if (graceful && !subscription.response.writableEnded && !subscription.response.destroyed) {
+    if (subscription.blocked) {
+      subscription.response.destroy();
+      return;
+    }
+    const wireAdapter = selectMCPWireAdapter(
+      MCP_PROTOCOL_VERSIONS.STATELESS_2026_07_28,
+      buildServerInfo()
+    );
+    const response = wireAdapter.response({
+      kind: 'success',
+      id: subscription.id,
+      result: {
+        kind: 'complete',
+        value: {
+          _meta: {
+            'io.modelcontextprotocol/subscriptionId': subscription.id,
+          },
+        },
+      },
+    });
+    subscription.response.end(`data: ${JSON.stringify(response)}\n\n`);
+  }
+}
+
+function closeAllStatelessSubscriptions(): void {
+  for (const subscription of [...statelessSubscriptions]) {
+    closeStatelessSubscription(subscription, true);
+  }
+}
+
+function broadcastToStatelessSubscriptions(method: string, params?: Record<string, unknown>): void {
+  const filterByMethod: Record<string, keyof StatelessSubscriptionFilters> = {
+    'notifications/tools/list_changed': 'toolsListChanged',
+    'notifications/prompts/list_changed': 'promptsListChanged',
+    'notifications/resources/list_changed': 'resourcesListChanged',
+  };
+  const filter = filterByMethod[method];
+  for (const subscription of statelessSubscriptions) {
+    const acceptsResourceUpdate =
+      method === 'notifications/resources/updated' &&
+      typeof params?.uri === 'string' &&
+      subscription.filters.resourceSubscriptions?.includes(params.uri);
+    if ((filter && subscription.filters[filter] === true) || acceptsResourceUpdate) {
+      sendStatelessSubscriptionNotification(subscription, method, params);
+    }
+  }
+}
 
 function getOrCreateSessionSink(sessionId: string): ResourceUpdateSink {
   const existing = sessionSubscriptionSinks.get(sessionId);
@@ -712,6 +1496,30 @@ function requestSession(
   });
 }
 
+function requestResponseStream(
+  sessionId: string,
+  stream: { send: (message: object) => void },
+  method: string,
+  params: Record<string, unknown>,
+  timeoutMs = 30 * 60_000
+): Promise<unknown> {
+  return new Promise<unknown>((resolve, reject) => {
+    const id = `srv-${nextServerRequestId++}`;
+    const timer = setTimeout(() => {
+      pendingServerRequests.delete(id);
+      reject(new Error(`requestResponseStream: ${method} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    pendingServerRequests.set(id, { resolve, reject, sessionId, timer });
+    try {
+      stream.send({ jsonrpc: '2.0', id, method, params });
+    } catch (error) {
+      clearTimeout(timer);
+      pendingServerRequests.delete(id);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
 function sessionSupportsFormElicitation(session: MCPSession): boolean {
   const elicitation = session.clientCapabilities?.elicitation;
   if (!elicitation || typeof elicitation !== 'object' || Array.isArray(elicitation)) {
@@ -720,16 +1528,21 @@ function sessionSupportsFormElicitation(session: MCPSession): boolean {
   return Object.keys(elicitation).length === 0 || 'form' in elicitation;
 }
 
-function buildMcpElicitParamsFromAsk(ask: any): {
-  mode: 'form';
-  message: string;
-  requestedSchema: {
-    type: 'object';
-    properties: Record<string, any>;
-    required?: string[];
-  };
-} {
+function buildMcpElicitParamsFromAsk(ask: any): Record<string, unknown> {
   const message = ask.message || 'Please provide input';
+  if (ask.mode === 'url' || ask.ask === 'url') {
+    if (typeof ask.url !== 'string' || !ask.url.trim()) {
+      throw new Error('URL elicitation requires a non-empty URL');
+    }
+    return { mode: 'url', message, url: ask.url };
+  }
+  if ((ask.mode === 'form' || ask.requestedSchema) && isRecord(ask.requestedSchema)) {
+    return {
+      mode: 'form',
+      message,
+      requestedSchema: ask.requestedSchema,
+    };
+  }
   switch (ask.ask) {
     case 'confirm':
       return {
@@ -804,6 +1617,24 @@ function buildMcpElicitParamsFromAsk(ask: any): {
         },
       };
     }
+    case 'date':
+      return {
+        mode: 'form',
+        message,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            value: {
+              type: 'string',
+              format: 'date',
+              title: ask.label || 'Date',
+              description: ask.hint || ask.message,
+              default: ask.default,
+            },
+          },
+          required: ask.required !== false ? ['value'] : [],
+        },
+      };
     case 'text':
     case 'password':
     default:
@@ -830,10 +1661,20 @@ function extractMcpElicitValue(ask: any, result: any): any {
   if (result?.action !== 'accept') {
     return ask.multi ? [] : ask.ask === 'confirm' ? false : null;
   }
+  if (ask.mode === 'url' || ask.ask === 'url') return true;
   const content = result.content || {};
+  if ((ask.mode === 'form' || ask.requestedSchema) && !ask.ask) return content;
   if (ask.ask === 'confirm') return content.confirmed ?? false;
   if (ask.ask === 'select') return content.selection;
   return content.value;
+}
+
+function finiteInputParams(value: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+  } catch {
+    throw new Error('MCP input request params must be finite JSON');
+  }
 }
 
 /**
@@ -1011,20 +1852,19 @@ function parseDurationToMs(duration: string): number {
 const ELICITATION_DEFER_MS = 30_000; // 30 seconds
 /** Maximum time an elicitation stays alive in pending queue */
 const ELICITATION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
-/** Interval between progress keepalive broadcasts */
-const KEEPALIVE_INTERVAL_MS = 25_000; // 25 seconds (under 30s SDK default)
-
 /** Clean up all timers associated with a pending elicitation */
 function cleanupElicitation(pending: PendingElicitation): void {
   if (pending.timer) clearTimeout(pending.timer);
   if (pending.deferTimer) clearTimeout(pending.deferTimer);
-  if (pending.keepaliveInterval) clearInterval(pending.keepaliveInterval);
 }
 
 /**
  * Set up two-phase timeout for an elicitation:
  * Phase 1 (30s): Modal shown to user. If no response, move to pending queue.
- * Phase 2 (30min): Keepalive progress notifications sent. Final expiry cancels.
+ * Phase 2 (30min): The approval remains pending until the user responds or it
+ * expires. The SSE transport heartbeat keeps the connection alive; we do not
+ * fabricate progress notifications while waiting because MCP progress tokens
+ * must be supplied by the originating request and progress values must grow.
  */
 function setupElicitationTimeout(
   elicitationId: string,
@@ -1064,20 +1904,6 @@ function setupElicitationTimeout(
       message,
       expiresAt,
     });
-
-    // Start progress keepalives to prevent external MCP client timeout
-    pending.keepaliveInterval = setInterval(() => {
-      if (!pendingElicitations.has(elicitationId)) {
-        if (pending.keepaliveInterval) clearInterval(pending.keepaliveInterval);
-        return;
-      }
-      broadcastNotification('notifications/progress', {
-        progressToken: `approval_${elicitationId}`,
-        progress: 0,
-        total: 0,
-        message: `Waiting for user approval: ${message}`,
-      });
-    }, KEEPALIVE_INTERVAL_MS);
 
     // Phase 2: Final expiry after 30 minutes
     pending.timer = setTimeout(() => {
@@ -1122,12 +1948,20 @@ export function stopSessionCleanup(): void {
     clearInterval(sessionCleanupInterval);
     sessionCleanupInterval = null;
   }
+  closeAllStatelessSubscriptions();
+  for (const stores of statelessInputStores.values()) {
+    stores.tool.close();
+    stores.destructive.close();
+  }
+  statelessInputStores.clear();
+  appSessionStores.clear();
+  idempotencyStores.clear();
 }
 
 // Start cleanup on module load
 startSessionCleanup();
 
-function getOrCreateSession(sessionId?: string): MCPSession {
+function getOrCreateSession(sessionId?: string, persist = true): MCPSession {
   if (sessionId && sessions.has(sessionId)) {
     const session = sessions.get(sessionId)!;
     session.lastActivity = new Date();
@@ -1140,7 +1974,7 @@ function getOrCreateSession(sessionId?: string): MCPSession {
     createdAt: new Date(),
     lastActivity: new Date(),
   };
-  sessions.set(newSession.id, newSession);
+  if (persist) sessions.set(newSession.id, newSession);
   return newSession;
 }
 
@@ -1300,12 +2134,16 @@ interface HandlerContext {
   } | null>;
   /** Working directory override (base dir for state/config/cache) */
   workingDir?: string;
+  /** Standalone-server mode: expose the sole photon's tool and prompt names directly. */
+  singleServerNames?: boolean;
   /** Authenticated caller from MCP OAuth (JWT) */
   caller?: CallerInfo;
   /** Normalized per-request identity/capability/app-session context. */
   requestContext?: PhotonRequestContext;
   /** Convenience alias for requestContext.client. */
   clientProfile?: ClientProfile;
+  /** Revision-specific response and capability mapping selected at the boundary. */
+  wireAdapter: MCPWireAdapter;
   configurePhoton?: (
     photonName: string,
     config: Record<string, any>
@@ -1323,7 +2161,10 @@ interface HandlerContext {
     metadata: Record<string, any>
   ) => Promise<{ success: boolean; error?: string }>;
   generatePhotonHelp?: (photonName: string) => Promise<string>;
-  loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
+  loader?: {
+    executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any>;
+    getCapabilityContracts?: (mcp: any) => Array<{ name: string; exposure: ReadonlySet<string> }>;
+  };
   broadcast?: (message: object) => void;
   responseStream?: { send: (message: object) => void };
   signal?: AbortSignal;
@@ -1371,6 +2212,38 @@ function formatResultText(result: any): string {
   return String(result);
 }
 
+function imageContentFromBinaryResult(
+  result: unknown
+): { type: 'image'; data: string; mimeType: string } | null {
+  if (typeof result === 'string') {
+    if (/^data:image\/[^;]+;base64,/i.test(result)) {
+      const [, mimeType, data] = result.match(/^data:(image\/[^;]+);base64,(.*)$/is) || [];
+      return mimeType && data ? { type: 'image', data, mimeType } : null;
+    }
+    if (result.trimStart().startsWith('{')) {
+      try {
+        return imageContentFromBinaryResult(JSON.parse(result));
+      } catch {
+        return null;
+      }
+    }
+  }
+  let bytes: Uint8Array | null = null;
+  if (result instanceof Uint8Array) bytes = result;
+  else if (result && typeof result === 'object') {
+    const entries = Object.entries(result as Record<string, unknown>);
+    if (
+      entries.length > 2 &&
+      entries.every(([key, value]) => /^\d+$/.test(key) && Number.isInteger(value))
+    ) {
+      const ordered = entries.sort(([a], [b]) => Number(a) - Number(b));
+      bytes = Uint8Array.from(ordered.map(([, value]) => Number(value)));
+    }
+  }
+  if (!bytes || bytes[0] !== 0x42 || bytes[1] !== 0x4d) return null;
+  return { type: 'image', data: Buffer.from(bytes).toString('base64'), mimeType: 'image/bmp' };
+}
+
 /**
  * Build a text content block, optionally with MCP content annotations (audience, priority)
  */
@@ -1391,13 +2264,249 @@ function buildTextContent(
   return block;
 }
 
+function isAuthoredMCPContentBlock(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.type !== 'string') return false;
+  switch (value.type) {
+    case 'text':
+      return typeof value.text === 'string';
+    case 'image':
+      return (
+        typeof value.data === 'string' &&
+        typeof value.mimeType === 'string' &&
+        value.mimeType.startsWith('image/')
+      );
+    case 'audio':
+      return (
+        typeof value.data === 'string' &&
+        typeof value.mimeType === 'string' &&
+        value.mimeType.startsWith('audio/')
+      );
+    case 'resource':
+      return (
+        isRecord(value.resource) &&
+        typeof value.resource.uri === 'string' &&
+        (typeof value.resource.text === 'string' || typeof value.resource.blob === 'string')
+      );
+    case 'resource_link':
+      return typeof value.uri === 'string' && typeof value.name === 'string';
+    default:
+      return false;
+  }
+}
+
 /**
  * Build a tool call result, optionally with structuredContent when outputSchema is declared
  */
-function buildToolResult(
+function buildOutputSchemaToolError(
+  failure: JSONSchemaValidationFailure,
+  toolName = 'tool',
+  requestContext?: PhotonRequestContext
+): PhotonToolErrorResult {
+  const issues = (failure.issues ?? []).map((issue) => ({
+    instancePath: issue.instancePath,
+    keyword: issue.keyword,
+    message: sanitizePublicErrorMessage(issue.message),
+  }));
+  const detail =
+    issues.length > 0
+      ? `: ${issues
+          .map(
+            (issue) =>
+              `${issue.instancePath || '/'} ${issue.message || `violates ${issue.keyword}`}`
+          )
+          .join('; ')
+          .slice(0, 768)}`
+      : '';
+  const result = buildMCPToolError(toolName, failure.message, {
+    requestId: requestContext?.requestId,
+    traceparent: requestContext?.traceparent,
+    code: PHOTON_TOOL_ERROR_CODES.OUTPUT_INVALID,
+    category: 'tool_output',
+    errorType: 'output_validation',
+    retryable: false,
+    publicMessage: `Tool output validation failed${detail}`,
+    details: {
+      validationKind: failure.kind,
+      issueCount: issues.length,
+    },
+  });
+  result._meta['photon/outputValidation'] = {
+    kind: failure.kind,
+    message: sanitizePublicErrorMessage(failure.message),
+    ...(issues.length > 0 ? { issues } : {}),
+  };
+  return result;
+}
+
+function buildToolErrorResponse(
+  request: JSONRPCRequest,
+  context: HandlerContext,
+  toolName: string,
+  error: unknown,
+  options: PhotonToolErrorContext = {}
+): JSONRPCResponse {
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    result: buildMCPToolError(toolName, error, {
+      requestId: context.requestContext?.requestId ?? request.id,
+      traceparent: context.requestContext?.traceparent,
+      ...options,
+    }),
+  };
+}
+
+/**
+ * The 2026 tool specification classifies an unknown tool as a protocol-level
+ * Invalid Params error. Photon keeps the historical 2025 Beam result shape so
+ * older clients can continue presenting it as an actionable tool failure.
+ */
+function buildUnknownToolResponse(
+  request: JSONRPCRequest,
+  context: HandlerContext,
+  name: string
+): JSONRPCResponse {
+  if (context.wireAdapter.era === 'modern-2026') {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+        message: `Unknown tool: ${sanitizePublicErrorMessage(name).slice(0, 256)}`,
+      },
+    };
+  }
+  return buildToolErrorResponse(request, context, name, `Invalid tool name: ${name}`, {
+    code: PHOTON_TOOL_ERROR_CODES.INPUT_INVALID,
+    category: 'tool_input',
+    errorType: 'validation_error',
+    retryable: false,
+  });
+}
+
+function buildInvalidRequestStateResponse(
+  request: JSONRPCRequest,
+  error?: StatelessInputStateError
+): JSONRPCResponse {
+  if (error?.kind === 'unavailable') {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+        message: 'Request-state storage is unavailable',
+        data: { retryable: true },
+      },
+    };
+  }
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    error: {
+      code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+      message:
+        error?.kind === 'capacity' || error?.kind === 'limit'
+          ? 'Unable to continue the multi-round tool call'
+          : 'Invalid or expired request state',
+    },
+  };
+}
+
+function normalizeToolCallErrorResponse(
+  response: JSONRPCResponse,
+  request: JSONRPCRequest,
+  context: HandlerContext,
+  toolName: string
+): JSONRPCResponse {
+  if (!isRecord(response.result) || response.result.isError !== true) return response;
+  const existingMeta = isRecord(response.result._meta) ? response.result._meta : {};
+  if (isRecord(existingMeta['io.portel.photon/error'])) return response;
+  const firstContent = Array.isArray(response.result.content)
+    ? response.result.content[0]
+    : undefined;
+  const message =
+    isRecord(firstContent) && typeof firstContent.text === 'string'
+      ? firstContent.text
+      : 'Tool execution failed';
+  const normalized = buildMCPToolError(toolName, message, {
+    requestId: context.requestContext?.requestId ?? request.id,
+    traceparent: context.requestContext?.traceparent,
+  });
+  return {
+    ...response,
+    result: {
+      ...response.result,
+      ...normalized,
+      _meta: { ...existingMeta, ...normalized._meta },
+    },
+  };
+}
+
+async function buildToolResult(
   result: any,
-  methodInfo?: MethodInfo
-): { content: any[]; isError: false; structuredContent?: any; [key: string]: unknown } {
+  methodInfo: MethodInfo | undefined,
+  wireAdapter: MCPWireAdapter,
+  requestContext?: PhotonRequestContext
+): Promise<{
+  content: any[];
+  isError: boolean;
+  structuredContent?: FiniteJSONValue | PhotonToolErrorResult['structuredContent'];
+  [key: string]: unknown;
+}> {
+  if (
+    methodInfo?.outputSchema === undefined &&
+    isRecord(result) &&
+    result._mcpResult === true &&
+    Array.isArray(result.content)
+  ) {
+    const contentValidation = await validateStructuredOutput(true, result.content);
+    if (
+      !contentValidation.ok ||
+      result.content.length === 0 ||
+      result.content.length > 128 ||
+      !result.content.every(isAuthoredMCPContentBlock)
+    ) {
+      return buildOutputSchemaToolError(
+        contentValidation.ok
+          ? {
+              ok: false,
+              kind: 'invalid-output',
+              message: 'Authored MCP content contains an invalid content block',
+            }
+          : contentValidation,
+        methodInfo?.name,
+        requestContext
+      );
+    }
+    let structuredContent: FiniteJSONValue | undefined;
+    if (Object.prototype.hasOwnProperty.call(result, 'structuredContent')) {
+      const validation = await validateStructuredOutput(true, result.structuredContent);
+      if (!validation.ok) {
+        return buildOutputSchemaToolError(validation, methodInfo?.name, requestContext);
+      }
+      if (wireAdapter.includesStructuredContent(validation.value)) {
+        structuredContent = validation.value;
+      }
+    }
+    return {
+      content: result.content,
+      isError: result.isError === true,
+      ...(structuredContent !== undefined || result.structuredContent === null
+        ? { structuredContent }
+        : {}),
+      ...(isRecord(result._meta) ? { _meta: result._meta } : {}),
+    };
+  }
+
+  let structuredValue: FiniteJSONValue | undefined;
+  if (methodInfo?.outputSchema !== undefined) {
+    const validation = await validateStructuredOutput(methodInfo.outputSchema, result);
+    if (!validation.ok) {
+      return buildOutputSchemaToolError(validation, methodInfo.name, requestContext);
+    }
+    structuredValue = validation.value;
+  }
+
   // _meta format transformation: pre-formatted text bypasses normal formatting
   if (result && typeof result === 'object' && result._metaFormatted === true) {
     const content: any = { type: 'text', text: result.text };
@@ -1407,21 +2516,158 @@ function buildToolResult(
     return { content: [content], isError: false };
   }
 
-  const text = formatResultText(result);
+  const image = imageContentFromBinaryResult(result);
+  if (image) {
+    return {
+      content: [image],
+      isError: false,
+      ...(methodInfo?.outputSchema !== undefined &&
+      wireAdapter.includesStructuredContent(structuredValue)
+        ? { structuredContent: structuredValue }
+        : {}),
+    };
+  }
+  if (
+    methodInfo?.outputFormat === 'image' &&
+    typeof result === 'string' &&
+    result.length > 32 &&
+    /^[A-Za-z0-9+/=\s]+$/.test(result)
+  ) {
+    const imageResult: {
+      content: any[];
+      isError: false;
+      structuredContent?: FiniteJSONValue;
+    } = {
+      content: [
+        {
+          type: 'image',
+          data: result.replace(/\s/g, ''),
+          mimeType: methodInfo.mimeType || 'image/bmp',
+        },
+      ],
+      isError: false,
+    };
+    if (
+      methodInfo?.outputSchema !== undefined &&
+      wireAdapter.includesStructuredContent(structuredValue)
+    ) {
+      imageResult.structuredContent = structuredValue;
+    }
+    return imageResult;
+  }
+
+  const text = formatResultText(methodInfo?.outputSchema !== undefined ? structuredValue : result);
   const toolResult: {
     content: any[];
     isError: false;
-    structuredContent?: any;
+    structuredContent?: FiniteJSONValue;
     [key: string]: unknown;
   } = {
     content: [buildTextContent(text, methodInfo)],
     isError: false,
   };
-  // When outputSchema is declared and result is an object, include structuredContent
-  if (methodInfo?.outputSchema && result && typeof result === 'object' && !Array.isArray(result)) {
-    toolResult.structuredContent = result;
+  if (
+    methodInfo?.outputSchema !== undefined &&
+    wireAdapter.includesStructuredContent(structuredValue)
+  ) {
+    toolResult.structuredContent = structuredValue;
   }
   return toolResult;
+}
+
+function mergeToolResultMetadata(
+  result: Record<string, unknown>,
+  uiMetadata: Record<string, unknown>
+): Record<string, unknown> {
+  const resultMeta = isRecord(result._meta) ? result._meta : {};
+  const uiMeta = isRecord(uiMetadata._meta) ? uiMetadata._meta : {};
+  return {
+    ...result,
+    ...uiMetadata,
+    ...(Object.keys(resultMeta).length > 0 || Object.keys(uiMeta).length > 0
+      ? { _meta: { ...uiMeta, ...resultMeta } }
+      : {}),
+  };
+}
+
+function sanitizeModernMetadata(
+  value: unknown,
+  profile: ClientProfile
+): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  const sanitized = { ...value };
+  if (!profile.capabilities.mcpApps) {
+    delete sanitized.ui;
+    delete sanitized['ui/resourceUri'];
+  }
+  // OpenAI widget aliases are a 2025 host-compatibility profile, not MCP Apps.
+  for (const key of Object.keys(sanitized)) {
+    if (key.startsWith('openai/')) delete sanitized[key];
+    if (!profile.capabilities.photon && isPhotonPrivateMetadataKey(key)) {
+      delete sanitized[key];
+    }
+  }
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+/**
+ * Last-mile extension firewall for the stateless wire. Producers may retain
+ * rich Photon/legacy metadata internally, but a 2026 response is decorated
+ * only with fields negotiated on this exact request.
+ */
+function sanitizeModernExtensionResponse(
+  response: JSONRPCResponse,
+  profile: ClientProfile
+): JSONRPCResponse {
+  if (profile.mode !== 'stateless') return response;
+  const sanitized = { ...response };
+
+  if (isRecord(sanitized.error) && isRecord(sanitized.error.data)) {
+    const data = sanitizeModernMetadata(sanitized.error.data, profile);
+    sanitized.error = {
+      ...sanitized.error,
+      ...(data ? { data } : {}),
+    };
+    if (!data) delete sanitized.error.data;
+  }
+
+  if (!isRecord(sanitized.result)) return sanitized;
+  const result = { ...sanitized.result };
+  const resultMeta = sanitizeModernMetadata(result._meta, profile);
+  if (resultMeta) result._meta = resultMeta;
+  else delete result._meta;
+
+  const sanitizeItem = (item: unknown, stripVendorFields = false): unknown => {
+    if (!isRecord(item)) return item;
+    const copy = { ...item };
+    const meta = sanitizeModernMetadata(copy._meta, profile);
+    if (meta) copy._meta = meta;
+    else delete copy._meta;
+    if (stripVendorFields && !profile.capabilities.photon) {
+      for (const key of Object.keys(copy)) {
+        if (key.startsWith('x-')) delete copy[key];
+      }
+    }
+    return copy;
+  };
+
+  if (Array.isArray(result.tools)) {
+    result.tools = result.tools.map((tool) => sanitizeItem(tool, true));
+  }
+  if (Array.isArray(result.contents)) {
+    result.contents = result.contents.map((content) => sanitizeItem(content));
+  }
+  if (Array.isArray(result.content)) {
+    result.content = result.content.map((content) => sanitizeItem(content));
+  }
+  if (!profile.capabilities.photon) {
+    for (const key of Object.keys(result)) {
+      if (key.startsWith('x-')) delete result[key];
+    }
+  }
+
+  sanitized.result = result;
+  return sanitized;
 }
 
 /**
@@ -1440,8 +2686,16 @@ function isTaskInScope(
   return isPathInScope(info.path, scopeDir);
 }
 
-const SUPPORTED_MCP_PROTOCOL_VERSIONS = ['2025-03-26', '2025-11-25', '2026-07-28'];
 const MCP_LIST_CACHE_TTL_MS = 30_000;
+const LEGACY_ONLY_MCP_METHODS = new Set([
+  'initialize',
+  'notifications/initialized',
+  'resources/subscribe',
+  'resources/unsubscribe',
+  'tasks/create',
+  'tasks/list',
+  'tasks/result',
+]);
 
 function buildServerInfo() {
   return {
@@ -1450,34 +2704,11 @@ function buildServerInfo() {
   };
 }
 
-function buildServerCapabilities() {
-  return {
-    tools: { listChanged: true },
-    prompts: { listChanged: true },
-    resources: { listChanged: true, subscribe: true },
-    tasks: {
-      list: {},
-      cancel: {},
-      requests: {
-        tools: { call: {} },
-      },
-    },
-    experimental: {
-      'ag-ui': {
-        version: '0.1.0',
-        events: Object.values(AGUIEventType),
-        // Capability flags advertise server-side features so clients can
-        // negotiate without probing. Matches the handshake pattern used
-        // elsewhere in MCP `experimental`.
-        features: [
-          'structured-errors', // RUN_ERROR carries code + retryable
-          'trace-correlation', // events include rawEvent.traceparent
-          'proxy-mode', // ag-ui/run accepts agentUrl to proxy
-          'local-mode', // ag-ui/run accepts photon+method to run locally
-        ],
-      },
-    },
-  };
+function buildServerCapabilities(wireAdapter: MCPWireAdapter): Record<string, unknown> {
+  return wireAdapter.capabilities({
+    photonVersion: PHOTON_VERSION,
+    aguiEventTypes: Object.values(AGUIEventType),
+  });
 }
 
 function buildConfigurationSchemaResult(photons: AnyPhotonInfo[]) {
@@ -1485,53 +2716,119 @@ function buildConfigurationSchemaResult(photons: AnyPhotonInfo[]) {
   return Object.keys(configurationSchema).length > 0 ? configurationSchema : undefined;
 }
 
-function buildDiscoveryResult(ctx: HandlerContext, requestContext?: PhotonRequestContext) {
+function clientProfilePersonalizesResult(profile: ClientProfile | undefined): boolean {
+  if (!profile) return false;
+  return (
+    profile.capabilities.mcpApps ||
+    profile.capabilities.photon ||
+    profile.quirks.unnamespacedToolNames ||
+    profile.quirks.prefersOpenAIAppMetadata
+  );
+}
+
+function buildClientProfileMetadata(
+  requestContext: PhotonRequestContext,
+  includeSelfReportedIdentity = true
+) {
+  if (!includeSelfReportedIdentity) {
+    // Public cache entries must be byte-identical across clients. Keep only a
+    // normalized, revision-derived diagnostic profile and exclude all
+    // self-reported identity/capability values.
+    return {
+      protocolVersion: requestContext.client.protocolVersion,
+      mode: requestContext.client.mode,
+      capabilities: {
+        tools: true,
+        prompts: true,
+        resources: true,
+        sampling: false,
+        mcpApps: false,
+        photon: false,
+        tasks: requestContext.client.mode === 'stateless' ? 'none' : 'legacy-core',
+        cacheMetadata: requestContext.client.mode === 'stateless',
+      },
+      quirks: {
+        unnamespacedToolNames: false,
+        prefersOpenAIAppMetadata: false,
+        requiresLegacyInitializeConfigSchema: requestContext.client.mode === 'legacy-sessionful',
+      },
+    };
+  }
   return {
-    protocolVersion: requestContext?.protocolVersion ?? '2025-11-25',
-    supportedProtocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
-    serverInfo: buildServerInfo(),
-    capabilities: buildServerCapabilities(),
-    extensions: {
-      'mcp-apps': { version: '1.0.0' },
-      tasks: {
-        version:
-          requestContext?.client.capabilities.tasks === 'extension' ? '2026-07-28' : 'legacy',
-      },
-      photon: {
-        version: PHOTON_VERSION,
-        requestContext: true,
-        appSession: {
-          acceptedLocations: ['_meta.photon/appSessionId', 'arguments.appSessionId'],
-          responseMetaKey: 'photon/appSessionId',
-        },
-      },
-    },
-    configurationSchema: buildConfigurationSchemaResult(ctx.photons),
-    _meta: {
-      ...(requestContext?.appSessionId
-        ? { 'photon/appSessionId': requestContext.appSessionId }
-        : {}),
-      ...(requestContext
-        ? {
-            'photon/clientProfile': {
-              protocolVersion: requestContext.client.protocolVersion,
-              clientName: requestContext.client.clientName,
-              clientVersion: requestContext.client.clientVersion,
-              mode: requestContext.client.mode,
-              capabilities: requestContext.client.capabilities,
-              quirks: requestContext.client.quirks,
-            },
-          }
-        : {}),
-    },
+    protocolVersion: requestContext.client.protocolVersion,
+    clientName: requestContext.client.clientName,
+    clientVersion: requestContext.client.clientVersion,
+    mode: requestContext.client.mode,
+    capabilities: requestContext.client.capabilities,
+    quirks: requestContext.client.quirks,
   };
 }
 
-function cacheScopeForRequest(ctx: HandlerContext, session?: MCPSession): 'public' | 'private' {
+function buildDiscoveryResult(ctx: HandlerContext, requestContext?: PhotonRequestContext) {
+  const protocolVersion = requestContext?.protocolVersion ?? '2025-11-25';
+  const personalized = clientProfilePersonalizesResult(requestContext?.client);
+  const includePrivateRequestMetadata =
+    ctx.wireAdapter.era === 'legacy-2025' || requestContext?.client.capabilities.photon === true;
+  const appSessionMetaKey =
+    ctx.wireAdapter.era === 'modern-2026'
+      ? `${PHOTON_EXTENSION_ID}/appSessionId`
+      : 'photon/appSessionId';
+  const includeAppSession =
+    ctx.wireAdapter.era === 'legacy-2025' ||
+    requestContext?.appSessionSource === 'explicit-meta' ||
+    requestContext?.appSessionSource === 'issued';
+  const requestMetadata = {
+    ...(includePrivateRequestMetadata && includeAppSession && requestContext?.appSessionId
+      ? { [appSessionMetaKey]: requestContext.appSessionId }
+      : {}),
+    ...(includePrivateRequestMetadata && requestContext
+      ? {
+          'photon/clientProfile': buildClientProfileMetadata(
+            requestContext,
+            includePrivateRequestMetadata
+          ),
+        }
+      : {}),
+  };
+  const visiblePhotons = requestContext?.scopeDir
+    ? ctx.photons.filter((photon) => isPathInScope(photon.path, requestContext.scopeDir))
+    : ctx.photons;
+
+  return ctx.wireAdapter.discovery({
+    protocolVersion,
+    supportedVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
+    serverInfo: buildServerInfo(),
+    capabilities: buildServerCapabilities(ctx.wireAdapter),
+    configurationSchema: buildConfigurationSchemaResult(visiblePhotons),
+    requestMetadata,
+    ttlMs: MCP_LIST_CACHE_TTL_MS,
+    cacheScope: cacheScopeForRequest(ctx, undefined, { personalized }),
+    taskMode: requestContext?.client.capabilities.tasks,
+    photonVersion: PHOTON_VERSION,
+  });
+}
+
+function adaptResponseForProtocol(
+  response: JSONRPCResponse,
+  wireAdapter: MCPWireAdapter
+): { response: JSONRPCResponse; httpStatus: number } {
+  const canonicalResponse = canonicalizeMCPResponse(response);
+  return {
+    response: wireAdapter.response(canonicalResponse) as JSONRPCResponse,
+    httpStatus: wireAdapter.httpStatus(canonicalResponse),
+  };
+}
+
+function cacheScopeForRequest(
+  ctx: HandlerContext,
+  session?: MCPSession,
+  options: { personalized?: boolean; forcePrivate?: boolean } = {}
+): 'public' | 'private' {
   const requestContext = ctx.requestContext;
+  if (options.forcePrivate || options.personalized) return 'private';
+  if (clientProfilePersonalizesResult(requestContext?.client)) return 'private';
   if (requestContext?.scopeDir || session?.claimScopeDir) return 'private';
   if (ctx.caller && !ctx.caller.anonymous) return 'private';
-  if (requestContext?.client.clientName || session?.clientInfo?.name) return 'private';
   if (requestContext?.appSessionSource && requestContext.appSessionSource !== 'anonymous-default') {
     return 'private';
   }
@@ -1541,7 +2838,12 @@ function cacheScopeForRequest(ctx: HandlerContext, session?: MCPSession): 'publi
 function withCacheMetadata<T extends Record<string, unknown>>(
   result: T,
   ctx: HandlerContext,
-  options: { session?: MCPSession; ttlMs?: number } = {}
+  options: {
+    session?: MCPSession;
+    ttlMs?: number;
+    personalized?: boolean;
+    forcePrivate?: boolean;
+  } = {}
 ): T & {
   ttlMs: number;
   cacheScope: 'public' | 'private';
@@ -1549,23 +2851,30 @@ function withCacheMetadata<T extends Record<string, unknown>>(
 } {
   const requestContext = ctx.requestContext;
   const existingMeta = isRecord(result._meta) ? result._meta : {};
+  const cacheScope = cacheScopeForRequest(ctx, options.session, options);
+  const includePrivateRequestMetadata =
+    ctx.wireAdapter.era === 'legacy-2025' || requestContext?.client.capabilities.photon === true;
+  const appSessionMetaKey =
+    ctx.wireAdapter.era === 'modern-2026'
+      ? `${PHOTON_EXTENSION_ID}/appSessionId`
+      : 'photon/appSessionId';
+  const includeAppSession =
+    ctx.wireAdapter.era === 'legacy-2025' ||
+    requestContext?.appSessionSource === 'explicit-meta' ||
+    requestContext?.appSessionSource === 'issued';
   const meta =
     requestContext?.appSessionId || requestContext?.client
       ? {
           ...existingMeta,
-          ...(requestContext?.appSessionId
-            ? { 'photon/appSessionId': requestContext.appSessionId }
+          ...(includePrivateRequestMetadata && includeAppSession && requestContext?.appSessionId
+            ? { [appSessionMetaKey]: requestContext.appSessionId }
             : {}),
-          ...(requestContext
+          ...(includePrivateRequestMetadata && requestContext
             ? {
-                'photon/clientProfile': {
-                  protocolVersion: requestContext.client.protocolVersion,
-                  clientName: requestContext.client.clientName,
-                  clientVersion: requestContext.client.clientVersion,
-                  mode: requestContext.client.mode,
-                  capabilities: requestContext.client.capabilities,
-                  quirks: requestContext.client.quirks,
-                },
+                'photon/clientProfile': buildClientProfileMetadata(
+                  requestContext,
+                  includePrivateRequestMetadata
+                ),
               }
             : {}),
         }
@@ -1574,9 +2883,22 @@ function withCacheMetadata<T extends Record<string, unknown>>(
   return {
     ...result,
     ttlMs: options.ttlMs ?? MCP_LIST_CACHE_TTL_MS,
-    cacheScope: cacheScopeForRequest(ctx, options.session),
+    cacheScope,
     ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
   };
+}
+
+function withModernCacheMetadata<T extends Record<string, unknown>>(
+  result: T,
+  ctx: HandlerContext,
+  options: {
+    session?: MCPSession;
+    ttlMs?: number;
+    personalized?: boolean;
+    forcePrivate?: boolean;
+  } = {}
+): T | ReturnType<typeof withCacheMetadata<T>> {
+  return ctx.wireAdapter.era === 'modern-2026' ? withCacheMetadata(result, ctx, options) : result;
 }
 
 const handlers: Record<string, RequestHandler> = {
@@ -1602,7 +2924,7 @@ const handlers: Record<string, RequestHandler> = {
       result: {
         protocolVersion: '2025-11-25',
         serverInfo: buildServerInfo(),
-        capabilities: buildServerCapabilities(),
+        capabilities: buildServerCapabilities(ctx.wireAdapter),
         // SEP-1596 inspired: configuration schema for unconfigured photons
         // Uses JSON Schema for rich UI generation
         configurationSchema: buildConfigurationSchemaResult(ctx.photons),
@@ -1611,6 +2933,15 @@ const handlers: Record<string, RequestHandler> = {
   },
 
   'server/discover': async (req, _session, ctx) => {
+    if (
+      ctx.wireAdapter.era === 'modern-2026' &&
+      ctx.requestContext?.client.capabilities.photon === true &&
+      (ctx.requestContext.appSessionSource === 'anonymous-default' ||
+        ctx.requestContext.appSessionSource === 'caller-default')
+    ) {
+      ctx.requestContext.appSessionId = appSessionStoreFor(ctx).issue(buildAppSessionBinding(ctx));
+      ctx.requestContext.appSessionSource = 'issued';
+    }
     return {
       jsonrpc: '2.0',
       id: req.id,
@@ -1618,10 +2949,69 @@ const handlers: Record<string, RequestHandler> = {
     };
   },
 
+  [`${PHOTON_EXTENSION_ID}/app-sessions/revoke`]: async (req, _session, ctx) => {
+    const handle =
+      isRecord(req.params) && typeof req.params.handle === 'string'
+        ? req.params.handle
+        : ctx.requestContext?.appSessionId;
+    if (
+      ctx.wireAdapter.era !== 'modern-2026' ||
+      ctx.requestContext?.client.capabilities.photon !== true ||
+      typeof handle !== 'string' ||
+      ctx.requestContext.appSessionSource !== 'explicit-meta'
+    ) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: {
+          code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+          message: 'A negotiated Photon application-session handle is required',
+        },
+      };
+    }
+    const revoked = appSessionStoreFor(ctx).revoke(handle, buildAppSessionBinding(ctx));
+    return revoked
+      ? {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: { revoked: true, handle },
+        }
+      : {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: {
+            code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+            message: 'Invalid or expired application-session handle',
+          },
+        };
+  },
+
   'notifications/initialized': async (req, session) => {
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
   },
+
+  'logging/setLevel': async (req) => ({
+    jsonrpc: '2.0',
+    id: req.id,
+    result: {},
+  }),
+
+  'completion/complete': async (req, _session, ctx) => ({
+    jsonrpc: '2.0',
+    id: req.id,
+    result: withModernCacheMetadata(
+      {
+        completion: {
+          values: [],
+          total: 0,
+          hasMore: false,
+        },
+      },
+      ctx,
+      { ttlMs: 0, forcePrivate: true }
+    ),
+  }),
 
   // ─────────────────────────────────────────────────────────────────────────────
   // AG-UI Protocol
@@ -1757,7 +3147,7 @@ const handlers: Record<string, RequestHandler> = {
         agui.finish(result);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = sanitizePublicErrorMessage(err);
       // Classify the error so AG-UI clients can auto-retry transient failures.
       const { errorType, retryable } = formatToolError(methodName, err);
       agui.error(message, { code: errorType, retryable });
@@ -1953,14 +3343,35 @@ const handlers: Record<string, RequestHandler> = {
         | Parameters<typeof selectWebAppUrl>[1]
         | undefined;
       const webUrl = selectWebAppUrl(photon, photonClass);
+      const capabilityContracts =
+        photonClass && ctx.loader?.getCapabilityContracts
+          ? ctx.loader.getCapabilityContracts(photonClass as any)
+          : [];
+      const contractByName = new Map(
+        capabilityContracts.map((contract) => [contract.name, contract])
+      );
 
       for (const method of photon.methods) {
+        const contract = contractByName.get(method.name);
+        // Beam is an MCP host, not an independent exposure surface.
+        if (contract && !contract.exposure.has('mcp')) continue;
         const uiResourceUri = method.linkedUi
           ? `ui://${photon.name}/${method.linkedUi}`
           : undefined;
-        const meta = buildToolMCPMeta(method, { uiResourceUri });
+        const meta = buildToolMCPMeta(method, {
+          uiResourceUri,
+          includeUi: ctx.requestContext?.client.capabilities.mcpApps === true,
+          includePhoton:
+            ctx.wireAdapter.era === 'legacy-2025' ||
+            ctx.requestContext?.client.capabilities.photon === true,
+          includeDeprecatedUiResourceKey:
+            ctx.wireAdapter.era === 'modern-2026' &&
+            ctx.requestContext?.client.capabilities.mcpApps === true,
+        });
         tools.push({
-          name: toolNameForSession(session, photon.name, method.name),
+          name: ctx.singleServerNames
+            ? method.name
+            : toolNameForSession(session, photon.name, method.name),
           description: method.description || `Execute ${method.name}`,
           inputSchema: method.params || { type: 'object', properties: {} },
           'x-photon-id': photon.id, // Unique ID (hash of path) for subscriptions
@@ -1985,8 +3396,11 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-install-source': photon.installSource,
           'x-photon-prompt-count': photon.promptCount ?? 0,
           'x-photon-resource-count': photon.resourceCount ?? 0,
+          ...(contract?.exposure ? { 'x-photon-surfaces': [...contract.exposure] } : {}),
           ...(webUrl ? { 'x-web-url': webUrl, 'x-web-description': photon.description } : {}),
-          ...buildToolMetadataExtensions(method),
+          ...buildToolMetadataExtensions(method, {
+            addOutputSchemaDialect: ctx.wireAdapter.era === 'modern-2026',
+          }),
           ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
         });
       }
@@ -2039,7 +3453,16 @@ const handlers: Record<string, RequestHandler> = {
         if (!mcp.connected || !mcp.methods) continue;
 
         for (const method of mcp.methods) {
-          const meta = buildToolMCPMeta(method, { uiResourceUri: method.linkedUi });
+          const meta = buildToolMCPMeta(method, {
+            uiResourceUri: method.linkedUi,
+            includeUi: ctx.requestContext?.client.capabilities.mcpApps === true,
+            includePhoton:
+              ctx.wireAdapter.era === 'legacy-2025' ||
+              ctx.requestContext?.client.capabilities.photon === true,
+            includeDeprecatedUiResourceKey:
+              ctx.wireAdapter.era === 'modern-2026' &&
+              ctx.requestContext?.client.capabilities.mcpApps === true,
+          });
           tools.push({
             name: namespacedToolName(mcp.name, method.name),
             description: method.description || `Execute ${method.name}`,
@@ -2085,6 +3508,7 @@ const handlers: Record<string, RequestHandler> = {
 
     tools.push({
       name: 'beam/browse',
+      'x-photon-internal': true,
       description: 'Browse server filesystem for file/directory selection',
       inputSchema: {
         type: 'object',
@@ -2103,6 +3527,7 @@ const handlers: Record<string, RequestHandler> = {
 
     tools.push({
       name: 'beam/reload',
+      'x-photon-internal': true,
       description: 'Reload a photon to pick up file changes',
       inputSchema: {
         type: 'object',
@@ -2118,6 +3543,7 @@ const handlers: Record<string, RequestHandler> = {
 
     tools.push({
       name: 'beam/remove',
+      'x-photon-internal': true,
       description: 'Remove a photon from the workspace (moves to trash)',
       inputSchema: {
         type: 'object',
@@ -2134,6 +3560,7 @@ const handlers: Record<string, RequestHandler> = {
 
     tools.push({
       name: 'beam/photon-help',
+      'x-photon-internal': true,
       description: 'Get rich documentation for a photon',
       inputSchema: {
         type: 'object',
@@ -2149,6 +3576,7 @@ const handlers: Record<string, RequestHandler> = {
 
     tools.push({
       name: 'beam/update-metadata',
+      'x-photon-internal': true,
       description: 'Update photon or method metadata (icon, description)',
       inputSchema: {
         type: 'object',
@@ -2295,9 +3723,13 @@ const handlers: Record<string, RequestHandler> = {
     });
 
     // Filter out app-only tools for external (non-Beam) MCP clients
+    const revisionValidTools =
+      ctx.wireAdapter.era === 'modern-2026'
+        ? tools.filter((tool) => parseMCPHeaderBindings(tool.inputSchema).ok)
+        : tools;
     const visibleTools = session.isBeam
-      ? tools
-      : tools.filter((t) => {
+      ? revisionValidTools
+      : revisionValidTools.filter((t) => {
           const vis = (
             t as Record<string, unknown> & { _meta?: { ui?: { visibility?: string[] } } }
           )._meta?.ui?.visibility;
@@ -2306,10 +3738,11 @@ const handlers: Record<string, RequestHandler> = {
           }
           return true;
         });
+    const sortedTools = stableSortMCPList(visibleTools, (tool) => tool.name);
 
     try {
       const page = paginateMCPList(
-        visibleTools,
+        sortedTools,
         (req.params as { cursor?: unknown } | undefined)?.cursor
       );
       return {
@@ -2321,7 +3754,12 @@ const handlers: Record<string, RequestHandler> = {
             ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
           },
           ctx,
-          { session }
+          {
+            session,
+            personalized:
+              session.isBeam === true ||
+              clientProfilePersonalizesResult(ctx.requestContext?.client),
+          }
         ),
       };
     } catch (error) {
@@ -2331,10 +3769,39 @@ const handlers: Record<string, RequestHandler> = {
   },
 
   'tools/call': async (req, session, ctx) => {
-    const { name, arguments: args } = req.params as {
-      name: string;
-      arguments?: Record<string, unknown>;
-    };
+    if (
+      !isRecord(req.params) ||
+      typeof req.params.name !== 'string' ||
+      !req.params.name.trim() ||
+      (req.params.arguments !== undefined && !isRecord(req.params.arguments))
+    ) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: {
+          code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+          message: 'tools/call requires a non-empty name and object arguments',
+        },
+      };
+    }
+    const name = req.params.name;
+    const args = req.params.arguments;
+    const modernInputFlow = ctx.wireAdapter.era === 'modern-2026';
+    const inputStateStores = modernInputFlow ? inputStoresFor(ctx) : undefined;
+    const requestState =
+      typeof req.params.requestState === 'string' ? req.params.requestState : undefined;
+    const inputResponses = isRecord(req.params.inputResponses)
+      ? (req.params.inputResponses as MCPInputResponses)
+      : undefined;
+    let requestStateConsumed = false;
+    if (
+      modernInputFlow &&
+      ((req.params.requestState !== undefined && requestState === undefined) ||
+        (req.params.inputResponses !== undefined && inputResponses === undefined) ||
+        (inputResponses !== undefined && requestState === undefined))
+    ) {
+      return buildInvalidRequestStateResponse(req);
+    }
 
     // MCP spec: if the caller supplied `_meta.progressToken`, every
     // notifications/progress we emit for this request MUST echo that
@@ -2346,53 +3813,117 @@ const handlers: Record<string, RequestHandler> = {
       req.params as { _meta?: { progressToken?: string | number } } | undefined
     )?._meta?.progressToken;
 
+    if (requestState && name.startsWith('beam/')) {
+      return buildInvalidRequestStateResponse(req);
+    }
+
     // Handle beam system tools
     if (name === 'beam/configure') {
-      return handleBeamConfigure(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamConfigure(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/browse') {
-      return handleBeamBrowse(req, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamBrowse(req, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/reload') {
-      return handleBeamReload(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamReload(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/remove') {
-      return handleBeamRemove(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamRemove(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/update-metadata') {
-      return handleBeamUpdateMetadata(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamUpdateMetadata(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/reconnect-mcp') {
-      return handleBeamReconnectMCP(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamReconnectMCP(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/photon-help') {
-      return handleBeamPhotonHelp(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamPhotonHelp(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/studio-read') {
-      return handleBeamStudioRead(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamStudioRead(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/studio-write') {
-      return handleBeamStudioWrite(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamStudioWrite(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/studio-project') {
-      return handleBeamStudioProject(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamStudioProject(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/studio-apply-files') {
-      return handleBeamStudioApplyFiles(req, ctx, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamStudioApplyFiles(req, ctx, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     if (name === 'beam/studio-parse') {
-      return handleBeamStudioParse(req, args || {});
+      return normalizeToolCallErrorResponse(
+        await handleBeamStudioParse(req, args || {}),
+        req,
+        ctx,
+        name
+      );
     }
 
     // Parse tool name: server-name.method-name.
@@ -2401,7 +3932,7 @@ const handlers: Record<string, RequestHandler> = {
     let serverName: string;
     let methodName: string;
     const namespacedName = splitNamespacedToolName(name);
-    if (!namespacedName && isOpenAIAppSession(session)) {
+    if (!namespacedName && (ctx.singleServerNames || isOpenAIAppSession(session))) {
       const matches = ctx.photons.filter(
         (photon) => photon.configured && photon.methods?.some((method) => method.name === name)
       );
@@ -2410,24 +3941,10 @@ const handlers: Record<string, RequestHandler> = {
         serverName = photon.name;
         methodName = name;
       } else {
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          result: {
-            content: [{ type: 'text', text: `Invalid tool name: ${name}` }],
-            isError: true,
-          },
-        };
+        return buildUnknownToolResponse(req, ctx, name);
       }
     } else if (!namespacedName) {
-      return {
-        jsonrpc: '2.0',
-        id: req.id,
-        result: {
-          content: [{ type: 'text', text: `Invalid tool name: ${name}` }],
-          isError: true,
-        },
-      };
+      return buildUnknownToolResponse(req, ctx, name);
     } else {
       serverName = namespacedName.serverName;
       methodName = namespacedName.methodName;
@@ -2443,46 +3960,58 @@ const handlers: Record<string, RequestHandler> = {
     // session's `claimScopeDir`. Unscoped sessions bypass this check.
     if (session.claimScopeDir) {
       if (!targetPhoton || !isPathInScope(targetPhoton.path, session.claimScopeDir)) {
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          result: {
-            content: [
-              {
-                type: 'text',
-                text:
-                  `Tool ${name} is not available in the current claim scope. ` +
-                  `The claim code presented on this session only grants access to photons ` +
-                  `under ${session.claimScopeDir}.`,
-              },
-            ],
-            isError: true,
-          },
-        };
+        if (ctx.wireAdapter.era === 'modern-2026') {
+          return buildUnknownToolResponse(req, ctx, name);
+        }
+        return buildToolErrorResponse(
+          req,
+          ctx,
+          name,
+          `Tool ${name} is not available in the current claim scope.`,
+          {
+            code: PHOTON_TOOL_ERROR_CODES.ACCESS_DENIED,
+            category: 'authorization',
+            errorType: 'permission_error',
+            retryable: false,
+          }
+        );
       }
     }
 
-    if (targetPhoton?.configured && targetPhoton.auth === 'required') {
+    if (targetPhoton?.configured && targetPhoton.auth && targetPhoton.auth !== 'optional') {
       if (!ctx.caller || ctx.caller.anonymous) {
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          result: {
-            content: [
-              {
-                type: 'text',
-                text: `Authentication required for ${serverName}. Provide an OAuth Bearer token.`,
-              },
-            ],
-            isError: true,
-          },
-        };
+        return buildToolErrorResponse(
+          req,
+          ctx,
+          name,
+          `Authentication required for ${serverName}. Provide OAuth credentials.`,
+          {
+            code: PHOTON_TOOL_ERROR_CODES.AUTHENTICATION_REQUIRED,
+            category: 'authorization',
+            errorType: 'authentication_required',
+            retryable: false,
+          }
+        );
       }
     }
 
     // Native photons take precedence over external MCP clients with the same name
     // Support both short names and namespace:name qualified names
     const isNativePhoton = ctx.photons.some((p) => p.name === serverName);
+    const externalMCPInfo = ctx.externalMCPs?.find((mcp) => mcp.name === serverName);
+    const externalMethodInfo = externalMCPInfo?.methods?.find(
+      (method) => method.name === methodName
+    );
+    if (
+      !isNativePhoton &&
+      (ctx.externalMCPSDKClients?.has(serverName) || ctx.externalMCPClients?.has(serverName)) &&
+      !externalMethodInfo
+    ) {
+      return buildUnknownToolResponse(req, ctx, name);
+    }
+    if (!isNativePhoton && requestState) {
+      return buildInvalidRequestStateResponse(req);
+    }
 
     // Check if this is an external MCP tool call (only when no native photon matches)
     // Prefer SDK client for full CallToolResult support (structuredContent)
@@ -2490,27 +4019,70 @@ const handlers: Record<string, RequestHandler> = {
       const sdkClient = ctx.externalMCPSDKClients.get(serverName);
       try {
         // SDK client.callTool returns full CallToolResult with structuredContent
-        const result = await sdkClient.callTool({ name: methodName, arguments: args || {} });
+        const traceMeta = {
+          ...(ctx.requestContext?.traceparent
+            ? { traceparent: ctx.requestContext.traceparent }
+            : {}),
+          ...(ctx.requestContext?.tracestate ? { tracestate: ctx.requestContext.tracestate } : {}),
+          ...(ctx.requestContext?.baggage ? { baggage: ctx.requestContext.baggage } : {}),
+        };
+        const result = await sdkClient.callTool({
+          name: methodName,
+          arguments: args || {},
+          ...(Object.keys(traceMeta).length > 0 ? { _meta: traceMeta } : {}),
+        });
+        let structuredContent: FiniteJSONValue | undefined;
+        if (Object.prototype.hasOwnProperty.call(result, 'structuredContent')) {
+          const validation = await validateStructuredOutput(
+            result.isError === true ? true : (externalMethodInfo?.outputSchema ?? true),
+            result.structuredContent
+          );
+          if (!validation.ok) {
+            return {
+              jsonrpc: '2.0',
+              id: req.id,
+              result: buildOutputSchemaToolError(validation, name, ctx.requestContext),
+            };
+          }
+          if (ctx.wireAdapter.includesStructuredContent(validation.value)) {
+            structuredContent = validation.value;
+          }
+        }
 
+        const upstreamMeta = isRecord(result._meta) ? result._meta : {};
+        const upstreamError =
+          result.isError === true
+            ? buildMCPToolError(name, 'External tool reported an execution error', {
+                requestId: ctx.requestContext?.requestId ?? req.id,
+                traceparent: ctx.requestContext?.traceparent,
+                code: PHOTON_TOOL_ERROR_CODES.EXECUTION_FAILED,
+                category: 'tool_execution',
+                errorType: 'external_tool_error',
+                retryable: false,
+                publicMessage: 'External tool reported an execution error',
+              })
+            : undefined;
         return {
           jsonrpc: '2.0',
           id: req.id,
           result: {
             content: result.content,
-            structuredContent: result.structuredContent,
-            isError: result.isError ?? false,
+            ...(structuredContent !== undefined || result.structuredContent === null
+              ? { structuredContent }
+              : {}),
+            isError: result.isError === true,
+            ...(Object.keys(upstreamMeta).length > 0 || upstreamError
+              ? { _meta: { ...upstreamMeta, ...(upstreamError?._meta ?? {}) } }
+              : {}),
           },
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          result: {
-            content: [{ type: 'text', text: `Error: ${message}` }],
-            isError: true,
-          },
-        };
+        return buildToolErrorResponse(req, ctx, name, error, {
+          code: PHOTON_TOOL_ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+          category: 'dependency',
+          errorType: 'external_transport_error',
+          retryable: true,
+        });
       }
     }
 
@@ -2520,6 +4092,48 @@ const handlers: Record<string, RequestHandler> = {
       try {
         const result = await client.call(methodName, args || {});
 
+        if (isRecord(result) && Array.isArray(result.content)) {
+          const upstreamMeta = isRecord(result._meta) ? result._meta : {};
+          const isError = result.isError === true;
+          const normalizedResult = { ...result };
+          delete normalizedResult.structuredContent;
+          if (Object.prototype.hasOwnProperty.call(result, 'structuredContent')) {
+            const validation = await validateStructuredOutput(
+              isError ? true : (externalMethodInfo?.outputSchema ?? true),
+              result.structuredContent
+            );
+            if (!validation.ok) {
+              return {
+                jsonrpc: '2.0',
+                id: req.id,
+                result: buildOutputSchemaToolError(validation, name, ctx.requestContext),
+              };
+            }
+            if (ctx.wireAdapter.includesStructuredContent(validation.value)) {
+              normalizedResult.structuredContent = validation.value;
+            }
+          }
+          const normalizedError = isError
+            ? buildMCPToolError(name, 'External tool reported an execution error', {
+                requestId: ctx.requestContext?.requestId ?? req.id,
+                traceparent: ctx.requestContext?.traceparent,
+                errorType: 'external_tool_error',
+                retryable: false,
+                publicMessage: 'External tool reported an execution error',
+              })
+            : undefined;
+          return {
+            jsonrpc: '2.0',
+            id: req.id,
+            result: {
+              ...normalizedResult,
+              isError,
+              ...(Object.keys(upstreamMeta).length > 0 || normalizedError
+                ? { _meta: { ...upstreamMeta, ...(normalizedError?._meta ?? {}) } }
+                : {}),
+            },
+          };
+        }
         return {
           jsonrpc: '2.0',
           id: req.id,
@@ -2529,15 +4143,12 @@ const handlers: Record<string, RequestHandler> = {
           },
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          result: {
-            content: [{ type: 'text', text: `Error: ${message}` }],
-            isError: true,
-          },
-        };
+        return buildToolErrorResponse(req, ctx, name, error, {
+          code: PHOTON_TOOL_ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+          category: 'dependency',
+          errorType: 'external_transport_error',
+          retryable: true,
+        });
       }
     }
 
@@ -2550,45 +4161,187 @@ const handlers: Record<string, RequestHandler> = {
       ? photonInfo.methods?.find((m) => m.name === methodName)
       : undefined;
 
-    const uiMetadata = buildResponseUIMetadata(photonName, methodInfo);
-
-    // Auto-confirm @destructive operations before execution (any transport path)
-    if (methodInfo?.destructiveHint) {
-      const elicitResult = await requestBeamElicitation(
-        {
-          ask: 'confirm',
-          message: 'Confirm destructive tool call',
-          description:
-            methodInfo.description ||
-            `This will run ${photonName}.${methodName}, which is marked as destructive.`,
-          photonName,
-          methodName,
-          methodTitle: methodInfo.title || methodInfo.name,
-          risk: 'destructive',
-          _meta: {
-            toolCall: {
-              photon: photonName,
-              method: methodName,
-              argumentPreview: buildSafeToolArgumentPreview(args || {}),
-            },
-          },
-        },
-        { photonName: serverName, methodName }
-      );
-      if (elicitResult.action !== 'accept' || elicitResult.content === false) {
+    if (ctx.wireAdapter.era === 'modern-2026' && methodInfo?.requiredClientCapabilities) {
+      const capabilities = ctx.requestContext?.client.capabilities;
+      const missing = methodInfo.requiredClientCapabilities.find((capability) => {
+        if (capability === 'sampling') return capabilities?.sampling !== true;
+        const declared = requestMeta(req)['io.modelcontextprotocol/clientCapabilities'];
+        return !isRecord(declared) || !Object.prototype.hasOwnProperty.call(declared, capability);
+      });
+      if (missing) {
         return {
-          jsonrpc: '2.0' as const,
+          jsonrpc: '2.0',
           id: req.id,
-          result: {
-            content: [{ type: 'text', text: `${methodName} cancelled` }],
-            isError: false,
+          error: {
+            code: -32021,
+            message: 'Missing required client capability',
+            data: { requiredCapabilities: { [missing]: {} } },
           },
         };
       }
     }
 
+    const uiMetadata = buildResponseUIMetadata(photonName, methodInfo, {
+      includePhoton:
+        ctx.wireAdapter.era === 'legacy-2025' ||
+        ctx.requestContext?.client.capabilities.photon === true,
+    });
+
+    // Tool-argument schema mismatches are execution errors: the model can
+    // correct its arguments and retry. A broken schema authored by the server
+    // is instead an internal protocol failure.
+    if (methodInfo?.params) {
+      const canonicalArgs = { ...(args || {}) };
+      delete canonicalArgs._meta;
+      delete canonicalArgs._clientState;
+      delete canonicalArgs._targetInstance;
+      const inputValidation = await validateStructuredOutput(methodInfo.params, canonicalArgs);
+      if (!inputValidation.ok) {
+        if (inputValidation.kind === 'invalid-output' || inputValidation.kind === 'output-limit') {
+          return buildToolErrorResponse(req, ctx, name, inputValidation.message, {
+            code: PHOTON_TOOL_ERROR_CODES.INPUT_INVALID,
+            category: 'tool_input',
+            errorType: 'validation_error',
+            retryable: false,
+            publicMessage: 'Tool arguments do not match the declared input schema',
+            details: {
+              validationKind: inputValidation.kind,
+              issueCount: inputValidation.issues?.length ?? 0,
+            },
+          });
+        }
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: {
+            code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+            message: 'Tool input schema validation failed internally',
+          },
+        };
+      }
+    }
+
+    // Auto-confirm @destructive operations before execution (any transport path)
+    if (methodInfo?.destructiveHint) {
+      if (modernInputFlow) {
+        if (req.id === undefined) return buildInvalidRequestStateResponse(req);
+        const binding = buildStatelessInputBinding(ctx, name, args, 'destructive');
+        const executeConfirmation = async (runtime: {
+          request: (
+            request: {
+              method: 'elicitation/create';
+              params?: Record<string, unknown>;
+            },
+            preferredKey?: string
+          ) => Promise<unknown>;
+        }) => {
+          const result = await runtime.request(
+            {
+              method: 'elicitation/create',
+              params: finiteInputParams(
+                buildMcpElicitParamsFromAsk({
+                  ask: 'confirm',
+                  message: 'Confirm destructive tool call',
+                  description:
+                    methodInfo.description ||
+                    `This will run ${photonName}.${methodName}, which is marked as destructive.`,
+                  photonName,
+                  methodName,
+                  methodTitle: methodInfo.title || methodInfo.name,
+                  risk: 'destructive',
+                })
+              ),
+            },
+            'confirm'
+          );
+          return (
+            isRecord(result) &&
+            result.action === 'accept' &&
+            isRecord(result.content) &&
+            result.content.confirmed === true
+          );
+        };
+        try {
+          if (
+            requestState &&
+            !inputStateStores!.destructive.owns(requestState) &&
+            !inputStateStores!.tool.owns(requestState)
+          ) {
+            return buildInvalidRequestStateResponse(req);
+          }
+          if (!requestState || inputStateStores!.destructive.owns(requestState)) {
+            const turn = requestState
+              ? await inputStateStores!.destructive.resume<boolean>(
+                  {
+                    requestState,
+                    binding,
+                    requestId: req.id,
+                    inputResponses: inputResponses ?? {},
+                  },
+                  executeConfirmation
+                )
+              : await inputStateStores!.destructive.begin(binding, req.id, executeConfirmation);
+            if (turn.kind === 'input-required') {
+              return { jsonrpc: '2.0', id: req.id, result: turn.result };
+            }
+            requestStateConsumed = requestState !== undefined;
+            if (!turn.value) {
+              return {
+                jsonrpc: '2.0' as const,
+                id: req.id,
+                result: {
+                  content: [{ type: 'text', text: `${methodName} cancelled` }],
+                  isError: false,
+                },
+              };
+            }
+          }
+        } catch (error) {
+          if (error instanceof StatelessInputStateError) {
+            return buildInvalidRequestStateResponse(req, error);
+          }
+          throw error;
+        }
+      } else {
+        const elicitResult = await requestBeamElicitation(
+          {
+            ask: 'confirm',
+            message: 'Confirm destructive tool call',
+            description:
+              methodInfo.description ||
+              `This will run ${photonName}.${methodName}, which is marked as destructive.`,
+            photonName,
+            methodName,
+            methodTitle: methodInfo.title || methodInfo.name,
+            risk: 'destructive',
+            _meta: {
+              toolCall: {
+                photon: photonName,
+                method: methodName,
+                argumentPreview: buildSafeToolArgumentPreview(args || {}),
+              },
+            },
+          },
+          { photonName: serverName, methodName }
+        );
+        if (elicitResult.action !== 'accept' || elicitResult.content === false) {
+          return {
+            jsonrpc: '2.0' as const,
+            id: req.id,
+            result: {
+              content: [{ type: 'text', text: `${methodName} cancelled` }],
+              isError: false,
+            },
+          };
+        }
+      }
+    }
+
     // Stateful photons: route through daemon for shared instance across all clients
     if (photonInfo?.stateful && photonInfo.path) {
+      if (modernInputFlow && requestState && !requestStateConsumed) {
+        return buildInvalidRequestStateResponse(req);
+      }
       try {
         const { sendCommand } = await import('../daemon/client.js');
         const { ensureDaemon } = await import('../daemon/manager.js');
@@ -2745,16 +4498,19 @@ const handlers: Record<string, RequestHandler> = {
           durationMs,
         });
 
+        const builtResult = await buildToolResult(
+          result,
+          methodInfo,
+          ctx.wireAdapter,
+          ctx.requestContext
+        );
         return {
           jsonrpc: '2.0',
           id: req.id,
-          result: {
-            ...buildToolResult(result, methodInfo),
-            ...uiMetadata,
-          },
+          result: mergeToolResultMetadata(builtResult, uiMetadata),
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = sanitizePublicErrorMessage(error);
         audit({
           ts: new Date().toISOString(),
           event: 'tool_error',
@@ -2765,14 +4521,7 @@ const handlers: Record<string, RequestHandler> = {
           sessionId: session?.id,
           error: message,
         });
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          result: {
-            content: [{ type: 'text', text: `Error: ${message}` }],
-            isError: true,
-          },
-        };
+        return buildToolErrorResponse(req, ctx, name, error);
       }
     }
 
@@ -2781,28 +4530,22 @@ const handlers: Record<string, RequestHandler> = {
       // Check if it's a disconnected external MCP
       const externalMCP = ctx.externalMCPs?.find((m) => m.name === photonName);
       if (externalMCP) {
-        return {
-          jsonrpc: '2.0',
-          id: req.id,
-          result: {
-            content: [
-              {
-                type: 'text',
-                text: `External MCP "${photonName}" is not connected${externalMCP.errorMessage ? `: ${externalMCP.errorMessage}` : ''}`,
-              },
-            ],
-            isError: true,
-          },
-        };
+        return buildToolErrorResponse(
+          req,
+          ctx,
+          name,
+          `External MCP "${photonName}" is not connected${
+            externalMCP.errorMessage ? `: ${externalMCP.errorMessage}` : ''
+          }`,
+          {
+            code: PHOTON_TOOL_ERROR_CODES.DEPENDENCY_UNAVAILABLE,
+            category: 'dependency',
+            errorType: 'external_transport_error',
+            retryable: true,
+          }
+        );
       }
-      return {
-        jsonrpc: '2.0',
-        id: req.id,
-        result: {
-          content: [{ type: 'text', text: `Photon not found: ${photonName}` }],
-          isError: true,
-        },
-      };
+      return buildUnknownToolResponse(req, ctx, name);
     }
 
     // Check instance first, then prototype, then static methods on class
@@ -2820,39 +4563,85 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     if (typeof method !== 'function') {
+      return buildUnknownToolResponse(req, ctx, name);
+    }
+
+    // 2025 task creation remains request-directed through params.task. The 2026
+    // extension is server-directed: Photon materializes generator workflows
+    // that can pause for input, but only for a client that declared the exact
+    // extension on this request. A 2026 `task` parameter is an unknown field
+    // and never opts the caller in.
+    const legacyTaskRequest =
+      !modernInputFlow && isRecord(req.params.task) ? req.params.task : undefined;
+    const modernTasksNegotiated = ctx.requestContext?.client.capabilities.tasks === 'extension';
+    if (modernInputFlow && methodInfo?.taskSupport === 'required' && !modernTasksNegotiated) {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: {
-          content: [{ type: 'text', text: `Method not found: ${methodName}` }],
-          isError: true,
+        error: {
+          code: -32021,
+          message: 'Missing required client capability',
+          data: {
+            requiredCapabilities: {
+              extensions: { [MCP_TASKS_EXTENSION_ID]: {} },
+            },
+          },
         },
       };
     }
-
-    // ── Task mode: when params.task is present, run async and return immediately ──
-    const taskRequest = (req.params as Record<string, unknown>)?.task as
-      | { ttl?: number }
-      | undefined;
-    if (taskRequest) {
-      const ttl = typeof taskRequest.ttl === 'number' ? taskRequest.ttl : undefined;
-      const task = createTask(photonName, methodName, args, ttl);
+    const modernTask =
+      modernInputFlow &&
+      modernTasksNegotiated &&
+      methodInfo?.taskAfterInput !== true &&
+      (methodInfo?.hasGeneratorAsks === true ||
+        methodInfo?.isAsync === true ||
+        methodInfo?.taskSupport === 'required' ||
+        method.constructor?.name === 'AsyncGeneratorFunction');
+    if (legacyTaskRequest || modernTask) {
+      if (modernInputFlow && requestState && !requestStateConsumed) {
+        return buildInvalidRequestStateResponse(req);
+      }
+      const ttl =
+        legacyTaskRequest && typeof legacyTaskRequest.ttl === 'number'
+          ? legacyTaskRequest.ttl
+          : undefined;
+      const task = createTask(photonName, methodName, args, ttl, {
+        protocol: modernTask ? 'extension-2026' : 'legacy-2025',
+        ...(modernTask ? { owner: buildTaskAccessBinding(ctx) } : {}),
+        traceContext: {
+          traceparent: ctx.requestContext?.traceparent,
+          tracestate: ctx.requestContext?.tracestate,
+          baggage: ctx.requestContext?.baggage,
+        },
+      });
       const controller = new AbortController();
       registerController(task.id, controller);
 
-      // Build execution function that the executor will run.
-      // Same human-sampling provider shape as the sync path — scoped
-      // to the session that kicked off the task so the modal appears
-      // in the right browser tab.
-      const executeFn = async (inputProvider: any, outputHandler: any) => {
+      const executeFn = async (
+        inputProvider: any,
+        outputHandler: any,
+        inputRequestProvider: any
+      ) => {
         if (ctx.loader) {
-          const samplingProvider = makeHumanSamplingProvider(session.id);
+          const samplingProvider = modernTask
+            ? (params: Record<string, unknown>) =>
+                requestTaskInput(
+                  task.id,
+                  {
+                    method: 'sampling/createMessage',
+                    params: finiteInputParams(params || {}),
+                  },
+                  controller.signal
+                )
+            : makeHumanSamplingProvider(session.id);
           return ctx.loader.executeTool(mcp, methodName, args || {}, {
             outputHandler,
             inputProvider,
+            inputRequestProvider,
             samplingProvider,
             caller: ctx.caller,
             requestContext: ctx.requestContext,
+            signal: controller.signal,
           });
         }
         // Fallback: direct method call
@@ -2881,12 +4670,54 @@ const handlers: Record<string, RequestHandler> = {
         signal: controller.signal,
         caller: ctx.caller,
         outputHandler: taskOutputHandler,
+        ...(modernTask
+          ? {
+              inputMode: 'modern' as const,
+              inputRequestBuilder: (ask: any) => ({
+                method: 'elicitation/create',
+                params: finiteInputParams(buildMcpElicitParamsFromAsk(ask)),
+              }),
+              extractInputResponse: extractMcpElicitValue,
+              transformResult: async (result: unknown) =>
+                mergeToolResultMetadata(
+                  await buildToolResult(result, methodInfo, ctx.wireAdapter, ctx.requestContext),
+                  uiMetadata
+                ),
+              protocolErrorFrom: (error: unknown) => {
+                if (!isRecord(error)) return undefined;
+                const protocolError = error.mcpProtocolError;
+                if (
+                  !isRecord(protocolError) ||
+                  typeof protocolError.code !== 'number' ||
+                  typeof protocolError.message !== 'string'
+                ) {
+                  return undefined;
+                }
+                return {
+                  code: protocolError.code,
+                  message: protocolError.message,
+                  ...(isRecord(protocolError.data) ? { data: protocolError.data } : {}),
+                };
+              },
+              transformErrorToResult: (error: unknown) => {
+                const response = buildToolErrorResponse(req, ctx, name, error);
+                return (
+                  response.result ?? {
+                    content: [{ type: 'text', text: 'Tool execution failed' }],
+                    isError: true,
+                  }
+                );
+              },
+            }
+          : {}),
       });
 
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: { task: toWireFormat(task) },
+        result: modernTask
+          ? toModernTaskWire(task, { creation: true })
+          : { task: toWireFormat(task) },
       };
     }
 
@@ -2901,7 +4732,13 @@ const handlers: Record<string, RequestHandler> = {
         const progressToken = clientProgressToken ?? `progress_${photonName}_${methodName}`;
         const sendJsonRpcNotification = (message: JSONRPCRequest) => {
           ctx.broadcast?.(message);
-          ctx.responseStream?.send(message);
+          let sentOnLegacySession = false;
+          if (ctx.wireAdapter.era === 'legacy-2025' && typeof message.method === 'string') {
+            sentOnLegacySession = sendToSession(session.id, message.method, message.params);
+          }
+          if (!sentOnLegacySession) {
+            ctx.responseStream?.send(message);
+          }
         };
 
         // Forward progress events as MCP notifications
@@ -2915,10 +4752,45 @@ const handlers: Record<string, RequestHandler> = {
               progressToken,
               progress,
               total: 100,
-              message: yieldValue.message || null,
+              ...(typeof yieldValue.message === 'string' ? { message: yieldValue.message } : {}),
             },
           });
           return;
+        }
+
+        if (yieldValue?.emit === 'log') {
+          const levels = [
+            'debug',
+            'info',
+            'notice',
+            'warning',
+            'error',
+            'critical',
+            'alert',
+            'emergency',
+          ];
+          const emittedLevel =
+            typeof yieldValue.level === 'string' && levels.includes(yieldValue.level)
+              ? yieldValue.level
+              : 'info';
+          const requestedLevel = requestMeta(req)['io.modelcontextprotocol/logLevel'];
+          const logAuthorized =
+            ctx.wireAdapter.era === 'legacy-2025' ||
+            (typeof requestedLevel === 'string' &&
+              levels.includes(requestedLevel) &&
+              levels.indexOf(emittedLevel) >= levels.indexOf(requestedLevel));
+          if (logAuthorized) {
+            sendJsonRpcNotification({
+              jsonrpc: '2.0',
+              method: 'notifications/message',
+              params: {
+                level: emittedLevel,
+                logger: yieldValue.logger || photonName,
+                data: yieldValue.data ?? yieldValue.message ?? '',
+              },
+            });
+            return;
+          }
         }
 
         // Forward status events as MCP notifications
@@ -3051,7 +4923,7 @@ const handlers: Record<string, RequestHandler> = {
 
       // Create inputProvider to handle ask yields (elicitation)
       // Supports persistent: true for durable approvals that survive navigation/restart
-      const inputProvider = async (ask: any): Promise<any> => {
+      const legacyInputProvider = async (ask: any): Promise<any> => {
         if (!session.isBeam) {
           if (!sessionSupportsFormElicitation(session)) {
             throw new Error(
@@ -3059,17 +4931,22 @@ const handlers: Record<string, RequestHandler> = {
                 'Call it from an MCP client that supports elicitation/create, or use the Beam UI.'
             );
           }
-          if (!session.sseResponse || session.sseResponse.writableEnded) {
+          if ((!session.sseResponse || session.sseResponse.writableEnded) && !ctx.responseStream) {
             throw new Error(
               `Tool ${photonName}/${methodName} requires MCP elicitation, but this session has no live SSE stream for server-initiated requests.`
             );
           }
-          const result = await requestSession(
-            session.id,
-            'elicitation/create',
-            buildMcpElicitParamsFromAsk(ask),
-            300000
-          );
+          const params = buildMcpElicitParamsFromAsk(ask);
+          const result =
+            session.sseResponse && !session.sseResponse.writableEnded
+              ? await requestSession(session.id, 'elicitation/create', params, 300000)
+              : await requestResponseStream(
+                  session.id,
+                  ctx.responseStream!,
+                  'elicitation/create',
+                  params,
+                  300000
+                );
           return extractMcpElicitValue(ask, result);
         }
 
@@ -3156,19 +5033,205 @@ const handlers: Record<string, RequestHandler> = {
       // the photon hang — the earlier codex P1 finding.
       let result: any;
       const startTime = Date.now();
-      if (ctx.loader) {
-        const samplingProvider = makeHumanSamplingProvider(session.id);
-        result = await ctx.loader.executeTool(mcp, methodName, args || {}, {
-          outputHandler,
-          inputProvider,
-          samplingProvider,
-          caller: ctx.caller,
-          requestContext: ctx.requestContext,
-          signal: ctx.signal,
-        });
-      } else {
+      const executeWithProviders = async (
+        inputProvider: (ask: any) => Promise<any>,
+        samplingProvider: (params: any) => Promise<any>,
+        rootsProvider: (params?: Record<string, unknown>) => Promise<any>,
+        inputRequestProvider: (
+          requests: Record<
+            string,
+            {
+              method: 'elicitation/create' | 'sampling/createMessage' | 'roots/list';
+              params?: Record<string, unknown>;
+            }
+          >
+        ) => Promise<Record<string, unknown>>,
+        signal?: AbortSignal
+      ) => {
+        if (ctx.loader) {
+          return ctx.loader.executeTool(mcp, methodName, args || {}, {
+            outputHandler,
+            inputProvider,
+            samplingProvider,
+            rootsProvider,
+            inputRequestProvider,
+            caller: ctx.caller,
+            requestContext: ctx.requestContext,
+            signal,
+          });
+        }
         // For static methods, don't bind to instance
-        result = isStatic ? await method(args || {}) : await method.call(mcp.instance, args || {});
+        const directResult = isStatic
+          ? await method(args || {})
+          : await method.call(mcp.instance, args || {});
+        if (!directResult || typeof directResult[Symbol.asyncIterator] !== 'function') {
+          return directResult;
+        }
+        const chunks: any[] = [];
+        const iterator = directResult[Symbol.asyncIterator]();
+        let iteration = await iterator.next();
+        while (!iteration.done) {
+          const yielded = iteration.value;
+          if (yielded?.ask) {
+            const answer = await inputProvider(yielded);
+            iteration = await iterator.next(answer);
+            continue;
+          } else if (yielded?.emit === 'result') {
+            chunks.push(yielded.data);
+          } else if (yielded?.emit) {
+            outputHandler(yielded);
+          } else {
+            chunks.push(yielded);
+          }
+          iteration = await iterator.next();
+        }
+        return chunks.length > 0 ? (chunks.length === 1 ? chunks[0] : chunks) : iteration.value;
+      };
+
+      if (modernInputFlow) {
+        if (req.id === undefined) return buildInvalidRequestStateResponse(req);
+        const binding = buildStatelessInputBinding(ctx, name, args);
+        const effectiveRequestState = requestStateConsumed ? undefined : requestState;
+        const executeDurableInputFlow = async (runtime: {
+          readonly signal: AbortSignal;
+          request: (
+            request: {
+              method: 'elicitation/create' | 'sampling/createMessage' | 'roots/list';
+              params?: Record<string, unknown>;
+            },
+            preferredKey?: string
+          ) => Promise<unknown>;
+          requestMany: (
+            requests: Record<
+              string,
+              {
+                method: 'elicitation/create' | 'sampling/createMessage' | 'roots/list';
+                params?: Record<string, unknown>;
+              }
+            >
+          ) => Promise<Record<string, unknown>>;
+        }) => {
+          const modernInputProvider = async (ask: any): Promise<any> => {
+            const response = await runtime.request(
+              {
+                method: 'elicitation/create',
+                params: finiteInputParams(buildMcpElicitParamsFromAsk(ask)),
+              },
+              typeof ask?.id === 'string' ? ask.id : undefined
+            );
+            return extractMcpElicitValue(ask, response);
+          };
+          const modernSamplingProvider = async (params: any): Promise<any> =>
+            runtime.request({
+              method: 'sampling/createMessage',
+              params: finiteInputParams(params || {}),
+            });
+          const modernRootsProvider = async (params: Record<string, unknown> = {}): Promise<any> =>
+            runtime.request({
+              method: 'roots/list',
+              params: finiteInputParams(params),
+            });
+          return executeWithProviders(
+            modernInputProvider,
+            modernSamplingProvider,
+            modernRootsProvider,
+            (requests) => runtime.requestMany(requests),
+            runtime.signal
+          );
+        };
+        try {
+          const turn = effectiveRequestState
+            ? await inputStateStores!.tool.resume<any>(
+                {
+                  requestState: effectiveRequestState,
+                  binding,
+                  requestId: req.id,
+                  inputResponses: inputResponses ?? {},
+                },
+                executeDurableInputFlow
+              )
+            : await inputStateStores!.tool.begin(binding, req.id, executeDurableInputFlow);
+          if (turn.kind === 'input-required') {
+            return { jsonrpc: '2.0', id: req.id, result: turn.result };
+          }
+          result = turn.value;
+
+          // SEP-2663 composes MRTR and Tasks as two distinct phases. Tools
+          // marked taskAfterInput first complete the replay-safe stateless
+          // input loop, then mint a task whose result retains the gathered
+          // input. The CreateTaskResult deliberately carries no requestState.
+          if (methodInfo?.taskAfterInput === true && modernTasksNegotiated) {
+            const task = createTask(photonName, methodName, args, undefined, {
+              protocol: 'extension-2026',
+              owner: buildTaskAccessBinding(ctx),
+              traceContext: {
+                traceparent: ctx.requestContext?.traceparent,
+                tracestate: ctx.requestContext?.tracestate,
+                baggage: ctx.requestContext?.baggage,
+              },
+            });
+            const controller = new AbortController();
+            registerController(task.id, controller);
+            runTaskExecution(task.id, async () => result, {
+              signal: controller.signal,
+              caller: ctx.caller,
+              inputMode: 'modern',
+              transformResult: async (taskResult: unknown) =>
+                mergeToolResultMetadata(
+                  await buildToolResult(
+                    taskResult,
+                    methodInfo,
+                    ctx.wireAdapter,
+                    ctx.requestContext
+                  ),
+                  uiMetadata
+                ),
+              transformErrorToResult: (error: unknown) => {
+                const response = buildToolErrorResponse(req, ctx, name, error);
+                return (
+                  response.result ?? {
+                    content: [{ type: 'text', text: 'Tool execution failed' }],
+                    isError: true,
+                  }
+                );
+              },
+            });
+            return {
+              jsonrpc: '2.0',
+              id: req.id,
+              result: toModernTaskWire(task, { creation: true }),
+            };
+          }
+        } catch (error) {
+          if (error instanceof StatelessInputStateError) {
+            return buildInvalidRequestStateResponse(req, error);
+          }
+          throw error;
+        }
+      } else {
+        result = await executeWithProviders(
+          legacyInputProvider,
+          session.sseResponse && !session.sseResponse.writableEnded
+            ? makeHumanSamplingProvider(session.id)
+            : (params) =>
+                requestResponseStream(
+                  session.id,
+                  ctx.responseStream!,
+                  'sampling/createMessage',
+                  params
+                ),
+          async () => requestSession(session.id, 'roots/list', {}, 300000),
+          async (requests) =>
+            Object.fromEntries(
+              await Promise.all(
+                Object.entries(requests).map(async ([key, request]) => [
+                  key,
+                  await requestSession(session.id, request.method, request.params ?? {}, 300000),
+                ])
+              )
+            ),
+          ctx.signal
+        );
       }
 
       // Handle async generators (when not using loader)
@@ -3230,24 +5293,32 @@ const handlers: Record<string, RequestHandler> = {
           durationMs,
         });
 
+        const builtResult = await buildToolResult(
+          finalResult,
+          methodInfo,
+          ctx.wireAdapter,
+          ctx.requestContext
+        );
         const genResponse = {
           jsonrpc: '2.0' as const,
           id: req.id,
-          result: {
-            ...buildToolResult(finalResult, methodInfo),
-            ...uiMetadata,
-          },
+          result: mergeToolResultMetadata(builtResult, uiMetadata),
         };
 
         // Broadcast tool result as MCP Apps notification for linked-UI methods
-        if (ctx.broadcast && methodInfo?.linkedUi) {
+        if (
+          ctx.broadcast &&
+          methodInfo?.linkedUi &&
+          ctx.wireAdapter.era === 'legacy-2025' &&
+          ctx.requestContext?.client.capabilities.mcpApps
+        ) {
           ctx.broadcast({
             jsonrpc: '2.0',
             method: 'ui/notifications/tool-result',
             params: {
               toolName: `${photonName}/${methodName}`,
               result: genResponse.result,
-              isError: false,
+              isError: builtResult.isError,
             },
           });
         }
@@ -3280,31 +5351,39 @@ const handlers: Record<string, RequestHandler> = {
       });
 
       // For void methods, provide a success acknowledgment so the UI shows feedback
+      const builtResult = await buildToolResult(
+        result,
+        methodInfo,
+        ctx.wireAdapter,
+        ctx.requestContext
+      );
       const toolResponse = {
         jsonrpc: '2.0' as const,
         id: req.id,
-        result: {
-          ...buildToolResult(result, methodInfo),
-          ...uiMetadata,
-        },
+        result: mergeToolResultMetadata(builtResult, uiMetadata),
       };
 
       // Broadcast tool result as MCP Apps notification for linked-UI methods
-      if (ctx.broadcast && methodInfo?.linkedUi) {
+      if (
+        ctx.broadcast &&
+        methodInfo?.linkedUi &&
+        ctx.wireAdapter.era === 'legacy-2025' &&
+        ctx.requestContext?.client.capabilities.mcpApps
+      ) {
         ctx.broadcast({
           jsonrpc: '2.0',
           method: 'ui/notifications/tool-result',
           params: {
             toolName: `${photonName}/${methodName}`,
             result: toolResponse.result,
-            isError: false,
+            isError: builtResult.isError,
           },
         });
       }
 
-      return toolResponse;
+      return normalizeToolCallErrorResponse(toolResponse, req, ctx, name);
     } catch (error) {
-      const { text, errorType, retryable } = formatToolError(methodName, error);
+      const { errorType, retryable } = formatToolError(methodName, error);
       audit({
         ts: new Date().toISOString(),
         event: 'tool_error',
@@ -3313,27 +5392,14 @@ const handlers: Record<string, RequestHandler> = {
         instance: session?.instanceName || 'default',
         client: session?.clientInfo?.name || 'beam',
         sessionId: session?.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: sanitizePublicErrorMessage(error),
         errorType,
         retryable,
       });
-      const structured = {
-        error: {
-          type: errorType,
-          retryable,
-          message: error instanceof Error ? error.message : String(error),
-        },
-      };
-      return {
-        jsonrpc: '2.0',
-        id: req.id,
-        result: {
-          content: [{ type: 'text', text }],
-          isError: true,
-          structuredContent: structured,
-          _meta: { photon: structured.error },
-        },
-      };
+      return buildToolErrorResponse(req, ctx, name, error, {
+        errorType,
+        retryable,
+      });
     }
   },
 
@@ -3353,8 +5419,12 @@ const handlers: Record<string, RequestHandler> = {
   // ─────────────────────────────────────────────────────────────────────────────
   'resources/list': async (req, session, ctx) => {
     const resources: MCPResource[] = [];
+    const scopeDir = ctx.requestContext?.scopeDir ?? session.claimScopeDir;
+    const visiblePhotons = scopeDir
+      ? ctx.photons.filter((photon) => isPathInScope(photon.path, scopeDir))
+      : ctx.photons;
 
-    for (const photon of ctx.photons) {
+    for (const photon of visiblePhotons) {
       if (!photon.configured) continue;
       const mcp = ctx.photonMCPs.get(photon.name);
 
@@ -3411,7 +5481,7 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     // Add pending approval resources (approval:// scheme)
-    const photonNames = ctx.photons.map((p: any) => p.name);
+    const photonNames = visiblePhotons.map((p: any) => p.name);
     const pendingApprovals = await getAllPendingApprovals(photonNames);
     for (const approval of pendingApprovals) {
       resources.push({
@@ -3421,10 +5491,15 @@ const handlers: Record<string, RequestHandler> = {
         description: `Approval request from ${approval.photon}.${approval.method}`,
       });
     }
+    const sortedResources = stableSortMCPList(
+      resources,
+      (resource) => resource.uri,
+      (resource) => resource.name
+    );
 
     try {
       const page = paginateMCPList(
-        resources,
+        sortedResources,
         (req.params as { cursor?: unknown } | undefined)?.cursor
       );
       return {
@@ -3436,7 +5511,11 @@ const handlers: Record<string, RequestHandler> = {
             ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
           },
           ctx,
-          { session }
+          {
+            session,
+            ttlMs: pendingApprovals.length > 0 ? 0 : MCP_LIST_CACHE_TTL_MS,
+            forcePrivate: pendingApprovals.length > 0,
+          }
         ),
       };
     } catch (error) {
@@ -3452,8 +5531,12 @@ const handlers: Record<string, RequestHandler> = {
       mimeType?: string;
       description?: string;
     }> = [];
+    const scopeDir = ctx.requestContext?.scopeDir ?? session.claimScopeDir;
+    const visiblePhotons = scopeDir
+      ? ctx.photons.filter((photon) => isPathInScope(photon.path, scopeDir))
+      : ctx.photons;
 
-    for (const photon of ctx.photons) {
+    for (const photon of visiblePhotons) {
       if (!photon.configured) continue;
       const mcp = ctx.photonMCPs.get(photon.name);
       if (!mcp?.statics) continue;
@@ -3467,10 +5550,15 @@ const handlers: Record<string, RequestHandler> = {
         });
       }
     }
+    const sortedResourceTemplates = stableSortMCPList(
+      resourceTemplates,
+      (template) => template.uriTemplate,
+      (template) => template.name
+    );
 
     try {
       const page = paginateMCPList(
-        resourceTemplates,
+        sortedResourceTemplates,
         (req.params as { cursor?: unknown } | undefined)?.cursor
       );
       return {
@@ -3492,29 +5580,57 @@ const handlers: Record<string, RequestHandler> = {
   },
 
   'resources/read': async (req, session, ctx) => {
-    const { uri } = req.params as { uri: string };
+    if (!isRecord(req.params) || typeof req.params.uri !== 'string' || !req.params.uri.trim()) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: {
+          code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+          message: 'resources/read requires `uri`',
+        },
+      };
+    }
+    const uri = req.params.uri;
+    const safeUri = sanitizePublicErrorMessage(uri).slice(0, 512);
+    const scopeDir = ctx.requestContext?.scopeDir ?? session.claimScopeDir;
+    const photonIsVisible = (photonName: string): boolean => {
+      if (!scopeDir) return true;
+      const photon = ctx.photons.find((candidate) => candidate.name === photonName);
+      return !!photon && isPathInScope(photon.path, scopeDir);
+    };
 
     // approval://<photon>/<id>
     const approvalMatch = uri.match(/^approval:\/\/([^/]+)\/(.+)$/);
     if (approvalMatch) {
       const [, photonName, approvalId] = approvalMatch;
+      if (!photonIsVisible(photonName)) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Approval not found: ${safeUri}` },
+        };
+      }
       const approvals = await loadApprovals(photonName);
       const approval = approvals.find((a) => a.id === approvalId);
       if (!approval) {
         return {
           jsonrpc: '2.0',
           id: req.id,
-          error: { code: -32602, message: `Approval not found: ${uri}` },
+          error: { code: -32602, message: `Approval not found: ${safeUri}` },
         };
       }
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: {
-          contents: [
-            { uri, mimeType: 'application/json', text: JSON.stringify(approval, null, 2) },
-          ],
-        },
+        result: withModernCacheMetadata(
+          {
+            contents: [
+              { uri, mimeType: 'application/json', text: JSON.stringify(approval, null, 2) },
+            ],
+          },
+          ctx,
+          { session, ttlMs: 0, forcePrivate: true }
+        ),
       };
     }
 
@@ -3522,12 +5638,19 @@ const handlers: Record<string, RequestHandler> = {
     const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
     if (uiMatch) {
       const [, photonName, uiId] = uiMatch;
+      if (!photonIsVisible(photonName)) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Resource not found: ${safeUri}` },
+        };
+      }
       const result = await ctx.loadUIAsset(photonName, uiId);
       if (!result) {
         return {
           jsonrpc: '2.0',
           id: req.id,
-          error: { code: -32602, message: `Resource not found: ${uri}` },
+          error: { code: -32602, message: `Resource not found: ${safeUri}` },
         };
       }
       const mimeType = result.isPhotonTemplate
@@ -3544,7 +5667,22 @@ const handlers: Record<string, RequestHandler> = {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: { contents: [{ uri, mimeType, text }] },
+        result: withModernCacheMetadata(
+          {
+            contents: [
+              {
+                uri,
+                mimeType,
+                text,
+                ...(ctx.requestContext?.client.capabilities.mcpApps
+                  ? { _meta: { ui: { prefersBorder: true } } }
+                  : {}),
+              },
+            ],
+          },
+          ctx,
+          { session }
+        ),
       };
     }
 
@@ -3552,12 +5690,19 @@ const handlers: Record<string, RequestHandler> = {
     const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(prompts|resources)\/(.+)$/);
     if (assetMatch) {
       const [, photonName, kind, assetId] = assetMatch;
+      if (!photonIsVisible(photonName)) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Asset not found: ${safeUri}` },
+        };
+      }
       const mcp = ctx.photonMCPs.get(photonName);
       if (!mcp?.assets) {
         return {
           jsonrpc: '2.0',
           id: req.id,
-          error: { code: -32602, message: `Photon assets not found: ${uri}` },
+          error: { code: -32602, message: `Photon assets not found: ${safeUri}` },
         };
       }
       const list = kind === 'prompts' ? mcp.assets.prompts : mcp.assets.resources;
@@ -3567,7 +5712,7 @@ const handlers: Record<string, RequestHandler> = {
         return {
           jsonrpc: '2.0',
           id: req.id,
-          error: { code: -32602, message: `Asset not found: ${uri}` },
+          error: { code: -32602, message: `Asset not found: ${safeUri}` },
         };
       }
       const text = await readText(resolvedPath);
@@ -3578,7 +5723,7 @@ const handlers: Record<string, RequestHandler> = {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        result: { contents: [{ uri, mimeType, text }] },
+        result: withModernCacheMetadata({ contents: [{ uri, mimeType, text }] }, ctx, { session }),
       };
     }
 
@@ -3586,6 +5731,7 @@ const handlers: Record<string, RequestHandler> = {
     // The URI may be exact or match a registered template; on match, dispatch
     // through the loader so middleware (auth, logging, audit) applies.
     for (const photon of ctx.photons) {
+      if (!photonIsVisible(photon.name)) continue;
       const mcp = ctx.photonMCPs.get(photon.name);
       if (!mcp?.statics) continue;
       for (const stat of mcp.statics) {
@@ -3606,13 +5752,30 @@ const handlers: Record<string, RequestHandler> = {
           caller: ctx.caller,
           requestContext: ctx.requestContext,
         });
-        const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        const authoredBlob =
+          isRecord(result) && typeof result.blob === 'string' ? result.blob : undefined;
+        const text =
+          authoredBlob === undefined
+            ? typeof result === 'string'
+              ? result
+              : JSON.stringify(result, null, 2)
+            : undefined;
         return {
           jsonrpc: '2.0',
           id: req.id,
-          result: {
-            contents: [{ uri, mimeType: stat.mimeType || 'text/plain', text }],
-          },
+          result: withModernCacheMetadata(
+            {
+              contents: [
+                {
+                  uri,
+                  mimeType: stat.mimeType || 'text/plain',
+                  ...(authoredBlob === undefined ? { text } : { blob: authoredBlob }),
+                },
+              ],
+            },
+            ctx,
+            { session, ttlMs: 0, forcePrivate: true }
+          ),
         };
       }
     }
@@ -3620,7 +5783,7 @@ const handlers: Record<string, RequestHandler> = {
     return {
       jsonrpc: '2.0',
       id: req.id,
-      error: { code: -32602, message: `Resource not found: ${uri}` },
+      error: { code: -32602, message: `Resource not found: ${safeUri}` },
     };
   },
 
@@ -3628,28 +5791,28 @@ const handlers: Record<string, RequestHandler> = {
   // The session's sink is keyed off session.id so disconnect logic in the
   // session-cleanup path can purge subscriptions in O(1).
   'resources/subscribe': async (req, session) => {
-    const { uri } = req.params as { uri: string };
-    if (typeof uri !== 'string' || !uri) {
+    if (!isRecord(req.params) || typeof req.params.uri !== 'string' || !req.params.uri.trim()) {
       return {
         jsonrpc: '2.0',
         id: req.id,
         error: { code: -32602, message: 'resources/subscribe requires `uri`' },
       };
     }
+    const uri = req.params.uri;
     const sink = getOrCreateSessionSink(session.id);
     streamableSubscriptions.subscribe(sink, uri);
     return { jsonrpc: '2.0', id: req.id, result: {} };
   },
 
   'resources/unsubscribe': async (req, session) => {
-    const { uri } = req.params as { uri: string };
-    if (typeof uri !== 'string' || !uri) {
+    if (!isRecord(req.params) || typeof req.params.uri !== 'string' || !req.params.uri.trim()) {
       return {
         jsonrpc: '2.0',
         id: req.id,
         error: { code: -32602, message: 'resources/unsubscribe requires `uri`' },
       };
     }
+    const uri = req.params.uri;
     const sink = sessionSubscriptionSinks.get(session.id);
     if (sink) streamableSubscriptions.unsubscribe(sink, uri);
     return { jsonrpc: '2.0', id: req.id, result: {} };
@@ -3657,13 +5820,17 @@ const handlers: Record<string, RequestHandler> = {
 
   'prompts/list': async (req, session, ctx) => {
     const prompts: any[] = [];
-    for (const photon of ctx.photons) {
+    const scopeDir = ctx.requestContext?.scopeDir ?? session.claimScopeDir;
+    const visiblePhotons = scopeDir
+      ? ctx.photons.filter((photon) => isPathInScope(photon.path, scopeDir))
+      : ctx.photons;
+    for (const photon of visiblePhotons) {
       if (!photon.configured) continue;
       const mcp = ctx.photonMCPs.get(photon.name);
       if (!mcp?.templates) continue;
       for (const template of mcp.templates) {
         prompts.push({
-          name: `${photon.name}/${template.name}`,
+          name: ctx.singleServerNames ? template.name : `${photon.name}/${template.name}`,
           description: template.description,
           arguments: Object.entries(template.inputSchema?.properties || {}).map(
             ([name, schema]) => ({
@@ -3678,9 +5845,10 @@ const handlers: Record<string, RequestHandler> = {
         });
       }
     }
+    const sortedPrompts = stableSortMCPList(prompts, (prompt) => prompt.name);
     try {
       const page = paginateMCPList(
-        prompts,
+        sortedPrompts,
         (req.params as { cursor?: unknown } | undefined)?.cursor
       );
       return {
@@ -3702,27 +5870,58 @@ const handlers: Record<string, RequestHandler> = {
   },
 
   'prompts/get': async (req, _session, ctx) => {
-    const { name } = req.params as { name: string; arguments?: Record<string, string> };
-    const args = (req.params as { arguments?: Record<string, string> }).arguments || {};
-
-    const slashIndex = name.indexOf('/');
-    if (slashIndex === -1) {
+    if (
+      !isRecord(req.params) ||
+      typeof req.params.name !== 'string' ||
+      !req.params.name.trim() ||
+      (req.params.arguments !== undefined && !isRecord(req.params.arguments))
+    ) {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: `Invalid prompt name: ${name}` },
+        error: {
+          code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+          message: 'prompts/get requires a non-empty name and object arguments',
+        },
+      };
+    }
+    const name = req.params.name;
+    const args = req.params.arguments || {};
+    const requestState =
+      typeof req.params.requestState === 'string' ? req.params.requestState : undefined;
+    const inputResponses = isRecord(req.params.inputResponses)
+      ? (req.params.inputResponses as MCPInputResponses)
+      : undefined;
+    const safeName = sanitizePublicErrorMessage(name).slice(0, 256);
+
+    const slashIndex = name.indexOf('/');
+    if (slashIndex === -1 && !ctx.singleServerNames) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Invalid prompt name: ${safeName}` },
       };
     }
 
-    const photonName = name.slice(0, slashIndex);
-    const promptName = name.slice(slashIndex + 1);
+    const photonName =
+      slashIndex === -1
+        ? (ctx.photons.find(
+            (photon) =>
+              photon.configured &&
+              ctx.photonMCPs.get(photon.name)?.templates?.some((template) => template.name === name)
+          )?.name ?? '')
+        : name.slice(0, slashIndex);
+    const promptName = slashIndex === -1 ? name : name.slice(slashIndex + 1);
 
     const mcp = ctx.photonMCPs.get(photonName);
     if (!mcp) {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: `Photon not found: ${photonName}` },
+        error: {
+          code: -32602,
+          message: `Photon not found: ${sanitizePublicErrorMessage(photonName).slice(0, 128)}`,
+        },
       };
     }
 
@@ -3731,12 +5930,64 @@ const handlers: Record<string, RequestHandler> = {
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32602, message: `Prompt not found: ${promptName}` },
+        error: {
+          code: -32602,
+          message: `Prompt not found: ${sanitizePublicErrorMessage(promptName).slice(0, 128)}`,
+        },
       };
     }
 
     try {
-      const result = await ctx.loader!.executeTool(mcp, promptName, args);
+      let result: any;
+      if (ctx.wireAdapter.era === 'modern-2026') {
+        const binding = buildStatelessInputBinding(ctx, name, args, 'execute', 'prompts/get');
+        const executePrompt = async (runtime: {
+          request: (
+            request: {
+              method: 'elicitation/create' | 'sampling/createMessage' | 'roots/list';
+              params?: Record<string, unknown>;
+            },
+            preferredKey?: string
+          ) => Promise<unknown>;
+        }) =>
+          ctx.loader!.executeTool(mcp, promptName, args, {
+            inputProvider: (ask: any) =>
+              runtime.request(
+                {
+                  method: 'elicitation/create',
+                  params: finiteInputParams(buildMcpElicitParamsFromAsk(ask)),
+                },
+                typeof ask?.id === 'string' ? ask.id : undefined
+              ),
+            samplingProvider: (params: Record<string, unknown>) =>
+              runtime.request({
+                method: 'sampling/createMessage',
+                params: finiteInputParams(params),
+              }),
+            rootsProvider: (params: Record<string, unknown> = {}) =>
+              runtime.request({ method: 'roots/list', params: finiteInputParams(params) }),
+            caller: ctx.caller,
+            requestContext: ctx.requestContext,
+          });
+        const store = inputStoresFor(ctx).tool;
+        const turn = requestState
+          ? await store.resume(
+              {
+                requestState,
+                binding,
+                requestId: req.id!,
+                inputResponses: inputResponses ?? {},
+              },
+              executePrompt
+            )
+          : await store.begin(binding, req.id!, executePrompt);
+        if (turn.kind === 'input-required') {
+          return { jsonrpc: '2.0', id: req.id, result: turn.result };
+        }
+        result = turn.value;
+      } else {
+        result = await ctx.loader!.executeTool(mcp, promptName, args);
+      }
       // Format as prompt response
       if (result && typeof result === 'object' && 'messages' in result) {
         return { jsonrpc: '2.0', id: req.id, result: { messages: result.messages } };
@@ -3750,11 +6001,28 @@ const handlers: Record<string, RequestHandler> = {
         },
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const reference = buildMCPErrorReference(req.id, ctx.requestContext?.traceparent);
+      audit({
+        ts: new Date().toISOString(),
+        event: 'prompt_error',
+        photon: photonName,
+        method: promptName,
+        error: sanitizePublicErrorMessage(error),
+        ...reference,
+      });
       return {
         jsonrpc: '2.0',
         id: req.id,
-        error: { code: -32603, message: `Prompt execution failed: ${message}` },
+        error: {
+          code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+          message: 'Prompt execution failed',
+          data: {
+            [PHOTON_TOOL_ERROR_META_KEY]: {
+              code: 'PHOTON_PROMPT_EXECUTION_FAILED',
+              ...reference,
+            },
+          },
+        },
       };
     }
   },
@@ -3813,7 +6081,13 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
-    const task = createTask(photonName, methodName, params, requestedTtl);
+    const task = createTask(photonName, methodName, params, requestedTtl, {
+      traceContext: {
+        traceparent: ctx.requestContext?.traceparent,
+        tracestate: ctx.requestContext?.tracestate,
+        baggage: ctx.requestContext?.baggage,
+      },
+    });
     const controller = new AbortController();
     registerController(task.id, controller);
 
@@ -3855,11 +6129,25 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
     const task = getTask(taskId);
+    if (ctx.wireAdapter.era === 'modern-2026') {
+      if (!task || !taskAccessMatches(task, ctx)) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Task not found: ${taskId}` },
+        };
+      }
+      return { jsonrpc: '2.0', id: req.id, result: toModernTaskWire(task) };
+    }
     // Scope-gated: a scoped session sees "not found" whether the task
     // is truly absent or simply out of scope. Collapsing both cases
     // into the same response avoids leaking existence to callers
     // that shouldn't see this photon.
-    if (!task || !isTaskInScope(task, session.claimScopeDir, ctx.photons)) {
+    if (
+      !task ||
+      task.protocol === 'extension-2026' ||
+      !isTaskInScope(task, session.claimScopeDir, ctx.photons)
+    ) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -3869,9 +6157,35 @@ const handlers: Record<string, RequestHandler> = {
     return { jsonrpc: '2.0', id: req.id, result: toWireFormat(task) };
   },
 
+  'tasks/update': async (req, _session, ctx) => {
+    if (ctx.wireAdapter.era !== 'modern-2026') {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND, message: 'Method not found' },
+      };
+    }
+    const { taskId, inputResponses } = req.params as {
+      taskId: string;
+      inputResponses: Record<string, unknown>;
+    };
+    const task = getTask(taskId);
+    if (!task || !taskAccessMatches(task, ctx)) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Task not found: ${taskId}` },
+      };
+    }
+    // The draft requires unknown, duplicate, and already-satisfied keys to be
+    // ignored. Only currently outstanding keys are consumed.
+    submitTaskInputResponses(taskId, inputResponses);
+    return { jsonrpc: '2.0', id: req.id, result: {} };
+  },
+
   'tasks/list': async (req, session, ctx) => {
     const { cursor } = (req.params || {}) as { cursor?: string };
-    let allTasks = listTasks();
+    let allTasks = listTasks().filter((task) => task.protocol !== 'extension-2026');
     // Filter scoped sessions before paginating so the cursor indexes
     // align with what the caller actually sees.
     if (session.claimScopeDir) {
@@ -3907,7 +6221,33 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
     const task = getTask(taskId);
-    if (!task || !isTaskInScope(task, session.claimScopeDir, ctx.photons)) {
+    if (ctx.wireAdapter.era === 'modern-2026') {
+      if (!task || !taskAccessMatches(task, ctx)) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Task not found: ${taskId}` },
+        };
+      }
+      if (!TERMINAL_STATES.includes(task.state)) {
+        getController(taskId)?.abort();
+        rejectTaskInput(taskId, 'Task cancelled');
+        transitionTask(taskId, ['working', 'input_required'], {
+          state: 'cancelled',
+          statusMessage: 'The task was cancelled by request.',
+          input: undefined,
+          inputRequests: undefined,
+        });
+        unregisterController(taskId);
+      }
+      // Cancellation is cooperative, eventually consistent, and idempotent.
+      return { jsonrpc: '2.0', id: req.id, result: {} };
+    }
+    if (
+      !task ||
+      task.protocol === 'extension-2026' ||
+      !isTaskInScope(task, session.claimScopeDir, ctx.photons)
+    ) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -3945,7 +6285,11 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     const task = getTask(taskId);
-    if (!task || !isTaskInScope(task, session.claimScopeDir, ctx.photons)) {
+    if (
+      !task ||
+      task.protocol === 'extension-2026' ||
+      !isTaskInScope(task, session.claimScopeDir, ctx.photons)
+    ) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -3960,7 +6304,7 @@ const handlers: Record<string, RequestHandler> = {
           jsonrpc: '2.0' as const,
           id: req.id,
           result: {
-            content: [{ type: 'text', text: t.error || 'Task failed' }],
+            content: [{ type: 'text', text: taskErrorMessage(t.error) }],
             isError: true,
             _meta: relatedTaskMeta(taskId),
           },
@@ -5236,6 +7580,17 @@ export interface StreamableHTTPOptions {
   } | null>;
   /** Working directory override (base dir for state/config/cache) */
   workingDir?: string;
+  /** Expose unqualified names when this endpoint serves exactly one Photon. */
+  singleServerNames?: boolean;
+  /** Canonical externally visible MCP resource URI. */
+  oauthResource?: string;
+  /** Absolute RFC 9728 metadata URL used in Bearer challenges. */
+  oauthResourceMetadataUrl?: string;
+  /** Trusted verifier supplied by an embedding resource server. */
+  verifyBearerToken?: (
+    token: string,
+    context: MCPBearerVerificationContext
+  ) => Promise<MCPBearerVerificationResult>;
   configurePhoton?: (
     photonName: string,
     config: Record<string, any>
@@ -5253,7 +7608,10 @@ export interface StreamableHTTPOptions {
     metadata: Record<string, any>
   ) => Promise<{ success: boolean; error?: string }>;
   generatePhotonHelp?: (photonName: string) => Promise<string>;
-  loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
+  loader?: {
+    executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any>;
+    getCapabilityContracts?: (mcp: any) => Array<{ name: string; exposure: ReadonlySet<string> }>;
+  };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
     onClientViewingBoard: (
@@ -5283,6 +7641,16 @@ export async function handleStreamableHTTP(
 
   // CORS headers
   const corsOrigin = getCorsOrigin(req);
+  if (req.headers.origin && !corsOrigin) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        error: { code: JSON_RPC_ERROR_CODES.INVALID_REQUEST, message: 'Forbidden Origin header' },
+      })
+    );
+    return true;
+  }
   if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader(
@@ -5298,6 +7666,7 @@ export async function handleStreamableHTTP(
       'Mcp-Name',
       'Traceparent',
       'X-Photon-App-Session-Id',
+      ...advertisedMCPParamHeaders(options.photons, options.externalMCPs),
     ].join(', ')
   );
   res.setHeader(
@@ -5333,21 +7702,52 @@ export async function handleStreamableHTTP(
     return true;
   }
 
-  // MCP OAuth: extract token if present (used for per-photon auth checks at tool call time)
-  // Accept token from Authorization header (POST) or query param (SSE GET — EventSource can't set headers)
-  const queryToken = url.searchParams.get('token');
-  const authHeader = queryToken ? `Bearer ${queryToken}` : req.headers.authorization;
-  // Note: No global auth gate here. Individual photons that require @auth are enforced
-  // at tool call time (see per-photon auth check in tools/call handler). This allows
-  // non-auth photons to work normally even when auth-required photons are loaded.
-
   // Get or create session
   // Check header first, then query parameter (for SSE which can't set headers)
-  let sessionId = req.headers['mcp-session-id'] as string | undefined;
+  let sessionId = firstHeaderValue(req.headers['mcp-session-id']);
   if (!sessionId) {
     sessionId = url.searchParams.get('sessionId') || undefined;
   }
-  const session = getOrCreateSession(sessionId);
+  const requestHeaderVersion = firstHeaderValue(req.headers['mcp-protocol-version']);
+  const isStatelessRequest =
+    req.method === 'POST' && requestHeaderVersion === MCP_PROTOCOL_VERSIONS.STATELESS_2026_07_28;
+  // URL credentials are a legacy EventSource compatibility exception only.
+  // They are never accepted for POST or MCP 2026 requests and never override
+  // an Authorization header.
+  const queryToken = url.searchParams.get('token');
+  const hasAuthorizationHeader = req.headers.authorization !== undefined;
+  const legacyEventSourceQueryToken =
+    req.method === 'GET' &&
+    requestHeaderVersion !== MCP_PROTOCOL_VERSIONS.STATELESS_2026_07_28 &&
+    queryToken &&
+    !hasAuthorizationHeader
+      ? queryToken
+      : null;
+  if (req.method === 'GET' && queryToken && hasAuthorizationHeader) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'ambiguous bearer credentials' }));
+    return true;
+  }
+  if (requestHeaderVersion === MCP_PROTOCOL_VERSIONS.STATELESS_2026_07_28 && queryToken) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bearer tokens are not accepted in query parameters' }));
+    return true;
+  }
+  const authHeader = legacyEventSourceQueryToken
+    ? `Bearer ${legacyEventSourceQueryToken}`
+    : req.headers.authorization;
+  const hasUnsupportedProtocolHeader =
+    req.method === 'POST' &&
+    requestHeaderVersion !== undefined &&
+    !isSupportedMCPProtocolVersion(requestHeaderVersion);
+  const useEphemeralSession = isStatelessRequest || hasUnsupportedProtocolHeader;
+  // Valid 2026 requests are deliberately backed by an ephemeral context, not
+  // an entry in the legacy MCP session map. A stray Mcp-Session-Id is ignored
+  // for this revision, as required by the backward-compatibility rules.
+  const session = getOrCreateSession(
+    useEphemeralSession ? undefined : sessionId,
+    !useEphemeralSession
+  );
   session.remoteAddress = req.socket?.remoteAddress || 'unknown';
   session.userAgent = req.headers['user-agent'] || '';
 
@@ -5386,6 +7786,13 @@ export async function handleStreamableHTTP(
 
   // GET - Open SSE stream for server notifications
   if (req.method === 'GET') {
+    const requestProtocolVersion = firstHeaderValue(req.headers['mcp-protocol-version']);
+    if (isStatelessMCPProtocolVersion(requestProtocolVersion)) {
+      res.writeHead(405, { Allow: 'POST' });
+      res.end('MCP 2026 uses POST subscriptions instead of a transport-level GET stream');
+      return true;
+    }
+
     const accept = req.headers.accept || '';
     if (!accept.includes('text/event-stream')) {
       res.writeHead(406);
@@ -5393,13 +7800,71 @@ export async function handleStreamableHTTP(
       return true;
     }
 
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no', // Disable nginx buffering
-      'Mcp-Session-Id': session.id,
-    });
+    const streamAuth = legacyStreamAuthorizationRequirements(options.photons);
+    if (streamAuth.protected || authHeader !== undefined) {
+      const resource = oauthResourceForRequest(req, options);
+      const resourceMetadataUrl = oauthResourceMetadataForRequest(req, options, resource);
+      const suppliedToken = bearerToken(authHeader);
+      if (!suppliedToken || streamAuth.configurationError) {
+        sendMCPAuthorizationFailure(res, {
+          status: 401,
+          reason: streamAuth.configurationError ? 'authorization_server_mismatch' : 'missing_token',
+          resourceMetadataUrl,
+          scopes: [],
+        });
+        return true;
+      }
+      const verify = options.verifyBearerToken ?? verifyConfiguredMCPBearer;
+      const verification = await verify(suppliedToken, {
+        resource,
+        expectedIssuer: streamAuth.expectedIssuer,
+        requiredScopes: [],
+      });
+      if (!verification.ok) {
+        sendMCPAuthorizationFailure(res, {
+          status: verification.reason === 'insufficient_scope' ? 403 : 401,
+          reason: verification.reason,
+          resourceMetadataUrl,
+          scopes: [],
+        });
+        return true;
+      }
+      const verifiedCaller = callerFromVerifiedClaims(verification);
+      if (session.caller && session.caller.id !== verifiedCaller.id) {
+        sendMCPAuthorizationFailure(res, {
+          status: 403,
+          reason: 'session_principal_mismatch',
+          resourceMetadataUrl,
+          scopes: [],
+        });
+        return true;
+      }
+      session.caller = verifiedCaller;
+    }
+
+    const getWireAdapter = selectMCPWireAdapter(
+      requestProtocolVersion ?? MCP_PROTOCOL_VERSIONS.LEGACY_2025_11_25,
+      buildServerInfo()
+    );
+    res.writeHead(
+      200,
+      getWireAdapter.headers(
+        {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no', // Disable nginx buffering
+          ...(legacyEventSourceQueryToken
+            ? {
+                Warning:
+                  '299 Photon "Bearer query tokens are deprecated; use a header-capable client"',
+              }
+            : {}),
+        },
+        session.id
+      )
+    );
+    res.flushHeaders();
 
     // Disable Nagle's algorithm for immediate writes
     res.socket?.setNoDelay(true);
@@ -5470,6 +7935,22 @@ export async function handleStreamableHTTP(
   // POST - Handle JSON-RPC requests
   if (req.method === 'POST') {
     const accept = req.headers.accept || '';
+    if (
+      isStatelessRequest &&
+      (!accept.includes('application/json') || !accept.includes('text/event-stream'))
+    ) {
+      res.writeHead(406);
+      res.end('Accept header must include application/json and text/event-stream');
+      return true;
+    }
+    if (
+      isStatelessRequest &&
+      !firstHeaderValue(req.headers['content-type'])?.toLowerCase().startsWith('application/json')
+    ) {
+      res.writeHead(415);
+      res.end('Content-Type must be application/json');
+      return true;
+    }
     const wantsSSE = accept.includes('text/event-stream');
     const requestAbort = new AbortController();
     const abortRequest = () => requestAbort.abort();
@@ -5485,16 +7966,23 @@ export async function handleStreamableHTTP(
 
     try {
       let responseStreamStarted = false;
+      let responseWireAdapter = selectMCPWireAdapter(
+        MCP_PROTOCOL_VERSIONS.LEGACY_2025_11_25,
+        buildServerInfo()
+      );
 
       const ensureResponseStream = () => {
         if (responseStreamStarted) return;
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-          'X-Accel-Buffering': 'no',
-          'Mcp-Session-Id': session.id,
-        });
+        const responseHeaders = responseWireAdapter.headers(
+          {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          },
+          session.id
+        );
+        res.writeHead(200, responseHeaders);
         res.socket?.setNoDelay(true);
         responseStreamStarted = true;
       };
@@ -5505,24 +7993,352 @@ export async function handleStreamableHTTP(
         res.write(`data: ${JSON.stringify(message)}\n\n`);
       };
 
-      // Read body
-      let body = '';
-      for await (const chunk of req) {
-        body += chunk;
-      }
-
-      let requests: JSONRPCRequest[];
-      try {
-        const parsed = JSON.parse(body);
-        requests = Array.isArray(parsed) ? parsed : [parsed];
-      } catch {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      // Bound the request before parsing or performing expensive validation.
+      const declaredBodyLength = Number(req.headers['content-length']);
+      if (Number.isFinite(declaredBodyLength) && declaredBodyLength > MAX_MCP_REQUEST_BODY_BYTES) {
+        // Drain without buffering before ending the response. Ending while the
+        // peer is still writing can make Node reset the socket before the
+        // client receives the 413, which turns a deterministic protocol error
+        // into an intermittent ECONNRESET.
+        await new Promise<void>((resolveDrain) => {
+          let settled = false;
+          const settle = () => {
+            if (settled) return;
+            settled = true;
+            resolveDrain();
+          };
+          req.once('end', settle);
+          req.once('aborted', settle);
+          req.once('error', settle);
+          req.resume();
+        });
+        if (req.aborted || res.destroyed) return true;
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: JSON_RPC_ERROR_CODES.INVALID_REQUEST,
+              message: 'MCP request body exceeds the size limit',
+            },
+          })
+        );
         return true;
       }
 
-      // Extract caller identity from Authorization header or query token (MCP OAuth)
-      const caller = decodeJWTCaller(authHeader);
+      const bodyChunks: Buffer[] = [];
+      let bodyBytes = 0;
+      for await (const chunk of req) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bodyBytes += buffer.length;
+        if (bodyBytes > MAX_MCP_REQUEST_BODY_BYTES) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              error: {
+                code: JSON_RPC_ERROR_CODES.INVALID_REQUEST,
+                message: 'MCP request body exceeds the size limit',
+              },
+            })
+          );
+          return true;
+        }
+        bodyChunks.push(buffer);
+      }
+      const body = Buffer.concat(bodyChunks, bodyBytes).toString('utf8');
+
+      let parsedBody: unknown;
+      let requests: JSONRPCRequest[];
+      try {
+        parsedBody = JSON.parse(body);
+        requests = (Array.isArray(parsedBody) ? parsedBody : [parsedBody]) as JSONRPCRequest[];
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: JSON_RPC_ERROR_CODES.PARSE_ERROR, message: 'Parse error' },
+          })
+        );
+        return true;
+      }
+
+      // Validate the complete wire request before selecting a client profile or
+      // touching protocol session state. This makes a 2026 request entirely
+      // self-describing and prevents legacy aliases from upgrading it.
+      const requestValidationError = validateMCPRequestBatch(parsedBody, req.headers);
+      if (requestValidationError) {
+        res.writeHead(requestValidationError.statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(requestValidationError.response));
+        return true;
+      }
+
+      for (const request of requests) {
+        const traceValidation = resolveRequestTracePropagation(request, req.headers);
+        if (!traceValidation.ok) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id:
+                typeof request.id === 'string' || typeof request.id === 'number'
+                  ? request.id
+                  : null,
+              error: {
+                code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+                message: `Invalid ${traceValidation.field}`,
+                data: {
+                  field: traceValidation.field,
+                  reason: traceValidation.reason,
+                },
+              },
+            })
+          );
+          return true;
+        }
+      }
+
+      const authRequirements = authorizationRequirements(
+        requests,
+        options.photons,
+        options.externalMCPs
+      );
+      const suppliedToken = bearerToken(authHeader);
+      let caller: CallerInfo | undefined;
+      if (authRequirements.protected || authHeader !== undefined) {
+        const resource = oauthResourceForRequest(req, options);
+        const resourceMetadataUrl = oauthResourceMetadataForRequest(req, options, resource);
+        if (!suppliedToken || authRequirements.configurationError) {
+          sendMCPAuthorizationFailure(res, {
+            status: 401,
+            id: authRequirements.requestId,
+            reason: authRequirements.configurationError
+              ? 'authorization_server_mismatch'
+              : 'missing_token',
+            resourceMetadataUrl,
+            scopes: authRequirements.requiredScopes,
+          });
+          return true;
+        }
+        const verify = options.verifyBearerToken ?? verifyConfiguredMCPBearer;
+        const verification = await verify(suppliedToken, {
+          resource,
+          expectedIssuer: authRequirements.expectedIssuer,
+          requiredScopes: authRequirements.requiredScopes,
+        });
+        if (!verification.ok) {
+          const insufficientScope = verification.reason === 'insufficient_scope';
+          sendMCPAuthorizationFailure(res, {
+            status: insufficientScope ? 403 : 401,
+            id: authRequirements.requestId,
+            reason: verification.reason,
+            resourceMetadataUrl,
+            scopes: authRequirements.requiredScopes,
+          });
+          return true;
+        }
+        caller = callerFromVerifiedClaims(verification);
+        if (!useEphemeralSession) {
+          if (session.caller && session.caller.id !== caller.id) {
+            sendMCPAuthorizationFailure(res, {
+              status: 403,
+              id: authRequirements.requestId,
+              reason: 'session_principal_mismatch',
+              resourceMetadataUrl,
+              scopes: authRequirements.requiredScopes,
+            });
+            return true;
+          }
+          session.caller = caller;
+        }
+      }
+
+      // MCP 2026 replaces the legacy transport-level GET/SSE channel with a
+      // long-lived POST request. It must be a single request because the
+      // request id is the subscription id and acknowledgement is the first
+      // event on that stream.
+      if (requests.length === 1 && requests[0]?.method === 'subscriptions/listen') {
+        const subscriptionRequest = requests[0];
+        const requestContext = resolvePhotonRequestContext({
+          request: subscriptionRequest,
+          session,
+          headers: req.headers,
+          caller,
+        });
+        if (!isStatelessMCPProtocolVersion(requestContext.protocolVersion)) {
+          res.writeHead(405, { Allow: 'POST' });
+          res.end('subscriptions/listen requires MCP 2026-07-28');
+          return true;
+        }
+        if (subscriptionRequest.id === undefined) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              error: { code: -32600, message: 'subscriptions/listen requires a request id' },
+            })
+          );
+          return true;
+        }
+        if (!wantsSSE) {
+          res.writeHead(406);
+          res.end('Accept header must include text/event-stream for subscriptions/listen');
+          return true;
+        }
+
+        const subscriptionParams = requestParamRecord(subscriptionRequest);
+        if (!isRecord(subscriptionParams.notifications)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: subscriptionRequest.id,
+              error: {
+                code: -32602,
+                message: 'subscriptions/listen requires a `notifications` filter object',
+              },
+            })
+          );
+          return true;
+        }
+        if (statelessSubscriptions.size >= MAX_STATELESS_SUBSCRIPTIONS) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: subscriptionRequest.id,
+              error: {
+                code: -32603,
+                message: 'Maximum active MCP subscription streams reached',
+              },
+            })
+          );
+          return true;
+        }
+
+        const subscriptionWireAdapter = selectMCPWireAdapter(
+          requestContext.protocolVersion,
+          buildServerInfo()
+        );
+        const filterValidation = sanitizeStatelessSubscriptionFilters(
+          subscriptionParams.notifications
+        );
+        if (!filterValidation.ok) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: subscriptionRequest.id,
+              error: {
+                code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+                message: filterValidation.reason,
+              },
+            })
+          );
+          return true;
+        }
+        const filters = filterValidation.filters;
+        const subscriptionPrincipal = buildCallerScopeBinding(caller, requestContext).principal;
+        const principalSubscriptions = [...statelessSubscriptions].filter(
+          (subscription) => subscription.principal === subscriptionPrincipal
+        ).length;
+        if (principalSubscriptions >= MAX_STATELESS_SUBSCRIPTIONS_PER_PRINCIPAL) {
+          res.writeHead(429, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: subscriptionRequest.id,
+              error: {
+                code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+                message: 'Maximum MCP subscription streams reached for caller',
+              },
+            })
+          );
+          return true;
+        }
+        const subscription: StatelessSubscription = {
+          id: subscriptionRequest.id,
+          filters,
+          response: res,
+          principal: subscriptionPrincipal,
+          blocked: false,
+          queuedPayloads: [],
+          queuedBytes: 0,
+        };
+        if (filters.resourceSubscriptions?.length) {
+          subscription.resourceSink = (uri: string) => {
+            sendStatelessSubscriptionNotification(subscription, 'notifications/resources/updated', {
+              uri,
+            });
+          };
+          for (const uri of filters.resourceSubscriptions) {
+            streamableSubscriptions.subscribe(subscription.resourceSink, uri);
+          }
+        }
+
+        res.writeHead(
+          200,
+          subscriptionWireAdapter.headers(
+            {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Accel-Buffering': 'no',
+            },
+            session.id
+          )
+        );
+        res.socket?.setNoDelay(true);
+        res.socket?.setKeepAlive(true, 60_000);
+        statelessSubscriptions.add(subscription);
+        // The acknowledgement must be the first SSE event.
+        sendStatelessSubscriptionNotification(
+          subscription,
+          'notifications/subscriptions/acknowledged',
+          {
+            notifications: filters,
+          }
+        );
+        subscription.keepalive = setInterval(() => {
+          if (res.writableEnded || res.destroyed) {
+            closeStatelessSubscription(subscription);
+            return;
+          }
+          if (subscription.blocked) return;
+          try {
+            if (!res.write(': keepalive\n\n')) {
+              markStatelessSubscriptionBlocked(subscription);
+            }
+          } catch {
+            closeStatelessSubscription(subscription);
+          }
+        }, STATELESS_SUBSCRIPTION_KEEPALIVE_MS);
+        subscription.keepalive.unref();
+        const cleanup = () => {
+          closeStatelessSubscription(subscription);
+        };
+        req.once('error', cleanup);
+        req.once('aborted', cleanup);
+        res.once('close', cleanup);
+        res.once('error', cleanup);
+        return true;
+      }
+
+      if (requests.some((request) => request.method === 'subscriptions/listen')) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32600,
+              message: 'subscriptions/listen must be sent as a single request',
+            },
+          })
+        );
+        return true;
+      }
 
       const baseContext: HandlerContext = {
         photons: options.photons,
@@ -5544,11 +8360,19 @@ export async function handleStreamableHTTP(
         signal: requestAbort.signal,
         subscriptionManager: options.subscriptionManager,
         workingDir: options.workingDir,
+        singleServerNames: options.singleServerNames,
         caller,
+        wireAdapter: responseWireAdapter,
       };
 
       // Process requests
       const responses: JSONRPCResponse[] = [];
+      let responseHTTPStatus = 200;
+      const appendResponse = (response: JSONRPCResponse, wireAdapter: MCPWireAdapter) => {
+        const adapted = adaptResponseForProtocol(response, wireAdapter);
+        responseHTTPStatus = Math.max(responseHTTPStatus, adapted.httpStatus);
+        responses.push(adapted.response);
+      };
 
       for (const request of requests) {
         // Response to a server→client request: no method, has id, has
@@ -5582,12 +8406,6 @@ export async function handleStreamableHTTP(
           continue;
         }
 
-        const routingError = validateStatelessRoutingHeaders(request, req.headers);
-        if (routingError) {
-          if (request.id !== undefined) responses.push(routingError);
-          continue;
-        }
-
         const requestContext = resolvePhotonRequestContext({
           request,
           session,
@@ -5595,25 +8413,303 @@ export async function handleStreamableHTTP(
           caller,
         });
         session.clientProfile = requestContext.client;
+        const wireAdapter = selectMCPWireAdapter(requestContext.protocolVersion, buildServerInfo());
+        responseWireAdapter = wireAdapter;
+
+        if (wireAdapter.era === 'modern-2026') {
+          const duplicateHeader = duplicateRawMCPHeader(req.rawHeaders);
+          if (duplicateHeader) {
+            appendResponse(
+              {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                  code: MCP_2026_ERROR_CODES.HEADER_MISMATCH,
+                  message: `Header mismatch: duplicate ${duplicateHeader}`,
+                },
+              },
+              wireAdapter
+            );
+            continue;
+          }
+
+          if (
+            request.method === 'tools/call' &&
+            isRecord(request.params) &&
+            typeof request.params.name === 'string'
+          ) {
+            const method =
+              nativePhotonAndMethodForTool(request.params.name, options.photons)?.method ??
+              methodInfoForTool(request.params.name, options.photons, options.externalMCPs);
+            if (method) {
+              const parsedBindings = parseMCPHeaderBindings(method.params);
+              if (!parsedBindings.ok) {
+                appendResponse(
+                  {
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    error: {
+                      code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+                      message: 'Tool routing header schema is invalid',
+                    },
+                  },
+                  wireAdapter
+                );
+                continue;
+              }
+              const validation = validateMCPParamHeaders({
+                bindings: parsedBindings.bindings,
+                argumentsValue: request.params.arguments,
+                rawHeaders: req.rawHeaders,
+              });
+              if (!validation.ok) {
+                appendResponse(
+                  {
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    error: {
+                      code: MCP_2026_ERROR_CODES.HEADER_MISMATCH,
+                      message: `Header mismatch: ${validation.issue}`,
+                    },
+                  },
+                  wireAdapter
+                );
+                continue;
+              }
+            }
+          }
+        }
+
+        if (
+          isStatelessMCPProtocolVersion(requestContext.protocolVersion) &&
+          LEGACY_ONLY_MCP_METHODS.has(request.method)
+        ) {
+          if (request.id !== undefined) {
+            appendResponse(
+              {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                  code: JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND,
+                  message: `Method is not available in MCP ${requestContext.protocolVersion}: ${request.method}`,
+                },
+              },
+              wireAdapter
+            );
+          }
+          continue;
+        }
 
         const handler = handlers[request.method];
 
         if (!handler) {
           if (request.id !== undefined) {
-            responses.push({
-              jsonrpc: '2.0',
-              id: request.id,
-              error: { code: -32601, message: `Method not found: ${request.method}` },
-            });
+            appendResponse(
+              {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                  code: JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND,
+                  message: `Method not found: ${request.method}`,
+                },
+              },
+              wireAdapter
+            );
           }
           continue;
         }
 
-        const response = await handler(request, session, {
+        const handlerContext: HandlerContext = {
           ...baseContext,
           requestContext,
           clientProfile: requestContext.client,
-        });
+          wireAdapter,
+        };
+        if (
+          wireAdapter.era === 'modern-2026' &&
+          requestContext.appSessionSource === 'explicit-meta' &&
+          typeof requestContext.appSessionId === 'string'
+        ) {
+          const validation = appSessionStoreFor(handlerContext).validate(
+            requestContext.appSessionId,
+            buildAppSessionBinding(handlerContext)
+          );
+          if (!validation.ok) {
+            appendResponse(
+              {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                  code:
+                    validation.reason === 'unavailable'
+                      ? JSON_RPC_ERROR_CODES.INTERNAL_ERROR
+                      : JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+                  message:
+                    validation.reason === 'unavailable'
+                      ? 'Application-session storage is unavailable'
+                      : 'Invalid or expired Photon application-session handle',
+                  ...(validation.reason === 'unavailable' ? { data: { retryable: true } } : {}),
+                },
+              },
+              wireAdapter
+            );
+            continue;
+          }
+        }
+        let rawResponse: JSONRPCResponse | undefined;
+        let idempotencyClaimHash: string | undefined;
+        if (
+          wireAdapter.era === 'modern-2026' &&
+          request.method === 'tools/call' &&
+          isRecord(request.params)
+        ) {
+          const rawIdempotencyKey = requestMeta(request)[PHOTON_IDEMPOTENCY_META_KEY];
+          if (rawIdempotencyKey !== undefined) {
+            const toolName = request.params.name;
+            const method =
+              typeof toolName === 'string'
+                ? methodInfoForTool(toolName, options.photons, options.externalMCPs)
+                : undefined;
+            if (
+              requestContext.client.capabilities.photon !== true ||
+              typeof rawIdempotencyKey !== 'string' ||
+              !method ||
+              method.hasGeneratorAsks === true ||
+              method.destructiveHint === true
+            ) {
+              rawResponse = {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                  code: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+                  message:
+                    'Photon idempotency keys require the Photon extension and a non-interactive tool',
+                },
+              };
+            } else {
+              const normalizedToolName = toolName as string;
+              const access = buildCallerScopeBinding(handlerContext.caller, requestContext);
+              try {
+                const claim = idempotencyStoreFor(handlerContext).claim(
+                  rawIdempotencyKey,
+                  {
+                    ...access,
+                    appSession:
+                      requestContext.appSessionSource === 'explicit-meta'
+                        ? hashInputStateValue(requestContext.appSessionId ?? '')
+                        : '',
+                    tool: normalizedToolName,
+                    argumentsHash: hashInputStateValue(request.params.arguments ?? {}),
+                  },
+                  method.idempotentHint === true || method.readOnlyHint === true
+                );
+                if (claim.kind === 'cached') {
+                  rawResponse =
+                    isRecord(claim.response) && claim.response.jsonrpc === '2.0'
+                      ? {
+                          ...(claim.response as unknown as JSONRPCResponse),
+                          id: request.id,
+                        }
+                      : {
+                          jsonrpc: '2.0',
+                          id: request.id,
+                          error: {
+                            code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+                            message: 'Stored idempotent response is invalid',
+                          },
+                        };
+                } else if (claim.kind === 'claimed') {
+                  idempotencyClaimHash = claim.keyHash;
+                } else {
+                  rawResponse = {
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    error: {
+                      code: MCP_2026_ERROR_CODES.DUPLICATE_REQUEST,
+                      message:
+                        claim.kind === 'mismatch'
+                          ? 'Idempotency key is already bound to another request'
+                          : claim.pending
+                            ? 'An equivalent request is already in progress'
+                            : 'Duplicate non-idempotent tool request rejected',
+                      data: {
+                        retryable:
+                          claim.kind === 'duplicate' && claim.pending && claim.idempotent === true,
+                      },
+                    },
+                  };
+                }
+              } catch (error) {
+                rawResponse = {
+                  jsonrpc: '2.0',
+                  id: request.id,
+                  error: {
+                    code:
+                      error instanceof TypeError
+                        ? JSON_RPC_ERROR_CODES.INVALID_PARAMS
+                        : JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+                    message:
+                      error instanceof TypeError
+                        ? 'Invalid Photon idempotency key'
+                        : 'Idempotency storage is unavailable',
+                    ...(error instanceof TypeError ? {} : { data: { retryable: true } }),
+                  },
+                };
+              }
+            }
+          }
+        }
+        if (!rawResponse) {
+          try {
+            rawResponse = await handler(request, session, handlerContext);
+          } catch (error) {
+            const reference = buildMCPErrorReference(request.id, requestContext.traceparent);
+            audit({
+              ts: new Date().toISOString(),
+              event: 'mcp_internal_error',
+              method: request.method,
+              client: requestContext.client.clientName || 'unknown',
+              error: sanitizePublicErrorMessage(error),
+              ...reference,
+            });
+            rawResponse = {
+              jsonrpc: '2.0',
+              id: request.id,
+              error: {
+                code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+                message: 'Internal Photon failure',
+                data: {
+                  [PHOTON_TOOL_ERROR_META_KEY]: {
+                    code: 'PHOTON_INTERNAL_FAILURE',
+                    ...reference,
+                  },
+                },
+              },
+            };
+          }
+        }
+        if (idempotencyClaimHash) {
+          try {
+            idempotencyStoreFor(handlerContext).complete(idempotencyClaimHash, rawResponse);
+          } catch {
+            rawResponse = {
+              jsonrpc: '2.0',
+              id: request.id,
+              error: {
+                code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+                message: 'Tool outcome could not be committed to idempotency storage',
+                data: { retryable: false, outcome: 'unknown' },
+              },
+            };
+          }
+        }
+        const extensionSafeResponse = sanitizeModernExtensionResponse(
+          rawResponse,
+          requestContext.client
+        );
+        const adapted = adaptResponseForProtocol(extensionSafeResponse, wireAdapter);
+        responseHTTPStatus = Math.max(responseHTTPStatus, adapted.httpStatus);
+        const response = adapted.response;
 
         // Only include responses for requests (not notifications)
         if (request.id !== undefined && response.id !== undefined) {
@@ -5630,7 +8726,7 @@ export async function handleStreamableHTTP(
           res.writeHead(202);
           res.end();
         }
-      } else if (wantsSSE) {
+      } else if (wantsSSE && responseHTTPStatus === 200) {
         // SSE response
         ensureResponseStream();
 
@@ -5640,10 +8736,11 @@ export async function handleStreamableHTTP(
         res.end();
       } else {
         // JSON response
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Mcp-Session-Id': session.id,
-        });
+        const responseHeaders = responseWireAdapter.headers(
+          { 'Content-Type': 'application/json' },
+          session.id
+        );
+        res.writeHead(responseHTTPStatus, responseHeaders);
 
         const result = responses.length === 1 ? responses[0] : responses;
         res.end(JSON.stringify(result));
@@ -5677,6 +8774,10 @@ export function broadcastNotification(
   params?: Record<string, unknown>,
   beamOnly = false
 ): void {
+  // MCP 2026 deliveries are limited to the explicitly opted-in filter set.
+  // The 2025 session stream below intentionally remains unchanged.
+  broadcastToStatelessSubscriptions(method, params);
+
   const notification: JSONRPCRequest = {
     jsonrpc: '2.0',
     method,
@@ -5716,6 +8817,18 @@ export function broadcastNotification(
 }
 
 /**
+ * Invalidate every cacheable registry projection after a Photon registry
+ * mutation. A single Photon change can affect its tools, prompts, resources,
+ * and resource templates, so all advertised listChanged capabilities must
+ * have an active producer.
+ */
+export function broadcastMCPListChanges(): void {
+  broadcastNotification('notifications/tools/list_changed');
+  broadcastNotification('notifications/prompts/list_changed');
+  broadcastNotification('notifications/resources/list_changed');
+}
+
+/**
  * Send a notification to Beam clients only
  */
 export function broadcastToBeam(method: string, params?: Record<string, unknown>): void {
@@ -5724,6 +8837,10 @@ export function broadcastToBeam(method: string, params?: Record<string, unknown>
 
 // ── Task status change notifications (MCP 2025-11-25) ──
 taskEvents.on('stateChange', (_taskId: string, _newState: string, task: any) => {
+  // The legacy transport-level broadcast has no per-principal authorization
+  // channel. Never leak modern extension tasks through it; WP9 owns the
+  // request-scoped, task-id-filtered subscriptions/listen producer.
+  if (task?.protocol === 'extension-2026') return;
   broadcastNotification(
     'notifications/tasks/status',
     toWireFormat(task) as unknown as Record<string, unknown>
@@ -5821,7 +8938,8 @@ export function requestExternalElicitation(
       url: request.url,
     });
 
-    // Two-phase timeout: 30s modal → pending queue with keepalives → 30min expiry
+    // Two-phase timeout: 30s modal → pending queue → 30min expiry. The SSE
+    // heartbeat keeps the connection alive while the user is deciding.
     setupElicitationTimeout(elicitationId, pending, resolve);
   });
 }
@@ -5876,7 +8994,8 @@ function requestBeamElicitation(
       ...data,
     });
 
-    // Two-phase timeout: 30s modal → pending queue with keepalives → 30min expiry
+    // Two-phase timeout: 30s modal → pending queue → 30min expiry. The SSE
+    // heartbeat keeps the connection alive while the user is deciding.
     setupElicitationTimeout(elicitationId, pending, resolve);
   });
 }

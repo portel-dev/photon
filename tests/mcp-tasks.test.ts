@@ -316,17 +316,32 @@ await test('Transport handlers registered in compiled output', async () => {
   );
   assert.ok(source.includes("'tasks/create'"), 'tasks/create handler missing');
   assert.ok(source.includes("'tasks/get'"), 'tasks/get handler missing');
+  assert.ok(source.includes("'tasks/update'"), 'tasks/update handler missing');
   assert.ok(source.includes("'tasks/list'"), 'tasks/list handler missing');
   assert.ok(source.includes("'tasks/cancel'"), 'tasks/cancel handler missing');
-  assert.ok(source.includes('tasks: {'), 'tasks capability missing from initialize response');
-  assert.ok(source.includes('list: {}'), 'tasks list capability missing from initialize response');
-  assert.ok(
-    source.includes('cancel: {}'),
-    'tasks cancel capability missing from initialize response'
+  const capabilitySource = readFileSync(
+    join(import.meta.dirname || '.', '..', 'src', 'mcp', 'protocol', 'capabilities.ts'),
+    'utf-8'
   );
   assert.ok(
-    source.includes('requests: {') && source.includes('tools: { call: {} }'),
-    'tasks requests capability missing from initialize response'
+    capabilitySource.includes('tasks: {'),
+    'legacy tasks capability missing from initialize response'
+  );
+  assert.ok(
+    capabilitySource.includes('list: {}'),
+    'legacy tasks list capability missing from initialize response'
+  );
+  assert.ok(
+    capabilitySource.includes('cancel: {}'),
+    'legacy tasks cancel capability missing from initialize response'
+  );
+  assert.ok(
+    capabilitySource.includes('requests: {') && capabilitySource.includes('tools: { call: {} }'),
+    'legacy tasks requests capability missing from initialize response'
+  );
+  assert.ok(
+    capabilitySource.includes("'io.modelcontextprotocol/tasks': {}"),
+    'modern Tasks extension capability missing from discovery'
   );
 });
 

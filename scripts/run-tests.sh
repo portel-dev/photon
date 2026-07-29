@@ -20,6 +20,22 @@ VITEST="bunx vitest run"
 # bun needs 'bun test' for node:test describe/it, not 'bun file.ts'
 RUN_TEST="bun test"
 
+# Daemon lifecycle tests need a real Node runtime. On some macOS developer
+# setups, `node` is a Bun compatibility wrapper, which makes worker-thread
+# respawn and process-table assertions behave differently. Prefer an explicit
+# override, then discover a genuine Node binary without changing the normal
+# Bun-based test runner.
+NODE_BIN="${PHOTON_TEST_NODE:-}"
+if [ -z "$NODE_BIN" ]; then
+  for candidate in $(find /opt/homebrew/Cellar/node /usr/local/opt /usr/bin -path '*/bin/node' -type f -perm -111 2>/dev/null | sort -V -r); do
+    if "$candidate" --version 2>/dev/null | grep -Eq '^v[0-9]'; then
+      NODE_BIN="$candidate"
+      break
+    fi
+  done
+fi
+NODE_BIN="${NODE_BIN:-$RUN}"
+
 # Build first
 echo "━━━ Building ━━━"
 bun run build 2>&1
@@ -51,17 +67,17 @@ SUITES=(
   "bridge-protocol:$RUN tests/bridge/protocol.test.ts"
   "bridge-integration:$RUN tests/bridge/beam-integration.test.ts"
   "beam-web-routes:$RUN tests/beam-web-route-matching.test.ts"
-  "streamable-http:$RUN tests/streamable-http-transport.test.ts"
+  "streamable-http:$NODE_BIN --import tsx tests/streamable-http-transport.test.ts"
   "daemon-pubsub:$RUN tests/daemon-pubsub.test.ts"
   "daemon-subscribe-reconnect-leak:$RUN tests/daemon-subscribe-reconnect-leak.test.ts"
   "storage-injected-location:$RUN tests/storage-injected-location.test.ts"
-  "daemon-chaos:$RUN tests/daemon-chaos.test.ts"
-  "env-proxy-set:bunx tsx tests/env-proxy-set.test.ts"
+  "daemon-chaos:PHOTON_TEST_NODE=$NODE_BIN $NODE_BIN tests/daemon-chaos.test.ts"
+  "env-proxy-set:$RUN tests/env-proxy-set.test.ts"
   "identity:$RUN tests/identity.test.ts"
   "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
   "instance-drift:$RUN tests/instance-drift.test.ts"
   "daemon-stale-binary:$RUN tests/daemon-stale-binary-restart.test.ts"
-  "daemon-watcher:$RUN tests/daemon-watcher.test.ts"
+  "daemon-watcher:PHOTON_TEST_NODE=$NODE_BIN $NODE_BIN --import tsx tests/daemon-watcher.test.ts"
   "execution-history:$RUN tests/execution-history.test.ts"
   "beam-daemon-routes:$RUN tests/beam-daemon-routes.test.ts"
   "ui-rendering:$RUN_TEST tests/ui/result-rendering.test.ts"
@@ -119,6 +135,8 @@ SUITES=(
   "version-dev-marker:$RUN tests/version-dev-marker.test.ts"
   "version-notify:$RUN tests/version-notify.test.ts"
   "mcp-client-sdk:$RUN tests/mcp-client-sdk.test.ts"
+  "mcp-sdk-boundary:$RUN tests/mcp-sdk-boundary.test.ts"
+  "mcp-documentation:$NODE_BIN --import tsx tests/mcp-documentation.test.ts"
   "schedule-autonomous-fire:$RUN tests/schedule-autonomous-fire.test.ts"
   "schedule-boot-load:$RUN tests/schedule-boot-load.test.ts"
   "schedule-ghost-cancel:$RUN tests/schedule-ghost-cancel.test.ts"

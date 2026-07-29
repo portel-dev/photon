@@ -51,6 +51,7 @@ const TEST_TENANT: Tenant = {
 const TEST_CONFIG: EndpointConfig = {
   ...DEFAULT_ENDPOINT_CONFIG,
   issuer: 'https://serv.test',
+  resource: 'https://serv.test/mcp',
   authorizeUrl: 'https://serv.test/authorize',
   consentUrl: 'https://serv.test/consent',
   loginUrl: 'https://serv.test/login',
@@ -76,12 +77,20 @@ function makeDeps(overrides: Partial<EndpointDeps> = {}): EndpointDeps {
 
 function buildAuthorizeUrl(params: Record<string, string>): string {
   const url = new URL('https://serv.test/authorize');
+  if (!Object.prototype.hasOwnProperty.call(params, 'resource')) {
+    url.searchParams.set('resource', TEST_CONFIG.resource);
+  }
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return url.toString();
 }
 
 function formBody(params: Record<string, string>): string {
-  return new URLSearchParams(params).toString();
+  return new URLSearchParams({
+    ...(!Object.prototype.hasOwnProperty.call(params, 'resource')
+      ? { resource: TEST_CONFIG.resource }
+      : {}),
+    ...params,
+  }).toString();
 }
 
 // ============================================================================
@@ -132,6 +141,105 @@ async function testRegister() {
     const body = JSON.parse(res.body);
     assert.ok(body.client_id);
     assert.equal(body.client_secret, undefined);
+  });
+
+  await test('native localhost registration is public and advertises application_type', async () => {
+    const deps = makeDeps();
+    const res = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          client_name: 'Desktop Client',
+          application_type: 'native',
+          redirect_uris: ['http://127.0.0.1:49152/callback'],
+          token_endpoint_auth_method: 'none',
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 201);
+    const body = JSON.parse(res.body);
+    assert.equal(body.application_type, 'native');
+    assert.equal(body.token_endpoint_auth_method, 'none');
+    assert.equal(body.client_secret, undefined);
+  });
+
+  await test('omitted application_type preserves legacy loopback native clients', async () => {
+    const deps = makeDeps();
+    const res = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          client_name: 'Legacy Desktop Client',
+          redirect_uris: ['http://localhost:49153/callback'],
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 201);
+    const body = JSON.parse(res.body);
+    assert.equal(body.application_type, 'native');
+    assert.equal(body.token_endpoint_auth_method, 'none');
+    assert.equal(body.client_secret, undefined);
+  });
+
+  await test('web clients cannot register a loopback HTTP redirect', async () => {
+    const deps = makeDeps();
+    const res = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          application_type: 'web',
+          redirect_uris: ['http://localhost:49154/callback'],
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 400);
+    assert.equal(JSON.parse(res.body).error, 'invalid_redirect_uri');
+  });
+
+  await test('native clients cannot register as confidential clients', async () => {
+    const deps = makeDeps();
+    const res = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          application_type: 'native',
+          redirect_uris: ['http://localhost:49155/callback'],
+          token_endpoint_auth_method: 'client_secret_basic',
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 400);
+    assert.equal(JSON.parse(res.body).error, 'invalid_client_metadata');
+  });
+
+  await test('invalid application_type is rejected', async () => {
+    const deps = makeDeps();
+    const res = await handleRegister(
+      {
+        method: 'POST',
+        url: 'https://serv.test/register',
+        headers: {},
+        body: JSON.stringify({
+          application_type: 'service',
+          redirect_uris: ['https://app.example.com/cb'],
+        }),
+      },
+      deps
+    );
+    assert.equal(res.status, 400);
+    assert.equal(JSON.parse(res.body).error, 'invalid_client_metadata');
   });
 
   await test('missing redirect_uris rejected', async () => {
@@ -283,6 +391,55 @@ async function testAuthorize() {
     assert.equal(JSON.parse(res.body).error, 'invalid_client');
   });
 
+  await test('authorize requires exactly one canonical resource indicator', async () => {
+    const deps = await depsWithRegisteredClient();
+    const baseParams = {
+      client_id: 'test-client',
+      redirect_uri: 'https://app.example.com/cb',
+      response_type: 'code',
+      code_challenge: 'xxx',
+      code_challenge_method: 'S256',
+    };
+
+    const missing = await handleAuthorize(
+      {
+        method: 'GET',
+        url: buildAuthorizeUrl({ ...baseParams, resource: '' }),
+        headers: {},
+        userId: 'user-1',
+      },
+      deps
+    );
+    assert.equal(missing.status, 400);
+    assert.equal(JSON.parse(missing.body).error, 'invalid_target');
+
+    const wrong = await handleAuthorize(
+      {
+        method: 'GET',
+        url: buildAuthorizeUrl({ ...baseParams, resource: 'https://other.example/mcp' }),
+        headers: {},
+        userId: 'user-1',
+      },
+      deps
+    );
+    assert.equal(wrong.status, 400);
+    assert.equal(JSON.parse(wrong.body).error, 'invalid_target');
+
+    const duplicateUrl = new URL(buildAuthorizeUrl(baseParams));
+    duplicateUrl.searchParams.append('resource', TEST_CONFIG.resource);
+    const duplicate = await handleAuthorize(
+      {
+        method: 'GET',
+        url: duplicateUrl.toString(),
+        headers: {},
+        userId: 'user-1',
+      },
+      deps
+    );
+    assert.equal(duplicate.status, 400);
+    assert.equal(JSON.parse(duplicate.body).error, 'invalid_target');
+  });
+
   await test('redirect_uri mismatch rejected', async () => {
     const deps = await depsWithRegisteredClient();
     const res = await handleAuthorize(
@@ -351,6 +508,8 @@ async function testAuthorize() {
     // photon-cli is in firstPartyClientIds by default — register it for redirect_uri validation
     await deps.clientRegistry.save({
       clientId: 'photon-cli',
+      issuer: TEST_CONFIG.issuer,
+      applicationType: 'native',
       clientName: 'Photon CLI',
       redirectUris: ['http://localhost:8787/cb'],
       grantTypes: ['authorization_code'],
@@ -384,6 +543,7 @@ async function testAuthorize() {
     assert.equal(redirect.origin + redirect.pathname, 'http://localhost:8787/cb');
     assert.ok(redirect.searchParams.get('code'), 'code param present');
     assert.equal(redirect.searchParams.get('state'), 'xyz', 'state echoed');
+    assert.equal(redirect.searchParams.get('iss'), TEST_CONFIG.issuer, 'issuer is identified');
   });
 
   await test('third-party client redirected to consent screen', async () => {
@@ -427,7 +587,9 @@ async function testAuthorize() {
       deps
     );
     assert.equal(res.status, 302);
-    assert.match(res.headers.Location, /error=consent_required/);
+    const redirect = new URL(res.headers.Location);
+    assert.equal(redirect.searchParams.get('error'), 'consent_required');
+    assert.equal(redirect.searchParams.get('iss'), TEST_CONFIG.issuer);
   });
 }
 
@@ -435,6 +597,8 @@ async function depsWithRegisteredClient(): Promise<EndpointDeps> {
   const deps = makeDeps();
   await deps.clientRegistry.save({
     clientId: 'test-client',
+    issuer: TEST_CONFIG.issuer,
+    applicationType: 'web',
     clientName: 'Test Client',
     clientSecretHash: undefined,
     redirectUris: ['https://app.example.com/cb'],
@@ -594,6 +758,8 @@ async function depsWithPending(): Promise<{
   const pendingId = 'pending-123';
   await deps.pendingStore.save({
     id: pendingId,
+    issuer: TEST_CONFIG.issuer,
+    resource: TEST_CONFIG.resource,
     clientId: 'test-client',
     redirectUri: 'https://app.example.com/cb',
     scope: 'mcp:read',
@@ -640,6 +806,69 @@ async function testToken() {
     assert.ok(body.refresh_token);
     assert.equal(body.token_type, 'Bearer');
     assert.equal(body.scope, 'mcp:read');
+    const claims = deps.jwtService.verifyAccessToken(body.access_token, {
+      issuer: TEST_CONFIG.issuer,
+      audience: TEST_CONFIG.resource,
+      tenantId: TEST_TENANT.id,
+      requiredScopes: ['mcp:read'],
+    });
+    assert.ok(claims, 'access token is issuer, resource, tenant, and scope bound');
+  });
+
+  await test('token endpoint requires exactly one canonical resource without burning code', async () => {
+    const { deps, codeVerifier, redirectUri, clientId } = await primeAuthorizationCode();
+    const code = await issueAuthCode(deps, clientId, redirectUri, codeVerifier);
+    const base = {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
+      client_id: clientId,
+    };
+
+    for (const resource of ['', 'https://other.example/mcp']) {
+      const res = await handleToken(
+        {
+          method: 'POST',
+          url: 'https://serv.test/token',
+          headers: {},
+          body: formBody({ ...base, resource }),
+        },
+        deps
+      );
+      assert.equal(res.status, 400);
+      assert.equal(JSON.parse(res.body).error, 'invalid_request');
+      assert.ok(await deps.codeStore.peek(code), 'invalid resource must not consume the code');
+    }
+
+    const duplicateForm = new URLSearchParams({
+      ...base,
+      resource: TEST_CONFIG.resource,
+    });
+    duplicateForm.append('resource', TEST_CONFIG.resource);
+    const duplicate = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: duplicateForm.toString(),
+      },
+      deps
+    );
+    assert.equal(duplicate.status, 400);
+    assert.equal(JSON.parse(duplicate.body).error, 'invalid_request');
+    assert.ok(await deps.codeStore.peek(code), 'duplicate resource must not consume the code');
+
+    const valid = await handleToken(
+      {
+        method: 'POST',
+        url: 'https://serv.test/token',
+        headers: {},
+        body: formBody(base),
+      },
+      deps
+    );
+    assert.equal(valid.status, 200);
   });
 
   await test('PKCE verifier mismatch rejected', async () => {
@@ -876,6 +1105,154 @@ async function testToken() {
       deps
     );
     assert.equal(res.status, 401);
+  });
+
+  await test('issuer rotation isolates registrations, codes, and refresh tokens', async () => {
+    const issuerA = await depsWithRegisteredClient();
+    const issuerBConfig: EndpointConfig = {
+      ...TEST_CONFIG,
+      issuer: 'https://rotated.serv.test',
+      resource: 'https://rotated.serv.test/mcp',
+      authorizeUrl: 'https://rotated.serv.test/authorize',
+      consentUrl: 'https://rotated.serv.test/consent',
+      loginUrl: 'https://rotated.serv.test/login',
+    };
+    const issuerB = makeDeps({
+      config: issuerBConfig,
+      codeStore: issuerA.codeStore,
+      refreshTokenStore: issuerA.refreshTokenStore,
+      clientRegistry: issuerA.clientRegistry,
+      consentStore: issuerA.consentStore,
+      pendingStore: issuerA.pendingStore,
+      jwtService: new JwtService({
+        secret: 'test-secret-at-least-32-chars-long-1234',
+        issuer: issuerBConfig.issuer,
+      }),
+    });
+    const registrationA = await handleRegister(
+      {
+        method: 'POST',
+        url: `${TEST_CONFIG.issuer}/register`,
+        headers: {},
+        body: JSON.stringify({
+          client_name: 'Issuer A confidential client',
+          redirect_uris: ['https://service.example/callback'],
+          scope: 'mcp:read',
+        }),
+      },
+      issuerA
+    );
+    const registeredA = JSON.parse(registrationA.body);
+    const issuerABasic = Buffer.from(
+      `${registeredA.client_id}:${registeredA.client_secret}`
+    ).toString('base64');
+    const crossIssuerCredentials = await handleToken(
+      {
+        method: 'POST',
+        url: `${issuerBConfig.issuer}/token`,
+        headers: { authorization: `Basic ${issuerABasic}` },
+        body: formBody({
+          grant_type: 'client_credentials',
+          resource: issuerBConfig.resource,
+        }),
+      },
+      issuerB
+    );
+    assert.equal(crossIssuerCredentials.status, 401);
+
+    const codeVerifier = generateSecureToken(32);
+    const code = await issueAuthCode(
+      issuerA,
+      'test-client',
+      'https://app.example.com/cb',
+      codeVerifier
+    );
+    const codeGrant = {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: 'https://app.example.com/cb',
+      code_verifier: codeVerifier,
+      client_id: 'test-client',
+    };
+
+    const crossIssuerCode = await handleToken(
+      {
+        method: 'POST',
+        url: `${issuerBConfig.issuer}/token`,
+        headers: {},
+        body: formBody({ ...codeGrant, resource: issuerBConfig.resource }),
+      },
+      issuerB
+    );
+    assert.equal(crossIssuerCode.status, 400);
+    assert.equal(JSON.parse(crossIssuerCode.body).error, 'invalid_grant');
+    assert.ok(await issuerA.codeStore.peek(code), 'cross-issuer attempt must not consume the code');
+
+    const issued = await handleToken(
+      {
+        method: 'POST',
+        url: `${TEST_CONFIG.issuer}/token`,
+        headers: {},
+        body: formBody(codeGrant),
+      },
+      issuerA
+    );
+    assert.equal(issued.status, 200);
+    const refreshToken = JSON.parse(issued.body).refresh_token as string;
+
+    const crossIssuerRefresh = await handleToken(
+      {
+        method: 'POST',
+        url: `${issuerBConfig.issuer}/token`,
+        headers: {},
+        body: formBody({
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+          client_id: 'test-client',
+          resource: issuerBConfig.resource,
+        }),
+      },
+      issuerB
+    );
+    assert.equal(crossIssuerRefresh.status, 400);
+    assert.equal(JSON.parse(crossIssuerRefresh.body).error, 'invalid_grant');
+    assert.ok(
+      await issuerA.refreshTokenStore.find(refreshToken),
+      'cross-issuer attempt must not rotate the refresh token'
+    );
+
+    const crossIssuerRevoke = await handleRevoke(
+      {
+        method: 'POST',
+        url: `${issuerBConfig.issuer}/revoke`,
+        headers: {},
+        body: new URLSearchParams({
+          token: refreshToken,
+          token_type_hint: 'refresh_token',
+        }).toString(),
+      },
+      issuerB
+    );
+    assert.equal(crossIssuerRevoke.status, 200);
+    assert.ok(
+      await issuerA.refreshTokenStore.find(refreshToken),
+      'cross-issuer revocation must not invalidate the refresh token'
+    );
+
+    const validRefresh = await handleToken(
+      {
+        method: 'POST',
+        url: `${TEST_CONFIG.issuer}/token`,
+        headers: {},
+        body: formBody({
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+          client_id: 'test-client',
+        }),
+      },
+      issuerA
+    );
+    assert.equal(validRefresh.status, 200);
   });
 
   await test('unsupported grant_type rejected', async () => {
@@ -1407,6 +1784,7 @@ async function testTokenExchange() {
       exp: Math.floor(Date.now() / 1000) + 900,
       iat: Math.floor(Date.now() / 1000),
       jti: 'test-jti-1',
+      tenant_id: TEST_TENANT.id,
       scope: 'mcp:read',
       act: { sub: 'client:first-actor' },
     });
@@ -1662,6 +2040,7 @@ async function testServIntegration() {
 
     const deps = serv.buildEndpointDeps(TEST_TENANT);
     assert.equal(deps.config.issuer, 'https://serv.test/tenant/test');
+    assert.equal(deps.config.resource, 'https://serv.test/tenant/test/mcp');
     assert.equal(deps.config.authorizeUrl, 'https://serv.test/tenant/test/authorize');
     assert.equal(deps.config.consentUrl, 'https://serv.test/tenant/test/consent');
     assert.equal(deps.config.loginUrl, 'https://serv.test/tenant/test/login');
@@ -1684,6 +2063,16 @@ async function testServIntegration() {
       deps
     );
     assert.equal(registration.status, 201);
+
+    const customDomainDeps = serv.buildEndpointDeps({
+      ...TEST_TENANT,
+      settings: {
+        ...TEST_TENANT.settings,
+        customDomain: 'mcp.customer.example',
+      },
+    });
+    assert.equal(customDomainDeps.config.issuer, 'https://mcp.customer.example');
+    assert.equal(customDomainDeps.config.resource, 'https://mcp.customer.example/mcp');
   });
 }
 

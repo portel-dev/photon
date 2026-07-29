@@ -76,6 +76,8 @@ export interface AuthResponse {
 export interface EndpointConfig {
   /** Absolute base URL of this AS; used for `iss` claim + building login redirect. */
   issuer: string;
+  /** Canonical RFC 8707 resource identifier for this tenant's MCP endpoint. */
+  resource: string;
   /** Absolute URL of this AS's `/authorize` endpoint; used for login return_to. */
   authorizeUrl: string;
   /** Absolute URL of this AS's `/consent` endpoint. */
@@ -104,7 +106,7 @@ export interface EndpointConfig {
 
 export const DEFAULT_ENDPOINT_CONFIG: Omit<
   EndpointConfig,
-  'issuer' | 'authorizeUrl' | 'consentUrl' | 'loginUrl'
+  'issuer' | 'resource' | 'authorizeUrl' | 'consentUrl' | 'loginUrl'
 > = {
   firstPartyClientIds: new Set(['photon-cli', 'photon-beam']),
   defaultScopes: ['mcp:read'],
@@ -187,14 +189,62 @@ function htmlResponse(status: number, html: string): AuthResponse {
 function authorizeErrorRedirect(
   redirectUri: string,
   state: string | undefined,
+  issuer: string,
   error: string,
   errorDescription: string
 ): AuthResponse {
   const url = new URL(redirectUri);
   url.searchParams.set('error', error);
   url.searchParams.set('error_description', errorDescription);
+  url.searchParams.set('iss', issuer);
   if (state) url.searchParams.set('state', state);
   return redirectResponse(url.toString());
+}
+
+function normalizeResourceIndicator(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (
+      (url.protocol !== 'https:' &&
+        !(
+          url.protocol === 'http:' &&
+          (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]')
+        )) ||
+      url.username ||
+      url.password ||
+      url.hash
+    ) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function requestedResource(params: URLSearchParams, expected: string): string | null {
+  const resources = params.getAll('resource');
+  if (resources.length !== 1) return null;
+  const requested = normalizeResourceIndicator(resources[0]);
+  const canonical = normalizeResourceIndicator(expected);
+  return requested && canonical && requested === canonical ? canonical : null;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+}
+
+function validRedirectUri(uri: string, applicationType: 'native' | 'web'): boolean {
+  try {
+    const url = new URL(uri);
+    if (url.username || url.password || url.hash) return false;
+    if (applicationType === 'web') {
+      return url.protocol === 'https:' && !isLoopbackHost(url.hostname);
+    }
+    return url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname));
+  } catch {
+    return false;
+  }
 }
 
 // ============================================================================
@@ -224,6 +274,7 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
   const codeChallengeMethod = params.get('code_challenge_method');
   const prompt = params.get('prompt') ?? undefined;
   const nonce = params.get('nonce') ?? undefined;
+  const resource = requestedResource(params, deps.config.resource);
 
   // Pre-redirect validations return error JSON (can't trust the redirect_uri yet).
   if (!clientId) {
@@ -240,6 +291,13 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
   }
   if (codeChallengeMethod && codeChallengeMethod !== 'S256') {
     return errorResponse(400, 'invalid_request', 'only code_challenge_method=S256 is supported');
+  }
+  if (!resource) {
+    return errorResponse(
+      400,
+      'invalid_target',
+      'exactly one canonical MCP resource parameter is required'
+    );
   }
 
   // Resolve client: CIMD (HTTPS URL) or DCR registry
@@ -263,7 +321,13 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
   const userId = deps.config.singleUserId ?? req.userId;
   if (!userId) {
     if (prompt === 'none') {
-      return authorizeErrorRedirect(redirectUri, state, 'login_required', 'user not authenticated');
+      return authorizeErrorRedirect(
+        redirectUri,
+        state,
+        deps.config.issuer,
+        'login_required',
+        'user not authenticated'
+      );
     }
     // Redirect to login with return_to pointing back at /authorize with full query
     const loginUrl = new URL(deps.config.loginUrl);
@@ -288,6 +352,7 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
       return authorizeErrorRedirect(
         redirectUri,
         state,
+        deps.config.issuer,
         'consent_required',
         'user consent required but prompt=none'
       );
@@ -297,6 +362,8 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
     const now = (deps.now ?? (() => new Date()))();
     const pending: PendingAuthorization = {
       id: pendingId,
+      issuer: deps.config.issuer,
+      resource,
       clientId,
       redirectUri,
       scope: normalizeScopes(requestedScopes.join(' ')),
@@ -326,6 +393,7 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
       nonce,
       codeChallenge,
       userId,
+      resource,
     },
     deps
   );
@@ -344,6 +412,7 @@ async function issueCodeAndRedirect(
     nonce?: string;
     codeChallenge: string;
     userId: string;
+    resource: string;
   },
   deps: EndpointDeps
 ): Promise<AuthResponse> {
@@ -351,6 +420,8 @@ async function issueCodeAndRedirect(
   const code = generateSecureToken(32);
   const authCode: AuthorizationCode = {
     code,
+    issuer: deps.config.issuer,
+    resource: args.resource,
     clientId: args.clientId,
     redirectUri: args.redirectUri,
     scope: args.scope,
@@ -366,6 +437,7 @@ async function issueCodeAndRedirect(
 
   const redirect = new URL(args.redirectUri);
   redirect.searchParams.set('code', code);
+  redirect.searchParams.set('iss', deps.config.issuer);
   if (args.state) redirect.searchParams.set('state', args.state);
 
   deps.log?.('info', 'authorization_code_issued', {
@@ -398,7 +470,12 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
     // Peek without consuming — we consume on POST approve.
     // A tiny race exists here (expiry between GET and POST); acceptable for 10-min window.
     const pending = await deps.pendingStore.peek(pendingId);
-    if (!pending) {
+    if (
+      !pending ||
+      pending.tenantId !== deps.tenant.id ||
+      pending.issuer !== deps.config.issuer ||
+      pending.resource !== deps.config.resource
+    ) {
       return errorResponse(400, 'invalid_request', 'pending request not found or expired');
     }
     const client = await resolveClient(pending.clientId, deps);
@@ -422,7 +499,12 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
     if (!pending) {
       return errorResponse(400, 'invalid_request', 'pending request not found or expired');
     }
-    if (pending.userId !== userId || pending.tenantId !== deps.tenant.id) {
+    if (
+      pending.userId !== userId ||
+      pending.tenantId !== deps.tenant.id ||
+      pending.issuer !== deps.config.issuer ||
+      pending.resource !== deps.config.resource
+    ) {
       deps.log?.('warn', 'consent_user_mismatch', {
         pending_user: pending.userId,
         actual_user: userId,
@@ -441,6 +523,7 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
       return authorizeErrorRedirect(
         consumed.redirectUri,
         consumed.state,
+        deps.config.issuer,
         'access_denied',
         'user denied consent'
       );
@@ -467,6 +550,7 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
         nonce: consumed.nonce,
         codeChallenge: consumed.codeChallenge,
         userId,
+        resource: consumed.resource,
       },
       deps
     );
@@ -584,7 +668,10 @@ async function handleTokenExchangeGrant(
   }
 
   // Validate subject token — signature, issuer, expiration
-  const decoded = deps.jwtService.verifySessionToken(subjectToken);
+  const decoded = deps.jwtService.verifyAccessToken(subjectToken, {
+    issuer: deps.config.issuer,
+    tenantId: deps.tenant.id,
+  });
   if (!decoded) {
     return errorResponse(400, 'invalid_grant', 'subject_token is invalid or expired');
   }
@@ -645,12 +732,13 @@ async function handleAuthorizationCodeGrant(
   const redirectUri = form.get('redirect_uri');
   const codeVerifier = form.get('code_verifier');
   const clientIdParam = form.get('client_id');
+  const resource = requestedResource(form, deps.config.resource);
 
-  if (!code || !redirectUri || !codeVerifier) {
+  if (!code || !redirectUri || !codeVerifier || !resource) {
     return errorResponse(
       400,
       'invalid_request',
-      'code, redirect_uri, and code_verifier are required'
+      'code, redirect_uri, code_verifier, and the canonical resource are required'
     );
   }
 
@@ -661,6 +749,13 @@ async function handleAuthorizationCodeGrant(
   const stored = await deps.codeStore.peek(code);
   if (!stored) {
     return errorResponse(400, 'invalid_grant', 'authorization code is invalid or expired');
+  }
+  if (
+    stored.issuer !== deps.config.issuer ||
+    stored.resource !== resource ||
+    stored.tenantId !== deps.tenant.id
+  ) {
+    return errorResponse(400, 'invalid_grant', 'authorization code belongs to another issuer');
   }
 
   // Client identity: either from Basic auth (confidential) or client_id form param (public)
@@ -680,7 +775,10 @@ async function handleAuthorizationCodeGrant(
 
   // If the client is registered as confidential, it MUST authenticate
   const registered = await deps.clientRegistry.find(stored.clientId);
-  if (registered && !registered.isPublic && !authedClient) {
+  if (
+    registered &&
+    (registered.issuer !== deps.config.issuer || (!registered.isPublic && !authedClient))
+  ) {
     return errorResponse(401, 'invalid_client', 'confidential client must authenticate');
   }
 
@@ -700,6 +798,7 @@ async function handleAuthorizationCodeGrant(
       userId: consumed.userId,
       scope: consumed.scope,
       nonce: consumed.nonce,
+      resource: consumed.resource,
     },
     deps
   );
@@ -711,13 +810,25 @@ async function handleRefreshTokenGrant(
   deps: EndpointDeps
 ): Promise<AuthResponse> {
   const refreshToken = form.get('refresh_token');
-  if (!refreshToken) {
-    return errorResponse(400, 'invalid_request', 'refresh_token is required');
+  const resource = requestedResource(form, deps.config.resource);
+  if (!refreshToken || !resource) {
+    return errorResponse(
+      400,
+      'invalid_request',
+      'refresh_token and the canonical resource are required'
+    );
   }
   const clientIdParam = form.get('client_id');
   const existing = await deps.refreshTokenStore.find(refreshToken);
   if (!existing) {
     return errorResponse(400, 'invalid_grant', 'refresh_token is invalid or expired');
+  }
+  if (
+    existing.issuer !== deps.config.issuer ||
+    existing.resource !== resource ||
+    existing.tenantId !== deps.tenant.id
+  ) {
+    return errorResponse(400, 'invalid_grant', 'refresh_token belongs to another issuer');
   }
 
   const effectiveClientId = authedClient?.clientId ?? clientIdParam;
@@ -726,7 +837,10 @@ async function handleRefreshTokenGrant(
   }
 
   const registered = await deps.clientRegistry.find(existing.clientId);
-  if (registered && !registered.isPublic && !authedClient) {
+  if (
+    registered &&
+    (registered.issuer !== deps.config.issuer || (!registered.isPublic && !authedClient))
+  ) {
     return errorResponse(401, 'invalid_client', 'confidential client must authenticate');
   }
 
@@ -747,6 +861,8 @@ async function handleRefreshTokenGrant(
   const newRefreshToken = generateSecureToken(32);
   const rotated = await deps.refreshTokenStore.rotate(refreshToken, {
     token: newRefreshToken,
+    issuer: existing.issuer,
+    resource: existing.resource,
     clientId: existing.clientId,
     userId: existing.userId,
     tenantId: existing.tenantId,
@@ -761,7 +877,13 @@ async function handleRefreshTokenGrant(
   await deps.clientRegistry.touch(existing.clientId);
 
   return await issueTokens(
-    { clientId: existing.clientId, userId: existing.userId, scope, preRotated: newRefreshToken },
+    {
+      clientId: existing.clientId,
+      userId: existing.userId,
+      scope,
+      resource,
+      preRotated: newRefreshToken,
+    },
     deps
   );
 }
@@ -784,6 +906,10 @@ async function handleClientCredentialsGrant(
       'unauthorized_client',
       'public clients cannot use client_credentials'
     );
+  }
+  const resource = requestedResource(form, deps.config.resource);
+  if (!resource) {
+    return errorResponse(400, 'invalid_target', 'the canonical resource parameter is required');
   }
   const requestedScope = form.get('scope');
   const allowedScopes = new Set(authedClient.registered.scope.split(' ').filter(Boolean));
@@ -808,6 +934,8 @@ async function handleClientCredentialsGrant(
     scope,
     clientId: authedClient.clientId,
     expiresInSeconds: deps.config.accessTokenTtlSeconds,
+    issuer: deps.config.issuer,
+    audience: resource,
     now,
   });
 
@@ -824,6 +952,7 @@ async function issueTokens(
     clientId: string;
     userId: string;
     scope: string;
+    resource: string;
     /** If provided, use this refresh token value instead of generating. */
     preRotated?: string;
     /** OIDC nonce from the authorize request, echoed into id_token. */
@@ -838,6 +967,8 @@ async function issueTokens(
     scope: args.scope,
     clientId: args.clientId,
     expiresInSeconds: deps.config.accessTokenTtlSeconds,
+    issuer: deps.config.issuer,
+    audience: args.resource,
     now,
   });
 
@@ -846,6 +977,8 @@ async function issueTokens(
     refreshToken = generateSecureToken(32);
     const record: RefreshToken = {
       token: refreshToken,
+      issuer: deps.config.issuer,
+      resource: args.resource,
       clientId: args.clientId,
       userId: args.userId,
       tenantId: deps.tenant.id,
@@ -873,6 +1006,7 @@ async function issueTokens(
       tenantId: deps.tenant.id,
       clientId: args.clientId,
       expiresInSeconds: deps.config.accessTokenTtlSeconds,
+      issuer: deps.config.issuer,
       nonce: args.nonce,
       now,
     });
@@ -911,12 +1045,40 @@ async function handleRegisterImpl(req: AuthRequest, deps: EndpointDeps): Promise
     return errorResponse(400, 'invalid_redirect_uri', 'redirect_uris must be a non-empty array');
   }
 
+  const inferredLoopbackNative =
+    body.application_type === undefined &&
+    body.redirect_uris.every(
+      (uri) =>
+        typeof uri === 'string' &&
+        (() => {
+          try {
+            const parsed = new URL(uri);
+            return parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname);
+          } catch {
+            return false;
+          }
+        })()
+    );
+  const applicationType =
+    body.application_type === undefined
+      ? inferredLoopbackNative
+        ? 'native'
+        : 'web'
+      : body.application_type === 'native' || body.application_type === 'web'
+        ? body.application_type
+        : null;
+  if (!applicationType) {
+    return errorResponse(400, 'invalid_client_metadata', 'application_type must be native or web');
+  }
+  if (new Set(body.redirect_uris).size !== body.redirect_uris.length) {
+    return errorResponse(400, 'invalid_redirect_uri', 'redirect_uris must be unique');
+  }
   for (const uri of body.redirect_uris) {
-    if (typeof uri !== 'string' || !/^https?:\/\//.test(uri)) {
+    if (typeof uri !== 'string' || !validRedirectUri(uri, applicationType)) {
       return errorResponse(
         400,
         'invalid_redirect_uri',
-        `redirect_uri '${uri}' must be an http(s) URL`
+        `redirect_uri '${String(uri)}' is not valid for application_type=${applicationType}`
       );
     }
   }
@@ -934,7 +1096,39 @@ async function handleRegisterImpl(req: AuthRequest, deps: EndpointDeps): Promise
   const tokenEndpointAuthMethod =
     typeof body.token_endpoint_auth_method === 'string'
       ? body.token_endpoint_auth_method
-      : 'client_secret_basic';
+      : applicationType === 'native'
+        ? 'none'
+        : 'client_secret_basic';
+  if (!['client_secret_basic', 'client_secret_post', 'none'].includes(tokenEndpointAuthMethod)) {
+    return errorResponse(
+      400,
+      'invalid_client_metadata',
+      'token_endpoint_auth_method is not supported'
+    );
+  }
+  if (applicationType === 'native' && tokenEndpointAuthMethod !== 'none') {
+    return errorResponse(
+      400,
+      'invalid_client_metadata',
+      'native clients must use token_endpoint_auth_method=none'
+    );
+  }
+  if (
+    responseTypes.some((value) => value !== 'code') ||
+    grantTypes.some(
+      (value) =>
+        value !== 'authorization_code' &&
+        value !== 'refresh_token' &&
+        value !== 'client_credentials'
+    ) ||
+    (grantTypes.includes('refresh_token') && !grantTypes.includes('authorization_code'))
+  ) {
+    return errorResponse(
+      400,
+      'invalid_client_metadata',
+      'grant_types and response_types are inconsistent or unsupported'
+    );
+  }
 
   const isPublic = tokenEndpointAuthMethod === 'none';
 
@@ -944,6 +1138,8 @@ async function handleRegisterImpl(req: AuthRequest, deps: EndpointDeps): Promise
   const now = (deps.now ?? (() => new Date()))();
   const record: RegisteredClient = {
     clientId,
+    issuer: deps.config.issuer,
+    applicationType,
     clientSecretHash: clientSecret ? hashClientSecret(clientSecret) : undefined,
     clientName,
     redirectUris: body.redirect_uris,
@@ -989,6 +1185,7 @@ async function handleRegisterImpl(req: AuthRequest, deps: EndpointDeps): Promise
     response_types: record.responseTypes,
     scope: record.scope,
     token_endpoint_auth_method: tokenEndpointAuthMethod,
+    application_type: applicationType,
     ...(record.contacts ? { contacts: record.contacts } : {}),
     ...(record.logoUri ? { logo_uri: record.logoUri } : {}),
     ...(record.tosUri ? { tos_uri: record.tosUri } : {}),
@@ -1007,6 +1204,7 @@ interface RegisterRequestBody {
   logo_uri?: unknown;
   tos_uri?: unknown;
   policy_uri?: unknown;
+  application_type?: unknown;
 }
 
 // ============================================================================
@@ -1053,7 +1251,12 @@ async function handleRevokeImpl(req: AuthRequest, deps: EndpointDeps): Promise<A
     revoked = false;
   } else {
     const existing = await deps.refreshTokenStore.find(token);
-    if (existing) {
+    if (
+      existing &&
+      existing.issuer === deps.config.issuer &&
+      existing.resource === deps.config.resource &&
+      existing.tenantId === deps.tenant.id
+    ) {
       if (authedClient && authedClient.clientId !== existing.clientId) {
         return errorResponse(
           400,
@@ -1116,7 +1319,12 @@ async function handleIntrospectImpl(req: AuthRequest, deps: EndpointDeps): Promi
   // Try refresh-token lookup first if hinted, then JWT decode
   if (hint === 'refresh_token' || !hint) {
     const rt = await deps.refreshTokenStore.find(token);
-    if (rt) {
+    if (
+      rt &&
+      rt.issuer === deps.config.issuer &&
+      rt.resource === deps.config.resource &&
+      rt.tenantId === deps.tenant.id
+    ) {
       return jsonResponse(200, {
         active: true,
         scope: rt.scope,
@@ -1130,7 +1338,11 @@ async function handleIntrospectImpl(req: AuthRequest, deps: EndpointDeps): Promi
   }
 
   // JWT access-token path: decode + verify
-  const decoded = deps.jwtService.verifySessionToken(token);
+  const decoded = deps.jwtService.verifyAccessToken(token, {
+    issuer: deps.config.issuer,
+    audience: deps.config.resource,
+    tenantId: deps.tenant.id,
+  });
   if (decoded) {
     return jsonResponse(200, {
       active: true,
@@ -1186,7 +1398,7 @@ async function resolveClient(clientId: string, deps: EndpointDeps): Promise<Reso
     };
   }
   const registered = await deps.clientRegistry.find(clientId);
-  if (!registered) return null;
+  if (!registered || registered.issuer !== deps.config.issuer) return null;
   return {
     clientId,
     redirectUris: registered.redirectUris,
@@ -1237,7 +1449,9 @@ async function verifyClient(
   deps: EndpointDeps
 ): Promise<AuthenticatedClient | null> {
   const registered = await deps.clientRegistry.find(clientId);
-  if (!registered || !registered.clientSecretHash) return null;
+  if (!registered || registered.issuer !== deps.config.issuer || !registered.clientSecretHash) {
+    return null;
+  }
   if (!verifyClientSecret(clientSecret, registered.clientSecretHash)) return null;
   return { clientId, registered };
 }

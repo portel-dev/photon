@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* **server:** support user-defined WebSocket upgrade routes in the local Photon runtime with a Workers-compatible `WebSocketPair`, a cross-runtime 101 response helper, bidirectional network bridging, shutdown cleanup, and an end-to-end echo regression
+
 ## [1.36.1](https://github.com/portel-dev/photon/compare/v1.36.0...v1.36.1) (2026-07-16)
 
 ### Bug Fixes

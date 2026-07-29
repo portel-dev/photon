@@ -5,6 +5,7 @@
  */
 
 import type { PhotonClass } from '@portel/photon-core';
+import type { TracePropagationContext } from '../telemetry/propagation.js';
 
 /**
  * Message from CLI client to daemon server
@@ -64,6 +65,8 @@ export interface DaemonRequest {
   constructorEnv?: Record<string, string>;
   method?: string;
   args?: Record<string, unknown>;
+  /** Validated W3C propagation carried across daemon IPC. */
+  traceContext?: TracePropagationContext;
   /** Response to a prompt request */
   promptValue?: string | boolean | null;
   /** Channel name for pub/sub operations */

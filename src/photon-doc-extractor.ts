@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_PACKAGE_VERSION } from './version.js';
+import { extractSkillDeclarations, type PhotonSkillDescriptor } from './skills.js';
 
 interface ConfigParam {
   name: string;
@@ -81,6 +82,7 @@ export interface PhotonMetadata {
   features: string[];
   externalDeps: { mcps: string[]; photons: string[]; npm: string[] };
   diagram?: string;
+  skills?: PhotonSkillDescriptor[];
   hash: string;
 }
 
@@ -150,6 +152,7 @@ export class PhotonDocExtractor {
       features,
       externalDeps,
       diagram,
+      skills: extractSkillDeclarations(this.content),
     };
   }
 

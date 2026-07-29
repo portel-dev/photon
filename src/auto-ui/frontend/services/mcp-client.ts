@@ -61,6 +61,9 @@ interface MCPTool {
   'x-icon'?: string;
   'x-autorun'?: boolean;
   'x-output-format'?: string;
+  'x-format-kind'?: 'renderer' | 'media';
+  'x-format-alias'?: string;
+  'x-mime-type'?: string;
   'x-layout-hints'?: Record<string, string>;
   'x-button-label'?: string;
   'x-webhook'?: string | boolean;
@@ -87,6 +90,7 @@ interface MCPTool {
   'x-photon-stateful'?: boolean;
   'x-photon-has-settings'?: boolean;
   'x-photon-required-params'?: string[];
+  'x-photon-surfaces'?: string[];
   'x-photon-install-source'?: string;
   'x-photon-prompt-count'?: number;
   'x-photon-resource-count'?: number;
@@ -104,7 +108,7 @@ interface MCPTool {
 }
 
 interface MCPToolResult {
-  content: Array<{ type: string; text?: string }>;
+  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
   structuredContent?: unknown;
   isError?: boolean;
   'x-output-format'?: string;
@@ -113,6 +117,14 @@ interface MCPToolResult {
     [PHOTON_RENDER_META_KEY]?: PhotonRenderMeta;
     [key: string]: unknown;
   };
+}
+
+export interface PhotonAppContext {
+  navigation?: { photon?: string; method?: string; instance?: string; view?: string };
+  selection?: unknown;
+  focus?: unknown;
+  updatedAt?: string;
+  source?: 'beam' | 'app' | 'agent' | 'system';
 }
 
 interface MCPResource {
@@ -508,6 +520,28 @@ class MCPClientService {
     }
   }
 
+  async getAppContext(): Promise<PhotonAppContext> {
+    const result = await this.callTool('photon_context_get', {});
+    const text = result.content?.find((part) => part.type === 'text')?.text;
+    if (!text) return {};
+    try {
+      return JSON.parse(text) as PhotonAppContext;
+    } catch {
+      return {};
+    }
+  }
+
+  async setAppContext(context: PhotonAppContext): Promise<PhotonAppContext> {
+    const result = await this.callTool('photon_navigate', context.navigation || {});
+    const text = result.content?.find((part) => part.type === 'text')?.text;
+    if (!text) return context;
+    try {
+      return (JSON.parse(text) as { context?: PhotonAppContext }).context || context;
+    } catch {
+      return context;
+    }
+  }
+
   async listResources(): Promise<MCPResource[]> {
     const sdk = this.requireSdk();
     const resources: MCPResource[] = [];
@@ -748,6 +782,10 @@ class MCPClientService {
           return textContent.text;
         }
       }
+      const imageContent = result.content.find((c) => c.type === 'image' && c.data && c.mimeType);
+      if (imageContent?.data && imageContent.mimeType) {
+        return `data:${imageContent.mimeType};base64,${imageContent.data}`;
+      }
     }
     return null;
   }
@@ -815,6 +853,12 @@ class MCPClientService {
       const serverName = tool.name.slice(0, separatorIndex);
       const methodName = tool.name.slice(separatorIndex + 1);
       const isExternalMCP = !!tool['x-external-mcp'];
+
+      // `beam/*` is Photon Beam's control plane (configure, reload, Studio,
+      // etc.), not a user-authored photon. Keep this namespace out of the
+      // sidebar even if an older/mixed-version server omits x-photon-internal
+      // on one of its system tools.
+      if (!isExternalMCP && serverName === 'beam') continue;
 
       if (isExternalMCP) {
         if (!externalMCPMap.has(serverName)) {

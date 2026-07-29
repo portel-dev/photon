@@ -67,49 +67,39 @@ If your photon needs capabilities that bump into the sandbox, pick one of these 
 
 ---
 
-## MCP Apps Extension (SEP-1865)
+## MCP Apps Extension
 
-The [MCP Apps Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1865) defines a standard protocol for rendering UIs in MCP-compatible clients.
+The [official MCP Apps Extension](https://modelcontextprotocol.io/extensions/apps/overview)
+defines the standard protocol for rendering UIs in MCP-compatible clients.
+Photon pins the `@modelcontextprotocol/ext-apps` 1.7.5 wire contract.
 
 ### Initialization
 
-When your UI loads, it receives a `ui/initialize` message:
+When your UI loads, the View sends `ui/initialize` to its Host:
 
 ```json
 {
   "jsonrpc": "2.0",
   "method": "ui/initialize",
   "params": {
-    "hostContext": {
-      "name": "beam",
-      "version": "1.5.0"
-    },
-    "hostCapabilities": {
-      "toolCalling": true,
-      "resourceReading": true,
-      "elicitation": true
-    },
-    "containerDimensions": {
-      "mode": "responsive",
-      "width": 800,
-      "height": 600
-    },
-    "theme": {
-      "--color-bg": "#0d0d0d",
-      "--color-text": "#e6e6e6"
-    }
+    "appInfo": { "name": "my-photon", "version": "1.0.0" },
+    "appCapabilities": {},
+    "protocolVersion": "2026-01-26"
   }
 }
 ```
 
-### Ready Signal
+The Host response supplies its negotiated `protocolVersion`, `hostInfo`,
+`hostCapabilities`, and optional `hostContext`.
 
-Your UI must signal readiness:
+### Initialized Signal
+
+After a successful initialize response, the View signals readiness:
 
 ```javascript
 window.parent.postMessage({
   jsonrpc: '2.0',
-  method: 'ui/ready',
+  method: 'ui/notifications/initialized',
   params: {}
 }, '*');
 ```

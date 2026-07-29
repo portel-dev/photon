@@ -14,7 +14,7 @@ import { PhotonDocExtractor } from '../../photon-doc-extractor.js';
 import { TemplateManager } from '../../template-manager.js';
 import { toEnvVarName } from '../../shared/config-docs.js';
 import { logger } from '../../shared/logger.js';
-import { broadcastNotification, broadcastToBeam } from '../streamable-http-transport.js';
+import { broadcastMCPListChanges, broadcastToBeam } from '../streamable-http-transport.js';
 import {
   applyMethodVisibility,
   extractClassMetadataFromSource,
@@ -51,11 +51,15 @@ function buildMethodList(
         returns: { type: 'object' },
         autorun: schema.autorun || false,
         outputFormat: schema.outputFormat,
+        formatKind: schema.formatKind,
+        formatAlias: schema.formatAlias,
+        mimeType: schema.mimeType,
         layoutHints: schema.layoutHints,
         buttonLabel: schema.buttonLabel,
         icon: schema.icon,
         linkedUi: linkedAsset?.id,
         scheduled: schema.scheduled,
+        ...(schema.isAsync ? { isAsync: true } : {}),
       };
     });
 
@@ -189,7 +193,7 @@ export async function configurePhotonViaMCP(
 
     logger.info(`✅ ${photonName} configured via MCP`);
 
-    broadcastNotification('notifications/tools/list_changed', {});
+    broadcastMCPListChanges();
     broadcastToBeam('beam/configured', { photon: configuredPhoton });
 
     return { success: true };

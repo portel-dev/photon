@@ -30,7 +30,7 @@
  * protocol engine they'd sit on top of.
  */
 
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { StreamableHTTPClientTransport } from '../../../mcp/sdk-v1-2025/client-streamable-http.js';
 
 type JSONValue = string | number | boolean | null | JSONValue[] | { [k: string]: JSONValue };
 

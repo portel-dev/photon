@@ -21,6 +21,7 @@ import {
   plus,
 } from '../icons.js';
 import { elicit } from '../utils/elicit.js';
+import { isEmojiIcon } from '../utils/icon.js';
 
 interface PhotonItem {
   name: string;
@@ -172,6 +173,45 @@ export class BeamSidebar extends LitElement {
         display: flex;
         justify-content: space-between;
         align-items: center;
+      }
+
+      .working-dir {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        margin-top: 6px;
+        color: var(--t-muted);
+        font-family: var(--font-mono);
+        font-size: var(--text-2xs);
+      }
+
+      .working-dir-icon {
+        flex-shrink: 0;
+        opacity: 0.75;
+      }
+
+      .working-dir-path {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+        border: 0;
+        padding: 2px 4px;
+        margin: 0;
+        border-radius: var(--radius-xs);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+      }
+
+      .working-dir-path:hover,
+      .working-dir-path:focus-visible {
+        color: var(--t-primary);
+        background: var(--bg-glass);
+        outline: none;
       }
 
       .logo {
@@ -1007,6 +1047,9 @@ export class BeamSidebar extends LitElement {
   @property({ type: Boolean })
   reconnecting = false;
 
+  @property({ type: String })
+  workingDir = '';
+
   @property({ type: Number })
   updatesAvailable = 0;
 
@@ -1291,6 +1334,20 @@ export class BeamSidebar extends LitElement {
               </svg>
             </button>
           </div>
+          ${this.workingDir
+            ? html`<div class="working-dir" title="Beam working directory: ${this.workingDir}">
+                <span class="working-dir-icon" aria-hidden="true">📁</span>
+                <button
+                  class="working-dir-path"
+                  type="button"
+                  title="Copy Beam working directory: ${this.workingDir}"
+                  aria-label="Copy Beam working directory"
+                  @click=${() => this._copyWorkingDir()}
+                >
+                  ${this._displayWorkingDir(this.workingDir)}
+                </button>
+              </div>`
+            : ''}
           <div class="search-row">
             <div class="search-box" role="search">
               <input
@@ -1542,6 +1599,19 @@ export class BeamSidebar extends LitElement {
     );
   }
 
+  private _displayWorkingDir(workingDir: string): string {
+    return workingDir.replace(/^\/Users\/[^/]+\//, '~/').replace(/^\/home\/[^/]+\//, '~/');
+  }
+
+  private async _copyWorkingDir() {
+    if (!this.workingDir) return;
+    try {
+      await navigator.clipboard.writeText(this.workingDir);
+    } catch {
+      // Clipboard access can be unavailable in embedded or insecure contexts.
+    }
+  }
+
   private _renderSection(
     key: string,
     label: string,
@@ -1596,10 +1666,11 @@ export class BeamSidebar extends LitElement {
     const isFavorited = this._favorites.has(photon.name);
 
     // Determine icon: use photon's icon if available, otherwise default
+    const hasEmojiIcon = isEmojiIcon(photon.icon);
     const displayIcon =
-      photon.icon || (isApp ? appDefault : photon.name.substring(0, 2).toUpperCase());
-    const hasCustomIcon = !!photon.icon;
-    const isEmoji = isApp || hasCustomIcon;
+      (hasEmojiIcon ? photon.icon : undefined) ||
+      (isApp ? appDefault : photon.name.substring(0, 2).toUpperCase());
+    const isEmoji = isApp || hasEmojiIcon;
 
     // Generate a deterministic hue from photon name for initials icons
     let initialsStyle = '';
@@ -1670,7 +1741,7 @@ export class BeamSidebar extends LitElement {
   private _renderExternalMCPItem(mcp: PhotonItem) {
     const methodCount = mcp.methods?.length || 0;
     const isConnected = mcp.connected !== false;
-    const displayIcon = mcp.icon || plug;
+    const displayIcon = isEmojiIcon(mcp.icon) ? mcp.icon : plug;
     const isFavorited = this._favorites.has(mcp.name);
     const isSelected = this.selectedPhoton === mcp.name;
 

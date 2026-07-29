@@ -79,6 +79,15 @@ Sampling lets your photon ask the *driving agent's* LLM to generate
 text for you. The agent's model runs the inference, the agent's budget
 pays for it, and your photon never needs an API key.
 
+> **Compatibility API:** MCP sampling is deprecated as of protocol revision
+> `2026-07-28`. Photon keeps `this.sample()` operational for 2025 clients and
+> carries supported 2026 calls through an in-band multi-round input request.
+> For new production workflows that require predictable model availability,
+> use a model provider directly from the photon and treat `this.sample()` as
+> optional host delegation. Direct provider adapters and the broader migration
+> gate are documented in
+> [Migrating MCP roots, sampling, and logging](../guides/MCP-DEPRECATED-FEATURES.md).
+
 ### The basic shape
 
 ```ts
@@ -132,10 +141,9 @@ async critique(params: { draft: string; previous: string }) {
 
 ### When sampling isn't available
 
-If the connected MCP client didn't declare the `sampling` capability
-during initialize, `this.sample()` throws a clear error. Claude
-Desktop, Claude Code, Cursor, and Codex all support sampling. Smaller
-MCP clients may not — guard the call:
+If the connected MCP client cannot fulfill sampling,
+`this.sample()` throws a clear error. Support varies by client and negotiated
+protocol revision, so guard compatibility calls:
 
 ```ts
 try {

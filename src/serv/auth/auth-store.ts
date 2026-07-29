@@ -269,6 +269,8 @@ export class MemoryConsentStore implements ConsentStore {
  */
 export interface PendingAuthorization {
   id: string;
+  issuer: string;
+  resource: string;
   clientId: string;
   redirectUri: string;
   scope: string;

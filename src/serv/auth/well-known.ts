@@ -43,6 +43,7 @@ export function generateProtectedResourceMetadata(
   return {
     resource: resourceUri,
     authorization_servers: [authServerUri],
+    scopes_supported: config.scopesSupported,
     bearer_methods_supported: ['header'],
     resource_documentation: config.documentationUrl,
   };
@@ -78,6 +79,7 @@ export function generateAuthServerMetadata(
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials'],
     code_challenge_methods_supported: ['S256'],
+    authorization_response_iss_parameter_supported: true,
     token_endpoint_auth_methods_supported: [
       'client_secret_basic',
       'client_secret_post',
@@ -411,12 +413,13 @@ export function generateWwwAuthenticate(
   baseUrl: string,
   tenant: Tenant,
   error?: string,
-  errorDescription?: string
+  errorDescription?: string,
+  scopes?: string[]
 ): string {
   const parts = [
     'Bearer',
     `realm="${tenant.slug}"`,
-    `resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`,
+    `resource_metadata="${buildTenantUri(baseUrl, tenant)}/.well-known/oauth-protected-resource"`,
   ];
 
   if (error) {
@@ -425,6 +428,7 @@ export function generateWwwAuthenticate(
       parts.push(`error_description="${errorDescription}"`);
     }
   }
+  if (scopes?.length) parts.push(`scope="${scopes.join(' ')}"`);
 
   return parts.join(', ');
 }

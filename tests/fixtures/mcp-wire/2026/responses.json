@@ -1,0 +1,231 @@
+{
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "scenarios": {
+    "discovery": {
+      "jsonrpc": "2.0",
+      "id": "discover-1",
+      "result": {
+        "supportedVersions": ["2025-03-26", "2025-11-25", "2026-07-28"],
+        "capabilities": {
+          "tools": { "listChanged": true },
+          "prompts": { "listChanged": true },
+          "resources": { "listChanged": true, "subscribe": true },
+          "extensions": {
+            "io.modelcontextprotocol/ui": {
+              "mimeTypes": ["text/html;profile=mcp-app"]
+            },
+            "io.modelcontextprotocol/tasks": {},
+            "dev.portel.photon": {
+              "version": "1.2.3",
+              "requestContext": true,
+              "appSession": {
+                "issueOn": "server/discover",
+                "metadataKey": "dev.portel.photon/appSessionId",
+                "revokeMethod": "dev.portel.photon/app-sessions/revoke",
+                "opaque": true,
+                "scoped": true
+              },
+              "idempotency": {
+                "metadataKey": "dev.portel.photon/idempotencyKey",
+                "idempotentTools": "completed responses are replayed",
+                "nonIdempotentTools": "duplicates are rejected"
+              },
+              "compatibilityFeatures": {
+                "roots": {
+                  "status": "deprecated",
+                  "since": "2026-07-28",
+                  "replacements": ["tool arguments", "resource URIs", "server configuration"]
+                },
+                "sampling": {
+                  "status": "deprecated",
+                  "since": "2026-07-28",
+                  "replacements": ["direct model-provider APIs"]
+                },
+                "logging": {
+                  "status": "deprecated",
+                  "since": "2026-07-28",
+                  "replacements": [
+                    "stderr for stdio diagnostics",
+                    "OpenTelemetry for structured observability"
+                  ]
+                },
+                "removalGate": "MCP feature lifecycle and a separate removal SEP"
+              }
+            }
+          }
+        },
+        "ttlMs": 30000,
+        "cacheScope": "private",
+        "configurationSchema": {
+          "demo": {
+            "type": "object",
+            "properties": { "token": { "type": "string" } }
+          }
+        },
+        "_meta": {
+          "dev.portel.photon/appSessionId": "app-123",
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        },
+        "resultType": "complete"
+      }
+    },
+    "list": {
+      "jsonrpc": "2.0",
+      "id": "list-1",
+      "result": {
+        "tools": [
+          {
+            "name": "demo.echo",
+            "description": "Echo input",
+            "inputSchema": { "type": "object" }
+          }
+        ],
+        "resultType": "complete",
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        }
+      }
+    },
+    "toolSuccess": {
+      "jsonrpc": "2.0",
+      "id": "tool-success-1",
+      "result": {
+        "content": [{ "type": "text", "text": "{\"echo\":\"hello\"}" }],
+        "isError": false,
+        "structuredContent": { "echo": "hello" },
+        "resultType": "complete",
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        }
+      }
+    },
+    "toolError": {
+      "jsonrpc": "2.0",
+      "id": "tool-error-1",
+      "result": {
+        "content": [{ "type": "text", "text": "Error: unavailable" }],
+        "isError": true,
+        "resultType": "complete",
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        }
+      }
+    },
+    "resourceRead": {
+      "jsonrpc": "2.0",
+      "id": "resource-1",
+      "result": {
+        "contents": [
+          {
+            "uri": "photon://demo/item/1",
+            "mimeType": "application/json",
+            "text": "{\"id\":1}"
+          }
+        ],
+        "resultType": "complete",
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        }
+      }
+    },
+    "resourceNotFound": {
+      "jsonrpc": "2.0",
+      "id": "resource-missing-1",
+      "error": { "code": -32602, "message": "Resource not found" }
+    },
+    "subscriptionAcknowledgement": {
+      "jsonrpc": "2.0",
+      "method": "notifications/subscriptions/acknowledged",
+      "params": {
+        "notifications": { "toolsListChanged": true },
+        "_meta": {
+          "io.modelcontextprotocol/subscriptionId": "subscription-1"
+        }
+      }
+    },
+    "subscriptionTermination": {
+      "jsonrpc": "2.0",
+      "id": "subscription-1",
+      "result": {
+        "_meta": {
+          "io.modelcontextprotocol/subscriptionId": "subscription-1",
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        },
+        "resultType": "complete"
+      }
+    },
+    "inputRequired": {
+      "jsonrpc": "2.0",
+      "id": "input-1",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {
+          "approval": {
+            "method": "elicitation/create",
+            "params": { "message": "Approve?" }
+          }
+        },
+        "requestState": "state-1",
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        }
+      }
+    },
+    "task": {
+      "jsonrpc": "2.0",
+      "id": "task-1",
+      "result": {
+        "resultType": "task",
+        "taskId": "task-123",
+        "status": "working",
+        "createdAt": "2026-07-27T00:00:00.000Z",
+        "lastUpdatedAt": "2026-07-27T00:00:00.000Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 1000,
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        }
+      }
+    },
+    "extensionResult": {
+      "jsonrpc": "2.0",
+      "id": "extension-1",
+      "result": {
+        "resultType": "com.example/custom",
+        "value": "preserved",
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "beam-mcp",
+            "version": "1.2.3"
+          }
+        }
+      }
+    }
+  }
+}

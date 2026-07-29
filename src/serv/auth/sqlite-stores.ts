@@ -49,6 +49,8 @@ function initSchema(db: SqliteDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS auth_codes (
       code TEXT PRIMARY KEY,
+      issuer TEXT NOT NULL,
+      resource TEXT NOT NULL,
       client_id TEXT NOT NULL,
       redirect_uri TEXT NOT NULL,
       scope TEXT NOT NULL,
@@ -64,6 +66,8 @@ function initSchema(db: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS refresh_tokens (
       token TEXT PRIMARY KEY,
+      issuer TEXT NOT NULL,
+      resource TEXT NOT NULL,
       client_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       tenant_id TEXT NOT NULL,
@@ -77,6 +81,8 @@ function initSchema(db: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS registered_clients (
       client_id TEXT PRIMARY KEY,
+      issuer TEXT NOT NULL,
+      application_type TEXT NOT NULL,
       client_secret_hash TEXT,
       client_name TEXT NOT NULL,
       redirect_uris TEXT NOT NULL,
@@ -108,6 +114,8 @@ function initSchema(db: SqliteDatabase): void {
 
     CREATE TABLE IF NOT EXISTS pending_auth (
       id TEXT PRIMARY KEY,
+      issuer TEXT NOT NULL,
+      resource TEXT NOT NULL,
       client_id TEXT NOT NULL,
       redirect_uri TEXT NOT NULL,
       scope TEXT NOT NULL,
@@ -130,6 +138,14 @@ function initSchema(db: SqliteDatabase): void {
   // raw statement throws "duplicate column" on a re-run, which we swallow.
   addColumnIfMissing(db, 'auth_codes', 'nonce', 'TEXT');
   addColumnIfMissing(db, 'pending_auth', 'nonce', 'TEXT');
+  addColumnIfMissing(db, 'auth_codes', 'issuer', 'TEXT');
+  addColumnIfMissing(db, 'auth_codes', 'resource', 'TEXT');
+  addColumnIfMissing(db, 'refresh_tokens', 'issuer', 'TEXT');
+  addColumnIfMissing(db, 'refresh_tokens', 'resource', 'TEXT');
+  addColumnIfMissing(db, 'registered_clients', 'issuer', 'TEXT');
+  addColumnIfMissing(db, 'registered_clients', 'application_type', 'TEXT');
+  addColumnIfMissing(db, 'pending_auth', 'issuer', 'TEXT');
+  addColumnIfMissing(db, 'pending_auth', 'resource', 'TEXT');
 }
 
 /** Idempotent ALTER TABLE ADD COLUMN. SQLite's table_info is the safest probe. */
@@ -156,9 +172,9 @@ export class SqliteAuthCodeStore implements AuthCodeStore {
 
   constructor(private db: SqliteDatabase) {
     this.insert = db.prepare(`
-      INSERT INTO auth_codes (code, client_id, redirect_uri, scope, user_id, tenant_id,
+      INSERT INTO auth_codes (code, issuer, resource, client_id, redirect_uri, scope, user_id, tenant_id,
         code_challenge, code_challenge_method, nonce, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.select = db.prepare('SELECT * FROM auth_codes WHERE code = ?');
     this.remove = db.prepare('DELETE FROM auth_codes WHERE code = ?');
@@ -169,6 +185,8 @@ export class SqliteAuthCodeStore implements AuthCodeStore {
     try {
       this.insert.run(
         code.code,
+        code.issuer,
+        code.resource,
         code.clientId,
         code.redirectUri,
         code.scope,
@@ -219,6 +237,8 @@ export class SqliteAuthCodeStore implements AuthCodeStore {
 function rowToAuthCode(row: any): AuthorizationCode {
   return {
     code: row.code,
+    issuer: row.issuer ?? '',
+    resource: row.resource ?? '',
     clientId: row.client_id,
     redirectUri: row.redirect_uri,
     scope: row.scope,
@@ -245,8 +265,8 @@ export class SqliteRefreshTokenStore implements RefreshTokenStore {
   constructor(private db: SqliteDatabase) {
     this.insert = db.prepare(`
       INSERT OR REPLACE INTO refresh_tokens
-        (token, client_id, user_id, tenant_id, scope, expires_at, created_at, supersedes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (token, issuer, resource, client_id, user_id, tenant_id, scope, expires_at, created_at, supersedes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.select = db.prepare('SELECT * FROM refresh_tokens WHERE token = ?');
     this.remove = db.prepare('DELETE FROM refresh_tokens WHERE token = ?');
@@ -260,6 +280,8 @@ export class SqliteRefreshTokenStore implements RefreshTokenStore {
   private insertRow(token: RefreshToken): void {
     this.insert.run(
       token.token,
+      token.issuer,
+      token.resource,
       token.clientId,
       token.userId,
       token.tenantId,
@@ -306,6 +328,8 @@ export class SqliteRefreshTokenStore implements RefreshTokenStore {
 function rowToRefreshToken(row: any): RefreshToken {
   return {
     token: row.token,
+    issuer: row.issuer ?? '',
+    resource: row.resource ?? '',
     clientId: row.client_id,
     userId: row.user_id,
     tenantId: row.tenant_id,
@@ -330,10 +354,10 @@ export class SqliteClientRegistry implements ClientRegistry {
   constructor(db: SqliteDatabase) {
     this.upsert = db.prepare(`
       INSERT OR REPLACE INTO registered_clients
-        (client_id, client_secret_hash, client_name, redirect_uris, grant_types,
+        (client_id, issuer, application_type, client_secret_hash, client_name, redirect_uris, grant_types,
          response_types, scope, contacts, logo_uri, tos_uri, policy_uri,
          is_public, created_at, last_used_at, user_agent, ip_address)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.select = db.prepare('SELECT * FROM registered_clients WHERE client_id = ?');
     this.touchStmt = db.prepare(
@@ -346,6 +370,8 @@ export class SqliteClientRegistry implements ClientRegistry {
   async save(client: RegisteredClient): Promise<void> {
     this.upsert.run(
       client.clientId,
+      client.issuer,
+      client.applicationType,
       client.clientSecretHash ?? null,
       client.clientName,
       JSON.stringify(client.redirectUris),
@@ -389,6 +415,8 @@ export class SqliteClientRegistry implements ClientRegistry {
 function rowToRegisteredClient(row: any): RegisteredClient {
   return {
     clientId: row.client_id,
+    issuer: row.issuer ?? '',
+    applicationType: row.application_type === 'native' ? 'native' : 'web',
     clientSecretHash: row.client_secret_hash ?? undefined,
     clientName: row.client_name,
     redirectUris: JSON.parse(row.redirect_uris) as string[],
@@ -485,10 +513,10 @@ export class SqlitePendingAuthorizationStore implements PendingAuthorizationStor
   constructor(private db: SqliteDatabase) {
     this.insert = db.prepare(`
       INSERT INTO pending_auth
-        (id, client_id, redirect_uri, scope, state, nonce, code_challenge,
+        (id, issuer, resource, client_id, redirect_uri, scope, state, nonce, code_challenge,
          code_challenge_method, user_id, tenant_id, response_type,
          expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.select = db.prepare('SELECT * FROM pending_auth WHERE id = ?');
     this.remove = db.prepare('DELETE FROM pending_auth WHERE id = ?');
@@ -498,6 +526,8 @@ export class SqlitePendingAuthorizationStore implements PendingAuthorizationStor
   async save(req: PendingAuthorization): Promise<void> {
     this.insert.run(
       req.id,
+      req.issuer,
+      req.resource,
       req.clientId,
       req.redirectUri,
       req.scope,
@@ -542,6 +572,8 @@ export class SqlitePendingAuthorizationStore implements PendingAuthorizationStor
 function rowToPending(row: any): PendingAuthorization {
   return {
     id: row.id,
+    issuer: row.issuer ?? '',
+    resource: row.resource ?? '',
     clientId: row.client_id,
     redirectUri: row.redirect_uri,
     scope: row.scope,

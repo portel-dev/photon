@@ -6,11 +6,13 @@
  */
 
 import { createHash } from 'crypto';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  Client,
+  StdioClientTransport,
+  StreamableHTTPClientTransport,
+  SSEClientTransport,
+} from '../../mcp/sdk-v1-2025/client.js';
+import { ElicitRequestSchema } from '../../mcp/sdk-v1-2025/types.js';
 import { SDKMCPClientFactory, type MCPConfig } from '@portel/photon-core';
 import { logger } from '../../shared/logger.js';
 import { requestExternalElicitation } from '../streamable-http-transport.js';
@@ -18,6 +20,15 @@ import { prettifyToolName } from './class-metadata.js';
 import { withTimeout } from '../../async/index.js';
 import type { ExternalMCPInfo, MethodInfo } from '../types.js';
 import type { PhotonConfig } from './types.js';
+import {
+  buildMCPParamHeaders,
+  encodeMCPHeaderValue,
+  parseMCPHeaderBindings,
+} from '../../mcp/protocol/routing-headers.js';
+
+type RoutingAwareClient = Client & {
+  __photonRegisterRoutingTools?: (tools: any[]) => void;
+};
 
 /** Mutable containers that external MCP functions read/write */
 export interface ExternalMCPState {
@@ -33,11 +44,71 @@ export function generateExternalMCPId(name: string): string {
   return createHash('sha256').update(`external:${name}`).digest('hex').slice(0, 12);
 }
 
+function outboundName(message: Record<string, unknown>): string | undefined {
+  const params = message.params;
+  if (!params || typeof params !== 'object' || Array.isArray(params)) return undefined;
+  const value =
+    (params as Record<string, unknown>).name ??
+    (params as Record<string, unknown>).uri ??
+    (params as Record<string, unknown>).taskId;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+export function createMCPRoutingFetch(
+  routingSchemas: ReadonlyMap<string, Record<string, unknown>>,
+  fetchImpl: typeof fetch = fetch
+): typeof fetch {
+  return async (input, init) => {
+    if (typeof init?.body !== 'string') return fetchImpl(input, init);
+    let message: unknown;
+    try {
+      message = JSON.parse(init.body);
+    } catch {
+      return fetchImpl(input, init);
+    }
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      return fetchImpl(input, init);
+    }
+
+    const request = message as Record<string, unknown>;
+    const method = request.method;
+    if (typeof method !== 'string') return fetchImpl(input, init);
+    const headers = new Headers(init.headers);
+    headers.set('Mcp-Method', method);
+    const name = outboundName(request);
+    if (name !== undefined) headers.set('Mcp-Name', encodeMCPHeaderValue(name));
+
+    if (method === 'tools/call') {
+      const params = request.params;
+      if (params && typeof params === 'object' && !Array.isArray(params)) {
+        const toolName = (params as Record<string, unknown>).name;
+        const schema = typeof toolName === 'string' ? routingSchemas.get(toolName) : undefined;
+        if (schema) {
+          const parsed = parseMCPHeaderBindings(schema);
+          if (parsed.ok) {
+            const mirrored = buildMCPParamHeaders(
+              parsed.bindings,
+              (params as Record<string, unknown>).arguments
+            );
+            for (const [headerName, value] of Object.entries(mirrored)) {
+              headers.set(headerName, value);
+            }
+          }
+        }
+      }
+    }
+    return fetchImpl(input, { ...init, headers });
+  };
+}
+
 /**
  * Create an HTTP transport for a URL-based MCP.
  * Tries Streamable HTTP first; falls back to legacy SSE.
  */
 async function connectHTTPClient(url: string, mcpName: string): Promise<Client> {
+  const routingSchemas = new Map<string, Record<string, unknown>>();
+  const routingFetch = createMCPRoutingFetch(routingSchemas);
+
   const sdkClient = new Client(
     { name: 'beam-mcp-client', version: '1.0.0' },
     {
@@ -49,6 +120,14 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
       },
     }
   );
+  (sdkClient as RoutingAwareClient).__photonRegisterRoutingTools = (tools) => {
+    routingSchemas.clear();
+    for (const tool of tools) {
+      if (typeof tool?.name !== 'string' || !tool.inputSchema) continue;
+      const parsed = parseMCPHeaderBindings(tool.inputSchema);
+      if (parsed.ok) routingSchemas.set(tool.name, tool.inputSchema);
+    }
+  };
 
   sdkClient.setRequestHandler(ElicitRequestSchema, async (request) => {
     // ElicitRequest has typed message + requestedSchema; mode/url/elicitationId
@@ -65,7 +144,7 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
   });
 
   try {
-    const transport = new StreamableHTTPClientTransport(new URL(url));
+    const transport = new StreamableHTTPClientTransport(new URL(url), { fetch: routingFetch });
     const connectPromise = sdkClient.connect(transport);
     await withTimeout(connectPromise, 10000, 'Connection timeout (10s)');
     logger.debug(`Connected to ${url} via Streamable HTTP`);
@@ -112,16 +191,35 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
 
 /** Extract tools → MethodInfo[] from an SDK client */
 function toolsToMethods(tools: any[]): MethodInfo[] {
-  return tools.map((tool: any) => ({
-    name: tool.name,
-    description: tool.description || '',
-    params: tool.inputSchema || { type: 'object', properties: {} },
-    returns: { type: 'object' },
-    icon: tool['x-icon'],
-    linkedUi: tool._meta?.ui?.resourceUri,
-    visibility: tool._meta?.ui?.visibility,
-  }));
+  return tools.flatMap((tool: any) => {
+    const inputSchema = tool.inputSchema || { type: 'object', properties: {} };
+    const parsed = parseMCPHeaderBindings(inputSchema);
+    if (!parsed.ok) {
+      logger.warn(`Ignoring external MCP tool with invalid routing headers: ${String(tool.name)}`);
+      return [];
+    }
+    return [
+      {
+        name: tool.name,
+        description: tool.description || '',
+        params: inputSchema,
+        returns:
+          tool.outputSchema && typeof tool.outputSchema === 'object'
+            ? tool.outputSchema
+            : { type: 'object' },
+        outputSchema: tool.outputSchema,
+        icon: tool['x-icon'],
+        linkedUi: tool._meta?.ui?.resourceUri,
+        visibility: tool._meta?.ui?.visibility,
+      },
+    ];
+  });
 }
+
+export const __externalMCPInternals = {
+  createMCPRoutingFetch,
+  toolsToMethods,
+};
 
 /** Detect web capability from an SDK client (capabilities.web extension) */
 function detectWebCapability(sdkClient: Client, mcpInfo: ExternalMCPInfo): void {
@@ -204,6 +302,7 @@ export async function loadExternalMCPs(
         state.externalMCPSDKClients.set(name, sdkClient);
 
         const toolsResult = await sdkClient.listTools();
+        (sdkClient as RoutingAwareClient).__photonRegisterRoutingTools?.(toolsResult.tools || []);
         methods = toolsToMethods(toolsResult.tools || []);
 
         await detectMCPApps(sdkClient, methods, mcpInfo, name);
@@ -256,6 +355,7 @@ export async function loadExternalMCPs(
           state.externalMCPSDKClients.set(name, sdkClient);
 
           const toolsResult = await sdkClient.listTools();
+          (sdkClient as RoutingAwareClient).__photonRegisterRoutingTools?.(toolsResult.tools || []);
           methods = toolsToMethods(toolsResult.tools || []);
 
           await detectMCPApps(sdkClient, methods, mcpInfo, name);
@@ -278,7 +378,11 @@ export async function loadExternalMCPs(
           name: tool.name,
           description: tool.description || '',
           params: tool.inputSchema || { type: 'object', properties: {} },
-          returns: { type: 'object' },
+          returns:
+            tool.outputSchema && typeof tool.outputSchema === 'object'
+              ? tool.outputSchema
+              : { type: 'object' },
+          outputSchema: tool.outputSchema,
           icon: tool['x-icon'],
         }));
 
@@ -338,6 +442,7 @@ export async function reconnectExternalMCP(
       state.externalMCPSDKClients.set(name, sdkClient);
 
       const toolsResult = await sdkClient.listTools();
+      (sdkClient as RoutingAwareClient).__photonRegisterRoutingTools?.(toolsResult.tools || []);
       methods = toolsToMethods(toolsResult.tools || []);
 
       try {

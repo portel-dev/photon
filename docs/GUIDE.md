@@ -833,7 +833,7 @@ myTool.onResult(result => {
 
 #### Resources
 
-- [MCP Apps Specification](https://modelcontextprotocol.io/docs/extensions/apps)
+- [MCP Apps Specification](https://modelcontextprotocol.io/extensions/apps/overview)
 - [SEP-1865 GitHub](https://github.com/modelcontextprotocol/ext-apps)
 - [Platform Compatibility Source](./src/auto-ui/platform-compat.ts)
 

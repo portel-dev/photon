@@ -257,6 +257,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
           p.configured && p.appEntry
             ? { name: p.appEntry.name, linkedUi: p.appEntry.linkedUi }
             : undefined,
+        appManifest: p.configured ? p.appManifest : undefined,
       }));
 
       // Query daemon health (non-blocking, returns null if daemon unavailable)

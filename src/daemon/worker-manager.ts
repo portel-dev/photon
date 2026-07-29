@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import { Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import type { MainToWorkerMessage, WorkerToMainMessage, WorkerInit } from './worker-protocol.js';
+import type { TracePropagationContext } from '../telemetry/propagation.js';
 
 export interface WorkerInfo {
   worker: Worker;
@@ -253,7 +254,8 @@ export class WorkerManager {
     args: Record<string, unknown>,
     sessionId: string,
     instanceName: string = '',
-    timeoutMs: number = 300_000
+    timeoutMs: number = 300_000,
+    traceContext?: TracePropagationContext
   ): Promise<{ success: boolean; data?: unknown; error?: string; durationMs?: number }> {
     const info = this.workers.get(key);
     if (!info?.ready) {
@@ -288,7 +290,15 @@ export class WorkerManager {
 
       this.pendingCalls.set(id, pending);
 
-      const msg: MainToWorkerMessage = { type: 'call', id, method, args, sessionId, instanceName };
+      const msg: MainToWorkerMessage = {
+        type: 'call',
+        id,
+        method,
+        args,
+        sessionId,
+        instanceName,
+        ...(traceContext && Object.keys(traceContext).length > 0 ? { traceContext } : {}),
+      };
       info.worker.postMessage(msg);
     });
   }

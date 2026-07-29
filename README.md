@@ -197,13 +197,19 @@ The UI is **fully auto-generated** from your method signatures: field types, val
 
 When forms aren't the right interface for what you're building, you can replace Beam's auto-generated view with your own HTML. A global named after your photon is auto-injected (e.g., `analytics.onResult(data => ...)`) — no framework required. `window.photon.url` is also injected and resolves to the Beam base URL so your HTML can construct fetch paths correctly whether running locally or behind a reverse proxy.
 
-> Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
+> Custom UIs follow the [official MCP Apps Extension](https://modelcontextprotocol.io/extensions/apps/overview) and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
 
 Photons that declare HTTP routes with `@get`, `@post`, `@put`, `@patch`, or `@delete` are shown in Beam as web apps. Routes support dynamic path segments (e.g. `@get /items/:id`) matched by specificity: literal segments win over parameters. Beam proxies requests to those routes and injects an `x-photon-base-path` header so the app can construct correct absolute paths regardless of where Beam is hosted.
 
 ---
 
 ## AI Agents: Machine Invocation
+
+Photon ships separate, tested MCP adapters: sessionful MCP 2025 over stdio and
+Streamable HTTP, plus stateless MCP `2026-07-28` release-candidate support over
+Streamable HTTP. See the
+[compatibility matrix and runnable clients](./docs/guides/MCP-COMPATIBILITY.md),
+or run `photon doctor mcp` against your installed runtime.
 
 ```bash
 photon info analytics --mcp
@@ -224,7 +230,7 @@ Paste into your AI client's config. Your photon is now an MCP server. Claude can
 
 The AI sees the same thing a human sees in Beam: the method names, the parameter descriptions from your JSDoc, the validation rules from your types. The JSDoc comment you wrote to document the tool for yourself is what Claude reads to decide when and how to call it.
 
-The MCP tools themselves work with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any MCP-compatible client. When your photon has a custom UI, clients that support the [MCP Apps Extension](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) can render it natively, as shown in the weather proof above.
+The MCP tools themselves work with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any MCP-compatible client. When your photon has a custom UI, clients that support the [MCP Apps Extension](https://modelcontextprotocol.io/extensions/apps/overview) can render it natively, as shown in the weather proof above.
 
 ---
 

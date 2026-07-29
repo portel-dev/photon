@@ -127,14 +127,81 @@ async function findSecretNamedParams(
 export function registerDoctorCommand(program: Command): void {
   program
     .command('doctor')
-    .argument('[name]', 'Photon name to diagnose (checks environment if omitted)')
-    .description('Run diagnostics on photon environment, ports, and configuration')
+    .argument('[name]', 'Photon name to diagnose, or "mcp" for protocol status')
+    .description('Run environment, photon, or MCP compatibility diagnostics')
     .option('--port <number>', 'Port to check for availability', '3000')
     .action(async (name: string | undefined, options: any, command: Command) => {
       try {
         const { formatOutput, printHeader, printInfo, printSuccess, printWarning, STATUS } =
           await import('../../cli-formatter.js');
         const workingDir = getDefaultContext().baseDir;
+
+        if (name === 'mcp') {
+          const { MCP_COMPLIANCE_MANIFEST } = await import('../../mcp/protocol/compliance.js');
+          const { PHOTON_VERSION } = await import('../../version.js');
+          const authMode =
+            process.env.PHOTON_MCP_AUTH_MODE ||
+            (process.env.PHOTON_MCP_BEARER ? 'bearer' : 'legacy');
+          const checks = MCP_COMPLIANCE_MANIFEST.conformance.checks;
+
+          printHeader('Photon Doctor: MCP');
+          printInfo('Reporting the release-tested MCP compatibility surface.\n');
+          formatOutput(
+            {
+              Runtime: {
+                version: PHOTON_VERSION,
+                status: STATUS.OK,
+              },
+              Adapters: Object.fromEntries(
+                MCP_COMPLIANCE_MANIFEST.protocols.map((protocol) => [
+                  protocol.version,
+                  {
+                    adapter: protocol.adapter,
+                    transports: [...protocol.transports],
+                    lifecycle: protocol.lifecycle,
+                    support: protocol.status,
+                    status: protocol.status === 'release-candidate' ? STATUS.WARN : STATUS.OK,
+                  },
+                ])
+              ),
+              Extensions: Object.fromEntries(
+                MCP_COMPLIANCE_MANIFEST.extensions.map((extension) => [
+                  extension.id,
+                  {
+                    support: extension.status,
+                    requirement: extension.requirement,
+                    status: extension.status.startsWith('experimental') ? STATUS.WARN : STATUS.OK,
+                  },
+                ])
+              ),
+              Authorization: {
+                configuredMode: authMode,
+                http: MCP_COMPLIANCE_MANIFEST.authorization.http,
+                stdio: MCP_COMPLIANCE_MANIFEST.authorization.stdio,
+                status: STATUS.OK,
+              },
+              Conformance: {
+                runner: MCP_COMPLIANCE_MANIFEST.conformance.officialPackage,
+                specification: MCP_COMPLIANCE_MANIFEST.conformance.specificationCommit,
+                tasks: MCP_COMPLIANCE_MANIFEST.conformance.tasksCommit,
+                results: {
+                  'MCP 2025 HTTP': `${checks.legacy2025Http}/${checks.legacy2025Http}`,
+                  'MCP 2026 core HTTP': `${checks.core2026Http}/${checks.core2026Http}`,
+                  'MCP 2026 draft HTTP': `${checks.draft2026Http}/${checks.draft2026Http}`,
+                  'MCP 2026 Tasks': `${checks.tasks2026}/${checks.tasks2026}`,
+                },
+                status: STATUS.OK,
+              },
+            },
+            'tree'
+          );
+          printInfo(
+            '\nRe-run locally: bun run test:mcp-official-conformance\n' +
+              'Details: docs/guides/MCP-COMPATIBILITY.md'
+          );
+          return;
+        }
+
         const { announceContext } = await import('../../shared/announce-context.js');
         announceContext({ action: 'Diagnosing', photon: name, target: workingDir });
         const diagnostics: Record<string, any> = {};

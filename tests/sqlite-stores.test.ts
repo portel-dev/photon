@@ -18,6 +18,9 @@ import {
   SqlitePendingAuthorizationStore,
 } from '../dist/serv/auth/sqlite-stores.js';
 
+const ISSUER = 'https://issuer.example';
+const RESOURCE = 'https://resource.example/mcp';
+
 function tempDbPath(): string {
   const dir = mkdtempSync(join(tmpdir(), 'photon-auth-sqlite-'));
   return join(dir, 'test.db');
@@ -32,6 +35,8 @@ async function testAuthCodeStore() {
   await test('save + consume round-trip', async () => {
     await store.save({
       code: 'test-code-1',
+      issuer: ISSUER,
+      resource: RESOURCE,
       clientId: 'client-a',
       redirectUri: 'https://app/cb',
       scope: 'mcp:read',
@@ -50,6 +55,8 @@ async function testAuthCodeStore() {
   await test('consume is single-use', async () => {
     await store.save({
       code: 'test-code-2',
+      issuer: ISSUER,
+      resource: RESOURCE,
       clientId: 'client-a',
       redirectUri: 'https://app/cb',
       scope: 'mcp:read',
@@ -69,6 +76,8 @@ async function testAuthCodeStore() {
   await test('expired code returns null on consume', async () => {
     await store.save({
       code: 'test-code-3',
+      issuer: ISSUER,
+      resource: RESOURCE,
       clientId: 'client-a',
       redirectUri: 'https://app/cb',
       scope: 'mcp:read',
@@ -85,6 +94,8 @@ async function testAuthCodeStore() {
   await test('sweep removes expired codes', async () => {
     await store.save({
       code: 'test-code-4',
+      issuer: ISSUER,
+      resource: RESOURCE,
       clientId: 'client-a',
       redirectUri: 'https://app/cb',
       scope: 'mcp:read',
@@ -102,6 +113,8 @@ async function testAuthCodeStore() {
   await test('duplicate code throws collision', async () => {
     const code = {
       code: 'dupe',
+      issuer: ISSUER,
+      resource: RESOURCE,
       clientId: 'client-a',
       redirectUri: 'https://app/cb',
       scope: 'mcp:read',
@@ -127,6 +140,8 @@ async function testRefreshTokenStore() {
   const store = new SqliteRefreshTokenStore(db);
 
   const baseToken = {
+    issuer: ISSUER,
+    resource: RESOURCE,
     clientId: 'c1',
     userId: 'u1',
     tenantId: 't1',
@@ -174,6 +189,8 @@ async function testClientRegistry() {
   await test('save + find round-trip with full metadata', async () => {
     await store.save({
       clientId: 'c1',
+      issuer: ISSUER,
+      applicationType: 'web',
       clientSecretHash: 'hash-1',
       clientName: 'Test Client',
       redirectUris: ['https://app/cb', 'http://127.0.0.1:8787/cb'],
@@ -207,6 +224,8 @@ async function testClientRegistry() {
   await test('sweep evicts idle clients', async () => {
     await store.save({
       clientId: 'c-idle',
+      issuer: ISSUER,
+      applicationType: 'web',
       clientName: 'Idle',
       redirectUris: ['https://app/cb'],
       grantTypes: ['authorization_code'],
@@ -270,6 +289,8 @@ async function testPendingStore() {
   await test('save + consume round-trip', async () => {
     await store.save({
       id: 'p1',
+      issuer: ISSUER,
+      resource: RESOURCE,
       clientId: 'c1',
       redirectUri: 'https://app/cb',
       scope: 'mcp:read',
@@ -340,6 +361,8 @@ async function testNonceMigration() {
     // before the migration was added.
     await codeStore.save({
       code: 'mig-1',
+      issuer: ISSUER,
+      resource: RESOURCE,
       clientId: 'c',
       redirectUri: 'https://app/cb',
       scope: 'openid',
@@ -359,6 +382,8 @@ async function testNonceMigration() {
     const pendingStore = new SqlitePendingAuthorizationStore(db);
     await pendingStore.save({
       id: 'mig-pend',
+      issuer: ISSUER,
+      resource: RESOURCE,
       clientId: 'c',
       redirectUri: 'https://app/cb',
       scope: 'openid',
@@ -393,6 +418,8 @@ async function testPersistence() {
   const store1 = new SqliteRefreshTokenStore(db1);
   await store1.save({
     token: 'rt-persist',
+    issuer: ISSUER,
+    resource: RESOURCE,
     clientId: 'c1',
     userId: 'u1',
     tenantId: 't1',

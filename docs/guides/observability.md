@@ -6,6 +6,12 @@ instrumentation is a no-op. Set one environment variable and install the
 OTel SDK to route everything to any OTLP-compatible backend
 (Jaeger, Grafana Tempo, SigNoz, Honeycomb, DataDog, …).
 
+> MCP `logging/setLevel` and `notifications/message` are compatibility
+> features as of `2026-07-28`. Use stderr for human-readable stdio diagnostics
+> and this OpenTelemetry path for production telemetry. The complete migration
+> is in
+> [Migrating MCP roots, sampling, and logging](MCP-DEPRECATED-FEATURES.md).
+
 ## Quick start
 
 ```bash
@@ -42,10 +48,12 @@ created.
 
 - Error spans auto-set `sampling.priority=1` so they survive head-based sampling.
 - `recordException` captures the full stack trace via `Error.cause`.
-- `_meta.traceparent` on a tool call makes the new span a child of the
-  incoming W3C context — distributed traces chain automatically.
-- Nested `this.call()` propagates trace context via `_meta.traceparent`,
-  so multi-photon workflows show up as one connected trace.
+- HTTP headers or `_meta` can carry bounded W3C `traceparent`, `tracestate`,
+  and `baggage`; Photon rejects conflicting or malformed inbound values.
+- Nested `this.call()`, daemon workers, durable tasks, and external MCP calls
+  propagate that validated context, so multi-hop workflows remain connected.
+- Baggage is context only. Photon never expands untrusted baggage entries into
+  metric labels.
 
 ### Metrics
 

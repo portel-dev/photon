@@ -4,6 +4,7 @@ import { theme } from '../styles/theme.js';
 import type { OverflowMenuItem } from './overflow-menu.js';
 import './instance-panel.js';
 import { pencil, settings as settingsIcon, clipboard, source, appDefault } from '../icons.js';
+import { isEmojiIcon } from '../utils/icon.js';
 
 export interface ContextBarPhoton {
   name: string;
@@ -460,8 +461,11 @@ export class ContextBar extends LitElement {
     const methodCount = methods.length;
     const templateCount = methods.filter((m: any) => m.isTemplate).length;
     const toolCount = methods.filter((m: any) => !m.isTemplate).length;
-    const displayIcon = p.icon || (p.isApp ? appDefault : p.name.substring(0, 2).toUpperCase());
-    const hasCustomIcon = !!p.icon;
+    const hasEmojiIcon = isEmojiIcon(p.icon);
+    const displayIcon =
+      (hasEmojiIcon ? p.icon : undefined) ||
+      (p.isApp ? appDefault : p.name.substring(0, 2).toUpperCase());
+    const hasCustomIcon = hasEmojiIcon;
     const description = p.description || `${p.name} MCP`;
     const isGenericDesc =
       description.endsWith(' MCP') ||

@@ -26,6 +26,66 @@ import { CFLocalRuntime, mergeBindings, type CfBindingsConfig } from './runtime/
 import { scanCfUsage, type CfUsage } from './cf-usage-scanner.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from './shared/http-route-extractor.js';
 import { extractExposesFromSource, type ExposeDef } from './shared/expose-route-extractor.js';
+import { normalizeFormatDeclaration } from './format/aliases.js';
+import type { CapabilitySurface } from './capability-contract.js';
+
+function escapeRegex(value: string): string {
+  const special = '\\\\^$.*+?()[]{}|';
+  return [...value].map((char) => (special.includes(char) ? `\\${char}` : char)).join('');
+}
+
+function normalizeToolFormatMetadata<T extends { name: string; outputFormat?: string }>(
+  tools: T[],
+  source?: string
+): T[] {
+  return tools.map((tool) => {
+    // photon-core currently accepts the first word of `@format image/png`.
+    // Recover the complete declaration here until that syntax is supported by
+    // the shared extractor as well.
+    const methodName = tool.name.split(/[./]/).pop() || tool.name;
+    const methodPattern = new RegExp(
+      `(?:^|\\n)\\s*(?:async\\s+)?${escapeRegex(methodName)}\\s*\\(`
+    );
+    const methodMatch = source && methodPattern.exec(source);
+    const methodPrefix = methodMatch && source ? source.slice(0, methodMatch.index) : undefined;
+    const docStart = methodPrefix?.lastIndexOf('/**');
+    const docEnd = methodPrefix?.lastIndexOf('*/');
+    const doc =
+      methodPrefix && docStart !== undefined && docEnd !== undefined && docStart < docEnd
+        ? methodPrefix.slice(docStart + 3)
+        : undefined;
+    const declaredFormat = doc?.match(/@format\s+([^\s@*]+)/i)?.[1] || tool.outputFormat;
+    if (!declaredFormat) return tool;
+    const declaredMime = doc?.match(/@mimeType\s+([\w\/\-+.]+)/i)?.[1];
+    const normalized = normalizeFormatDeclaration(declaredFormat, declaredMime);
+    return {
+      ...tool,
+      outputFormat: normalized.outputFormat,
+      formatKind: normalized.kind,
+      ...(normalized.alias ? { formatAlias: normalized.alias } : {}),
+      ...(normalized.mimeType ? { mimeType: normalized.mimeType } : {}),
+    } as T;
+  });
+}
+
+function applySurfaceMetadata<T extends { name: string }>(tools: T[], source: string): T[] {
+  return tools.map((tool) => {
+    const methodPattern = new RegExp(`(?:^|\\n)\\s*(?:async\\s+)?${escapeRegex(tool.name)}\\s*\\(`);
+    const match = methodPattern.exec(source);
+    const before = match ? source.slice(0, match.index) : source;
+    const start = before.lastIndexOf('/**');
+    const end = before.lastIndexOf('*/');
+    const doc = start >= 0 && end > start ? before.slice(start, end + 2) : '';
+    const raw = doc.match(/@surface\\s+([^\\n*]+)/i)?.[1]?.trim();
+    if (!raw) return tool;
+    const surfaces = raw
+      .split(/\\s+/)
+      .filter((s): s is CapabilitySurface => ['mcp', 'cli', 'a2a', 'runtime'].includes(s));
+    return surfaces.length
+      ? ({ ...tool, surfaces } as T & { surfaces: CapabilitySurface[] })
+      : tool;
+  });
+}
 import type {
   PhotonInstance,
   EventListenerEntry,
@@ -38,6 +98,7 @@ import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { startToolSpan } from './telemetry/otel.js';
+import { validateTracePropagation } from './telemetry/propagation.js';
 import {
   recordToolCall,
   recordCircuitStateChange,
@@ -128,7 +189,12 @@ import {
   getPhotonDataDir,
 } from '@portel/photon-core';
 import { getDefaultContext } from './context.js';
+import { audit as writeAudit } from './shared/audit.js';
 import { getInstanceStatePath } from './context-store.js';
+import { getCurrentAppContext, validateAppContext } from './app-context.js';
+import { contractsForTools, type CapabilityContractV1 } from './capability-contract.js';
+import { extractA2AHandler } from './a2a/handler.js';
+import type { A2AHandler } from './a2a/types.js';
 import {
   ContextRegistry,
   RepeatDetector,
@@ -656,6 +722,43 @@ export class PhotonLoader {
   /** Cache of loaded Photon instances by source path */
   private loadedPhotons: Map<string, PhotonClassExtended> = new Map();
 
+  private auditInput(value: unknown): unknown {
+    const seen = new WeakSet<object>();
+    const redact = (input: unknown, key = ''): unknown => {
+      if (/token|secret|password|authorization|api[-_]?key/i.test(key)) return '[REDACTED]';
+      if (input === null || typeof input !== 'object') return input;
+      if (seen.has(input)) return '[CIRCULAR]';
+      seen.add(input);
+      if (Array.isArray(input)) return input.slice(0, 50).map((v) => redact(v));
+      return Object.fromEntries(
+        Object.entries(input as Record<string, unknown>)
+          .slice(0, 100)
+          .map(([k, v]) => [k, redact(v, k)])
+      );
+    };
+    const output = redact(value);
+    try {
+      return JSON.stringify(output).length > 16_384 ? '[TRUNCATED]' : output;
+    } catch {
+      return '[UNSERIALIZABLE]';
+    }
+  }
+
+  /** Canonical capability contract used by all adapters and integrations. */
+  getCapabilityContracts(mcp: PhotonClass): CapabilityContractV1[] {
+    return contractsForTools((mcp.tools || []) as Array<any>);
+  }
+
+  async getA2AHandler(mcp: PhotonClass, sourcePath: string): Promise<A2AHandler | undefined> {
+    const source = await readText(sourcePath);
+    const declaration = extractA2AHandler(source);
+    if (!declaration) return undefined;
+    const method = mcp.instance?.[declaration.method] ?? mcp.classConstructor?.[declaration.method];
+    return typeof method === 'function'
+      ? (message, context) => method.call(mcp.instance, message, context)
+      : undefined;
+  }
+
   /** Get all loaded photon instances (including sub-photons loaded via @photon). */
   getLoadedPhotons(): Map<string, PhotonClassExtended> {
     return this.loadedPhotons;
@@ -1175,6 +1278,12 @@ export class PhotonLoader {
       }
     }
 
+    // The cache may disappear while a daemon is alive (for example when its
+    // PHOTON_DIR is a temporary workspace that gets removed).  The compiler
+    // expects its build root to exist even for photons with no external
+    // dependencies, so recreate it before every compile/reload.
+    await fs.mkdir(this.getBuildCacheDir(cacheKey), { recursive: true });
+
     // All photons need @portel/photon-core resolvable from the build cache.
     // Symlink it into the build dir's node_modules so the compiled ESM import works.
     {
@@ -1631,6 +1740,8 @@ export class PhotonLoader {
                 ? `00-${ctx.traceId}-${crypto.randomBytes(8).toString('hex')}-01`
                 : undefined);
             if (traceparent) metaAdditions.traceparent = traceparent;
+            if (ctx.tracestate) metaAdditions.tracestate = ctx.tracestate;
+            if (ctx.baggage) metaAdditions.baggage = ctx.baggage;
             if (ctx.cwd) metaAdditions.callerCwd = ctx.cwd;
           }
           if (Object.keys(metaAdditions).length > 0) {
@@ -1853,6 +1964,14 @@ export class PhotonLoader {
           Object.defineProperty(instance, 'request', {
             get() {
               return getRequestContext()?.request;
+            },
+            configurable: true,
+          });
+        }
+        if (!('appContext' in instance)) {
+          Object.defineProperty(instance, 'appContext', {
+            get() {
+              return getCurrentAppContext();
             },
             configurable: true,
           });
@@ -2413,6 +2532,8 @@ export class PhotonLoader {
               ? `00-${ctx.traceId}-${crypto.randomBytes(8).toString('hex')}-01`
               : undefined);
           if (traceparent) metaAdditions.traceparent = traceparent;
+          if (ctx.tracestate) metaAdditions.tracestate = ctx.tracestate;
+          if (ctx.baggage) metaAdditions.baggage = ctx.baggage;
           if (ctx.cwd) metaAdditions.callerCwd = ctx.cwd;
         }
         if (Object.keys(metaAdditions).length > 0) {
@@ -3202,6 +3323,10 @@ export class PhotonLoader {
           description: this.stripJSDocTags(t.description),
         }));
         statics = statics.map((s) => ({ ...s, description: this.stripJSDocTags(s.description) }));
+        tools = applySurfaceMetadata(
+          normalizeToolFormatMetadata(tools, sourceContent),
+          sourceContent || ''
+        );
         return { tools, templates, statics };
       } catch (jsonError: unknown) {
         // .schema.json doesn't exist, try extracting from .ts source
@@ -3235,6 +3360,7 @@ export class PhotonLoader {
           templates = metadata.templates.filter((t) => methodNames.includes(t.name));
           statics = metadata.statics.filter((s) => methodNames.includes(s.name));
 
+          tools = applySurfaceMetadata(normalizeToolFormatMetadata(tools, source), source);
           this.log(
             `Extracted ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from source`
           );
@@ -3305,6 +3431,10 @@ export class PhotonLoader {
     tools = tools.map((t) => ({ ...t, description: this.stripJSDocTags(t.description) }));
     templates = templates.map((t) => ({ ...t, description: this.stripJSDocTags(t.description) }));
     statics = statics.map((s) => ({ ...s, description: this.stripJSDocTags(s.description) }));
+    tools = applySurfaceMetadata(
+      normalizeToolFormatMetadata(tools, sourceContent),
+      sourceContent || ''
+    );
     return { tools, templates, statics };
   }
 
@@ -4528,6 +4658,7 @@ Run: photon mcp ${mcpName} --config
       roots?: Array<{ uri: string; name?: string }>;
       caller?: CallerInfo;
       requestContext?: PhotonExecutionRequestContext;
+      appContext?: import('./app-context.js').PhotonAppContext;
       traceId?: string;
       parentTraceparent?: string;
       signal?: AbortSignal;
@@ -4537,8 +4668,12 @@ Run: photon mcp ${mcpName} --config
     // so the ALS context reflects the true parent for any nested `this.call()`
     // and the originating CLI invocation directory propagates through worker
     // boundaries.
-    let resolvedParentTraceparent = options?.parentTraceparent;
+    let resolvedParentTraceparent =
+      options?.parentTraceparent ?? options?.requestContext?.traceparent;
+    let resolvedTracestate = options?.requestContext?.tracestate;
+    let resolvedBaggage = options?.requestContext?.baggage;
     let resolvedCallerCwd: string | undefined;
+    let resolvedAppContext = options?.appContext;
     if (parameters && typeof parameters === 'object' && '_meta' in parameters) {
       const metaPeek = (parameters as Record<string, unknown>)._meta as
         | Record<string, unknown>
@@ -4547,10 +4682,49 @@ Run: photon mcp ${mcpName} --config
         if (!resolvedParentTraceparent && typeof metaPeek.traceparent === 'string') {
           resolvedParentTraceparent = metaPeek.traceparent;
         }
+        if (!resolvedTracestate && typeof metaPeek.tracestate === 'string') {
+          resolvedTracestate = metaPeek.tracestate;
+        }
+        if (!resolvedBaggage && typeof metaPeek.baggage === 'string') {
+          resolvedBaggage = metaPeek.baggage;
+        }
         if (typeof metaPeek.callerCwd === 'string') {
           resolvedCallerCwd = metaPeek.callerCwd;
         }
+        if (metaPeek.appContext !== undefined) {
+          resolvedAppContext = validateAppContext(metaPeek.appContext);
+        }
       }
+    }
+    const propagation = validateTracePropagation({
+      traceparent: resolvedParentTraceparent,
+      tracestate: resolvedTracestate,
+      baggage: resolvedBaggage,
+    });
+    resolvedParentTraceparent = propagation.ok ? propagation.context.traceparent : undefined;
+    resolvedTracestate = propagation.ok ? propagation.context.tracestate : undefined;
+    resolvedBaggage = propagation.ok ? propagation.context.baggage : undefined;
+    const requestContext: PhotonExecutionRequestContext | undefined =
+      options?.requestContext || resolvedParentTraceparent || resolvedTracestate || resolvedBaggage
+        ? {
+            ...(options?.requestContext ?? {
+              transport: 'internal',
+              protocolVersion: 'internal',
+              client: {
+                protocolVersion: 'internal',
+                clientName: 'photon-runtime',
+                mode: 'unknown' as const,
+              },
+            }),
+          }
+        : undefined;
+    if (requestContext) {
+      delete requestContext.traceparent;
+      delete requestContext.tracestate;
+      delete requestContext.baggage;
+      if (resolvedParentTraceparent) requestContext.traceparent = resolvedParentTraceparent;
+      if (resolvedTracestate) requestContext.tracestate = resolvedTracestate;
+      if (resolvedBaggage) requestContext.baggage = resolvedBaggage;
     }
     const run = () =>
       runWithRequestContext(
@@ -4559,8 +4733,11 @@ Run: photon mcp ${mcpName} --config
           tool: toolName,
           traceId: options?.traceId,
           parentTraceparent: resolvedParentTraceparent,
+          tracestate: resolvedTracestate,
+          baggage: resolvedBaggage,
           caller: options?.caller,
-          request: options?.requestContext,
+          request: requestContext,
+          appContext: resolvedAppContext,
           cwd: resolvedCallerCwd,
           photonDir: this.baseDir,
           startedAt: Date.now(),
@@ -4568,6 +4745,7 @@ Run: photon mcp ${mcpName} --config
         () =>
           this._executeToolInner(mcp, toolName, parameters, {
             ...options,
+            requestContext,
             parentTraceparent: resolvedParentTraceparent,
           })
       );
@@ -4633,6 +4811,7 @@ Run: photon mcp ${mcpName} --config
       roots?: Array<{ uri: string; name?: string }>;
       caller?: CallerInfo;
       requestContext?: PhotonExecutionRequestContext;
+      appContext?: import('./app-context.js').PhotonAppContext;
       traceId?: string;
       parentTraceparent?: string;
       signal?: AbortSignal;
@@ -4679,7 +4858,11 @@ Run: photon mcp ${mcpName} --config
       parameters,
       options?.traceId,
       isStateful,
-      parentTraceparent
+      parentTraceparent,
+      {
+        tracestate: options?.requestContext?.tracestate,
+        baggage: options?.requestContext?.baggage,
+      }
     );
     if (mcp.instance?.instanceName) {
       span.setAttribute('photon.instance', mcp.instance.instanceName);
@@ -5137,6 +5320,29 @@ Run: photon mcp ${mcpName} --config
       this.logger.debug(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
       throw error;
     } finally {
+      writeAudit({
+        ts: new Date().toISOString(),
+        event: 'invocation',
+        photon: mcp.name,
+        method: toolName,
+        instance: mcp.instance?.instanceName,
+        client: options?.requestContext?.transport || 'internal',
+        sessionId: options?.requestContext?.appSessionId,
+        traceId: options?.traceId,
+        callerId: options?.caller?.id,
+        outcome:
+          metricsStatus === 'ok'
+            ? 'success'
+            : /cancel|abort/i.test(metricsErrorType || '')
+              ? 'cancelled'
+              : /denied|auth|approval/i.test(metricsErrorType || '')
+                ? 'denied'
+                : 'error',
+        readOnly: Boolean((mcp.tools.find((tool) => tool.name === toolName) as any)?.readOnlyHint),
+        durationMs: Date.now() - toolStartedAt,
+        input: this.auditInput(parameters),
+        errorCode: metricsErrorType,
+      });
       span.end();
       recordToolCall({
         photon: mcp.name,

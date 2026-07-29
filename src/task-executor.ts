@@ -9,7 +9,7 @@
  * Dependency direction: PhotonServer → TaskExecutor (never the reverse).
  */
 
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server } from './mcp/sdk-v1-2025/server.js';
 import {
   createTask,
   getTask,
@@ -19,7 +19,7 @@ import {
   getController,
   unregisterController,
 } from './tasks/store.js';
-import { toWireFormat, relatedTaskMeta, TERMINAL_STATES } from './tasks/types.js';
+import { toWireFormat, relatedTaskMeta, taskErrorMessage, TERMINAL_STATES } from './tasks/types.js';
 import type { Task } from './tasks/types.js';
 import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from './tasks/executor.js';
 import type { LogLevel } from './shared/logger.js';
@@ -192,7 +192,7 @@ export class TaskExecutor {
   private formatTaskResult(task: Task, taskId: string): any {
     if (task.state === 'failed') {
       return {
-        content: [{ type: 'text' as const, text: task.error || 'Task failed' }],
+        content: [{ type: 'text' as const, text: taskErrorMessage(task.error) }],
         isError: true,
         _meta: relatedTaskMeta(taskId),
       };

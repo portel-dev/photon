@@ -51,6 +51,7 @@ function assertEqual(actual: any, expected: any, message: string) {
  */
 function createMockBrowser() {
   const sentMessages: any[] = [];
+  const dispatchedEvents: any[] = [];
   const messageListeners: ((e: { data: any }) => void)[] = [];
 
   const mockWindow: any = {
@@ -67,12 +68,17 @@ function createMockBrowser() {
     },
     removeEventListener: () => {},
     open: () => {},
-    dispatchEvent: () => {},
+    dispatchEvent: (event: any) => {
+      dispatchedEvents.push(event);
+    },
     CustomEvent: class CustomEvent {
+      public detail: any;
       constructor(
         public type: string,
-        public detail: any
-      ) {}
+        init?: { detail?: any }
+      ) {
+        this.detail = init?.detail;
+      }
     },
   };
 
@@ -159,6 +165,7 @@ function createMockBrowser() {
     getMessages,
     clearMessages,
     getLastMessage,
+    getDispatchedEvents: () => [...dispatchedEvents],
   };
 }
 
@@ -350,6 +357,13 @@ await test('window.photon.invoke rejects on isError', async () => {
     result: {
       content: [{ type: 'text', text: 'Something went wrong' }],
       isError: true,
+      _meta: {
+        'io.portel.photon/error': {
+          code: 'PHOTON_TOOL_EXECUTION_FAILED',
+          correlationId: 'invoke-error',
+          retryable: false,
+        },
+      },
     },
   });
 
@@ -358,6 +372,9 @@ await test('window.photon.invoke rejects on isError', async () => {
     assert(false, 'Should have rejected');
   } catch (e: any) {
     assert(e.message.includes('Something went wrong'), 'Should include error message');
+    assertEqual(e.code, 'PHOTON_TOOL_EXECUTION_FAILED', 'Should preserve stable error code');
+    assertEqual(e.correlationId, 'invoke-error', 'Should preserve correlation id');
+    assertEqual(e.retryable, false, 'Should preserve retryability');
   }
 });
 
@@ -410,6 +427,45 @@ await test('ui/notifications/tool-result triggers onResult callback', () => {
   });
 
   assertEqual(receivedData, { boards: ['board1', 'board2'] }, 'Should receive result data');
+});
+
+await test('ui/notifications/tool-result surfaces isError without resolving result listeners', () => {
+  const mock = createMockBrowser();
+  const win = executeBridgeScript(mock);
+
+  let receivedData: any = null;
+  win.photon.onResult((data: any) => {
+    receivedData = data;
+  });
+
+  mock.sendToIframe({
+    jsonrpc: '2.0',
+    method: 'ui/notifications/tool-result',
+    params: {
+      result: {
+        content: [{ type: 'text', text: 'Rejected' }],
+        isError: true,
+        _meta: {
+          'io.portel.photon/error': {
+            code: 'PHOTON_TOOL_EXECUTION_FAILED',
+            correlationId: 'bridge-error',
+          },
+        },
+      },
+    },
+  });
+
+  assertEqual(receivedData, null, 'Error notification must not resolve onResult listeners');
+  const event = mock
+    .getDispatchedEvents()
+    .find((candidate: any) => candidate.type === 'photon:tool-error');
+  assert(event, 'Should dispatch photon:tool-error');
+  assertEqual(
+    event.detail.error.code,
+    'PHOTON_TOOL_EXECUTION_FAILED',
+    'Should preserve canonical error code'
+  );
+  assertEqual(event.detail.error.correlationId, 'bridge-error', 'Should preserve correlation id');
 });
 
 await test('legacy photon:result triggers onResult callback', () => {

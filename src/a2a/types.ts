@@ -57,3 +57,66 @@ export interface AgentSkill {
   /** JSON Schema describing expected input */
   inputSchema?: Record<string, unknown>;
 }
+
+/** A2A 1.0 message primitives used by the optional Photon adapter. */
+export interface A2AMessage {
+  messageId: string;
+  role: 'user' | 'agent';
+  parts: Array<{
+    kind: 'text' | 'file' | 'data';
+    text?: string;
+    data?: unknown;
+    mimeType?: string;
+  }>;
+  contextId?: string;
+  taskId?: string;
+}
+
+export interface A2AInvocationContext {
+  callerId?: string;
+  contextId: string;
+  taskId: string;
+  signal?: AbortSignal;
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2AHandlerResult {
+  status: 'completed' | 'input-required' | 'failed';
+  message?: A2AMessage;
+  artifacts?: Array<{ name?: string; parts: A2AMessage['parts'] }>;
+}
+
+export interface A2AEvent {
+  type: 'status-update' | 'artifact-update' | 'message';
+  taskId: string;
+  status?: A2AHandlerResult['status'];
+  message?: A2AMessage;
+  artifact?: { name?: string; parts: A2AMessage['parts'] };
+}
+
+export type A2AHandler = (
+  message: A2AMessage,
+  context: A2AInvocationContext
+) => A2AHandlerResult | Promise<A2AHandlerResult> | AsyncIterable<A2AEvent>;
+
+export interface AgentCardV1 {
+  name: string;
+  description: string;
+  url: string;
+  version: string;
+  supportedInterfaces: Array<{
+    url: string;
+    protocolBinding: 'JSONRPC' | 'HTTP+JSON';
+    protocolVersion: '1.0';
+  }>;
+  capabilities: {
+    streaming?: boolean;
+    pushNotifications?: boolean;
+    stateTransitionHistory?: boolean;
+  };
+  skills: AgentSkill[];
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+  securitySchemes?: Record<string, { type: 'http'; scheme: 'bearer'; bearerFormat?: string }>;
+  security?: Array<Record<string, string[]>>;
+}

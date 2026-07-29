@@ -45,6 +45,7 @@ import { ViewportAwareProxy } from '../services/viewport-aware-proxy.js';
 import { ViewportManager, getPageSizeForClient } from '../services/viewport-manager.js';
 import { buildBeamRoutePath, parseBeamRoutePath, shouldOpenAppTab } from '../utils/beam-route.js';
 import { formatLabel } from '../utils/format-label.js';
+import { isEmojiIcon } from '../utils/icon.js';
 import { getIntentOutputFormat, isDestructiveIntent, methodRequiresInput } from '../../intent.js';
 
 // Browser-side libraries loaded from script tags (vendored / CDN). Declared
@@ -804,6 +805,22 @@ export class BeamApp extends LitElement {
         display: flex;
         gap: var(--space-sm);
         margin-top: var(--space-sm);
+      }
+
+      .home-heading {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--space-md);
+      }
+
+      .beam-version {
+        flex-shrink: 0;
+        color: var(--t-muted);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        font-weight: 500;
+        opacity: 0.8;
       }
 
       .btn-sm {
@@ -2283,6 +2300,10 @@ export class BeamApp extends LitElement {
   @state() private _photonHelpLoading = false;
   @state() private _elicitationData: ElicitationData | null = null;
   @state() private _showElicitation = false;
+  // A tool call remains in-flight while the server waits for the user's
+  // elicitation response. Keep that state distinct from ordinary work
+  // progress so the UI does not make a paused call look busy forever.
+  @state() private _elicitationWait: 'input' | 'approval' | null = null;
   @state() private _showApprovals = false;
   @state() private _pendingApprovalsList: ApprovalItem[] = [];
   @state() private _protocolMode: 'legacy' | 'mcp' = 'legacy';
@@ -2358,6 +2379,7 @@ export class BeamApp extends LitElement {
   // File storage for ChatGPT Apps SDK uploadFile/getFileDownloadUrl
   private _uploadedFiles = new Map<string, { data: string; fileName: string; fileType: string }>();
   private _modelContext: any = null;
+  private _appContext: Record<string, unknown> = {};
   private _fileIdCounter = 0;
 
   // Deep link URL for setOpenInAppUrl
@@ -2673,10 +2695,15 @@ export class BeamApp extends LitElement {
           this._connected = true;
           this._reconnecting = false;
           this._reconnectAttempt = 0;
+          void this._fetchDiagnostics();
           console.log(isReconnect ? 'MCP client reconnected' : 'MCP client connected');
 
           // Load/refresh photon list
           const tools = await mcpClient.listTools();
+          this._appContext = (await mcpClient.getAppContext().catch(() => ({}))) as Record<
+            string,
+            unknown
+          >;
           const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
           this._photons = photons;
           this._externalMCPs = externalMCPs;
@@ -2808,6 +2835,27 @@ export class BeamApp extends LitElement {
       });
 
       mcpClient.on('progress', (data: any) => {
+        const progressToken = data?.progressToken;
+        const isApprovalKeepalive =
+          typeof progressToken === 'string' && progressToken.startsWith('approval_');
+
+        // Approval keepalives are transport plumbing, not user-visible work
+        // progress. Older servers may still emit them, so ignore them here
+        // for compatibility even though the transport no longer fabricates
+        // non-compliant approval tokens.
+        if (isApprovalKeepalive) return;
+
+        // Once an elicitation is open, the generator is paused at its ask.
+        // Ignore any late progress for that call and clear the stale status
+        // that was emitted immediately before the ask.
+        if (
+          this._showElicitation &&
+          this._isExecuting &&
+          progressToken === this._activeProgressToken
+        ) {
+          return;
+        }
+
         this._log('info', data.message || 'Processing...');
 
         // Route progress to the correct split panel if progressToken matches
@@ -3108,6 +3156,10 @@ export class BeamApp extends LitElement {
           };
           this._elicitationData = elicitationData;
           this._showElicitation = true;
+          this._elicitationWait = 'input';
+          // The request is still executing, but it is blocked on the human;
+          // retaining the last progress event makes the modal look broken.
+          this._progress = null;
           this._log('info', `Input required: ${data.message || elicitationData.ask}`);
         }
       });
@@ -3120,6 +3172,7 @@ export class BeamApp extends LitElement {
             this._showElicitation = false;
             this._elicitationData = null;
           }
+          this._elicitationWait = 'approval';
           // Refresh pending approvals list
           void this._fetchPendingApprovals();
           this._log('info', `Moved to pending approvals: ${data.message || 'Approval required'}`);
@@ -4066,6 +4119,7 @@ export class BeamApp extends LitElement {
           .theme=${this._theme}
           .connected=${this._connected}
           .reconnecting=${this._reconnecting}
+          .workingDir=${this._diagnosticsData?.workingDir || ''}
           .updatesAvailable=${this._updatesAvailable.length}
           .pendingApprovals=${this._pendingApprovalsList.length}
           .mainTab=${this._mainTab}
@@ -4676,9 +4730,14 @@ export class BeamApp extends LitElement {
       // Has user photons but none selected — show home page
       return html`
         <div style="max-width: 780px;">
-          <h1 class="text-gradient" style="font-size: 1.8rem; margin-bottom: var(--space-xs);">
-            Photon Beam
-          </h1>
+          <div class="home-heading">
+            <h1 class="text-gradient" style="font-size: 1.8rem; margin-bottom: var(--space-xs);">
+              Photon Beam
+            </h1>
+            ${this._diagnosticsData?.photonVersion
+              ? html`<span class="beam-version">v${this._diagnosticsData.photonVersion}</span>`
+              : ''}
+          </div>
           <p
             style="color: var(--t-muted); font-size: 1rem; margin: 0 0 var(--space-xl) 0; line-height: 1.6;"
           >
@@ -5277,9 +5336,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
               <div
                 style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; ${appFillStyle}"
               >
-                <span class="spinner"></span>
+                ${this._elicitationWait
+                  ? html`<span style="font-size: 22px; line-height: 1;">⏸</span>`
+                  : html`<span class="spinner"></span>`}
                 <span style="color: var(--t-muted); font-size: 13px;">
-                  ${this._progress?.message || 'Starting up…'}
+                  ${this._elicitationWait === 'approval'
+                    ? 'Waiting for approval…'
+                    : this._elicitationWait === 'input'
+                      ? 'Waiting for your input…'
+                      : this._progress?.message || 'Starting up…'}
                 </span>
               </div>
             `
@@ -5764,13 +5829,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
     }
 
-    // For Apps, selecting the photon opens Methods. The App tab is the
-    // explicit affordance for opening the app surface.
+    // App photons are app-first: selecting one should land on its app surface,
+    // while the Methods tab remains available as an explicit secondary view.
+    // This keeps sidebar selection consistent with root URL routing and avoids
+    // making users discover the App tab before they can see the product.
     if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
-      this._selectedMethod = null;
-      this._view = 'list';
-      this._mainTab = 'methods';
+      const appEntry = this._selectedPhoton.appEntry;
+      if (this._willAutoInvoke(appEntry)) {
+        // Set this before selecting the method so linked/custom UIs cannot
+        // render once with no result and race the initial tool call.
+        this._isExecuting = true;
+      }
+      this._selectedMethod = appEntry;
+      this._view = 'form';
+      this._mainTab = 'app';
       this._updateRoute();
+      this._maybeAutoInvoke(appEntry);
       return;
     } else {
       this._view = 'list';
@@ -7555,6 +7629,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._lastResult = null;
     this._customFormatUri = null;
     this._isExecuting = true;
+    this._elicitationWait = null;
     this._progress = null;
     const progressToken = `main_${this._selectedPhoton.name}_${this._selectedMethod.name}_${Date.now()}`;
     this._activeProgressToken = progressToken;
@@ -8035,6 +8110,28 @@ ${photon.errorMessage || 'Unknown error'}</pre
       const msg = event.data;
       if (!msg || typeof msg !== 'object') return;
 
+      if (msg.type === 'photon:context-get') {
+        const context = await mcpClient.getAppContext().catch(() => this._appContext);
+        this._appContext = context as Record<string, unknown>;
+        (event.source as Window | null)?.postMessage(
+          { type: 'photon:context', requestId: msg.requestId, context },
+          '*'
+        );
+        return;
+      }
+      if (msg.type === 'photon:context-set') {
+        const context = await mcpClient
+          .setAppContext(msg.context || {})
+          .catch(() => msg.context || {});
+        this._appContext = context as Record<string, unknown>;
+        (event.source as Window | null)?.postMessage(
+          { type: 'photon:context', requestId: msg.requestId, context },
+          '*'
+        );
+        this._forwardToIframes({ type: 'photon:context-changed', context });
+        return;
+      }
+
       // Skip JSON-RPC messages for external MCPs — handled by AppBridge in mcp-app-renderer
       if (msg?.jsonrpc === '2.0' && this._selectedPhoton?.isExternalMCP) return;
 
@@ -8364,6 +8461,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._localElicitResolve = resolve;
     this._elicitationData = { ...data };
     this._showElicitation = true;
+    this._elicitationWait = 'input';
+    this._progress = null;
   };
 
   private _handleElicitationSubmit = async (e: CustomEvent) => {
@@ -8372,6 +8471,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     this._showElicitation = false;
     this._elicitationData = null;
+    this._elicitationWait = null;
 
     // Local elicitation (from confirmElicit/promptElicit)
     if (this._localElicitResolve) {
@@ -8409,6 +8509,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     this._showElicitation = false;
     this._elicitationData = null;
+    this._elicitationWait = null;
     this._isExecuting = false;
 
     // Local elicitation (from confirmElicit/promptElicit)
@@ -8479,6 +8580,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // The elicitation UI just needs to close and show status
     this._showElicitation = false;
     this._elicitationData = null;
+    this._elicitationWait = null;
     if (success) {
       this._log('success', 'Authorization completed');
       showToast('Authorization completed', 'success');
@@ -9446,7 +9548,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
       /^add description/i.test(description.trim());
 
     // Get icon - check for custom icon first, then app icon, then initials
-    const customIcon = this._selectedPhoton.icon;
+    const customIcon = isEmojiIcon(this._selectedPhoton.icon)
+      ? this._selectedPhoton.icon
+      : undefined;
     const photonInitials = this._selectedPhoton.name.substring(0, 2).toUpperCase();
     const defaultIcon = isApp ? '📱' : photonInitials;
     const displayIcon = customIcon || defaultIcon;

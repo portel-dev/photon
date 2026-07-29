@@ -21,7 +21,14 @@ async function runIntegrationTests() {
   const transport = new StdioClientTransport({
     command: 'node',
     args: [cliPath, 'mcp', 'content'],
-    env: { ...process.env, PHOTON_DIR: fixturesDir },
+    env: {
+      ...process.env,
+      PHOTON_DIR: fixturesDir,
+      // HTTP OAuth configuration must never become a stdio credential gate.
+      // Deliberately omit JWKS/audience; an HTTP transport would fail closed.
+      PHOTON_MCP_AUTH_MODE: 'jwt',
+      PHOTON_MCP_JWT_ISSUER: 'https://issuer.example.test',
+    },
   });
 
   const client = new Client(

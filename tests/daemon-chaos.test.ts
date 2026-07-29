@@ -25,6 +25,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
+const TEST_NODE = process.env.PHOTON_TEST_NODE || process.execPath;
 
 const CHAOS_PHOTON = `
 /** @version 1.0.0 */
@@ -94,7 +95,6 @@ function daemonProcessCount() {
       .trim()
       .split('\\n')
       .filter((line) => line.includes('daemon/server.js ' + sockPath))
-      .filter((line) => /\\bnode\\b/.test(line) || /\\/node\\b/.test(line))
       .length;
   } catch { return 0; }
 }
@@ -217,7 +217,7 @@ function runScenario(scenario: Scenario): void {
   fs.writeFileSync(scriptPath, PRELUDE + scenario.body + '\nprocess.exit(0);\n');
 
   try {
-    const proc = spawnSync('node', [scriptPath], {
+    const proc = spawnSync(TEST_NODE, [scriptPath], {
       encoding: 'utf-8',
       timeout: 120000,
       env: { ...process.env, HOME: home, PHOTON_DIR: home, ...(scenario.env?.(home) ?? {}) },

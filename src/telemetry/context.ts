@@ -9,6 +9,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { CallerInfo } from '@portel/photon-core';
+import type { PhotonAppContext } from '../app-context.js';
 
 export interface RequestContext {
   photon: string;
@@ -17,10 +18,16 @@ export interface RequestContext {
   traceId?: string;
   /** Inbound W3C traceparent (`00-{traceId}-{spanId}-{flags}`) when present. */
   parentTraceparent?: string;
+  /** Validated W3C vendor trace state; propagated but never used as metric labels. */
+  tracestate?: string;
+  /** Validated, size-bounded W3C baggage; propagated but never used as metric labels. */
+  baggage?: string;
   /** Authenticated caller when available. */
   caller?: CallerInfo;
   /** Normalized transport/client/app-session details for the current invocation. */
   request?: PhotonExecutionRequestContext;
+  /** Bounded semantic UI/application state supplied by Beam or an MCP App. */
+  appContext?: PhotonAppContext;
   /**
    * Originating CLI invocation directory, propagated end-to-end across
    * worker thread and cross-photon-call boundaries. Lets photons resolve
@@ -55,6 +62,8 @@ export interface PhotonExecutionRequestContext {
   protocolVersion: string;
   client: PhotonExecutionClientContext;
   traceparent?: string;
+  tracestate?: string;
+  baggage?: string;
   legacyTransportSessionId?: string;
   appSessionId?: string;
   appSessionSource?: string;
@@ -141,6 +150,8 @@ export function runWithPhotonDir<T>(photonDir: string, fn: () => T): T {
 
   if (existing?.traceId !== undefined) ctx.traceId = existing.traceId;
   if (existing?.parentTraceparent !== undefined) ctx.parentTraceparent = existing.parentTraceparent;
+  if (existing?.tracestate !== undefined) ctx.tracestate = existing.tracestate;
+  if (existing?.baggage !== undefined) ctx.baggage = existing.baggage;
   if (existing?.caller !== undefined) ctx.caller = existing.caller;
   if (existing?.request !== undefined) ctx.request = existing.request;
   if (existing?.cwd !== undefined) ctx.cwd = existing.cwd;

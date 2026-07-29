@@ -34,6 +34,20 @@ export interface AuthMiddlewareConfig {
   allowAnonymous?: boolean;
   /** Required role(s) for access */
   requiredRoles?: string[];
+  /**
+   * Resolve the tenant-specific OAuth protected-resource boundary.
+   *
+   * When configured, resource-bound OAuth access tokens are accepted in
+   * addition to legacy Photon session tokens. Keeping the legacy path as a
+   * fallback preserves existing clients while preventing OAuth tokens from
+   * being treated as transport sessions.
+   */
+  oauthResource?: (tenant: Tenant) => {
+    issuer: string;
+    resource: string;
+    resourceMetadataUrl: string;
+    requiredScopes?: string[];
+  };
 }
 
 // ============================================================================
@@ -87,7 +101,35 @@ export class AuthMiddleware {
       };
     }
 
-    // Verify JWT
+    const oauth = this.config.oauthResource?.(tenant);
+    if (oauth) {
+      const accessToken = this.config.jwtService.verifyAccessToken(token, {
+        issuer: oauth.issuer,
+        audience: oauth.resource,
+        tenantId: tenant.id,
+      });
+      if (accessToken) {
+        const scopedAccessToken = this.config.jwtService.verifyAccessToken(token, {
+          issuer: oauth.issuer,
+          audience: oauth.resource,
+          tenantId: tenant.id,
+          requiredScopes: oauth.requiredScopes,
+        });
+        if (!scopedAccessToken) {
+          return {
+            success: false,
+            error: {
+              code: 403,
+              message: 'Insufficient permissions',
+              wwwAuthenticate: this.buildWwwAuthenticate(tenant, 'insufficient_scope', oauth),
+            },
+          };
+        }
+        return await this.buildContext(tenant, undefined, scopedAccessToken.sub);
+      }
+    }
+
+    // Backward-compatible Photon session token path.
     const payload = this.config.jwtService.verifySessionToken(token);
     if (!payload) {
       return {
@@ -127,45 +169,7 @@ export class AuthMiddleware {
     // Touch session for sliding expiration
     await this.config.sessionStore.touch(session.id);
 
-    // Build context
-    const context: RequestContext = {
-      tenant,
-      session,
-    };
-
-    // Load user if available
-    if (payload.user_id && this.config.userStore) {
-      const user = await this.config.userStore.findById(payload.user_id);
-      if (user) {
-        context.user = user;
-
-        // Load membership
-        if (this.config.membershipStore) {
-          const membership = await this.config.membershipStore.find(tenant.id, user.id);
-          if (membership) {
-            context.membership = membership;
-          }
-        }
-      }
-    }
-
-    // Check required roles
-    if (this.config.requiredRoles && this.config.requiredRoles.length > 0) {
-      if (!context.membership || !this.config.requiredRoles.includes(context.membership.role)) {
-        return {
-          success: false,
-          error: {
-            code: 403,
-            message: 'Insufficient permissions',
-          },
-        };
-      }
-    }
-
-    return {
-      success: true,
-      context,
-    };
+    return await this.buildContext(tenant, session, payload.user_id);
   }
 
   /**
@@ -174,25 +178,69 @@ export class AuthMiddleware {
   private extractBearerToken(header?: string): string | null {
     if (!header) return null;
 
-    const match = header.match(/^Bearer\s+(.+)$/i);
+    const match = header.match(/^Bearer[ \t]+([^\s,]+)$/i);
     return match ? match[1] : null;
   }
 
   /**
    * Build WWW-Authenticate header value
    */
-  private buildWwwAuthenticate(tenant: Tenant, error?: string): string {
+  private buildWwwAuthenticate(
+    tenant: Tenant,
+    error?: string,
+    oauth = this.config.oauthResource?.(tenant)
+  ): string {
     const parts = [
       'Bearer',
       `realm="${tenant.slug}"`,
-      'resource_metadata="/.well-known/oauth-protected-resource"',
+      `resource_metadata="${oauth?.resourceMetadataUrl ?? '/.well-known/oauth-protected-resource'}"`,
     ];
 
     if (error) {
       parts.push(`error="${error}"`);
     }
+    if (oauth?.requiredScopes?.length) {
+      parts.push(`scope="${oauth.requiredScopes.join(' ')}"`);
+    }
 
     return parts.join(', ');
+  }
+
+  private async buildContext(
+    tenant: Tenant,
+    session?: RequestContext['session'],
+    userId?: string
+  ): Promise<AuthResult> {
+    const context: RequestContext = {
+      tenant,
+      ...(session ? { session } : {}),
+    };
+
+    if (userId && this.config.userStore) {
+      const user = await this.config.userStore.findById(userId);
+      if (user) {
+        context.user = user;
+        if (this.config.membershipStore) {
+          const membership = await this.config.membershipStore.find(tenant.id, user.id);
+          if (membership) context.membership = membership;
+        }
+      }
+    }
+
+    if (
+      this.config.requiredRoles?.length &&
+      (!context.membership || !this.config.requiredRoles.includes(context.membership.role))
+    ) {
+      return {
+        success: false,
+        error: {
+          code: 403,
+          message: 'Insufficient permissions',
+        },
+      };
+    }
+
+    return { success: true, context };
   }
 }
 

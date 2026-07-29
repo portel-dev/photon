@@ -147,13 +147,17 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     function extractMcpResultData(result) {
       if (!result) return result;
       // Prefer structuredContent if available
-      if (result.structuredContent) return result.structuredContent;
+      if (Object.prototype.hasOwnProperty.call(result, 'structuredContent')) {
+        return result.structuredContent;
+      }
       // Extract from content array
       if (Array.isArray(result.content)) {
         var textItem = result.content.find(function(item) { return item.type === 'text'; });
         if (textItem && textItem.text) {
           try { return JSON.parse(textItem.text); } catch (e) { return textItem.text; }
         }
+        var imageItem = result.content.find(function(item) { return item.type === 'image' && item.data && item.mimeType; });
+        if (imageItem) return 'data:' + imageItem.mimeType + ';base64,' + imageItem.data;
       }
       return result;
     }
@@ -169,8 +173,17 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
           } else if (m.result && m.result.isError) {
             // Tool returned an error (isError flag in MCP result)
             var errorData = extractMcpResultData(m.result);
-            var errorMsg = typeof errorData === 'string' ? errorData : JSON.stringify(errorData);
-            pending.reject(new Error(errorMsg || 'Tool returned an error'));
+            var errorMsg = errorData && errorData.error && errorData.error.message
+              ? errorData.error.message
+              : (typeof errorData === 'string' ? errorData : JSON.stringify(errorData));
+            var toolError = new Error(errorMsg || 'Tool returned an error');
+            var photonError = m.result._meta && m.result._meta['io.portel.photon/error'];
+            if (photonError) {
+              toolError.code = photonError.code;
+              toolError.correlationId = photonError.correlationId;
+              toolError.retryable = photonError.retryable;
+            }
+            pending.reject(toolError);
           } else {
             pending.resolve(extractMcpResultData(m.result));
           }
@@ -193,12 +206,22 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
         listeners.toolInput.forEach(function(cb) { cb(m.params); });
       }
       else if (m.method === 'ui/notifications/tool-result') {
-        toolOutput = m.params.result;
+        var notifiedResult = m.params && m.params.result;
+        if (notifiedResult && notifiedResult.isError) {
+          window.dispatchEvent(new CustomEvent('photon:tool-error', {
+            detail: {
+              result: notifiedResult,
+              error: notifiedResult._meta && notifiedResult._meta['io.portel.photon/error']
+            }
+          }));
+          return;
+        }
+        toolOutput = notifiedResult;
         // Set __PHOTON_DATA__ and fire photon:data-ready for apps that rely on
         // these patterns (e.g. kanban board.html reads initial data this way)
-        window.__PHOTON_DATA__ = m.params.result;
-        window.dispatchEvent(new CustomEvent('photon:data-ready', { detail: m.params.result }));
-        listeners.result.forEach(function(cb) { cb(m.params.result); });
+        window.__PHOTON_DATA__ = notifiedResult;
+        window.dispatchEvent(new CustomEvent('photon:data-ready', { detail: notifiedResult }));
+        listeners.result.forEach(function(cb) { cb(notifiedResult); });
       }
       else if (m.method === 'ui/resource-teardown' && m.id != null) {
         var teardownResult = teardownHandler ? teardownHandler() : undefined;
@@ -265,6 +288,11 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
         listeners.error.forEach(function(cb) { cb(m.error); });
       }
       else if (m.type === 'photon:context') {
+        var contextPending = pendingCalls[m.requestId];
+        if (contextPending) {
+          delete pendingCalls[m.requestId];
+          contextPending.resolve(m.context || {});
+        }
         Object.assign(ctx, m.context);
         if (m.themeTokens) {
           themeTokens = m.themeTokens;
@@ -441,6 +469,35 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     onElicitation: function(h) { elicitationHandler = h; return function() { elicitationHandler = null; }; },
     onTeardown: function(h) { teardownHandler = h; return function() { teardownHandler = null; }; },
 
+    context: {
+      get: function() {
+        var requestId = generateCallId();
+        return new Promise(function(resolve, reject) {
+          pendingCalls[requestId] = { resolve: resolve, reject: reject };
+          postToHost({ type: 'photon:context-get', requestId: requestId });
+          setTimeout(function() {
+            if (pendingCalls[requestId]) {
+              delete pendingCalls[requestId];
+              reject(new Error('Photon context request timeout'));
+            }
+          }, 10000);
+        });
+      },
+      set: function(value) {
+        var requestId = generateCallId();
+        return new Promise(function(resolve, reject) {
+          pendingCalls[requestId] = { resolve: resolve, reject: reject };
+          postToHost({ type: 'photon:context-set', requestId: requestId, context: value || {} });
+          setTimeout(function() {
+            if (pendingCalls[requestId]) {
+              delete pendingCalls[requestId];
+              reject(new Error('Photon context update timeout'));
+            }
+          }, 10000);
+        });
+      }
+    },
+
     updateModelContext: function(opts) {
       var callId = generateCallId();
       return new Promise(function(resolve, reject) {
@@ -474,6 +531,7 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     get locale() { return ctx.locale; },
     get photon() { return ctx.photon; },
     get method() { return ctx.method; },
+    get appManifest() { return ctx.appManifest; },
     get isChatGPT() { return typeof window.openai !== 'undefined'; }
   };
 

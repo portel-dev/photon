@@ -6,6 +6,8 @@
  * so a crash or bad reload in one photon can't bring down the whole daemon.
  */
 
+import type { TracePropagationContext } from '../telemetry/propagation.js';
+
 /** Messages from main thread → worker */
 export type MainToWorkerMessage =
   | {
@@ -15,6 +17,7 @@ export type MainToWorkerMessage =
       args: Record<string, unknown>;
       sessionId: string;
       instanceName: string;
+      traceContext?: TracePropagationContext;
     }
   | { type: 'reload'; photonPath: string }
   | { type: 'shutdown'; reason?: string }

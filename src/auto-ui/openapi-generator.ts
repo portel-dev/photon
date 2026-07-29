@@ -44,6 +44,7 @@ interface MethodInfo {
   layoutHints?: Record<string, string>;
   buttonLabel?: string;
   linkedUi?: string;
+  surfaces?: string[];
 }
 
 interface PhotonInfo {
@@ -88,6 +89,9 @@ export function generateOpenAPISpec(
     });
 
     for (const method of photon.methods ?? []) {
+      if (method.surfaces && !method.surfaces.includes('mcp') && !method.surfaces.includes('cli')) {
+        continue;
+      }
       const operationId = `${photon.name}_${method.name}`;
       const path = `/api/v1/photon/${encodeURIComponent(photon.name)}/tools/${encodeURIComponent(method.name)}`;
 
@@ -156,6 +160,7 @@ export function generateOpenAPISpec(
       if (method.buttonLabel) {
         operation['x-button-label'] = method.buttonLabel;
       }
+      if (method.surfaces?.length) operation['x-photon-surfaces'] = method.surfaces;
       paths[path] = {
         post: operation,
       };

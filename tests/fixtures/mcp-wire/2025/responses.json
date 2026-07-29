@@ -1,0 +1,158 @@
+{
+  "headers": {
+    "Content-Type": "application/json",
+    "Mcp-Session-Id": "session-123"
+  },
+  "scenarios": {
+    "discovery": {
+      "jsonrpc": "2.0",
+      "id": "discover-1",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "supportedProtocolVersions": ["2025-03-26", "2025-11-25", "2026-07-28"],
+        "serverInfo": {
+          "name": "beam-mcp",
+          "version": "1.2.3"
+        },
+        "capabilities": {
+          "tools": { "listChanged": true },
+          "prompts": { "listChanged": true },
+          "resources": { "listChanged": true, "subscribe": true },
+          "tasks": {
+            "list": {},
+            "cancel": {},
+            "requests": { "tools": { "call": {} } }
+          },
+          "experimental": {
+            "ag-ui": {
+              "version": "0.1.0",
+              "events": ["RUN_STARTED", "RUN_FINISHED"],
+              "features": ["structured-errors", "trace-correlation", "proxy-mode", "local-mode"]
+            }
+          }
+        },
+        "extensions": {
+          "mcp-apps": { "version": "1.0.0" },
+          "tasks": { "version": "legacy" },
+          "photon": {
+            "version": "1.2.3",
+            "requestContext": true,
+            "appSession": {
+              "acceptedLocations": ["_meta.photon/appSessionId", "arguments.appSessionId"],
+              "responseMetaKey": "photon/appSessionId"
+            }
+          }
+        },
+        "configurationSchema": {
+          "demo": {
+            "type": "object",
+            "properties": { "token": { "type": "string" } }
+          }
+        },
+        "_meta": { "photon/appSessionId": "app-123" }
+      }
+    },
+    "list": {
+      "jsonrpc": "2.0",
+      "id": "list-1",
+      "result": {
+        "tools": [
+          {
+            "name": "demo.echo",
+            "description": "Echo input",
+            "inputSchema": { "type": "object" }
+          }
+        ]
+      }
+    },
+    "toolSuccess": {
+      "jsonrpc": "2.0",
+      "id": "tool-success-1",
+      "result": {
+        "content": [{ "type": "text", "text": "{\"echo\":\"hello\"}" }],
+        "isError": false,
+        "structuredContent": { "echo": "hello" }
+      }
+    },
+    "toolError": {
+      "jsonrpc": "2.0",
+      "id": "tool-error-1",
+      "result": {
+        "content": [{ "type": "text", "text": "Error: unavailable" }],
+        "isError": true
+      }
+    },
+    "resourceRead": {
+      "jsonrpc": "2.0",
+      "id": "resource-1",
+      "result": {
+        "contents": [
+          {
+            "uri": "photon://demo/item/1",
+            "mimeType": "application/json",
+            "text": "{\"id\":1}"
+          }
+        ]
+      }
+    },
+    "resourceNotFound": {
+      "jsonrpc": "2.0",
+      "id": "resource-missing-1",
+      "error": { "code": -32602, "message": "Resource not found" }
+    },
+    "subscriptionAcknowledgement": {
+      "jsonrpc": "2.0",
+      "method": "notifications/subscriptions/acknowledged",
+      "params": {
+        "notifications": { "toolsListChanged": true },
+        "_meta": {
+          "io.modelcontextprotocol/subscriptionId": "subscription-1"
+        }
+      }
+    },
+    "subscriptionTermination": {
+      "jsonrpc": "2.0",
+      "id": "subscription-1",
+      "result": {
+        "_meta": {
+          "io.modelcontextprotocol/subscriptionId": "subscription-1"
+        }
+      }
+    },
+    "inputRequired": {
+      "jsonrpc": "2.0",
+      "id": "input-1",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {
+          "approval": {
+            "method": "elicitation/create",
+            "params": { "message": "Approve?" }
+          }
+        },
+        "requestState": "state-1"
+      }
+    },
+    "task": {
+      "jsonrpc": "2.0",
+      "id": "task-1",
+      "result": {
+        "resultType": "task",
+        "taskId": "task-123",
+        "status": "working",
+        "createdAt": "2026-07-27T00:00:00.000Z",
+        "lastUpdatedAt": "2026-07-27T00:00:00.000Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 1000
+      }
+    },
+    "extensionResult": {
+      "jsonrpc": "2.0",
+      "id": "extension-1",
+      "result": {
+        "resultType": "com.example/custom",
+        "value": "preserved"
+      }
+    }
+  }
+}

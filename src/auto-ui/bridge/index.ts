@@ -113,12 +113,16 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
 
   function extractData(result) {
     if (!result) return result;
-    if (result.structuredContent) return result.structuredContent;
+    if (Object.prototype.hasOwnProperty.call(result, 'structuredContent')) {
+      return result.structuredContent;
+    }
     if (Array.isArray(result.content)) {
       var textItem = result.content.find(function(item) { return item.type === 'text'; });
       if (textItem && textItem.text) {
         try { return JSON.parse(textItem.text); } catch (e) { return textItem.text; }
       }
+      var imageItem = result.content.find(function(item) { return item.type === 'image' && item.data && item.mimeType; });
+      if (imageItem) return 'data:' + imageItem.mimeType + ';base64,' + imageItem.data;
     }
     return result;
   }
@@ -144,8 +148,17 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
             pending.reject(new Error(m.error.message || 'Call failed'));
           } else if (m.result && m.result.isError) {
             var errorData = extractData(m.result);
-            var errorMsg = typeof errorData === 'string' ? errorData : JSON.stringify(errorData);
-            pending.reject(new Error(errorMsg || 'Tool returned an error'));
+            var errorMsg = errorData && errorData.error && errorData.error.message
+              ? errorData.error.message
+              : (typeof errorData === 'string' ? errorData : JSON.stringify(errorData));
+            var toolError = new Error(errorMsg || 'Tool returned an error');
+            var photonError = m.result._meta && m.result._meta['io.portel.photon/error'];
+            if (photonError) {
+              toolError.code = photonError.code;
+              toolError.correlationId = photonError.correlationId;
+              toolError.retryable = photonError.retryable;
+            }
+            pending.reject(toolError);
           } else {
             pending.resolve(extractData(m.result));
           }
@@ -168,7 +181,17 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         postToHost({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
       }
       else if (m.method === 'ui/notifications/tool-result') {
-        toolOutput = extractData(m.params && m.params.result);
+        var notifiedResult = m.params && m.params.result;
+        if (notifiedResult && notifiedResult.isError) {
+          window.dispatchEvent(new CustomEvent('photon:tool-error', {
+            detail: {
+              result: notifiedResult,
+              error: notifiedResult._meta && notifiedResult._meta['io.portel.photon/error']
+            }
+          }));
+          return;
+        }
+        toolOutput = extractData(notifiedResult);
         // Set __PHOTON_DATA__ and fire photon:data-ready for apps that rely on
         // these patterns (e.g. kanban board.html reads initial data this way)
         window.__PHOTON_DATA__ = toolOutput;

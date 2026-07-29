@@ -170,6 +170,7 @@ export const URL_ELICITATION_ERROR_CODE = -32001;
 export interface ProtectedResourceMetadata {
   resource: string;
   authorization_servers: string[];
+  scopes_supported?: string[];
   bearer_methods_supported?: string[];
   resource_signing_alg_values_supported?: string[];
   resource_documentation?: string;
@@ -190,6 +191,8 @@ export interface AuthorizationServerMetadata {
   grant_types_supported?: string[];
   code_challenge_methods_supported?: string[];
   token_endpoint_auth_methods_supported?: string[];
+  /** RFC 9207 issuer parameter is included in authorization responses. */
+  authorization_response_iss_parameter_supported?: boolean;
   /** Draft extension: this AS resolves client_ids that are HTTPS URLs (CIMD). */
   client_id_metadata_document_supported?: boolean;
 }
@@ -204,6 +207,10 @@ export interface AuthorizationServerMetadata {
  */
 export interface AuthorizationCode {
   code: string;
+  /** Authorization-server issuer that created this credential. */
+  issuer: string;
+  /** RFC 8707 resource indicator bound to the resulting access token. */
+  resource: string;
   clientId: string;
   redirectUri: string;
   scope: string;
@@ -222,6 +229,10 @@ export interface AuthorizationCode {
  */
 export interface RefreshToken {
   token: string;
+  /** Authorization-server issuer that owns this refresh credential. */
+  issuer: string;
+  /** Resource audience retained across refresh rotation. */
+  resource: string;
   clientId: string;
   userId: string;
   tenantId: string;
@@ -239,6 +250,10 @@ export interface RefreshToken {
  */
 export interface RegisteredClient {
   clientId: string;
+  /** RFC 8414 issuer this registration belongs to. */
+  issuer: string;
+  /** OIDC Dynamic Client Registration application type. */
+  applicationType: 'native' | 'web';
   clientSecretHash?: string; // bcrypt/argon2 hash; absent for public clients
   clientName: string;
   redirectUris: string[];

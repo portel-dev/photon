@@ -74,7 +74,7 @@ async function startServer(serv: Serv, singleTenant = false): Promise<ServerHand
 
 function buildServ(): Serv {
   return new Serv({
-    baseUrl: 'http://serv.test',
+    baseUrl: 'https://serv.test',
     baseDomain: 'serv.test',
     jwtSecret: 'test-secret-at-least-32-chars-long-1234',
     encryptionKey: 'test-encryption-key-32-chars-long-1234',
@@ -180,6 +180,7 @@ async function testWellKnown() {
       assert.equal(res.status, 200);
       const body = res.body as Record<string, unknown>;
       assert.ok(body.resource, 'resource URI present');
+      assert.deepEqual(body.authorization_servers, [`https://serv.test/tenant/${TENANT_SLUG}`]);
     });
   } finally {
     await handle.close();
@@ -262,6 +263,8 @@ async function testFullFlow() {
       url.searchParams.set('code_challenge', challenge);
       url.searchParams.set('code_challenge_method', 'S256');
       url.searchParams.set('state', 'xyz');
+      const resource = `https://serv.test/tenant/${TENANT_SLUG}/mcp`;
+      url.searchParams.set('resource', resource);
 
       const res = await fetch(url.toString(), { redirect: 'manual' });
       assert.equal(res.status, 302);
@@ -270,6 +273,7 @@ async function testFullFlow() {
       const code = location.searchParams.get('code');
       assert.ok(code, 'authorize should return a code');
       assert.equal(location.searchParams.get('state'), 'xyz');
+      assert.equal(location.searchParams.get('iss'), `https://serv.test/tenant/${TENANT_SLUG}`);
 
       // Exchange code for tokens
       const tokenRes = await fetchJson(`${handle.baseUrl}/tenant/${TENANT_SLUG}/token`, {
@@ -281,6 +285,7 @@ async function testFullFlow() {
           redirect_uri: 'https://app.example.com/cb',
           code_verifier: verifier,
           client_id,
+          resource,
         }),
       });
       assert.equal(tokenRes.status, 200);
@@ -346,6 +351,7 @@ async function testLoginRedirect() {
       url.searchParams.set('response_type', 'code');
       url.searchParams.set('code_challenge', 'x');
       url.searchParams.set('code_challenge_method', 'S256');
+      url.searchParams.set('resource', `https://serv.test/tenant/${TENANT_SLUG}/mcp`);
 
       const res = await fetch(url.toString(), { redirect: 'manual' });
       assert.equal(res.status, 302);

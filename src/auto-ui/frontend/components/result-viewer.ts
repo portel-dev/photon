@@ -92,6 +92,7 @@ type LayoutType =
   | 'stack'
   | 'columns'
   | 'qr'
+  | 'image'
   | 'slides'
   | 'checklist'
   | 'article'
@@ -3493,6 +3494,12 @@ export class ResultViewer extends LitElement {
     if (this.loading) return this._renderSkeleton();
     if (this.result === null || this.result === undefined) return html``;
 
+    if (typeof this.result === 'string' && /^data:image\/[\w.+-]+;base64,/i.test(this.result)) {
+      return html`<div class="container">
+        <div class="content content-structured">${this._renderImage(this.result)}</div>
+      </div>`;
+    }
+
     const layout = this._selectLayout();
     const filteredData = this._getFilteredData();
     const totalCount = this._getTotalCount();
@@ -3914,6 +3921,12 @@ export class ResultViewer extends LitElement {
       return layout;
     }
 
+    // MCP image content is normalized by the client into a data URI. Keep the
+    // image renderer reliable even when a proxy omits the output-format hint.
+    if (typeof this.result === 'string' && /^data:image\/[\w.+-]+;base64,/i.test(this.result)) {
+      return 'image';
+    }
+
     // 1. Explicit format from docblock
     if (this.outputFormat) {
       const format = this.outputFormat.toLowerCase();
@@ -3947,6 +3960,7 @@ export class ResultViewer extends LitElement {
           'stack',
           'columns',
           'qr',
+          'image',
           'slides',
           'checklist',
           'article',
@@ -4172,6 +4186,10 @@ export class ResultViewer extends LitElement {
           return !!(data.qr || data.url || data.link || data.value);
         }
         return false;
+      case 'image':
+        if (typeof data === 'string') return /^data:image\/|^https?:\/\//i.test(data);
+        if (Array.isArray(data)) return data.every((item) => this._imageSource(item));
+        return !!this._imageSource(data);
       case 'table':
         return Array.isArray(data) || (typeof data === 'object' && data !== null);
       case 'metric':
@@ -4287,6 +4305,8 @@ export class ResultViewer extends LitElement {
         return this._renderColumns(filteredData);
       case 'qr':
         return this._renderQR(filteredData);
+      case 'image':
+        return this._renderImage(filteredData);
       case 'mermaid':
         return this._renderMermaid(filteredData);
       case 'slides':
@@ -9785,6 +9805,37 @@ ${str}</pre
     if (/\b(avatar|image|photo|img|thumb|pic|gravatar|pravatar)\.(cc|com|io|net)\b/i.test(value))
       return true;
     return false;
+  }
+
+  private _imageSource(value: any): string {
+    if (typeof value === 'string') return value;
+    if (!value || typeof value !== 'object') return '';
+    return value.src || value.url || value.image || '';
+  }
+
+  private _renderImage(data: any): TemplateResult {
+    const values = Array.isArray(data) ? data : [data];
+    return html`
+      <div class="image-result">
+        ${values.map((value) => {
+          const src = this._imageSource(value);
+          const alt =
+            typeof value === 'object' ? value.alt || value.caption || value.title || '' : '';
+          const caption = typeof value === 'object' ? value.caption || value.title || '' : '';
+          return html`
+            <figure>
+              <img
+                src=${src}
+                alt=${alt}
+                loading="lazy"
+                @click=${() => this._openImageFullscreen(src)}
+              />
+              ${caption ? html`<figcaption>${caption}</figcaption>` : ''}
+            </figure>
+          `;
+        })}
+      </div>
+    `;
   }
 
   private _getStatusClass(status: any): string {

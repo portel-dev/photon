@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 import { execFileSync } from 'child_process';
-import { readText, readJSON, writeText, writeJSON } from './shared/io.js';
+import { readText, readBytes, readJSON, writeText, writeBytes, writeJSON } from './shared/io.js';
 import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
@@ -18,6 +18,41 @@ import { SchemaExtractor } from '@portel/photon-core';
 
 // Timeout for marketplace fetch requests
 const FETCH_TIMEOUT_MS = 10 * 1000;
+
+/**
+ * Detect the common binary asset formats that were historically corrupted by
+ * UTF-8 decoding during marketplace installation. Text assets are deliberately
+ * excluded so a user-authored text file is never replaced just because its
+ * contents are unusual.
+ */
+const BINARY_ASSET_SIGNATURES: Record<string, Buffer[]> = {
+  '.png': [Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+  '.jpg': [Buffer.from([0xff, 0xd8, 0xff])],
+  '.jpeg': [Buffer.from([0xff, 0xd8, 0xff])],
+  '.gif': [Buffer.from('GIF8')],
+  '.webp': [Buffer.from('RIFF'), Buffer.from('WEBP')],
+  '.ico': [Buffer.from([0x00, 0x00, 0x01, 0x00])],
+  '.pdf': [Buffer.from('%PDF-')],
+};
+
+async function hasInvalidBinarySignature(filePath: string, assetPath: string): Promise<boolean> {
+  const signatures = BINARY_ASSET_SIGNATURES[path.extname(assetPath).toLowerCase()];
+  if (!signatures) return false;
+
+  try {
+    const bytes = await readBytes(filePath);
+    if (assetPath.toLowerCase().endsWith('.webp')) {
+      return (
+        bytes.length < 12 ||
+        !bytes.subarray(0, 4).equals(signatures[0]) ||
+        !bytes.subarray(8, 12).equals(signatures[1])
+      );
+    }
+    return !signatures.some((signature) => bytes.subarray(0, signature.length).equals(signature));
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Get GitHub auth headers for private repo access.
@@ -889,8 +924,8 @@ export class MarketplaceManager {
   /**
    * Fetch assets for a photon from a specific marketplace
    */
-  async fetchAssets(marketplace: Marketplace, assets: string[]): Promise<Map<string, string>> {
-    const results = new Map<string, string>();
+  async fetchAssets(marketplace: Marketplace, assets: string[]): Promise<Map<string, Buffer>> {
+    const results = new Map<string, Buffer>();
 
     for (const assetPath of assets) {
       try {
@@ -903,7 +938,7 @@ export class MarketplaceManager {
           const fullPath = path.join(localPath, assetPath);
 
           if (existsSync(fullPath)) {
-            const content = await readText(fullPath);
+            const content = await readBytes(fullPath);
             results.set(assetPath, content);
           }
         } else {
@@ -916,7 +951,10 @@ export class MarketplaceManager {
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
           if (response.ok) {
-            const content = await response.text();
+            // Assets are not necessarily text. Reading them through
+            // Response.text() corrupts binary files (PNG/JPEG/fonts, etc.)
+            // by decoding arbitrary bytes as UTF-8 before installation.
+            const content = Buffer.from(await response.arrayBuffer());
             results.set(assetPath, content);
           } else {
             this.logger.warn(`Failed to fetch asset ${assetPath}: ${response.status}`);
@@ -952,16 +990,23 @@ export class MarketplaceManager {
       const metadata = manifest.photons.find((p) => p.name === photonName);
       if (!metadata?.assets || metadata.assets.length === 0) continue;
 
-      // Check which assets are missing on disk
-      const missingAssets = metadata.assets.filter((assetPath) => {
+      // Check which assets are missing or were corrupted by the old text-only
+      // downloader. The signature check is limited to known binary formats;
+      // text assets remain untouched.
+      const missingAssets: string[] = [];
+      for (const assetPath of metadata.assets) {
         const fullPath = path.join(workingDir, assetPath);
-        return !existsSync(fullPath);
-      });
+        if (!existsSync(fullPath) || (await hasInvalidBinarySignature(fullPath, assetPath))) {
+          missingAssets.push(assetPath);
+        }
+      }
 
       if (missingAssets.length === 0) continue;
 
       // Download missing assets
-      this.logger.info(`Repairing ${missingAssets.length} missing asset(s) for ${photonName}...`);
+      this.logger.info(
+        `Repairing ${missingAssets.length} missing or corrupt asset(s) for ${photonName}...`
+      );
       const fetched = await this.fetchAssets(marketplace, missingAssets);
       for (const [assetPath, content] of fetched) {
         const safePath = validateAssetPath(assetPath);
@@ -969,7 +1014,7 @@ export class MarketplaceManager {
         if (!isPathWithin(assetTarget, workingDir)) continue;
         const assetDir = path.dirname(assetTarget);
         await fs.mkdir(assetDir, { recursive: true });
-        await writeText(assetTarget, content);
+        await writeBytes(assetTarget, content);
       }
       if (fetched.size > 0) {
         repaired++;
@@ -1169,7 +1214,7 @@ export class MarketplaceManager {
           const assetTarget = path.join(photonDataDir, relativePath);
           if (!isPathWithin(assetTarget, photonDataDir)) continue;
           await fs.mkdir(path.dirname(assetTarget), { recursive: true });
-          await writeText(assetTarget, assetContent);
+          await writeBytes(assetTarget, assetContent);
           assetsInstalled.push(assetPath);
         }
       }
@@ -1201,7 +1246,7 @@ export class MarketplaceManager {
           const assetTarget = path.join(photonDataDir, relativePath);
           if (!isPathWithin(assetTarget, photonDataDir)) continue;
           await fs.mkdir(path.dirname(assetTarget), { recursive: true });
-          await writeText(assetTarget, assetContent);
+          await writeBytes(assetTarget, assetContent);
           assetsInstalled.push(assetPath);
         }
       }

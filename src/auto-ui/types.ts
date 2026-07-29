@@ -11,6 +11,7 @@
 
 // Re-export PhotonAssets from photon-core
 export type { PhotonAssets } from '@portel/photon-core';
+import { withJSONSchemaDialect, type JSONSchema202012 } from '../mcp/protocol/json-schema.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -79,6 +80,12 @@ export interface MethodInfo {
   autorun?: boolean;
   /** Output format hint (@format tag): table, list, json, markdown, mermaid, etc. */
   outputFormat?: string;
+  /** Enriched @format classification: renderer or serialized media. */
+  formatKind?: 'renderer' | 'media';
+  /** Original shorthand used in the @format declaration. */
+  formatAlias?: string;
+  /** Declared payload MIME type for media formats. */
+  mimeType?: string;
   /** Layout hints from @format tag: {@title field, @subtitle field} */
   layoutHints?: Record<string, string>;
   /** Custom button label from @returns {@label} */
@@ -115,9 +122,19 @@ export interface MethodInfo {
   /** Content importance 0.0-1.0 → content annotations.priority */
   contentPriority?: number;
   /** JSON Schema for structured output → Tool.outputSchema */
-  outputSchema?: { type: 'object'; properties: Record<string, any>; required?: string[] };
+  outputSchema?: JSONSchema202012;
+  /** Client capabilities that must be declared before this tool may execute. */
+  requiredClientCapabilities?: Array<'sampling' | 'elicitation' | 'roots'>;
+  /** MCP Tasks extension behavior for this tool. */
+  taskSupport?: 'none' | 'optional' | 'required';
+  /** Gather stateless MRTR input before minting the durable task. */
+  taskAfterInput?: boolean;
   /** True if method is a generator that yields { ask } — supports task execution */
   hasGeneratorAsks?: boolean;
+  /** @async method — eligible for server-directed durable task execution. */
+  isAsync?: boolean;
+  /** OAuth scopes required to invoke this tool. */
+  scopes?: string[];
 }
 
 export const PHOTON_RENDER_META_KEY = 'photon/render';
@@ -203,6 +220,7 @@ export interface PhotonRenderMeta {
 // ════════════════════════════════════════════════════════════════════════════════
 
 import type { PhotonAssets } from '@portel/photon-core';
+import type { ApplicationManifest } from './app-manifest.js';
 
 /**
  * Fully configured photon ready for use
@@ -231,6 +249,8 @@ export interface PhotonInfo {
   isApp?: boolean;
   /** The main() method that serves as app entry point */
   appEntry?: MethodInfo;
+  /** Declarative navigation/settings contract consumed by the PWA app shell. */
+  appManifest?: ApplicationManifest;
   /** Assets: UI templates, prompts, resources */
   assets?: PhotonAssets;
   /** User-editable description */
@@ -630,7 +650,10 @@ export interface UIComponent {
  * };
  * ```
  */
-export function buildToolMetadataExtensions(method: MethodInfo): Record<string, unknown> {
+export function buildToolMetadataExtensions(
+  method: MethodInfo,
+  options: { addOutputSchemaDialect?: boolean } = {}
+): Record<string, unknown> {
   const extensions: Record<string, unknown> = {};
 
   if (method.icon) {
@@ -673,8 +696,10 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
   }
 
   // MCP structured output schema
-  if (method.outputSchema) {
-    extensions.outputSchema = method.outputSchema;
+  if (method.outputSchema !== undefined) {
+    extensions.outputSchema = options.addOutputSchemaDialect
+      ? withJSONSchemaDialect(method.outputSchema)
+      : method.outputSchema;
   }
 
   // MCP standard icons (image data URIs)
@@ -684,7 +709,9 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
 
   // MCP Tasks: execution.taskSupport (2025-11-25 spec)
   // @destructive methods and methods with generator asks support async task execution
-  if (method.destructiveHint || method.hasGeneratorAsks) {
+  if (method.taskSupport && method.taskSupport !== 'none') {
+    extensions.execution = { taskSupport: method.taskSupport };
+  } else if (method.destructiveHint || method.hasGeneratorAsks || method.isAsync) {
     extensions.execution = { taskSupport: 'optional' };
   }
 
@@ -951,12 +978,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function buildToolMCPMeta(
   method: MethodInfo,
-  options: { uiResourceUri?: string; includeUi?: boolean } = {}
+  options: {
+    uiResourceUri?: string;
+    includeUi?: boolean;
+    includePhoton?: boolean;
+    includeDeprecatedUiResourceKey?: boolean;
+  } = {}
 ): Record<string, unknown> {
   const meta: Record<string, unknown> = {};
   const render = buildPhotonRenderMeta(method, { uiResourceUri: options.uiResourceUri });
 
-  if (render) {
+  if (options.includePhoton !== false && render) {
     meta[PHOTON_RENDER_META_KEY] = render;
   }
 
@@ -965,6 +997,9 @@ export function buildToolMCPMeta(
       ...(options.uiResourceUri ? { resourceUri: options.uiResourceUri } : {}),
       ...(method.visibility ? { visibility: method.visibility } : {}),
     };
+    if (options.includeDeprecatedUiResourceKey && options.uiResourceUri) {
+      meta['ui/resourceUri'] = options.uiResourceUri;
+    }
   }
 
   return meta;
@@ -979,23 +1014,24 @@ export function buildToolMCPMeta(
  */
 export function buildResponseUIMetadata(
   photonName: string,
-  method: MethodInfo | undefined
+  method: MethodInfo | undefined,
+  options: { includePhoton?: boolean } = {}
 ): Record<string, unknown> {
   if (!method) return {};
 
   const metadata: Record<string, unknown> = {};
 
-  if (method.outputFormat) {
+  if (options.includePhoton !== false && method.outputFormat) {
     metadata['x-output-format'] = method.outputFormat;
   }
-  if (method.layoutHints) {
+  if (options.includePhoton !== false && method.layoutHints) {
     metadata['x-layout-hints'] = method.layoutHints;
   }
 
   const render = buildPhotonRenderMeta(method, {
     uiResourceUri: method.linkedUi ? `ui://${photonName}/${method.linkedUi}` : undefined,
   });
-  if (render) {
+  if (options.includePhoton !== false && render) {
     metadata._meta = {
       [PHOTON_RENDER_META_KEY]: render,
     };

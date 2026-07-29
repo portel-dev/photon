@@ -171,7 +171,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@param` | Describes a tool parameter. | `@param name User's full name` |
 | `@returns` | Describes the return value. Can include `{@label}`. | `@returns The greeting message {@label Say Hello}` |
 | `@example` | Provides a code example. | `@example await tool.greet({ name: 'World' })` |
-| `@format` | Hints the output format for CLI/Web interfaces. Values: `table`, `list`, `card`, `grid`, `tree`, `json`, `markdown`, `mermaid`, `code`, `slides`, `chart:bar`, `chart:hbar`, `chart:scatter`, `chart:radar`, `chart:histogram`, `metric`, `gauge`, `ring`, `stat-group`, `heatmap`, `calendar`, `map`, `network`, `cron`, `timeline`, `steps`, `kanban`, `comparison`, `diff`, `log`, `embed`, `image`, `carousel`, `gallery`, `masonry`, `hero`, `banner`, `quote`, `profile`, `feature-grid`, `invoice`, `dashboard`, `panels`, `tabs`, `qr`, etc. | `@format table` |
+| `@format` | Hints the output format for CLI/Web interfaces. Values include canonical formats such as `table`, `list`, `card`, `grid`, `tree`, `json`, `markdown`, `mermaid`, `code`, `slides`, `chart:bar`, `chart:hbar`, `chart:scatter`, `chart:radar`, `chart:histogram`, `metric`, `gauge`, `ring`, `stat-group`, `heatmap`, `calendar`, `map`, `network`, `cron`, `timeline`, `steps`, `kanban`, `comparison`, `diff`, `log`, `embed`, `image`, `carousel`, `gallery`, `masonry`, `hero`, `banner`, `quote`, `profile`, `feature-grid`, `invoice`, `dashboard`, `panels`, `tabs`, `qr`, etc. Common aliases are also accepted: `png`, `jpg`, `jpeg`, `webp`, `svg`, `bmp`, `bar`, `pie`, `line`, `donut`, `area`, `scatter`, and `histogram`. MIME forms such as `image/png` normalize to `image` plus its MIME type. | `@format png` or `@format chart:bar` |
 | `@export` | Declares supported export formats for `_meta.format` client requests. Comma-separated. If absent, `json` and `yaml` are always available. | `@export csv,json,yaml,markdown` |
 | `@icon` | Sets the tool icon (emoji, icon name, or image path). | `@icon 🧮` or `@icon ./calc.png` |
 | `@icons` | Declares icon image variants with size/theme. | `@icons ./calc-48.png 48x48 dark` |
@@ -396,6 +396,41 @@ async addTask(input: { title: string }): Promise<{ id: string; title: string }> 
 ```
 
 When the method also returns a `Response`, the bytes pass through unchanged so RSS feeds, image responses, and similar pass-through handlers continue to work.
+
+### WebSocket upgrade routes
+
+`photon sse` supports WebSocket upgrades on `@get` routes. Photon installs the
+Workers-compatible `WebSocketPair` primitive locally and bridges its client
+endpoint to the real network socket. Use
+`createWebSocketUpgradeResponse()` so status 101 and the endpoint survive the
+different `Response` implementations in Node, Bun, and Cloudflare Workers:
+
+```typescript
+import { createWebSocketUpgradeResponse } from '@portel/photon';
+
+/**
+ * Bidirectional byte stream
+ * @get /socket
+ */
+async socket(request: Request): Promise<Response> {
+  if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+    return new Response('expected websocket', { status: 426 });
+  }
+  const pair = new WebSocketPair();
+  const client = pair[0];
+  const server = pair[1];
+  server.accept();
+  server.addEventListener('message', (event) => {
+    server.send(event.data);
+  });
+  return createWebSocketUpgradeResponse(client);
+}
+```
+
+The route owns authentication and protocol validation just like any other
+public `@get` handler. Photon closes upgraded clients during server shutdown.
+This facility is for user-declared application routes; Beam's MCP transport
+continues to use Streamable HTTP/SSE.
 
 On Cloudflare deployments with `@auth cf-access`, each authenticated user's email maps to their own DO instance automatically. The `@get` and `@expose` handlers run on the right instance without any extra routing code. The same per-claim routing applies on the local `photon sse` server when a photon declares both `@stateful` and `@auth`: each authenticated caller lazy-loads its own photon instance keyed on the bound claim (default `email` for `cf-access`, `sub` for `oauth`), so multi-tenant photons don't share `this.memory` across users.
 

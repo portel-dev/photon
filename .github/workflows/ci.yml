@@ -27,3 +27,26 @@ jobs:
       - run: bun run format:check
       - run: bun run lint
       - run: bun run test
+
+  mcp-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+      - run: bun run test:mcp-release
+
+      - name: Archive MCP conformance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-conformance-node-22
+          path: artifacts/mcp-conformance/
+          if-no-files-found: warn
+          retention-days: 30

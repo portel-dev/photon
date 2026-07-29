@@ -9,7 +9,7 @@
  * the JSON-RPC initialize message before Zod parsing occurs.
  */
 
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server } from './mcp/sdk-v1-2025/server.js';
 
 const MCP_UI_CAPABILITY = 'io.modelcontextprotocol/ui';
 

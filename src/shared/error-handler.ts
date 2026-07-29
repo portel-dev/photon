@@ -242,6 +242,54 @@ export function exitWithError(
 // TOOL ERROR FORMATTING (shared across STDIO and SSE transports)
 // ══════════════════════════════════════════════════════════════════════════════
 
+const MAX_PUBLIC_ERROR_MESSAGE_LENGTH = 1_024;
+
+/**
+ * Remove credentials, stack frames, control characters, and unbounded detail
+ * from an error message before it crosses an MCP or other public boundary.
+ * The original error remains available to the private logger and tracing span.
+ */
+export function sanitizePublicErrorMessage(value: unknown): string {
+  let message =
+    typeof value === 'string'
+      ? value
+      : value instanceof Error
+        ? value.message
+        : value && typeof value === 'object' && 'message' in value
+          ? String(value.message)
+          : value === null || value === undefined
+            ? 'Unknown error'
+            : typeof value === 'symbol'
+              ? (value.description ?? 'Unknown error')
+              : typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint'
+                ? String(value)
+                : 'Unknown error';
+
+  // Bound regex work even when an upstream dependency throws a multi-megabyte
+  // response body as its message.
+  message = message.slice(0, 16_384);
+  // Never serialize a JavaScript stack through a protocol response.
+  message = message.split(/\r?\n\s*at\s+/u, 1)[0] ?? 'Unknown error';
+  message = message.replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*/giu, '[REDACTED PRIVATE KEY]');
+  message = message.replace(
+    /\bBearer\s+(?!(?:token|credentials?)\b)[A-Za-z0-9._~+/=-]+/giu,
+    'Bearer [REDACTED]'
+  );
+  message = message.replace(
+    /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/gu,
+    '[REDACTED JWT]'
+  );
+  message = message.replace(
+    /(\b(?:authorization|password|passwd|secret|access[_ -]?token|refresh[_ -]?token|api[_ -]?key|cookie|set-cookie)\b\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/giu,
+    '$1[REDACTED]'
+  );
+  message = message.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^/\s@]+@/giu, '$1[REDACTED]@');
+  message = message.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, '');
+  message = message.trim();
+  if (!message) return 'Tool execution failed';
+  return message.slice(0, MAX_PUBLIC_ERROR_MESSAGE_LENGTH);
+}
+
 /**
  * Format a tool call error into a structured message for AI clients.
  * Used by both STDIO and SSE transports to ensure consistent error reporting.
@@ -250,7 +298,7 @@ export function formatToolError(
   toolName: string,
   error: unknown
 ): { text: string; errorType: string; retryable: boolean } {
-  let errorMessage = error instanceof Error ? error.message : String(error);
+  let errorMessage = sanitizePublicErrorMessage(error);
   let errorType = 'runtime_error';
   let suggestion = '';
   let retryable = false;
@@ -266,7 +314,7 @@ export function formatToolError(
     error && typeof error === 'object' && 'userMessage' in error ? String(error.userMessage) : '';
   const userHint = error && typeof error === 'object' && 'hint' in error ? String(error.hint) : '';
 
-  if (userMessage) errorMessage = userMessage;
+  if (userMessage) errorMessage = sanitizePublicErrorMessage(userMessage);
 
   // Prefer typed classification (error.name / error.code) over substring matching.
   if (errorName === 'PhotonCircuitOpenError') {
@@ -287,6 +335,10 @@ export function formatToolError(
     errorType = 'timeout_error';
     suggestion = 'The operation took too long. Try again or check external service availability.';
     retryable = true;
+  } else if (errorName === 'AbortError') {
+    errorType = 'cancelled';
+    suggestion = 'The operation was cancelled. Start a new call if the work is still needed.';
+    retryable = false;
   } else if (errorName === 'ValidationError') {
     errorType = 'validation_error';
     suggestion = 'Check the parameters provided match the tool schema requirements.';
@@ -309,7 +361,7 @@ export function formatToolError(
     suggestion = 'Resource not found. Check that the file or resource exists.';
     retryable = false;
   } else if (userHint) {
-    suggestion = userHint;
+    suggestion = sanitizePublicErrorMessage(userHint);
   } else if (errorMessage.includes('not a function') || errorMessage.includes('undefined')) {
     errorType = 'implementation_error';
     suggestion =
@@ -334,7 +386,7 @@ export function formatToolError(
     suggestion = 'Resource not found. Check that the file or resource exists.';
   }
 
-  if (userHint && !suggestion) suggestion = userHint;
+  if (userHint && !suggestion) suggestion = sanitizePublicErrorMessage(userHint);
 
   let text = `Tool Error: ${toolName}\n\nError Type: ${errorType}\nMessage: ${errorMessage}\n`;
   if (suggestion) text += `\nSuggestion: ${suggestion}\n`;

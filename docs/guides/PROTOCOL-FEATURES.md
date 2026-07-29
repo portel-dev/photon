@@ -1,12 +1,17 @@
 # Protocol Features Guide
 
-Seven protocol features that make your photons discoverable, observable, and interoperable with external agents and UIs.
+Protocol features that make your photons discoverable, observable, and
+interoperable with external agents and UIs. For the version-by-transport
+contract and copy-paste clients, start with
+[MCP compatibility](MCP-COMPATIBILITY.md).
 
 ## MCP Discovery Pagination
 
 Photon exposes large workspaces through the standard MCP list operations:
 `tools/list`, `resources/list`, `resources/templates/list`, `prompts/list`, and
-`tasks/list`. These methods support MCP cursor pagination.
+the legacy 2025 `tasks/list`. These methods support MCP cursor pagination.
+The 2026 Tasks extension deliberately has no task-list operation; clients retain
+the task IDs returned by `tools/call`.
 
 Clients should treat `nextCursor` as opaque and keep requesting the same method
 with `params.cursor` until the response omits `nextCursor`:
@@ -49,7 +54,6 @@ clients should send per-request routing and identity details instead:
 Mcp-Protocol-Version: 2026-07-28
 Mcp-Method: tools/call
 Mcp-Name: weather.current
-X-Photon-App-Session-Id: psess_123
 ```
 
 ```json
@@ -61,11 +65,17 @@ X-Photon-App-Session-Id: psess_123
     "name": "weather.current",
     "arguments": { "city": "Singapore" },
     "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
       "io.modelcontextprotocol/clientInfo": {
         "name": "ChatGPT",
         "version": "future"
       },
-      "photon/appSessionId": "psess_123"
+      "io.modelcontextprotocol/clientCapabilities": {
+        "extensions": {
+          "dev.portel.photon": {}
+        }
+      },
+      "dev.portel.photon/appSessionId": "psess_123"
     }
   }
 }
@@ -100,6 +110,40 @@ when they need to associate multiple stateless turns from the same client UI.
 Clients can discover Photon’s supported protocol versions and extension surface
 with `server/discover`.
 
+### Optional extensions
+
+MCP 2026 extensions are negotiated on every request. Photon recognizes these
+canonical identifiers:
+
+- `io.modelcontextprotocol/ui`
+- `io.modelcontextprotocol/tasks`
+- `dev.portel.photon`
+
+> Deploying MCP 2026 behind multiple HTTP instances? See
+> [MCP 2026 Stateless Deployment](MCP-STATELESS-DEPLOYMENT.md) for shared-state,
+> application-handle, retry, subscription, and shutdown requirements.
+
+For MCP Apps, declare the supported resource MIME type:
+
+```json
+{
+  "io.modelcontextprotocol/clientCapabilities": {
+    "extensions": {
+      "io.modelcontextprotocol/ui": {
+        "mimeTypes": ["text/html;profile=mcp-app"]
+      }
+    }
+  }
+}
+```
+
+Aliases such as `mcp-apps`, `apps`, and client-name inference are accepted only
+for legacy 2025 clients. In 2026, Photon emits UI metadata and permits `ui://`
+resource reads only when the current request carries the canonical capability.
+Photon-private render, client-profile, and app-session metadata likewise
+requires `dev.portel.photon`; it is never mixed into a generic MCP Apps
+response.
+
 ## AG-UI Events
 
 AG-UI (Agent-to-UI) maps photon yields to a standard event protocol that external UIs can consume.
@@ -128,14 +172,14 @@ export default class MyAgent {
 
 **Yield-to-event mapping:**
 
-| Photon yield | AG-UI event |
-|---|---|
-| `yield "text"` | `TEXT_MESSAGE_CONTENT` |
-| `yield { emit: 'progress', value: 0.5 }` | `STEP_STARTED` |
-| `yield { emit: 'progress', value: 1.0 }` | `STEP_FINISHED` |
-| `yield { channel, event, data }` | `STATE_DELTA` (JSON Patch) |
-| `yield { emit: 'render', ... }` | `CUSTOM` event |
-| `return { ... }` | `STATE_SNAPSHOT` |
+| Photon yield                             | AG-UI event                |
+| ---------------------------------------- | -------------------------- |
+| `yield "text"`                           | `TEXT_MESSAGE_CONTENT`     |
+| `yield { emit: 'progress', value: 0.5 }` | `STEP_STARTED`             |
+| `yield { emit: 'progress', value: 1.0 }` | `STEP_FINISHED`            |
+| `yield { channel, event, data }`         | `STATE_DELTA` (JSON Patch) |
+| `yield { emit: 'render', ... }`          | `CUSTOM` event             |
+| `return { ... }`                         | `STATE_SNAPSHOT`           |
 
 **When to use:** When your photon needs to stream results to CopilotKit, AG-UI-compatible UIs, or other agent frameworks that consume the AG-UI event protocol.
 
@@ -185,6 +229,7 @@ export default class ContextAware {
 ```
 
 **Frontend side:**
+
 ```javascript
 // In your @ui template
 window.photon.setWidgetState({ selectedItems: ['a', 'b'], viewMode: 'grid' });
@@ -230,6 +275,7 @@ export default class DeployPipeline {
 ```
 
 **Key options:**
+
 - `persistent: true` — approval survives navigation/restart
 - `destructive: true` — UI shows red/danger styling
 - `expires: '24h'` — auto-expire after duration (supports `m`, `h`, `d`); without it, asks time out after 5 minutes
@@ -240,15 +286,17 @@ export default class DeployPipeline {
 
 ## MCP Tasks
 
-Fire-and-forget async operations with progress polling. The client gets a task ID immediately and polls for completion.
+Durable asynchronous operations with progress polling. MCP 2026 clients opt in
+to Photon’s experimental `io.modelcontextprotocol/tasks` extension; Photon
+decides when an eligible `@async` or input-driven tool should return a task
+handle. MCP 2025 clients keep the older experimental core Tasks API.
 
 ```typescript
 export default class BackgroundJob {
   /**
    * Process items in the background
    *
-   * Designed for tasks/create — returns immediately with task ID,
-   * client polls tasks/get for progress.
+   * @async
    */
   async *process(params: { items: string[] }) {
     const total = params.items.length;
@@ -256,14 +304,14 @@ export default class BackgroundJob {
     for (let i = 0; i < total; i++) {
       yield { emit: 'progress', value: i / total, message: `Processing ${params.items[i]}...` };
       // Simulate work
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
     }
 
     yield { emit: 'progress', value: 1.0, message: 'All items processed' };
 
     return {
       processed: total,
-      results: params.items.map(item => ({ item, status: 'done' })),
+      results: params.items.map((item) => ({ item, status: 'done' })),
     };
   }
 }
@@ -272,12 +320,18 @@ export default class BackgroundJob {
 **Task lifecycle:**
 
 ```
-tasks/create → { taskId }     (client gets ID immediately)
-tasks/get    → { state: 'working', progress: 0.5 }
-tasks/get    → { state: 'completed', result: {...} }
+tools/call   → { resultType: 'task', taskId, status: 'working', ... }
+tasks/get    → { resultType: 'complete', status: 'input_required', inputRequests }
+tasks/update → { resultType: 'complete' }
+tasks/get    → { resultType: 'complete', status: 'completed', result: {...} }
 ```
 
-**Task states:** `working` → `completed` | `failed` | `cancelled`
+**Task states:** `working` ↔ `input_required` → `completed` | `failed` | `cancelled`
+
+The MCP 2026 extension has no `tasks/create`, `tasks/list`, or `tasks/result`.
+Those method names remain available only to negotiated MCP 2025 clients for
+backward compatibility. Tasks support is experimental and pinned to Photon’s
+documented extension-draft revision.
 
 **When to use:** For long-running operations (data processing, report generation, bulk imports) where the client shouldn't block waiting for a response.
 
@@ -298,10 +352,14 @@ Auto-generated metadata at `GET /.well-known/mcp-server` that describes your ser
  */
 export default class Weather {
   /** Get current weather for a city */
-  async current(params: { city: string }) { /* ... */ }
+  async current(params: { city: string }) {
+    /* ... */
+  }
 
   /** Get 5-day forecast */
-  async forecast(params: { city: string; days?: number }) { /* ... */ }
+  async forecast(params: { city: string; days?: number }) {
+    /* ... */
+  }
 }
 ```
 
@@ -318,12 +376,14 @@ export default class Weather {
     { "name": "weather/current", "description": "Get current weather for a city" },
     { "name": "weather/forecast", "description": "Get 5-day forecast" }
   ],
-  "photons": [{
-    "name": "weather",
-    "description": "Provides real-time weather data for any location.",
-    "methods": ["current", "forecast"],
-    "stateful": true
-  }]
+  "photons": [
+    {
+      "name": "weather",
+      "description": "Provides real-time weather data for any location.",
+      "methods": ["current", "forecast"],
+      "stateful": true
+    }
+  ]
 }
 ```
 
@@ -350,13 +410,17 @@ export default class Analyst {
    * Analyze a dataset
    * @param source Data source URL or path
    */
-  async analyze(params: { source: string }) { /* ... */ }
+  async analyze(params: { source: string }) {
+    /* ... */
+  }
 
   /**
    * Generate a summary report
    * @param format Output format: pdf, html, or markdown
    */
-  async report(params: { format: string }) { /* ... */ }
+  async report(params: { format: string }) {
+    /* ... */
+  }
 }
 ```
 
@@ -382,6 +446,7 @@ export default class Analyst {
 ```
 
 **Capability detection:**
+
 - `@stateful` → `stateful` capability
 - Methods with tools → `tool_execution`
 - SSE transport → `streaming` (always on)
@@ -419,10 +484,10 @@ try {
 
 **What gets traced:**
 
-| Span | Attributes |
-|------|-----------|
+| Span                               | Attributes                                                       |
+| ---------------------------------- | ---------------------------------------------------------------- |
 | `gen_ai.tool.call {photon}.{tool}` | `gen_ai.tool.name`, `gen_ai.agent.name`, `gen_ai.operation.name` |
-| `gen_ai.agent.invoke {photon}` | `gen_ai.agent.name`, `gen_ai.operation.name` |
+| `gen_ai.agent.invoke {photon}`     | `gen_ai.agent.name`, `gen_ai.operation.name`                     |
 
 **Zero-cost when disabled:** Without `@opentelemetry/api` installed, all span functions return no-op objects. No performance overhead, no errors.
 

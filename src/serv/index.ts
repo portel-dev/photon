@@ -253,7 +253,9 @@ export interface ServConfig {
    * whatever login flow they actually serve (federated login, custom HTML,
    * PHOTON_SINGLE_USER short-circuit, etc.).
    */
-  endpointConfig?: Partial<Omit<EndpointConfig, 'issuer' | 'authorizeUrl' | 'consentUrl'>>;
+  endpointConfig?: Partial<
+    Omit<EndpointConfig, 'issuer' | 'resource' | 'authorizeUrl' | 'consentUrl'>
+  >;
 }
 
 export class Serv {
@@ -309,6 +311,17 @@ export class Serv {
       sessionStore: this.sessionStore,
       userStore: config.userStore,
       membershipStore: config.membershipStore,
+      oauthResource: (tenant) => {
+        const issuer = tenant.settings.customDomain
+          ? `https://${tenant.settings.customDomain}`
+          : `${config.baseUrl}/tenant/${tenant.slug}`;
+        return {
+          issuer,
+          resource: `${issuer}/mcp`,
+          resourceMetadataUrl: `${issuer}/.well-known/oauth-protected-resource`,
+          requiredScopes: ['mcp:read'],
+        };
+      },
     });
 
     // Initialize OAuth
@@ -346,7 +359,9 @@ export class Serv {
    * to any HTTP framework.
    */
   buildEndpointDeps(tenant: Tenant): EndpointDeps {
-    const baseUri = `${this.config.baseUrl}/tenant/${tenant.slug}`;
+    const baseUri = tenant.settings.customDomain
+      ? `https://${tenant.settings.customDomain}`
+      : `${this.config.baseUrl}/tenant/${tenant.slug}`;
     // The login URL is the embedder's responsibility — the AS adapter
     // doesn't serve a `/login` handler, it only knows how to redirect
     // there. Default to a tenant-scoped path so multi-tenant embeds that
@@ -359,6 +374,7 @@ export class Serv {
       config: {
         ...DEFAULT_ENDPOINT_CONFIG,
         issuer: baseUri,
+        resource: `${baseUri}/mcp`,
         authorizeUrl: `${baseUri}/authorize`,
         consentUrl: `${baseUri}/consent`,
         loginUrl: defaultLoginUrl,

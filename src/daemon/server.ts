@@ -54,7 +54,8 @@ import type {
 } from '@portel/photon-core';
 import { getDefaultContext } from '../context.js';
 import { EnvStore, resolvePhotonNamespace } from '../context-store.js';
-import { runWithPhotonDir } from '../telemetry/context.js';
+import { runWithPhotonDir, type PhotonExecutionRequestContext } from '../telemetry/context.js';
+import { validateTracePropagation } from '../telemetry/propagation.js';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import {
@@ -3894,6 +3895,20 @@ function createSocketPromptHandler(socket: net.Socket, requestId: string): Promp
 // REQUEST HANDLER
 // ════════════════════════════════════════════════════════════════════════════════
 
+function daemonRequestContext(request: DaemonRequest): PhotonExecutionRequestContext {
+  return {
+    requestId: request.id,
+    transport: 'daemon-ipc',
+    protocolVersion: 'internal',
+    client: {
+      protocolVersion: 'internal',
+      clientName: request.clientType ? `photon-${request.clientType}` : 'photon-daemon-client',
+      mode: 'unknown',
+    },
+    ...request.traceContext,
+  };
+}
+
 async function handleRequest(
   request: DaemonRequest,
   socket: net.Socket
@@ -5233,6 +5248,31 @@ async function handleRequest(
       };
     }
 
+    if (request.traceContext !== undefined) {
+      if (
+        typeof request.traceContext !== 'object' ||
+        request.traceContext === null ||
+        Array.isArray(request.traceContext)
+      ) {
+        return {
+          type: 'error',
+          id: request.id,
+          error: 'Invalid trace context',
+          suggestion: 'Use bounded W3C traceparent, tracestate, and baggage string fields.',
+        };
+      }
+      const propagation = validateTracePropagation(request.traceContext);
+      if (!propagation.ok) {
+        return {
+          type: 'error',
+          id: request.id,
+          error: `Invalid ${propagation.field}: ${propagation.reason}`,
+          suggestion: 'Use bounded W3C traceparent, tracestate, and baggage values.',
+        };
+      }
+      request.traceContext = propagation.context;
+    }
+
     const photonName = request.photonName;
     if (!photonName) {
       return {
@@ -5256,7 +5296,9 @@ async function handleRequest(
         request.method,
         request.args || {},
         request.sessionId || 'default',
-        request.instanceName || ''
+        request.instanceName || '',
+        300_000,
+        request.traceContext
       );
       return {
         type: result.success ? 'result' : 'error',
@@ -5311,7 +5353,9 @@ async function handleRequest(
         request.method,
         request.args || {},
         request.sessionId || 'default',
-        request.instanceName || ''
+        request.instanceName || '',
+        300_000,
+        request.traceContext
       );
       return {
         type: result.success ? 'result' : 'error',
@@ -5590,6 +5634,8 @@ async function handleRequest(
             () =>
               sessionManager.loader.executeTool(targetInst, method, request.args || {}, {
                 outputHandler,
+                parentTraceparent: request.traceContext?.traceparent,
+                requestContext: daemonRequestContext(request),
               })
           );
         } finally {
@@ -5716,6 +5762,8 @@ async function handleRequest(
           () =>
             sessionManager.loader.executeTool(session.instance, method, request.args || {}, {
               outputHandler,
+              parentTraceparent: request.traceContext?.traceparent,
+              requestContext: daemonRequestContext(request),
             })
         );
       } finally {

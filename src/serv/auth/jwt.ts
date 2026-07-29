@@ -106,15 +106,20 @@ export class JwtService {
     scope: string;
     clientId: string;
     expiresInSeconds: number;
+    /** Per-tenant RFC 8414 issuer. Defaults to the service issuer for compatibility. */
+    issuer?: string;
+    /** Exact RFC 8707 resource audience. Defaults to `${issuer}/mcp`. */
+    audience?: string;
     now?: Date;
     /** Optional jti; random if omitted. */
     jti?: string;
   }): string {
     const nowSec = Math.floor((args.now?.getTime() ?? Date.now()) / 1000);
+    const issuer = args.issuer ?? this.config.issuer;
     const payload: Record<string, unknown> = {
-      iss: this.config.issuer,
+      iss: issuer,
       sub: args.sub,
-      aud: `${this.config.issuer}/mcp`,
+      aud: args.audience ?? `${issuer}/mcp`,
       exp: nowSec + args.expiresInSeconds,
       iat: nowSec,
       jti: args.jti ?? randomBytes(16).toString('base64url'),
@@ -146,6 +151,8 @@ export class JwtService {
     tenantId: string;
     clientId: string;
     expiresInSeconds: number;
+    /** Per-tenant authorization-server issuer. */
+    issuer?: string;
     now?: Date;
     /** Optional extra claims (email, name, etc.) surfaced from the profile. */
     profile?: Record<string, unknown>;
@@ -154,7 +161,7 @@ export class JwtService {
   }): string {
     const nowSec = Math.floor((args.now?.getTime() ?? Date.now()) / 1000);
     const payload: Record<string, unknown> = {
-      iss: this.config.issuer,
+      iss: args.issuer ?? this.config.issuer,
       sub: args.sub,
       aud: args.clientId, // RFC: id_token audience is the client, not the resource
       azp: args.clientId,
@@ -227,6 +234,58 @@ export class JwtService {
       return payload as unknown as SessionToken;
     } catch {
       return null; // invalid or expired token
+    }
+  }
+
+  /**
+   * Verify a resource-bound OAuth access token.
+   *
+   * Unlike `verifySessionToken`, this boundary requires the caller to provide
+   * the exact authorization-server issuer and RFC 8707 resource audience.
+   */
+  verifyAccessToken(
+    token: string,
+    expected: {
+      issuer: string;
+      /** Exact resource audience. Omit only for AS-internal token exchange. */
+      audience?: string;
+      tenantId?: string;
+      requiredScopes?: string[];
+      now?: Date;
+      clockSkewSeconds?: number;
+    }
+  ): (SessionToken & { scope?: string; client_id?: string }) | null {
+    try {
+      const payload = this.verify(token);
+      if (!payload) return null;
+      if (
+        payload.iss !== expected.issuer ||
+        typeof payload.sub !== 'string' ||
+        typeof payload.exp !== 'number' ||
+        typeof payload.iat !== 'number'
+      ) {
+        return null;
+      }
+      const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+      if (expected.audience !== undefined && !audiences.includes(expected.audience)) return null;
+      if (expected.tenantId !== undefined && payload.tenant_id !== expected.tenantId) return null;
+
+      const now = Math.floor((expected.now?.getTime() ?? Date.now()) / 1000);
+      const skew = expected.clockSkewSeconds ?? 60;
+      if (payload.exp < now - skew) return null;
+      if (typeof payload.nbf === 'number' && payload.nbf > now + skew) return null;
+      if (payload.iat > now + skew) return null;
+
+      const requiredScopes = expected.requiredScopes ?? [];
+      if (requiredScopes.length > 0) {
+        const granted = new Set(
+          typeof payload.scope === 'string' ? payload.scope.split(/\s+/).filter(Boolean) : []
+        );
+        if (!requiredScopes.every((scope) => granted.has(scope))) return null;
+      }
+      return payload as unknown as SessionToken & { scope?: string; client_id?: string };
+    } catch {
+      return null;
     }
   }
 

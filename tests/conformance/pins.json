@@ -1,0 +1,31 @@
+{
+  "specification": {
+    "repository": "modelcontextprotocol/modelcontextprotocol",
+    "commit": "31eefec6",
+    "protocolVersion": "2026-07-28"
+  },
+  "tasksExtension": {
+    "repository": "modelcontextprotocol/ext-tasks",
+    "commit": "2c1425d9"
+  },
+  "appsExtension": {
+    "package": "@modelcontextprotocol/ext-apps",
+    "version": "1.7.5",
+    "gitHead": "92f46a574568a3ddac7600343b7d3c4c4ed7b588"
+  },
+  "typescriptSdkV1": {
+    "package": "@modelcontextprotocol/sdk",
+    "version": "1.29.0",
+    "compatRange": "^1.29.0",
+    "gitHead": "e12cbd7078db388152f6e839abdbe09ba01f3f32"
+  },
+  "typescriptSdkV2": {
+    "status": "not-adopted-beta",
+    "observedVersion": "2.0.0-beta.5"
+  },
+  "officialConformance": {
+    "package": "@modelcontextprotocol/conformance",
+    "version": "0.2.0-alpha.10",
+    "gitHead": "a9896553900a2ef61787b57adfcbbe936a8ab1f9"
+  }
+}

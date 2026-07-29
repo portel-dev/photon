@@ -6,6 +6,10 @@
  * and falls back to no-op spans when the SDK is not installed.
  */
 
+import { parseTraceparent, type TracePropagationContext } from './propagation.js';
+
+export { parseTraceparent } from './propagation.js';
+
 export interface PhotonSpan {
   setAttribute(key: string, value: string | number | boolean): void;
   addEvent(name: string, attributes?: Record<string, string | number | boolean>): void;
@@ -95,22 +99,6 @@ function wrapOtelSpan(otelSpan: any, otelApi: any): PhotonSpan {
  * Format: `{version}-{traceId}-{parentSpanId}-{flags}` (e.g. `00-abc...-def...-01`).
  * Returns null if the header is malformed.
  */
-export function parseTraceparent(
-  traceparent: string | undefined | null
-): { version: string; traceId: string; spanId: string; flags: string } | null {
-  if (!traceparent || typeof traceparent !== 'string') return null;
-  const parts = traceparent.trim().split('-');
-  if (parts.length !== 4) return null;
-  const [version, traceId, spanId, flags] = parts;
-  if (version.length !== 2 || traceId.length !== 32 || spanId.length !== 16 || flags.length !== 2) {
-    return null;
-  }
-  if (!/^[0-9a-f]+$/i.test(traceId) || !/^[0-9a-f]+$/i.test(spanId)) return null;
-  // All-zero trace/span IDs are invalid per the spec.
-  if (/^0+$/.test(traceId) || /^0+$/.test(spanId)) return null;
-  return { version, traceId, spanId, flags };
-}
-
 /**
  * Start a span for tool execution following GenAI semantic conventions.
  * @param traceId - Optional W3C-compatible trace ID (32 hex chars) for async executions.
@@ -127,7 +115,8 @@ export function startToolSpan(
   params?: Record<string, unknown>,
   traceId?: string,
   stateful?: boolean,
-  parentTraceparent?: string
+  parentTraceparent?: string,
+  propagation?: Omit<TracePropagationContext, 'traceparent'>
 ): PhotonSpan {
   const tracer = getTracerSync();
   if (!tracer) return noopSpan;
@@ -136,13 +125,23 @@ export function startToolSpan(
   let span: any;
   if (parent && otelApi?.trace && otelApi?.context) {
     try {
-      const spanContext = {
+      const carrier = {
+        traceparent: parentTraceparent,
+        ...(propagation?.tracestate ? { tracestate: propagation.tracestate } : {}),
+        ...(propagation?.baggage ? { baggage: propagation.baggage } : {}),
+      };
+      const remoteParent = otelApi.trace.setSpanContext(otelApi.context.active(), {
         traceId: parent.traceId,
         spanId: parent.spanId,
         traceFlags: parseInt(parent.flags, 16) || 0,
         isRemote: true,
-      };
-      const ctx = otelApi.trace.setSpanContext(otelApi.context.active(), spanContext);
+      });
+      // Extraction enriches the explicit remote parent with configured
+      // tracestate/baggage. Starting from remoteParent is important: the OTel
+      // API's default no-op propagator must not erase a valid traceparent.
+      const ctx = otelApi.propagation?.extract
+        ? otelApi.propagation.extract(remoteParent, carrier)
+        : remoteParent;
       span = tracer.startSpan(`gen_ai.tool.call ${photon}.${tool}`, undefined, ctx);
     } catch {
       span = tracer.startSpan(`gen_ai.tool.call ${photon}.${tool}`);
