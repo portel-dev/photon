@@ -480,9 +480,26 @@ interface CloudflareVersionSummary {
  */
 export function selectLatestCloudflareVersion(output: string): string {
   let versions: unknown;
-  try {
-    versions = JSON.parse(output);
-  } catch {
+  const end = output.lastIndexOf(']');
+  if (end < 0) {
+    throw new Error('Could not parse Wrangler version list output as JSON.');
+  }
+  for (
+    let start = output.indexOf('[');
+    start >= 0 && start < end;
+    start = output.indexOf('[', start + 1)
+  ) {
+    try {
+      const candidate = JSON.parse(output.slice(start, end + 1));
+      if (Array.isArray(candidate)) {
+        versions = candidate;
+        break;
+      }
+    } catch {
+      // Wrangler may prefix JSON with notices or ANSI-formatted log lines.
+    }
+  }
+  if (!Array.isArray(versions)) {
     throw new Error('Could not parse Wrangler version list output as JSON.');
   }
   if (!Array.isArray(versions)) {
@@ -548,7 +565,9 @@ function renderCloudflareRouteConfig(options: CloudflareDeployOptions): Cloudfla
     const pattern = normalizeRoutePattern(options.routePattern);
     return {
       publicUrl: routePatternToDisplayUrl(pattern),
-      toml: renderRoutesToml([{ pattern, customDomain: false }]),
+      toml: renderRoutesToml([
+        { pattern, customDomain: false, zoneName: zoneNameForRoutePattern(pattern) },
+      ]),
     };
   }
 
@@ -623,11 +642,23 @@ function routePatternToDisplayUrl(pattern: string): string | undefined {
   return `https://${withoutWildcard}`;
 }
 
-function renderRoutesToml(routes: Array<{ pattern: string; customDomain: boolean }>): string {
+function zoneNameForRoutePattern(pattern: string): string {
+  const hostname = pattern.split('/')[0].toLowerCase();
+  const labels = hostname.split('.').filter(Boolean);
+  if (labels.length < 2) {
+    throw new Error(`Cloudflare --route must include a valid hostname: ${pattern}`);
+  }
+  return labels.slice(-2).join('.');
+}
+
+function renderRoutesToml(
+  routes: Array<{ pattern: string; customDomain: boolean; zoneName?: string }>
+): string {
   const renderedRoutes = routes
     .map((route) => {
       const entries = [`pattern = ${JSON.stringify(route.pattern)}`];
       if (route.customDomain) entries.push('custom_domain = true');
+      else if (route.zoneName) entries.push(`zone_name = ${JSON.stringify(route.zoneName)}`);
       return `  { ${entries.join(', ')} }`;
     })
     .join(',\n');

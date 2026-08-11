@@ -186,10 +186,10 @@ describe('CF deploy autogen — auto-naming', () => {
 describe('CF deploy version promotion', () => {
   it('selects the newest uploaded version by creation time', () => {
     const latest = selectLatestCloudflareVersion(
-      JSON.stringify([
+      `wrangler notice\n${JSON.stringify([
         { id: 'older', metadata: { created_on: '2026-08-11T16:00:00.000Z' } },
         { id: 'newer', metadata: { created_on: '2026-08-11T16:21:35.740Z' } },
-      ])
+      ])}`
     );
     expect(latest).toBe('newer');
   });

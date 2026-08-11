@@ -147,6 +147,28 @@ export default class Appointments {
     expect(wrangler).toContain('{ pattern = "appointments.arul.sg", custom_domain = true }');
   });
 
+  it('includes the Cloudflare zone when deploying an externally managed route', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'photon-cf-route-'));
+    const photonDir = join(root, 'project');
+    const outputDir = join(root, 'out');
+    await mkdir(photonDir, { recursive: true });
+    const photonPath = join(photonDir, 'appointments.photon.ts');
+    await writeFile(
+      photonPath,
+      `export default class Appointments { async ping() { return 'pong'; } }`
+    );
+
+    await deployToCloudflare({
+      photonPath,
+      outputDir,
+      dryRun: true,
+      routePattern: 'appointments.arul.sg/*',
+    });
+
+    const wrangler = await readFile(join(outputDir, 'wrangler.toml'), 'utf-8');
+    expect(wrangler).toContain('{ pattern = "appointments.arul.sg/*", zone_name = "arul.sg" }');
+  });
+
   it('rejects ambiguous Cloudflare deploy targets', async () => {
     const root = await mkdtemp(join(tmpdir(), 'photon-cf-url-conflict-'));
     const photonDir = join(root, 'project');
