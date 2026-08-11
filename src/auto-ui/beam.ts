@@ -833,6 +833,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   };
   const a2aTasks = new Map<string, A2ATaskState>();
   const workingDir = path.resolve(rawWorkingDir);
+  // The HTTP listener is intentionally started before photon loading so the
+  // Beam shell can come up quickly. MCP requests must not observe that
+  // intermediate state, however: an early tools/list would return an empty
+  // registry and could race the initialized/tools-list lifecycle. Gate MCP
+  // handling until discovery and initial loading have completed.
+  let resolvePhotonStartup!: () => void;
+  const photonsReady = new Promise<void>((resolve) => {
+    resolvePhotonStartup = resolve;
+  });
   const { PHOTON_VERSION } = await import('../version.js');
 
   // Auto-start the daemon up front so every downstream path that needs it
@@ -1803,6 +1812,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Endpoint: /mcp (POST for requests, GET for SSE notifications)
       // ══════════════════════════════════════════════════════════════════════════
       if (url.pathname === '/mcp') {
+        await photonsReady;
         const handled = await handleStreamableHTTP(req, res, {
           photons, // Pass all photons including unconfigured for configurationSchema
           photonMCPs,
@@ -3758,6 +3768,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
     }
   }
+
+  // Local Photon tools are now stable and safe to expose to MCP clients.
+  // External MCP setup is independent and may take longer, so it must not
+  // hold the initial local tools/list lifecycle hostage.
+  resolvePhotonStartup();
 
   // Load external MCPs from config
   const externalMCPList = await loadExternalMCPs(savedConfig);

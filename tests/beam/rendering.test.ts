@@ -166,6 +166,20 @@ test('Form submission executes method', async () => {
   }, opts);
 });
 
+test('Parameterized methods with linked UIs mount the custom renderer', async () => {
+  await withBeam(async (beam) => {
+    // calculator.pressDigit has a required parameter and inherits the class-level
+    // @ui asset. It must remain a custom UI, not fall back to the invoke form.
+    await beam.selectMethod('calculator', 'pressDigit');
+    await beam.expectElement('custom-ui-renderer');
+    assert.strictEqual(
+      await beam.page.locator('invoke-form').count(),
+      0,
+      'A linked UI method must not fall back to invoke-form when it has parameters'
+    );
+  }, opts);
+});
+
 // ============================================================================
 // Label Formatting Tests
 // ============================================================================

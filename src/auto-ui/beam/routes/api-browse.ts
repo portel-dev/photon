@@ -31,7 +31,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     '/api/template',
     '/api/pwa/icon',
   ];
-  if (FILE_IO_PATHS.includes(url.pathname)) {
+  if (FILE_IO_PATHS.includes(url.pathname) || url.pathname.startsWith('/api/ui/')) {
     const clientKey = req.socket?.remoteAddress || 'unknown';
     if (!browseRateLimiter.isAllowed(clientKey)) {
       res.writeHead(429, { 'Content-Type': 'application/json' });
@@ -239,9 +239,11 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   }
 
   // Serve UI templates for custom UI rendering
-  if (url.pathname === '/api/ui') {
+  const uiAssetMatch = url.pathname.match(/^\/api\/ui\/([^/]+)(?:\/(.*))?$/);
+  if (url.pathname === '/api/ui' || uiAssetMatch) {
     const photonName = url.searchParams.get('photon');
-    const uiId = url.searchParams.get('id');
+    const uiId = uiAssetMatch ? decodeURIComponent(uiAssetMatch[1]) : url.searchParams.get('id');
+    const siblingPath = uiAssetMatch?.[2] || '';
 
     if (!photonName || !uiId) {
       res.writeHead(400);
@@ -290,8 +292,26 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     }
 
     try {
-      const uiContent = await readUIContent(resolved.path);
-      res.setHeader('Content-Type', resolved.isPhotonMarkdown ? 'text/markdown' : 'text/html');
+      let contentPath = resolved.path;
+      if (siblingPath) {
+        contentPath = path.resolve(path.dirname(resolved.path), siblingPath);
+        if (!isPathWithin(contentPath, path.dirname(resolved.path))) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Invalid UI asset path' }));
+          return true;
+        }
+      }
+      const uiContent = await readUIContent(contentPath);
+      const extension = path.extname(contentPath).toLowerCase();
+      const contentType =
+        extension === '.js' || extension === '.mjs'
+          ? 'text/javascript'
+          : extension === '.css'
+            ? 'text/css'
+            : resolved.isPhotonMarkdown
+              ? 'text/markdown'
+              : 'text/html';
+      res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       if (resolved.isPhotonTemplate || resolved.isPhotonMarkdown) {
         res.setHeader('X-Photon-Template', 'true');

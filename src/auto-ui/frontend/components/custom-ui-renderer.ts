@@ -471,6 +471,14 @@ export class CustomUiRenderer extends LitElement {
         finalHtml = injectIntoDocumentHead(finalHtml, injected);
       }
 
+      // MCP resources are loaded inline into a blob iframe. Give Photon UIs
+      // a directory-style base URL so Vite's ./assets/* references resolve
+      // through Beam's sibling-asset route instead of against blob:.
+      if (this.photon && this.uiId) {
+        const baseHref = `/api/ui/${encodeURIComponent(this.uiId)}/?photon=${encodeURIComponent(this.photon)}`;
+        finalHtml = injectIntoDocumentHead(finalHtml, `<base href="${baseHref}">`);
+      }
+
       // Abort if a newer _loadContent() was triggered while we were fetching
       if (generation !== this._loadGeneration) return;
 

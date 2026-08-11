@@ -88,7 +88,11 @@ async function startBeam(port: number, workingDir?: string): Promise<void> {
       env.PHOTON_DIR = workingDir;
     }
 
-    beamProcess = spawn('node', args, {
+    // Use the runtime executing the test. This keeps the browser harness
+    // Bun-native when invoked with `bun tests/...` and avoids depending on a
+    // separately installed `node` executable or a node compatibility alias.
+    const runtime = process.env.PHOTON_TEST_NODE || process.execPath;
+    beamProcess = spawn(runtime, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
     });
@@ -411,7 +415,10 @@ async function initSharedContext(workingDir?: string): Promise<void> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       await sharedPage.goto(`http://localhost:${port}`, { timeout: 60000 });
-      await sharedPage.waitForLoadState('networkidle', { timeout: 45000 });
+      // Beam keeps background requests/workers active, so networkidle is not
+      // a reliable readiness signal. The photon header below is the actual
+      // application-ready condition.
+      await sharedPage.waitForLoadState('domcontentloaded', { timeout: 45000 });
 
       // Wait for sidebar to show photons (may take time to load)
       await sharedPage.waitForSelector('.photon-header', { timeout: 45000 });
@@ -455,7 +462,7 @@ export async function withBeam(
 
     // Navigate back to home before each test to reset state
     await sharedPage.goto(`http://localhost:${sharedPort}`, { timeout: 30000 });
-    await sharedPage.waitForLoadState('networkidle', { timeout: 15000 });
+    await sharedPage.waitForLoadState('domcontentloaded', { timeout: 15000 });
 
     // Wait for sidebar to be ready
     await sharedPage.waitForSelector('.photon-header', { timeout: 15000 });

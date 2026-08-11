@@ -2778,6 +2778,19 @@ export class BeamApp extends LitElement {
           // Re-add unconfigured photons from configuration schema
           this._addUnconfiguredPhotons();
 
+          // A direct method URL can be handled before the first tools snapshot
+          // has populated its method descriptors. Reconcile the URL after every
+          // refresh so linked UI inputs cannot remain at their empty defaults.
+          const { photonName: refreshedPhotonName, methodNames: refreshedMethodNames } =
+            parseBeamRoutePath(window.location.pathname, this._photons, this._externalMCPs);
+          if (
+            refreshedPhotonName &&
+            refreshedMethodNames.length > 0 &&
+            this._photons.some((p) => p.name === refreshedPhotonName)
+          ) {
+            void this._handleRouteChange();
+          }
+
           // Update selected photon reference if it exists in the new list.
           // This handles the case where photon loading completes AFTER initial
           // page load — the photon may have gained isApp/appEntry/linkedUi since
@@ -2795,6 +2808,19 @@ export class BeamApp extends LitElement {
                 this._view = 'list';
                 this._mainTab = 'methods';
                 this._updateRoute(true);
+              }
+
+              // The photon can be selected from the initial metadata snapshot
+              // before its methods arrive. Re-apply a method URL once the
+              // refreshed metadata is available; otherwise linked UIs render
+              // with their default empty inputs and create a blank iframe.
+              const { methodNames: routeMethods } = parseBeamRoutePath(
+                window.location.pathname,
+                this._photons,
+                this._externalMCPs
+              );
+              if (routeMethods.length > 0 && this._selectedMethod?.name !== routeMethods[0]) {
+                void this._handleRouteChange();
               }
             }
           }
@@ -5310,13 +5336,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
 
       // Check for Linked UI (Custom Interface)
-      const hasParams =
-        !!this._selectedMethod.params?.properties &&
-        Object.keys(this._selectedMethod.params.properties).length > 0;
-
-      // Methods with parameters need to show the invoke form.
-      // App main methods are the exception — they handle their own UI fully.
-      if (this._selectedMethod.linkedUi && (isAppMain || !hasParams)) {
+      // A linked custom UI owns its interaction, including any optional tool
+      // parameters. The UI receives the current form params as `toolInput`
+      // below and can invoke the method with its own documented defaults.
+      if (this._selectedMethod.linkedUi) {
         const otherMethods = isAppMain
           ? this._getVisibleMethods().filter((m: any) => m.name !== 'main')
           : [];
