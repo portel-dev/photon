@@ -166,6 +166,15 @@ photon host deploy cloudflare my-photon   # alias: photon host deploy cf my-phot
 ```
 
 This compiles your photon, generates a `wrangler.toml`, and deploys via Wrangler in one step.
+Photon then lists the uploaded Worker versions and explicitly promotes the newest
+version to 100% of traffic. A successful upload without that promotion is treated
+as a failed deployment, so the command does not report a version as live unless
+the serving version was explicitly updated.
+
+Photon cannot infer whether a web UI is visually usable from deployment status
+alone. For a web Photon, the release smoke test should verify the canonical route
+in a real browser—including the primary CTA, form/slot interaction, and
+responsive layout—not only with `curl` or a source/DOM check.
 
 When a deployment has a canonical custom URL, make that URL part of the Photon
 deploy command:

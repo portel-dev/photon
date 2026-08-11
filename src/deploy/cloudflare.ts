@@ -466,6 +466,48 @@ interface CloudflareRouteConfig {
   publicUrl?: string;
 }
 
+interface CloudflareVersionSummary {
+  id: string;
+  metadata?: { created_on?: string };
+}
+
+/**
+ * Select the newest uploaded Worker version from Wrangler's JSON output.
+ *
+ * `wrangler deploy` can finish after uploading a version without making that
+ * version the one serving traffic (notably when versioned deployments are in
+ * use). Promotion is therefore an explicit second step in the deploy flow.
+ */
+export function selectLatestCloudflareVersion(output: string): string {
+  let versions: unknown;
+  try {
+    versions = JSON.parse(output);
+  } catch {
+    throw new Error('Could not parse Wrangler version list output as JSON.');
+  }
+  if (!Array.isArray(versions)) {
+    throw new Error('Wrangler version list did not return an array.');
+  }
+
+  const valid = versions.filter(
+    (version): version is CloudflareVersionSummary =>
+      !!version &&
+      typeof version === 'object' &&
+      typeof (version as { id?: unknown }).id === 'string' &&
+      (version as { id: string }).id.length > 0
+  );
+  if (valid.length === 0) {
+    throw new Error('Wrangler returned no deployable Worker versions.');
+  }
+
+  valid.sort((a, b) => {
+    const aTime = Date.parse(a.metadata?.created_on || '');
+    const bTime = Date.parse(b.metadata?.created_on || '');
+    return (Number.isNaN(aTime) ? 0 : aTime) - (Number.isNaN(bTime) ? 0 : bTime);
+  });
+  return valid[valid.length - 1].id;
+}
+
 interface DeployJwtConfig {
   mode: 'jwt';
   issuer: string;
@@ -1329,25 +1371,43 @@ class_name = "${p.doClass}"`
   await new Promise<void>((resolve, reject) => {
     deploy.on('close', (code) => {
       if (code === 0) {
-        logger.info('Deployment complete!');
-        logger.info(`\nYour MCP server is live at:`);
-        logger.info(routeConfig.publicUrl || `https://${photonName}.<your-subdomain>.workers.dev`);
-        if (devMode) {
-          logger.info(
-            `\nPlayground: ${routeConfig.publicUrl || `https://${photonName}.<your-subdomain>.workers.dev`}/playground`
-          );
-        }
-        // Clean up the scratch project dir on success, but only if the user
-        // didn't ask for a specific --output path. Failures keep the dir so
-        // the next-steps block below can point at it. Fire-and-forget — we
-        // don't block resolution on rm.
-        if (!userProvidedOutputDir) {
-          fs.rm(outputDir, { recursive: true, force: true }).catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            logger.debug(`Could not clean up scratch dir ${outputDir}: ${msg}`);
+        void promoteLatestCloudflareVersion(outputDir, photonName, envForWrangler)
+          .then(() => {
+            logger.info('Deployment complete and latest version is serving 100% of traffic!');
+            logger.info(`\nYour MCP server is live at:`);
+            logger.info(
+              routeConfig.publicUrl || `https://${photonName}.<your-subdomain>.workers.dev`
+            );
+            if (devMode) {
+              logger.info(
+                `\nPlayground: ${routeConfig.publicUrl || `https://${photonName}.<your-subdomain>.workers.dev`}/playground`
+              );
+            }
+            // Clean up the scratch project dir on success, but only if the user
+            // didn't ask for a specific --output path. Failures keep the dir so
+            // the next-steps block below can point at it. Fire-and-forget — we
+            // don't block resolution on rm.
+            if (!userProvidedOutputDir) {
+              fs.rm(outputDir, { recursive: true, force: true }).catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                logger.debug(`Could not clean up scratch dir ${outputDir}: ${msg}`);
+              });
+            }
+            resolve();
+          })
+          .catch((error: unknown) => {
+            logger.error(
+              `\nUpload succeeded, but version promotion failed: ${error instanceof Error ? error.message : String(error)}`
+            );
+            logger.error(`The uploaded Worker is not considered live until promotion succeeds.`);
+            logger.error(`\nTo retry promotion:`);
+            logger.error(`  cd ${outputDir}`);
+            logger.error(`  ${detectRunner()} wrangler versions list --name ${photonName} --json`);
+            logger.error(
+              `  ${detectRunner()} wrangler versions deploy --name ${photonName} --version-id <version-id> --percentage 100 --yes`
+            );
+            reject(error instanceof Error ? error : new Error(String(error)));
           });
-        }
-        resolve();
       } else {
         // Wrangler's stderr already printed above (stdio: 'inherit'). Add a
         // next-steps block so the user knows where to look without searching.
@@ -1370,6 +1430,53 @@ class_name = "${p.doClass}"`
         );
         reject(new Error('Deployment failed'));
       }
+    });
+  });
+}
+
+async function promoteLatestCloudflareVersion(
+  outputDir: string,
+  photonName: string,
+  env: NodeJS.ProcessEnv
+): Promise<void> {
+  logger.info('Confirming the uploaded Cloudflare version is serving traffic...');
+  let versionList: string;
+  try {
+    versionList = execSync(`${detectRunner()} wrangler versions list --name ${photonName} --json`, {
+      cwd: outputDir,
+      encoding: 'utf-8',
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (error) {
+    throw new Error(
+      `could not list Worker versions: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  const versionId = selectLatestCloudflareVersion(versionList);
+  logger.info(`Promoting Worker version ${versionId} to 100%...`);
+  await new Promise<void>((resolve, reject) => {
+    const promotion = spawn(
+      detectRunner(),
+      [
+        'wrangler',
+        'versions',
+        'deploy',
+        '--name',
+        photonName,
+        '--version-id',
+        versionId,
+        '--percentage',
+        '100',
+        '--yes',
+      ],
+      { cwd: outputDir, stdio: 'inherit', env }
+    );
+    promotion.on('error', reject);
+    promotion.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`wrangler version promotion failed with exit code ${code}`));
     });
   });
 }

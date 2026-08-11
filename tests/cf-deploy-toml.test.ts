@@ -18,7 +18,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { renderCfBindingsToml } from '../src/deploy/cloudflare.js';
+import { renderCfBindingsToml, selectLatestCloudflareVersion } from '../src/deploy/cloudflare.js';
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cf-deploy-toml-'));
@@ -180,5 +180,22 @@ describe('CF deploy autogen — auto-naming', () => {
     );
     expect(out).toContain('binding = "gallery_kv"');
     expect(out).toContain('binding = "notes_r2"');
+  });
+});
+
+describe('CF deploy version promotion', () => {
+  it('selects the newest uploaded version by creation time', () => {
+    const latest = selectLatestCloudflareVersion(
+      JSON.stringify([
+        { id: 'older', metadata: { created_on: '2026-08-11T16:00:00.000Z' } },
+        { id: 'newer', metadata: { created_on: '2026-08-11T16:21:35.740Z' } },
+      ])
+    );
+    expect(latest).toBe('newer');
+  });
+
+  it('rejects malformed or empty version lists', () => {
+    expect(() => selectLatestCloudflareVersion('not json')).toThrow(/parse Wrangler version list/);
+    expect(() => selectLatestCloudflareVersion('[]')).toThrow(/no deployable Worker versions/);
   });
 });
