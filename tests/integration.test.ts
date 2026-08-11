@@ -49,7 +49,9 @@ async function runIntegrationTests() {
     // Test 1: List tools
     {
       const response = await client.listTools();
-      const tools = response.tools;
+      // The runtime also exposes bundled management tools (maker, marketplace,
+      // and tunnel). This integration test is scoped to the content photon.
+      const tools = response.tools.filter((tool: { name?: string }) => tool.name === 'wordCount');
       assert.ok(Array.isArray(tools), 'Should return tools array');
       assert.equal(tools.length, 1, 'Should have 1 tool');
       assert.equal(tools[0].name, 'wordCount', 'Tool should be wordCount');
