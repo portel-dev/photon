@@ -26,7 +26,7 @@ import {
 import { compileTsxSync } from '../tsx-compiler.js';
 import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
 import { buildPhotonRenderMeta } from '../auto-ui/types.js';
-import { generateBridgeScript } from '../auto-ui/bridge/index.js';
+import { ResourceServer } from '../resource-server.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -237,12 +237,12 @@ function injectCloudflareUiBridge(
 
   const html = Buffer.from(contents[key], 'base64').toString('utf8');
   if (html.includes('window.photon =') || html.includes('ui/initialize')) return;
-  const bridge = generateBridgeScript({
-    photon: photonName,
-    method: ui.linkedTools?.[0] || ui.linkedTool || 'main',
-    theme: 'light',
-    hostName: 'cloudflare',
-  });
+  // Reuse the ResourceServer bridge that local MCP/HTTP hosts use. This keeps
+  // Cloudflare on the same compatibility path, including hello/fetch fallback.
+  const bridge = new ResourceServer({} as any, { filePath: '' }).generateMcpAppsBridge({
+    name: photonName,
+    injectedPhotons: [],
+  } as any);
   const injected = html.includes('<head>')
     ? html.replace('<head>', `<head>\n${bridge}`)
     : `<html><head>${bridge}</head><body>${html}</body></html>`;

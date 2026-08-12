@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { deployToCloudflare } from '../dist/deploy/cloudflare.js';
-import { generateBridgeScript } from '../dist/auto-ui/bridge/index.js';
+import { ResourceServer } from '../dist/resource-server.js';
 
 describe('Cloudflare MCP App bridge code generation', () => {
   it('injects the Photon bridge into embedded HTML UI resources', async () => {
@@ -20,11 +20,9 @@ describe('Cloudflare MCP App bridge code generation', () => {
     const outputDir = path.join(root, 'out');
     await deployToCloudflare({ photonPath, outputDir, dryRun: true });
     const worker = await fs.readFile(path.join(outputDir, 'src', 'worker.ts'), 'utf8');
-    const bridge = generateBridgeScript({
-      photon: 'probe',
-      method: 'main',
-      theme: 'light',
-      hostName: 'cloudflare',
+    const bridge = new ResourceServer({}, { filePath: '' }).generateMcpAppsBridge({
+      name: 'probe',
+      injectedPhotons: [],
     });
     expect(worker).toContain(
       Buffer.from(html.replace('<head>', `<head>\n${bridge}`)).toString('base64')
