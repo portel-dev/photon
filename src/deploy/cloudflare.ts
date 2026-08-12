@@ -26,6 +26,7 @@ import {
 import { compileTsxSync } from '../tsx-compiler.js';
 import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
 import { buildPhotonRenderMeta } from '../auto-ui/types.js';
+import { generateBridgeScript } from '../auto-ui/bridge/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -203,6 +204,49 @@ async function collectAssetFiles(root: string, prefix = ''): Promise<Record<stri
     result[key] = readFileSync(absolute).toString('base64');
   }
   return result;
+}
+
+/**
+ * Cloudflare serves MCP App resources from embedded strings, so the normal
+ * ResourceServer path (which injects the Photon bridge while reading a UI
+ * resource) is not involved. Inject the same bridge at deploy time so a
+ * photon written with window.photon/window.openai works identically on local,
+ * Beam, and Cloudflare hosts.
+ */
+function injectCloudflareUiBridge(
+  contents: Record<string, string>,
+  photonName: string,
+  ui: { id: string; linkedTool?: string; linkedTools?: string[]; resolvedPath?: string },
+  companionDir?: string,
+  legacyAssetsDir?: string
+): void {
+  if (!ui.resolvedPath) return;
+  const candidates = [
+    companionDir ? path.relative(companionDir, ui.resolvedPath) : '',
+    legacyAssetsDir ? path.relative(legacyAssetsDir, ui.resolvedPath) : '',
+    path.basename(ui.resolvedPath),
+  ]
+    .filter(Boolean)
+    .map((key) => key.split(path.sep).join('/'));
+  const key =
+    candidates.find((candidate) => contents[candidate]) ||
+    Object.keys(contents).find((candidate) =>
+      candidate.endsWith('/' + path.basename(ui.resolvedPath!))
+    );
+  if (!key) return;
+
+  const html = Buffer.from(contents[key], 'base64').toString('utf8');
+  if (html.includes('window.photon =') || html.includes('ui/initialize')) return;
+  const bridge = generateBridgeScript({
+    photon: photonName,
+    method: ui.linkedTools?.[0] || ui.linkedTool || 'main',
+    theme: 'light',
+    hostName: 'cloudflare',
+  });
+  const injected = html.includes('<head>')
+    ? html.replace('<head>', `<head>\n${bridge}`)
+    : `<html><head>${bridge}</head><body>${html}</body></html>`;
+  contents[key] = Buffer.from(injected, 'utf8').toString('base64');
 }
 
 /**
@@ -1264,6 +1308,25 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     if (legacyAssetsDir) {
       await fs.cp(legacyAssetsDir, path.join(publicDir, name), { recursive: true });
       Object.assign(embeddedAssetContents[name], await collectAssetFiles(legacyAssetsDir));
+    }
+
+    const sourcePhotonPath = candidateDirs.find(
+      (candidate) => candidate.photonName === name
+    )?.sourcePhotonPath;
+    if (sourcePhotonPath) {
+      const source = readFileSync(sourcePhotonPath, 'utf-8');
+      const assets = await assetResolver.discover(sourcePhotonPath, source);
+      for (const ui of assets?.ui ?? []) {
+        if (/\.html?$/i.test(ui.resolvedPath || '')) {
+          injectCloudflareUiBridge(
+            embeddedAssetContents[name],
+            name,
+            ui,
+            companionDir,
+            legacyAssetsDir
+          );
+        }
+      }
     }
   }
 
