@@ -27,5 +27,7 @@ describe('Cloudflare MCP App bridge code generation', () => {
     expect(worker).toContain(
       Buffer.from(html.replace('<head>', `<head>\n${bridge}`)).toString('base64')
     );
+    expect(worker).toContain("'openai/widgetDescription'");
+    expect(worker).toContain('prefersBorder: true');
   });
 });

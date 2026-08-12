@@ -1337,6 +1337,11 @@ function uiResource(photonName: string, asset: { id: string; file?: string }): a
     uri: `ui://${photonName}/${asset.id}`,
     mimeType: 'text/html;profile=mcp-app',
     text: atob(encoded),
+    _meta: {
+      ui: { prefersBorder: true },
+      'openai/widgetDescription': `Interactive ${photonName} UI rendered from Photon.`,
+      'openai/widgetPrefersBorder': true,
+    },
   };
 }
 
