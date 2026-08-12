@@ -389,7 +389,7 @@ export default class MailRoom {
     expect(worker).toContain('function readConstructorEnv');
     expect(worker).toContain('protected createPhoton(env: Env)');
     expect(worker).toContain(
-      'return new MailRoomPhoton(readConstructorEnv(env, "MAIL_ROOM_API_KEY", "string"), readConstructorEnv(env, "MAIL_ROOM_FROM_EMAIL", "string"), readConstructorEnv(env, "MAIL_ROOM_RETRY_COUNT", "number"), readConstructorEnv(env, "MAIL_ROOM_ENABLED", "boolean"));'
+      'const photon = new MailRoomPhoton(readConstructorEnv(env, "MAIL_ROOM_API_KEY", "string"), readConstructorEnv(env, "MAIL_ROOM_FROM_EMAIL", "string"), readConstructorEnv(env, "MAIL_ROOM_RETRY_COUNT", "number"), readConstructorEnv(env, "MAIL_ROOM_ENABLED", "boolean"));'
     );
   });
 });
