@@ -8,6 +8,22 @@ set -e
 # descriptor limit. Raise it before build/test/fresh-install checks.
 ulimit -n 4096 2>/dev/null || ulimit -n 2048 2>/dev/null || true
 
+# Daemon lifecycle checks need a real Node runtime. Some macOS installations
+# expose Bun's Node-compatible wrapper as `node`, which cannot reproduce the
+# worker-thread respawn behavior covered by the chaos suite. Keep the release
+# gate aligned with scripts/run-tests.sh while allowing CI and developers to
+# override the binary explicitly.
+RELEASE_TEST_NODE="${PHOTON_TEST_NODE:-}"
+if [ -z "$RELEASE_TEST_NODE" ]; then
+  for candidate in $(find /opt/homebrew/Cellar/node /usr/local/opt /usr/bin -path '*/bin/node' -type f -perm -111 2>/dev/null | sort -V -r); do
+    if "$candidate" --version 2>/dev/null | grep -Eq '^v[0-9]'; then
+      RELEASE_TEST_NODE="$candidate"
+      break
+    fi
+  done
+fi
+RELEASE_TEST_NODE="${RELEASE_TEST_NODE:-node}"
+
 echo "═══════════════════════════════════════════════════"
 echo "  Pre-Release Verification"
 echo "═══════════════════════════════════════════════════"
@@ -168,7 +184,7 @@ echo ""
 
 # ─── 6. Release-blocker regression checks ────────────
 echo "▶ Step 6: Release-blocker regressions"
-bun tests/daemon-chaos.test.ts
+"$RELEASE_TEST_NODE" tests/daemon-chaos.test.ts
 bun tests/contract/render-dom.test.ts
 echo "  ✓ Daemon spawn-race and DOM rendering regressions pass"
 echo ""
