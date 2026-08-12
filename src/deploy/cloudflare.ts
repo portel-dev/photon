@@ -18,6 +18,11 @@ import { logger } from '../shared/logger.js';
 import { extractHttpRoutesFromSource, type HttpRouteDef } from '../shared/http-route-extractor.js';
 import { extractExposesFromSource, type ExposeDef } from '../shared/expose-route-extractor.js';
 import { AssetResolver } from '../asset-resolver.js';
+import {
+  extractAccessClassNames,
+  extractAccessMetadata,
+  exposeAccessClasses,
+} from '../access-control.js';
 import { compileTsxSync } from '../tsx-compiler.js';
 import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
 
@@ -257,6 +262,29 @@ function transformPhotonSource(source: string): string {
       // bundled source — the version is already pinned in package.json.
       .replace(/\s*\*\s*@dependencies[^\n]*/g, '')
   );
+}
+
+async function copyLocalWorkerImports(
+  source: string,
+  sourcePath: string,
+  outputDir: string,
+  sourceRoot: string,
+  visited = new Set<string>()
+): Promise<void> {
+  const importRe = /(?:from\s+|import\s*\(\s*)(['"])(\.[^'"]+)\1/g;
+  for (const match of source.matchAll(importRe)) {
+    const specifier = match[2];
+    let importedPath = path.resolve(path.dirname(sourcePath), specifier);
+    if (!path.extname(importedPath)) importedPath += '.ts';
+    if (!existsSync(importedPath) || visited.has(importedPath)) continue;
+    visited.add(importedPath);
+    const relative = path.relative(sourceRoot, importedPath);
+    const destination = path.join(outputDir, 'src', relative);
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    const importedSource = await fs.readFile(importedPath, 'utf-8');
+    await fs.writeFile(destination, transformPhotonSource(importedSource));
+    await copyLocalWorkerImports(importedSource, importedPath, outputDir, sourceRoot, visited);
+  }
 }
 
 /**
@@ -860,14 +888,18 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     (e) => !routeHandlerNames.has(e.handler)
   );
   const hostScopes = parseToolScopesFromSource(sourceCode);
+  const hostAccess = extractAccessMetadata(sourceCode);
   const toolDefs = metadata.tools
     .filter((tool: { name: string }) => !routeHandlerNames.has(tool.name))
     .map((tool: any) => ({
       name: tool.name,
-      description: tool.description,
+      description: String(tool.description || '')
+        .replace(/\s*@class\s+[A-Za-z_$][\w$]*\s*\{[^}]*\}/g, '')
+        .trim(),
       inputSchema: tool.inputSchema,
       ...(tool.simpleParams ? { simpleParams: true } : {}),
       scopes: inferToolScopes(tool, hostScopes[tool.name]),
+      ...(hostAccess[tool.name] ? { access: hostAccess[tool.name] } : {}),
     }));
 
   const cfAccessEnabled = metadata.auth === 'cf-access';
@@ -963,6 +995,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     sourceFileBase: string;
     /** Whether this is the externally-routed host photon */
     isHost: boolean;
+    /** Named policy classes exported from this generated source module. */
+    accessClassImports: string[];
   };
 
   function nameToImportSymbol(n: string): string {
@@ -976,6 +1010,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   }
 
   const transformedHost = transformPhotonSource(sourceCode);
+  const exposedHostSource = exposeAccessClasses(transformedHost);
   const photons: PhotonSpec[] = [
     {
       name: photonName,
@@ -986,10 +1021,13 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       toolDefs,
       routeDefs,
       exposeDefs,
-      source: transformedHost,
+      source: exposedHostSource,
       constructorArgs: renderConstructorArgs(sourceCode, photonName, extractor),
       sourceFileBase: 'photon.ts',
       isHost: true,
+      accessClassImports: extractAccessClassNames(sourceCode).filter((name) =>
+        exposedHostSource.includes(`export { ${name}`)
+      ),
     },
   ];
 
@@ -1047,6 +1085,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       constructorArgs: renderConstructorArgs(sibSource, sibName, extractor),
       sourceFileBase: `dep-${sibName}.ts`,
       isHost: false,
+      accessClassImports: [],
     });
   }
 
@@ -1065,7 +1104,10 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   let workerCode = await fs.readFile(templatePath, 'utf-8');
 
   const photonImports = photons
-    .map((p) => `import ${p.importName} from '${p.importPath}';`)
+    .map(
+      (p) =>
+        `import ${p.importName}${p.accessClassImports.length ? `, { ${p.accessClassImports.join(', ')} }` : ''} from '${p.importPath}';`
+    )
     .join('\n');
   const photonBindingsMap = JSON.stringify(
     Object.fromEntries(photons.map((p) => [p.name, p.binding]))
@@ -1077,7 +1119,14 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   protected readonly toolDefinitions: any[] = ${JSON.stringify(p.toolDefs, null, 2)};
   protected readonly httpRoutes: any[] = ${JSON.stringify(p.routeDefs, null, 2)};
   protected readonly exposes: any[] = ${JSON.stringify(p.exposeDefs, null, 2)};
-  protected createPhoton(env: Env) { return new ${p.importName}(${p.constructorArgs}); }
+  protected createPhoton(env: Env) {
+    const photon = new ${p.importName}(${p.constructorArgs});
+    Object.defineProperty(photon, '__accessClasses', {
+      value: { ${p.importName}, ${p.accessClassImports.join(', ')} },
+      enumerable: false,
+    });
+    return photon;
+  }
 }`
     )
     .join('\n\n');
@@ -1101,6 +1150,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   for (const p of photons) {
     await fs.writeFile(path.join(outputDir, 'src', p.sourceFileBase), p.source);
   }
+  await copyLocalWorkerImports(sourceCode, absolutePath, outputDir, path.dirname(absolutePath));
 
   // Track E: bundle each photon's companion folder into the Worker. The local
   // runtime resolves `this.assets('x')` relative to `<name>/` when that folder

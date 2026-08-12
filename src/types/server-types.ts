@@ -48,6 +48,8 @@ export interface PhotonClassWithMeta extends PhotonClassExtended {
    * is whatever SchemaExtractor.extractAllFromSource returns for `tools`.
    */
   schemas?: unknown[];
+  /** Access-policy classes exported by the Photon module. */
+  _accessClasses?: Record<string, any>;
 }
 
 /**

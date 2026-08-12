@@ -4,6 +4,7 @@ import * as ts from 'typescript';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_PACKAGE_VERSION } from './version.js';
 import { extractSkillDeclarations, type PhotonSkillDescriptor } from './skills.js';
+import { parseAccessMetadata, type ToolAccessMetadata } from './access-control.js';
 
 interface ConfigParam {
   name: string;
@@ -33,6 +34,7 @@ interface Tool {
   layoutHints?: Record<string, string>;
   exportFormats?: string[];
   scopes?: string[];
+  access?: ToolAccessMetadata;
   line?: {
     id: string;
     restart?: 'always' | 'on-failure' | 'never';
@@ -853,6 +855,7 @@ export class PhotonDocExtractor {
       layoutHints,
       exportFormats,
       scopes: inferredScopes,
+      ...(parseAccessMetadata(jsdoc) ? { access: parseAccessMetadata(jsdoc) } : {}),
       ...(lineMatch
         ? {
             line: {

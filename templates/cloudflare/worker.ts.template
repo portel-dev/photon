@@ -1113,17 +1113,33 @@ async function checkMcpAuth(
   toolDefinitions: any[],
   body: any
 ): Promise<McpAuthResult> {
-  const requiresAuth = method !== '' && !MCP_METHODS_BYPASSING_BEARER.has(method);
-  if (!requiresAuth) return { enforced: false, ok: true, authed: false };
+  const requestedTool = body?.method === 'tools/call'
+    ? toolDefinitions.find((t: any) => t.name === body?.params?.name)
+    : undefined;
+  const publicPropertyTool = requestedTool?.access?.conditions?.every(
+    (condition: any) => condition.property === 'role' && condition.value === 'user'
+  ) === true;
+  const requiresAuth =
+    method !== '' &&
+    !MCP_METHODS_BYPASSING_BEARER.has(method) &&
+    !publicPropertyTool;
+  const suppliedAuthorization = request.headers.get('Authorization');
+  const authenticateOptionalRequest = method === 'tools/list' && !!suppliedAuthorization;
+  if (!requiresAuth && !authenticateOptionalRequest) return { enforced: false, ok: true, authed: false };
   if (MCP_AUTH_MODE === 'jwt') {
-    const toolName = body?.method === 'tools/call' ? body?.params?.name : undefined;
-    const tool = toolDefinitions.find((t: any) => t.name === toolName);
-    return verifyMcpJwt(request, Array.isArray(tool?.scopes) ? tool.scopes : []);
+    return verifyMcpJwt(request, Array.isArray(requestedTool?.scopes) ? requestedTool.scopes : []);
   }
   if (MCP_AUTH_MODE === 'open') return { enforced: false, ok: true, authed: false };
   const bearer = checkMcpBearer(request, env);
   if (!bearer.enforced) return { enforced: false, ok: true, authed: false };
-  if (bearer.ok) return { enforced: true, ok: true, authed: true };
+  if (bearer.ok) {
+    return {
+      enforced: true,
+      ok: true,
+      authed: true,
+      caller: { id: 'bearer', name: 'bearer', anonymous: false, claims: { auth: 'bearer' } },
+    };
+  }
   return {
     enforced: true,
     ok: false,
@@ -1148,6 +1164,30 @@ const MCP_METHODS_BYPASSING_BEARER = new Set([
   'ping',
   'tools/list',
 ]);
+
+function toolAccessAllows(tool: any, photon: any): boolean {
+  const access = tool?.access;
+  if (!access) return true;
+  const current = photon?.constructor?.name === access.className;
+  const policy = current ? photon : photon?.__accessClasses?.[access.className];
+  if (!policy) return false;
+  const target = current
+    ? policy
+    : new Proxy(new policy(), {
+        get(object: any, property: PropertyKey, receiver: any) {
+          if (property === 'caller' || property === 'request') return photon[property];
+          return Reflect.get(object, property, receiver);
+        },
+      });
+  try {
+    return (access.conditions ?? []).every((condition: any) => {
+      const value = target[condition.property];
+      return value !== undefined && String(value) === String(condition.value);
+    });
+  } catch {
+    return false;
+  }
+}
 
 function requireRequestContext(which: string): RequestContext {
   const ctx = requestContext.getStore();
@@ -1362,17 +1402,20 @@ async function handleMCPRequest(
       return {
         jsonrpc: '2.0',
         id,
-        result: { tools: toolDefinitions },
+        result: { tools: toolDefinitions.filter((tool: any) => toolAccessAllows(tool, photon)) },
       };
 
     case 'tools/call': {
       const { name, arguments: args } = params;
       try {
+        const toolDef = toolDefinitions.find((t: any) => t.name === name);
+        if (!toolDef || !toolAccessAllows(toolDef, photon)) {
+          throw new Error(`Tool '${name}' is not available for this caller`);
+        }
         const fn = (photon as any)[name];
         if (typeof fn !== 'function') {
           throw new Error(`Unknown tool: ${name}`);
         }
-        const toolDef = toolDefinitions.find((t: any) => t.name === name);
         const callArgs = spreadArgs(toolDef, args || {});
         const result = await fn.call(photon, ...callArgs);
         const isString = typeof result === 'string';

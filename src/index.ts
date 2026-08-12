@@ -14,6 +14,11 @@ export * from '@portel/photon-core';
 export { PhotonLoader } from './loader.js';
 export { PhotonServer } from './server.js';
 export { PhotonDocExtractor } from './photon-doc-extractor.js';
+export {
+  parseAccessMetadata,
+  extractAccessMetadata,
+  accessMetadataAllows,
+} from './access-control.js';
 export { EmbeddedRuntime } from './embedded-runtime.js';
 export {
   LocalWebSocketPair,

@@ -2163,6 +2163,7 @@ interface HandlerContext {
   generatePhotonHelp?: (photonName: string) => Promise<string>;
   loader?: {
     executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any>;
+    isToolAccessible?: (mcp: any, toolName: string, caller?: any, request?: unknown) => boolean;
     getCapabilityContracts?: (mcp: any) => Array<{ name: string; exposure: ReadonlySet<string> }>;
   };
   broadcast?: (message: object) => void;
@@ -3355,6 +3356,14 @@ const handlers: Record<string, RequestHandler> = {
         const contract = contractByName.get(method.name);
         // Beam is an MCP host, not an independent exposure surface.
         if (contract && !contract.exposure.has('mcp')) continue;
+        const loadedPhoton = ctx.photonMCPs.get(photon.name);
+        if (
+          loadedPhoton &&
+          ctx.loader?.isToolAccessible &&
+          !ctx.loader.isToolAccessible(loadedPhoton as any, method.name, ctx.caller)
+        ) {
+          continue;
+        }
         const uiResourceUri = method.linkedUi
           ? `ui://${photon.name}/${method.linkedUi}`
           : undefined;
@@ -3952,6 +3961,25 @@ const handlers: Record<string, RequestHandler> = {
 
     // Per-photon auth check: if this photon requires auth but caller is anonymous, reject
     const targetPhoton = ctx.photons.find((p) => p.name === serverName);
+    const targetMcp = ctx.photonMCPs.get(serverName);
+    if (
+      targetMcp &&
+      ctx.loader?.isToolAccessible &&
+      !ctx.loader.isToolAccessible(targetMcp as any, methodName, ctx.caller)
+    ) {
+      return buildToolErrorResponse(
+        req,
+        ctx,
+        name,
+        `Tool ${name} is not available for this caller.`,
+        {
+          code: PHOTON_TOOL_ERROR_CODES.ACCESS_DENIED,
+          category: 'authorization',
+          errorType: 'permission_error',
+          retryable: false,
+        }
+      );
+    }
 
     // Claim-code scope enforcement: filtering tools/list alone is not a
     // gate — a caller that knows a tool name (cached from before the

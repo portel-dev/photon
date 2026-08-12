@@ -712,12 +712,15 @@ class BeamCompatTransport implements Transport {
 
       const authMode = localMcpAuthMode();
       const dispatchesUserCode = parsed?.method === 'tools/call';
+      const suppliedBearer = authHeaderToken(req);
+      const authenticatesDiscovery = parsed?.method === 'tools/list' && suppliedBearer !== null;
+      const requiresCallerAuthentication = dispatchesUserCode || authenticatesDiscovery;
       const requiredScopes =
         dispatchesUserCode && typeof parsed?.params?.name === 'string'
           ? this.requiredScopesForTool(parsed.params.name)
           : [];
       let jwtClaims: Record<string, unknown> | undefined;
-      if (dispatchesUserCode && authMode === 'jwt') {
+      if (requiresCallerAuthentication && authMode === 'jwt') {
         let jwks: { keys: JsonWebKey[] } | null = null;
         let issuer: string | undefined;
         const profileName = process.env.PHOTON_MCP_JWT_PROFILE;
@@ -777,7 +780,7 @@ class BeamCompatTransport implements Transport {
           return;
         }
         jwtClaims = result.claims;
-      } else if (dispatchesUserCode && authMode === 'bearer') {
+      } else if (requiresCallerAuthentication && authMode === 'bearer') {
         const expected = process.env.PHOTON_MCP_BEARER;
         const token = authHeaderToken(req);
         if (!mcpTokenMatches(token, expected)) {
@@ -797,6 +800,10 @@ class BeamCompatTransport implements Transport {
           );
           return;
         }
+        // A valid shared bearer identifies an authenticated operator even
+        // though it does not carry JWT claims. Keep role-based Photon tools
+        // consistent with Cloudflare's bearer runtime.
+        jwtClaims = { sub: 'bearer', name: 'bearer', auth: 'bearer' };
       }
 
       // Transform incoming tools/call: strip photonName.method prefix from tool name
@@ -1578,16 +1585,31 @@ export class PhotonServer {
     }
   }
 
-  private async handleListTools(ctx: HandlerContext): Promise<{ tools: any[] }> {
+  private async handleListTools(
+    ctx: HandlerContext,
+    extra?: { authInfo?: { extra?: Record<string, unknown> } }
+  ): Promise<{ tools: any[] }> {
     if (!this.mcp) {
       return { tools: [] };
     }
     const mcpName = this.mcp.name;
+    const claims = extra?.authInfo?.extra;
+    const caller =
+      claims && typeof claims.sub === 'string'
+        ? {
+            id: claims.sub,
+            name: typeof claims.name === 'string' ? claims.name : undefined,
+            anonymous: false,
+            scope: typeof claims.scope === 'string' ? claims.scope : undefined,
+            claims,
+          }
+        : undefined;
     const tools = this.mcp.tools
       .filter((tool) => {
         const surfaces = (tool as ExtractedSchema & { surfaces?: string[] }).surfaces;
         return !surfaces || surfaces.includes('mcp');
       })
+      .filter((tool) => this.loader.isToolAccessible(this.mcp!, tool.name, caller))
       .map((tool) => {
         // Append deprecation notice to tool description if tagged
         let description = tool.description;
@@ -1794,6 +1816,20 @@ export class PhotonServer {
     const targetMcp = await this.resolveInstanceMcp(extra);
 
     const { name: toolName, arguments: args } = request.params;
+    const claims = extra?.authInfo?.extra;
+    const caller =
+      claims && typeof claims.sub === 'string'
+        ? {
+            id: claims.sub,
+            name: typeof claims.name === 'string' ? claims.name : undefined,
+            anonymous: false,
+            scope: typeof claims.scope === 'string' ? claims.scope : undefined,
+            claims,
+          }
+        : undefined;
+    if (!this.loader.isToolAccessible(targetMcp, toolName, caller)) {
+      throw new Error(`Tool '${toolName}' is not available for this caller`);
+    }
     const declaredTool = targetMcp.tools.find((tool) => tool.name === toolName);
     const declaredSurfaces = (
       declaredTool as (ExtractedSchema & { surfaces?: string[] }) | undefined
@@ -2009,17 +2045,6 @@ export class PhotonServer {
     const outputFormat = tool?.outputFormat;
 
     const startTime = Date.now();
-    const claims = extra?.authInfo?.extra;
-    const caller =
-      claims && typeof claims.sub === 'string'
-        ? {
-            id: claims.sub,
-            name: typeof claims.name === 'string' ? claims.name : undefined,
-            anonymous: false,
-            scope: typeof claims.scope === 'string' ? claims.scope : undefined,
-            claims,
-          }
-        : undefined;
     const result = await this.loader.executeTool(targetMcp, toolName, args || {}, {
       inputProvider,
       outputHandler,
@@ -2411,7 +2436,7 @@ export class PhotonServer {
       sessionId: `stdio-${this.daemonName}`,
     };
 
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+    this.server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
       if (!this.clientCapabilitiesLogged) {
         this.clientCapabilitiesLogged = true;
         this.logClientCapabilities(this.server);
@@ -2422,7 +2447,7 @@ export class PhotonServer {
         return { tools: this.buildPlaceholderTools() };
       }
 
-      return this.handleListTools(ctx);
+      return this.handleListTools(ctx, extra);
     });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -4271,8 +4296,8 @@ export class PhotonServer {
       sessionId: sseSessionKey,
     };
 
-    sessionServer.setRequestHandler(ListToolsRequestSchema, async () => {
-      return this.handleListTools(ctx);
+    sessionServer.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
+      return this.handleListTools(ctx, extra);
     });
 
     sessionServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {

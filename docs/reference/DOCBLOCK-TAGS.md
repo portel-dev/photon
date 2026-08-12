@@ -129,6 +129,27 @@ token issuance flow.
 | `scope` | `string?` | OAuth scopes granted |
 | `claims` | `Record<string, unknown>?` | Full JWT claims for custom fields |
 
+### Property-Based Tool Exposure
+
+Use `@class` on a method to expose it only when the named Photon or policy
+class has matching request-scoped properties. Conditions are exact string
+matches and multiple conditions are combined with AND:
+
+```typescript
+/** @class Appointments {@role user} */
+async findSlots() {}
+
+/** @class Appointments {@role host @plan pro} */
+async updateAvailability() {}
+```
+
+The current Photon class can expose a request-aware getter such as
+`get role() { return this.caller.anonymous ? 'user' : 'host'; }`. The runtime
+filters `tools/list` and enforces the same condition during `tools/call`.
+Missing classes, properties, malformed conditions, and getter errors fail
+closed. `@class` is separate from `@auth`: `@auth optional` permits anonymous
+discovery while a host-only condition still requires an authenticated caller.
+
 ```typescript
 /**
  * Multiplayer game

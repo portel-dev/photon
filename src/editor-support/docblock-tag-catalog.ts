@@ -178,6 +178,12 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
 
   const methodLevelTags: PhotonDocblockTagDef[] = [
     {
+      label: '@class',
+      detail: 'Restrict this tool by request-scoped Photon properties',
+      snippetTmpl: '@class ${1:Appointments} {@${2:role} ${3:user}}',
+      type: 'keyword',
+    },
+    {
       label: '@param',
       detail: 'Tool parameter',
       snippetTmpl: '@param ${1:name} ${2:Description}',

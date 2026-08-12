@@ -28,6 +28,13 @@ import { extractHttpRoutesFromSource, type HttpRouteDef } from './shared/http-ro
 import { extractExposesFromSource, type ExposeDef } from './shared/expose-route-extractor.js';
 import { normalizeFormatDeclaration } from './format/aliases.js';
 import type { CapabilitySurface } from './capability-contract.js';
+import {
+  accessClassMapFromModule,
+  accessMetadataAllows,
+  exposeAccessClasses,
+  extractAccessMetadata,
+  type ToolAccessMetadata,
+} from './access-control.js';
 
 function escapeRegex(value: string): string {
   const special = '\\\\^$.*+?()[]{}|';
@@ -86,6 +93,15 @@ function applySurfaceMetadata<T extends { name: string }>(tools: T[], source: st
       : tool;
   });
 }
+
+function applyAccessMetadata<T extends { name: string }>(tools: T[], source: string): T[] {
+  const accessByMethod = extractAccessMetadata(source);
+  return tools.map((tool) => {
+    const methodName = tool.name.split(/[./]/).pop() || tool.name;
+    const access = accessByMethod[methodName];
+    return access ? ({ ...tool, access } as T & { access: ToolAccessMetadata }) : tool;
+  });
+}
 import type {
   PhotonInstance,
   EventListenerEntry,
@@ -119,6 +135,7 @@ import {
   PhotonClass,
   PhotonClassExtended,
   PhotonTool,
+  type ExtractedSchema,
   TemplateInfo,
   StaticInfo,
   // Generator utilities (ask/emit pattern from 1.2.0)
@@ -2316,6 +2333,7 @@ export class PhotonLoader {
         auth?: string;
         _httpRoutes?: HttpRouteDef[];
         _exposes?: ExposeDef[];
+        _accessClasses?: Record<string, any>;
       } = {
         name,
         description: classDesc || `${name} MCP`,
@@ -2326,6 +2344,7 @@ export class PhotonLoader {
         assets,
         injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
       };
+      result._accessClasses = { [MCPClass.name]: MCPClass, ...accessClassMapFromModule(module) };
       if (classIcon) result.icon = classIcon;
       if (isStateful) result.stateful = true;
       if (extractedAuth) result.auth = extractedAuth;
@@ -2783,6 +2802,7 @@ export class PhotonLoader {
       auth?: string;
       _httpRoutes?: HttpRouteDef[];
       _exposes?: ExposeDef[];
+      _accessClasses?: Record<string, any>;
     } = {
       name,
       description: classDesc || `${name} MCP`,
@@ -2793,6 +2813,7 @@ export class PhotonLoader {
       assets,
       injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
     };
+    result._accessClasses = { [MCPClass.name]: MCPClass, ...accessClassMapFromModule(module) };
     if (classIcon) result.icon = classIcon;
     if (isStateful) result.stateful = true;
     if (extractedAuth) result.auth = extractedAuth;
@@ -3027,7 +3048,7 @@ export class PhotonLoader {
       return existing;
     }
 
-    const source = tsContent ?? (await readText(absolutePath));
+    const source = exposeAccessClasses(tsContent ?? (await readText(absolutePath)));
     const result = await compilePhotonTS(absolutePath, { cacheDir, content: source });
     compiled.set(absolutePath, result);
 
@@ -3323,8 +3344,11 @@ export class PhotonLoader {
           description: this.stripJSDocTags(t.description),
         }));
         statics = statics.map((s) => ({ ...s, description: this.stripJSDocTags(s.description) }));
-        tools = applySurfaceMetadata(
-          normalizeToolFormatMetadata(tools, sourceContent),
+        tools = applyAccessMetadata(
+          applySurfaceMetadata(
+            normalizeToolFormatMetadata(tools, sourceContent),
+            sourceContent || ''
+          ),
           sourceContent || ''
         );
         return { tools, templates, statics };
@@ -3360,7 +3384,10 @@ export class PhotonLoader {
           templates = metadata.templates.filter((t) => methodNames.includes(t.name));
           statics = metadata.statics.filter((s) => methodNames.includes(s.name));
 
-          tools = applySurfaceMetadata(normalizeToolFormatMetadata(tools, source), source);
+          tools = applyAccessMetadata(
+            applySurfaceMetadata(normalizeToolFormatMetadata(tools, source), source),
+            source
+          );
           this.log(
             `Extracted ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from source`
           );
@@ -3431,8 +3458,8 @@ export class PhotonLoader {
     tools = tools.map((t) => ({ ...t, description: this.stripJSDocTags(t.description) }));
     templates = templates.map((t) => ({ ...t, description: this.stripJSDocTags(t.description) }));
     statics = statics.map((s) => ({ ...s, description: this.stripJSDocTags(s.description) }));
-    tools = applySurfaceMetadata(
-      normalizeToolFormatMetadata(tools, sourceContent),
+    tools = applyAccessMetadata(
+      applySurfaceMetadata(normalizeToolFormatMetadata(tools, sourceContent), sourceContent || ''),
       sourceContent || ''
     );
     return { tools, templates, statics };
@@ -4620,6 +4647,25 @@ Run: photon mcp ${mcpName} --config
       ctx,
       handlerOverrides
     );
+  }
+
+  /**
+   * Evaluate method-level property access metadata for the current request.
+   * This is shared by discovery and execution paths.
+   */
+  isToolAccessible(
+    mcp: PhotonClass,
+    toolName: string,
+    caller?: CallerInfo,
+    request?: unknown
+  ): boolean {
+    const tool = mcp.tools.find((candidate) => candidate.name === toolName) as
+      | (ExtractedSchema & { access?: ToolAccessMetadata })
+      | undefined;
+    return accessMetadataAllows(tool?.access, mcp.instance, (mcp as any)._accessClasses, {
+      caller: caller ?? { id: 'anonymous', anonymous: true },
+      request,
+    });
   }
 
   /**
