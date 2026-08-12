@@ -438,6 +438,12 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     return function() { observer.disconnect(); };
   }
 
+  var _mcpResizeCleanup = null;
+  function _setupMcpAutoResize() {
+    if (_mcpResizeCleanup || !document.body || typeof ResizeObserver === 'undefined') return;
+    _mcpResizeCleanup = setupAutoResize(document.body);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // WINDOW.PHOTON API
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1572,9 +1578,15 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _maybeBindElements);
+    document.addEventListener('DOMContentLoaded', function() {
+      _maybeBindElements();
+      _setupMcpAutoResize();
+    });
   } else {
-    setTimeout(_maybeBindElements, 0);
+    setTimeout(function() {
+      _maybeBindElements();
+      _setupMcpAutoResize();
+    }, 0);
   }
 
   // Notify host that bridge is ready (legacy)
@@ -1594,6 +1606,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       }
       // Send initialized notification
       postToHost({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+      _setupMcpAutoResize();
     },
     reject: function(err) {
       console.debug('MCP Apps init - no response (host may not support full protocol)');
