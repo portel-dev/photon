@@ -873,6 +873,14 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const extractor = new SchemaExtractor();
   const sourceCode = await fs.readFile(absolutePath, 'utf-8');
   const metadata = extractor.extractAllFromSource(sourceCode);
+  const assetResolver = new AssetResolver(() => {});
+  const hostAssets = await assetResolver.discover(absolutePath, sourceCode);
+  const uiByTool = new Map<string, string>();
+  for (const ui of hostAssets?.ui ?? []) {
+    for (const toolName of ui.linkedTools ?? (ui.linkedTool ? [ui.linkedTool] : [])) {
+      uiByTool.set(toolName, ui.id);
+    }
+  }
 
   // Route extraction must NOT trust photon-core's metadata.httpRoutes —
   // the published photon-core SchemaExtractor (≤2.25.0) doesn't return
@@ -904,6 +912,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
         ...(hostAccess[tool.name] ? { access: hostAccess[tool.name] } : {}),
       };
       if (tool.outputSchema) toolDef.outputSchema = tool.outputSchema;
+      if (uiByTool.has(tool.name)) toolDef.linkedUi = uiByTool.get(tool.name);
       const annotations: Record<string, unknown> = {};
       if (tool.readOnlyHint) annotations.readOnlyHint = true;
       if (tool.destructiveHint) annotations.destructiveHint = true;
@@ -1010,6 +1019,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     isHost: boolean;
     /** Named policy classes exported from this generated source module. */
     accessClassImports: string[];
+    /** Embedded MCP App UI assets for this photon. */
+    uiAssets: Array<{ id: string; file?: string }>;
   };
 
   function nameToImportSymbol(n: string): string {
@@ -1041,6 +1052,10 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       accessClassImports: extractAccessClassNames(sourceCode).filter((name) =>
         exposedHostSource.includes(`export { ${name}`)
       ),
+      uiAssets: (hostAssets?.ui ?? []).map((ui) => ({
+        id: ui.id,
+        file: ui.resolvedPath ? path.basename(ui.resolvedPath) : undefined,
+      })),
     },
   ];
 
@@ -1099,6 +1114,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       sourceFileBase: `dep-${sibName}.ts`,
       isHost: false,
       accessClassImports: [],
+      uiAssets: [],
     });
   }
 
@@ -1125,6 +1141,9 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const photonBindingsMap = JSON.stringify(
     Object.fromEntries(photons.map((p) => [p.name, p.binding]))
   );
+  const photonUiAssets = JSON.stringify(
+    Object.fromEntries(photons.map((p) => [p.name, p.uiAssets]))
+  );
   const photonDoClasses = photons
     .map(
       (p) => `export class ${p.doClass} extends BasePhotonDO {
@@ -1147,6 +1166,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   workerCode = workerCode
     .replace(/__PHOTON_IMPORTS__/g, photonImports)
     .replace(/__PHOTON_BINDINGS_MAP__/g, photonBindingsMap)
+    .replace(/__PHOTON_UI_ASSETS__/g, photonUiAssets)
     .replace(/__PHOTON_DO_CLASSES__/g, photonDoClasses)
     .replace(/__HOST_PHOTON_NAME__/g, photonName)
     .replace(/__HOST_BINDING__/g, 'PHOTON')

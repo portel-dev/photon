@@ -32,6 +32,7 @@ const DEPLOY_INSTANCE_ALIASES: Record<string, string> = __INSTANCE_ALIASES__;
  * uses this to find the right DO namespace.
  */
 const PHOTON_BINDINGS: Record<string, string> = __PHOTON_BINDINGS_MAP__;
+const PHOTON_UI_ASSETS: Record<string, Array<{ id: string; file?: string }>> = __PHOTON_UI_ASSETS__;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -1163,6 +1164,8 @@ const MCP_METHODS_BYPASSING_BEARER = new Set([
   'notifications/cancelled',
   'ping',
   'tools/list',
+  'resources/list',
+  'resources/read',
 ]);
 
 function toolAccessAllows(tool: any, photon: any): boolean {
@@ -1306,6 +1309,37 @@ function spreadArgs(toolDef: any, args: Record<string, unknown>): unknown[] {
   return [args];
 }
 
+function toolWithUI(tool: any, photonName: string): any {
+  if (!tool?.linkedUi) return tool;
+  const resourceUri = `ui://${photonName}/${tool.linkedUi}`;
+  return {
+    ...tool,
+    _meta: {
+      ...(tool._meta ?? {}),
+      ui: { resourceUri },
+      'openai/outputTemplate': resourceUri,
+      'openai/widgetAccessible': true,
+    },
+  };
+}
+
+function uiAssetForUri(uri: string, photonName: string): { id: string; file?: string } | undefined {
+  const match = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
+  if (!match || match[1] !== photonName) return undefined;
+  return (PHOTON_UI_ASSETS[photonName] ?? []).find((asset) => asset.id === match[2]);
+}
+
+function uiResource(photonName: string, asset: { id: string; file?: string }): any {
+  const files = PHOTON_ASSET_CONTENTS[photonName] ?? {};
+  const encoded = asset.file ? files[asset.file] ?? files[asset.file.replace(/^.*\//, '')] : undefined;
+  if (!encoded) throw new Error(`UI asset '${asset.id}' is not available`);
+  return {
+    uri: `ui://${photonName}/${asset.id}`,
+    mimeType: 'text/html;profile=mcp-app',
+    text: atob(encoded),
+  };
+}
+
 /**
  * Match a request against the `@get`/`@post` route table. Two passes:
  * exact paths first (cheaper, also gives them precedence over patterns
@@ -1393,7 +1427,7 @@ async function handleMCPRequest(
         id,
         result: {
           protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
+          capabilities: { tools: {}, resources: {} },
           serverInfo: { name: photonName, version: '1.0.0' },
         },
       };
@@ -1402,8 +1436,33 @@ async function handleMCPRequest(
       return {
         jsonrpc: '2.0',
         id,
-        result: { tools: toolDefinitions.filter((tool: any) => toolAccessAllows(tool, photon)) },
+        result: { tools: toolDefinitions.filter((tool: any) => toolAccessAllows(tool, photon)).map((tool: any) => toolWithUI(tool, photonName)) },
       };
+
+    case 'resources/list':
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          resources: (PHOTON_UI_ASSETS[photonName] ?? []).map((asset) => ({
+            uri: `ui://${photonName}/${asset.id}`,
+            name: `ui:${asset.id}`,
+            description: `UI template: ${asset.id}`,
+            mimeType: 'text/html;profile=mcp-app',
+          })),
+        },
+      };
+
+    case 'resources/read': {
+      const uri = String(params?.uri ?? '');
+      const asset = uiAssetForUri(uri, photonName);
+      if (!asset) return { jsonrpc: '2.0', id, error: { code: -32002, message: `Resource not found: ${uri}` } };
+      try {
+        return { jsonrpc: '2.0', id, result: { contents: [uiResource(photonName, asset)] } };
+      } catch (error: any) {
+        return { jsonrpc: '2.0', id, error: { code: -32002, message: error?.message ?? String(error) } };
+      }
+    }
 
     case 'tools/call': {
       const { name, arguments: args } = params;
@@ -1427,6 +1486,7 @@ async function handleMCPRequest(
           result: {
             content: [{ type: 'text', text }],
             ...(isObject && { structuredContent: result }),
+            ...(toolDef.linkedUi && { _meta: toolWithUI(toolDef, photonName)._meta }),
           },
         };
       } catch (error: any) {
