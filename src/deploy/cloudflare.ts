@@ -25,6 +25,7 @@ import {
 } from '../access-control.js';
 import { compileTsxSync } from '../tsx-compiler.js';
 import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
+import { buildPhotonRenderMeta } from '../auto-ui/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -891,16 +892,28 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const hostAccess = extractAccessMetadata(sourceCode);
   const toolDefs = metadata.tools
     .filter((tool: { name: string }) => !routeHandlerNames.has(tool.name))
-    .map((tool: any) => ({
-      name: tool.name,
-      description: String(tool.description || '')
-        .replace(/\s*@class\s+[A-Za-z_$][\w$]*\s*\{[^}]*\}/g, '')
-        .trim(),
-      inputSchema: tool.inputSchema,
-      ...(tool.simpleParams ? { simpleParams: true } : {}),
-      scopes: inferToolScopes(tool, hostScopes[tool.name]),
-      ...(hostAccess[tool.name] ? { access: hostAccess[tool.name] } : {}),
-    }));
+    .map((tool: any) => {
+      const toolDef: any = {
+        name: tool.name,
+        description: String(tool.description || '')
+          .replace(/\s*@class\s+[A-Za-z_$][\w$]*\s*\{[^}]*\}/g, '')
+          .trim(),
+        inputSchema: tool.inputSchema,
+        ...(tool.simpleParams ? { simpleParams: true } : {}),
+        scopes: inferToolScopes(tool, hostScopes[tool.name]),
+        ...(hostAccess[tool.name] ? { access: hostAccess[tool.name] } : {}),
+      };
+      if (tool.outputSchema) toolDef.outputSchema = tool.outputSchema;
+      const annotations: Record<string, unknown> = {};
+      if (tool.readOnlyHint) annotations.readOnlyHint = true;
+      if (tool.destructiveHint) annotations.destructiveHint = true;
+      if (tool.idempotentHint) annotations.idempotentHint = true;
+      if (tool.openWorldHint !== undefined) annotations.openWorldHint = tool.openWorldHint;
+      if (Object.keys(annotations).length > 0) toolDef.annotations = annotations;
+      const renderMeta = buildPhotonRenderMeta(tool);
+      if (renderMeta) toolDef._meta = { 'photon/render': renderMeta };
+      return toolDef;
+    });
 
   const cfAccessEnabled = metadata.auth === 'cf-access';
   const jwtAudience = options.mcpAudience || process.env.PHOTON_MCP_JWT_AUDIENCE;
