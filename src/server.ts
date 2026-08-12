@@ -550,6 +550,7 @@ class BeamCompatTransport implements Transport {
       hasSettings?: boolean;
       webUrl?: string;
       webDescription?: string;
+      auth?: string;
     }
   ) {}
 
@@ -714,7 +715,14 @@ class BeamCompatTransport implements Transport {
       const dispatchesUserCode = parsed?.method === 'tools/call';
       const suppliedBearer = authHeaderToken(req);
       const authenticatesDiscovery = parsed?.method === 'tools/list' && suppliedBearer !== null;
-      const requiresCallerAuthentication = dispatchesUserCode || authenticatesDiscovery;
+      // Optional-auth photons may expose user-role tools to anonymous callers.
+      // Validate a supplied credential, but do not reject an anonymous call
+      // before the property-based tool evaluator can decide whether it is safe.
+      const optionalPhotonAuth = this.photonMeta.auth === 'optional';
+      const requiresCallerAuthentication =
+        (dispatchesUserCode && !optionalPhotonAuth) ||
+        authenticatesDiscovery ||
+        suppliedBearer !== null;
       const requiredScopes =
         dispatchesUserCode && typeof parsed?.params?.name === 'string'
           ? this.requiredScopesForTool(parsed.params.name)
@@ -3403,6 +3411,7 @@ export class PhotonServer {
         icon: this.mcp?.icon,
         stateful: !!this.mcp?.stateful,
         hasSettings: !!this.mcp?.hasSettings,
+        auth: this.mcp?.auth,
         ...(photonWebUrl
           ? { webUrl: photonWebUrl, webDescription: this.mcp?.description || `${photonName} MCP` }
           : {}),
