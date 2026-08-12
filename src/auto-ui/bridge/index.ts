@@ -439,9 +439,16 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   }
 
   var _mcpResizeCleanup = null;
+  function _sendInitialMcpSize() {
+    if (!document.body) return;
+    var width = Math.max(document.documentElement.scrollWidth || 0, document.body.scrollWidth || 0, 600) + 32;
+    var height = Math.max(document.documentElement.scrollHeight || 0, document.body.scrollHeight || 0, 400);
+    sendSizeChanged({ width: width, height: height });
+  }
   function _setupMcpAutoResize() {
     if (_mcpResizeCleanup || !document.body || typeof ResizeObserver === 'undefined') return;
     _mcpResizeCleanup = setupAutoResize(document.body);
+    _sendInitialMcpSize();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1607,6 +1614,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       // Send initialized notification
       postToHost({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
       _setupMcpAutoResize();
+      setTimeout(_sendInitialMcpSize, 100);
     },
     reject: function(err) {
       console.debug('MCP Apps init - no response (host may not support full protocol)');
