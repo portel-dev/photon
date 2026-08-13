@@ -42,6 +42,10 @@ export interface PhotonHostOptions {
   hostName?: string;
   hostVersion?: string;
   onCallTool?: (toolName: string, args: Record<string, any>) => Promise<any>;
+  /** Host policy for display-mode requests. Return the mode actually granted. */
+  onDisplayModeRequest?: (
+    mode: 'inline' | 'fullscreen' | 'pip'
+  ) => 'inline' | 'fullscreen' | 'pip' | Promise<'inline' | 'fullscreen' | 'pip'>;
   onFollowUp?: (message: string) => void;
   onStateChange?: (state: any) => void;
 }
@@ -271,6 +275,30 @@ export class PhotonHost {
     // Handle MCP Apps Extension JSON-RPC messages
     // ─────────────────────────────────────────────────────────────────────────
     if (msg.jsonrpc === '2.0') {
+      if (msg.method === 'ui/request-display-mode' && msg.id != null) {
+        const requested = msg.params?.mode as 'inline' | 'fullscreen' | 'pip';
+        const current = (
+          this.platformContext.displayMode === 'modal' ? 'inline' : this.platformContext.displayMode
+        ) as 'inline' | 'fullscreen' | 'pip';
+        if (requested !== 'inline' && requested !== 'fullscreen' && requested !== 'pip') {
+          this.sendRaw({ jsonrpc: '2.0', id: msg.id, result: { mode: current } });
+          return;
+        }
+        Promise.resolve(this.options.onDisplayModeRequest?.(requested) ?? requested)
+          .then((actual) => {
+            const mode =
+              actual === 'pip' || actual === 'fullscreen' || actual === 'inline' ? actual : current;
+            (this.platformContext as any).displayMode = mode;
+            this.sendRaw({ jsonrpc: '2.0', id: msg.id, result: { mode } });
+            this.sendRaw({
+              jsonrpc: '2.0',
+              method: 'ui/notifications/host-context-changed',
+              params: { displayMode: mode },
+            });
+          })
+          .catch(() => this.sendRaw({ jsonrpc: '2.0', id: msg.id, result: { mode: current } }));
+        return;
+      }
       if (msg.method === 'ui/ready') {
         this.readyResolve();
         this.initialize();

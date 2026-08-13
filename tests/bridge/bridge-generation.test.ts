@@ -105,6 +105,20 @@ test('window.photon has setupAutoResize function', () => {
   assert(script.includes('setupAutoResize: setupAutoResize'), 'Should have setupAutoResize');
 });
 
+test('window.photon exposes generic display-mode controls', () => {
+  const script = generateBridgeScript(TEST_CONTEXT);
+  assert(script.includes('get displayMode()'), 'Should expose current display mode');
+  assert(script.includes('requestDisplayMode: function(mode)'), 'Should expose requestDisplayMode');
+  assert(
+    script.includes("method: 'ui/request-display-mode'"),
+    'Should use the MCP Apps display-mode request'
+  );
+  assert(
+    script.includes("availableDisplayModes: ['inline', 'fullscreen', 'pip']"),
+    'Should advertise supported display modes'
+  );
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // WINDOW.OPENAI API (Compatibility)
 // ═══════════════════════════════════════════════════════════════════════════════

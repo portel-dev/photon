@@ -83,7 +83,9 @@ When your UI loads, the View sends `ui/initialize` to its Host:
   "method": "ui/initialize",
   "params": {
     "appInfo": { "name": "my-photon", "version": "1.0.0" },
-    "appCapabilities": {},
+    "appCapabilities": {
+      "availableDisplayModes": ["inline", "fullscreen", "pip"]
+    },
     "protocolVersion": "2026-01-26"
   }
 }
@@ -146,6 +148,7 @@ interface PhotonAPI {
   readonly photon: string;                    // Photon name
   readonly method: string;                    // Current method
   readonly isChatGPT: boolean;                // Running in ChatGPT?
+  readonly displayMode: 'inline' | 'fullscreen' | 'pip';
 }
 ```
 
@@ -161,6 +164,11 @@ invoke(name: string, args: Record<string, any>): Promise<any>; // Alias
 
 // Follow-up message
 sendFollowUpMessage(message: string): void;
+
+// Request a larger or alternate host presentation. The resolved value is
+// the mode the host actually granted; hosts may decline and return inline.
+requestDisplayMode(mode: 'inline' | 'fullscreen' | 'pip'):
+  Promise<'inline' | 'fullscreen' | 'pip'>;
 
 // Event subscriptions (each returns an unsubscribe function)
 onProgress(cb: (event: { value: number; message?: string }) => void): () => void;

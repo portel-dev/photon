@@ -126,6 +126,7 @@ export interface PhotonAPI {
 
   // Context
   readonly theme: 'light' | 'dark';
+  readonly displayMode: 'inline' | 'fullscreen' | 'pip';
   readonly locale: string;
   /** Base URL of this photon including any proxy prefix. Use for all fetch() calls. */
   readonly url: string;
@@ -147,6 +148,9 @@ export interface OpenAIAPI {
   // Methods
   setWidgetState(state: unknown): void;
   callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+  requestDisplayMode(
+    mode: 'inline' | 'fullscreen' | 'pip'
+  ): Promise<'inline' | 'fullscreen' | 'pip'>;
   sendFollowUpMessage(options: { prompt: string }): Promise<void>;
   uploadFile(file: File): Promise<{ fileId: string }>;
   getFileDownloadUrl(options: { fileId: string }): Promise<string>;

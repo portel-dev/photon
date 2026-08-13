@@ -213,6 +213,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           applyThemeClass();
           listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
         }
+        if (ctxParams.displayMode) ctx.displayMode = ctxParams.displayMode;
         // Re-render data-method elements so renderers pick up new colors
         if (ctxParams.styles || ctxParams.theme) {
           setTimeout(function() {
@@ -480,6 +481,23 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     callTool: callTool,
 
     get theme() { return ctx.theme; },
+    get displayMode() { return ctx.displayMode || 'inline'; },
+    requestDisplayMode: function(mode) {
+      var requestId = generateCallId();
+      var request = new Promise(function(resolve, reject) {
+        pendingCalls[requestId] = {
+          resolve: function(result) {
+            var actual = result && result.mode ? result.mode : mode;
+            ctx.displayMode = actual;
+            resolve(actual);
+          },
+          reject: reject
+        };
+        postToHost({ jsonrpc: '2.0', id: requestId, method: 'ui/request-display-mode', params: { mode: mode } });
+      });
+      postToHost({ type: 'photon:request-display-mode', mode: mode });
+      return request;
+    },
     get locale() { return ctx.locale || 'en-US'; },
     get photon() { return ctx.photon; },
     get method() { return ctx.method; },
@@ -814,8 +832,26 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       return Promise.reject(new Error('File download not supported'));
     },
     requestDisplayMode: function(mode) {
+      var requestId = generateCallId();
+      var request = new Promise(function(resolve, reject) {
+        pendingCalls[requestId] = {
+          resolve: function(result) {
+            var actual = result && result.mode ? result.mode : mode;
+            ctx.displayMode = actual;
+            resolve(actual);
+          },
+          reject: reject
+        };
+        postToHost({
+          jsonrpc: '2.0',
+          id: requestId,
+          method: 'ui/request-display-mode',
+          params: { mode: mode }
+        });
+      });
+      // Legacy Photon hosts may only understand the private message.
       postToHost({ type: 'photon:request-display-mode', mode: mode });
-      return Promise.resolve();
+      return request;
     },
     requestModal: function(opts) {
       return Promise.reject(new Error('Modal not supported'));
@@ -1630,7 +1666,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     method: 'ui/initialize',
     params: {
       appInfo: { name: ctx.photon || 'photon-app', version: '1.0.0' },
-      appCapabilities: {},
+      appCapabilities: { availableDisplayModes: ['inline', 'fullscreen', 'pip'] },
       protocolVersion: '2026-01-26'
     }
   });

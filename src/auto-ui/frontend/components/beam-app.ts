@@ -8215,6 +8215,27 @@ ${photon.errorMessage || 'Unknown error'}</pre
         }
       }
 
+      // MCP Apps standard: display-mode requests. Beam currently keeps the
+      // embedded view inline, so it explicitly declines unsupported modes by
+      // returning the mode that is actually active.
+      if (msg.jsonrpc === '2.0' && msg.method === 'ui/request-display-mode' && msg.id != null) {
+        const actual = 'inline';
+        if (event.source) {
+          (event.source as Window).postMessage(
+            { jsonrpc: '2.0', id: msg.id, result: { mode: actual } },
+            '*'
+          );
+          (event.source as Window).postMessage(
+            {
+              jsonrpc: '2.0',
+              method: 'ui/notifications/host-context-changed',
+              params: { displayMode: actual },
+            },
+            '*'
+          );
+        }
+      }
+
       // MCP Apps standard: JSON-RPC ui/initialize from iframes
       if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize' && msg.id != null) {
         const themeTokens = getThemeTokens(this._theme);

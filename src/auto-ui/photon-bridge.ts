@@ -80,6 +80,7 @@ export interface PhotonContext {
   locale: string;
   photon: string;
   method: string;
+  displayMode?: 'inline' | 'fullscreen' | 'pip';
 }
 
 /**
@@ -151,12 +152,20 @@ export interface PhotonBridge {
   /** Send a follow-up message (for conversational UIs) */
   sendFollowUpMessage(message: string): Promise<void>;
 
+  /** Ask the host to change display mode; resolves with the mode actually granted. */
+  requestDisplayMode(
+    mode: 'inline' | 'fullscreen' | 'pip'
+  ): Promise<'inline' | 'fullscreen' | 'pip'>;
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Context
   // ─────────────────────────────────────────────────────────────────────────────
 
   /** Current theme */
   theme: 'light' | 'dark';
+
+  /** Current host display mode */
+  displayMode: 'inline' | 'fullscreen' | 'pip';
 
   /** User locale */
   locale: string;
@@ -408,9 +417,42 @@ export function createPhotonBridge(): PhotonBridge {
       );
     },
 
+    requestDisplayMode(mode) {
+      const requestId = 'display_' + Math.random().toString(36).slice(2);
+      return new Promise<'inline' | 'fullscreen' | 'pip'>((resolve) => {
+        let settled = false;
+        const handler = (event: any) => {
+          const msg = event.data;
+          if (msg?.jsonrpc === '2.0' && msg.id === requestId && !msg.method) {
+            window.removeEventListener('message', handler);
+            const actual = msg.result?.mode || mode;
+            _context.displayMode = actual;
+            settled = true;
+            resolve(actual);
+          }
+        };
+        window.addEventListener('message', handler);
+        window.parent.postMessage(
+          { jsonrpc: '2.0', id: requestId, method: 'ui/request-display-mode', params: { mode } },
+          '*'
+        );
+        // A legacy host may not implement the JSON-RPC request. Do not leave
+        // the app awaiting forever; the requested mode is only a best effort.
+        setTimeout(() => {
+          if (settled) return;
+          window.removeEventListener('message', handler);
+          _context.displayMode = mode;
+          resolve(mode);
+        }, 2000);
+      });
+    },
+
     // Context
     get theme() {
       return _context.theme;
+    },
+    get displayMode() {
+      return _context.displayMode || 'inline';
     },
     get locale() {
       return _context.locale;

@@ -649,6 +649,7 @@ export class ResourceServer {
   var resultListeners = [];
   var emitListeners = [];
   var themeListeners = [];
+  var currentDisplayMode = 'inline';
   var eventListeners = {};  // For specific event subscriptions (e.g., 'taskMove')
   var photonEventListeners = {};  // Namespaced by photon name for injected photons
   var currentTheme = 'dark';
@@ -825,6 +826,7 @@ export class ResourceServer {
           }
           themeListeners.forEach(function(cb) { cb(currentTheme); });
         }
+        if (m.params && m.params.displayMode) currentDisplayMode = m.params.displayMode;
 
         // Extract embedded photon event data
         // This enables real-time sync via standard MCP protocol
@@ -914,6 +916,25 @@ export class ResourceServer {
       };
     },
     get theme() { return currentTheme; },
+    get displayMode() { return currentDisplayMode; },
+    requestDisplayMode: function(mode) {
+      var requestId = generateCallId();
+      return new Promise(function(resolve, reject) {
+        pendingCalls[requestId] = {
+          resolve: function(result) {
+            currentDisplayMode = result && result.mode ? result.mode : mode;
+            resolve(currentDisplayMode);
+          },
+          reject: reject
+        };
+        postToHost({
+          jsonrpc: '2.0',
+          id: requestId,
+          method: 'ui/request-display-mode',
+          params: { mode: mode }
+        });
+      });
+    },
 
     // Generic event subscription for real-time sync
     // Usage: photon.on('taskMove', function(data) { ... })
@@ -1085,7 +1106,7 @@ export class ResourceServer {
     method: 'ui/initialize',
     params: {
       appInfo: { name: '${photonName}', version: '1.0.0' },
-      appCapabilities: {},
+      appCapabilities: { availableDisplayModes: ['inline', 'fullscreen', 'pip'] },
       protocolVersion: '2026-01-26'
     }
   });
