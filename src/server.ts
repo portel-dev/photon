@@ -29,6 +29,7 @@ import {
   type ServerNotification,
 } from './mcp/sdk-v1-2025/types.js';
 import { readText } from './shared/io.js';
+import { cleanMcpToolDescription } from './shared/mcp-tool-metadata.js';
 import { detectIsolationMode } from './shared/cross-origin-headers.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -1620,7 +1621,7 @@ export class PhotonServer {
       .filter((tool) => this.loader.isToolAccessible(this.mcp!, tool.name, caller))
       .map((tool) => {
         // Append deprecation notice to tool description if tagged
-        let description = tool.description;
+        let description = cleanMcpToolDescription(tool.description);
         const deprecated = (tool as ExtractedSchema).deprecated;
         if (deprecated) {
           const notice = typeof deprecated === 'string' ? deprecated : 'This tool is deprecated.';

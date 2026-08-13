@@ -27,6 +27,7 @@ import { compileTsxSync } from '../tsx-compiler.js';
 import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
 import { buildPhotonRenderMeta } from '../auto-ui/types.js';
 import { ResourceServer } from '../resource-server.js';
+import { cleanMcpToolDescription } from '../shared/mcp-tool-metadata.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -947,9 +948,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .map((tool: any) => {
       const toolDef: any = {
         name: tool.name,
-        description: String(tool.description || '')
-          .replace(/\s*@class\s+[A-Za-z_$][\w$]*\s*\{[^}]*\}/g, '')
-          .trim(),
+        description: cleanMcpToolDescription(tool.description),
         inputSchema: tool.inputSchema,
         ...(tool.simpleParams ? { simpleParams: true } : {}),
         scopes: inferToolScopes(tool, hostScopes[tool.name]),
