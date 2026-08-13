@@ -235,6 +235,17 @@ class Foo {}
   assert.deepEqual(csp, { __class__: { resourceDomains: ['cdn.example.com'] } });
 });
 
+await test('@csp resource permits external script and style assets', () => {
+  const source = `
+/**
+ * @csp resource https://cdn.example.com
+ */
+class Foo {}
+`;
+  const csp = extractCspFromSource(source);
+  assert.deepEqual(csp, { __class__: { resourceDomains: ['https://cdn.example.com'] } });
+});
+
 await test('@csp frame → frameDomains', () => {
   const source = `
 /**

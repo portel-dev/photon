@@ -399,18 +399,24 @@ export class CustomUiRenderer extends LitElement {
       // 3. Build CSP meta tag if CSP metadata is provided
       let cspTag = '';
       if (this.csp) {
-        const directives: string[] = [
-          "default-src 'self'",
-          "script-src 'self' 'unsafe-inline'",
-          "style-src 'self' 'unsafe-inline'",
-        ];
+        const directives: string[] = ["default-src 'self'"];
         if (this.csp.connectDomains?.length) {
           directives.push(`connect-src 'self' ${this.csp.connectDomains.join(' ')}`);
         }
         if (this.csp.resourceDomains?.length) {
+          // `resource` is the Photon author-facing allowlist for external UI
+          // assets. Keep the explicit default policy, but permit the listed
+          // origins for every asset class a custom UI can load.
+          directives.push(
+            `script-src 'self' 'unsafe-inline' ${this.csp.resourceDomains.join(' ')}`
+          );
+          directives.push(`style-src 'self' 'unsafe-inline' ${this.csp.resourceDomains.join(' ')}`);
           directives.push(`img-src 'self' ${this.csp.resourceDomains.join(' ')}`);
           directives.push(`media-src 'self' ${this.csp.resourceDomains.join(' ')}`);
           directives.push(`font-src 'self' ${this.csp.resourceDomains.join(' ')}`);
+        } else {
+          directives.push("script-src 'self' 'unsafe-inline'");
+          directives.push("style-src 'self' 'unsafe-inline'");
         }
         if (this.csp.frameDomains?.length) {
           directives.push(`frame-src 'self' ${this.csp.frameDomains.join(' ')}`);
