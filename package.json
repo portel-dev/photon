@@ -57,7 +57,7 @@
     "test:server:comprehensive": "tsx tests/server.comprehensive.test.ts",
     "test:daemon-pubsub": "tsx tests/daemon-pubsub.test.ts",
     "test:daemon-buffer": "tsx tests/daemon-event-buffer.test.ts",
-    "test:bridge": "bun run test:bridge:generation && bun run test:bridge:protocol && bun run test:bridge:beam",
+    "test:bridge": "bun run test:bridge:generation && bun run test:bridge:protocol && bun run test:bridge:beam && bunx vitest run tests/theme-token-runtime.test.ts",
     "test:bridge:generation": "tsx tests/bridge/bridge-generation.test.ts",
     "test:bridge:protocol": "tsx tests/bridge/protocol.test.ts",
     "test:bridge:beam": "bash scripts/run-ts-test.sh tests/bridge/beam-integration.test.ts",

@@ -214,9 +214,10 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
       if (m.method === 'ui/initialize') {
         // Standard: hostContext.styles.variables; Legacy: params.theme
         var initTokens = (m.params.hostContext && m.params.hostContext.styles && m.params.hostContext.styles.variables) || m.params.theme;
-        if (initTokens) setThemeContext(m.params.hostContext && m.params.hostContext.theme || ctx.theme, initTokens);
-        // Extract theme name from hostContext or fall back
+        // Extract the theme before applying overrides. Otherwise applyThemeTokens
+        // sees a stale theme and resets the newly merged client tokens.
         if (m.params.hostContext && m.params.hostContext.theme) ctx.theme = m.params.hostContext.theme;
+        if (initTokens) setThemeContext(ctx.theme, initTokens);
         applyThemeTokens();
       }
       else if (m.method === 'ui/notifications/tool-input-partial') {

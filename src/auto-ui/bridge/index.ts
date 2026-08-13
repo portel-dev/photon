@@ -225,12 +225,14 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       else if (m.method === 'ui/notifications/host-context-changed' || m.method === 'ui/notifications/context') {
         var ctxParams = m.params || {};
         // Standard theme/styles handling
+        if (ctxParams.theme) {
+          ctx.theme = ctxParams.theme;
+        }
         if (ctxParams.styles && ctxParams.styles.variables) {
-          setThemeContext(ctxParams.theme || ctx.theme, ctxParams.styles.variables);
+          setThemeContext(ctx.theme, ctxParams.styles.variables);
           applyThemeTokens();
         }
         if (ctxParams.theme) {
-          ctx.theme = ctxParams.theme;
           applyThemeClass();
           listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
         }
