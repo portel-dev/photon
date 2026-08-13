@@ -3490,6 +3490,41 @@ export class ResultViewer extends LitElement {
     `;
   }
 
+  private _supportsResultFullscreen(layout: string): boolean {
+    return new Set([
+      'card',
+      'table',
+      'chart',
+      'datatable',
+      'calendar',
+      'timeline',
+      'kanban',
+      'heatmap',
+      'network',
+      'map',
+      'comparison',
+      'invoice',
+      'tabs',
+      'dashboard',
+      'panels',
+      'a2ui',
+    ]).has(layout);
+  }
+
+  private async _toggleResultFullscreen(): Promise<void> {
+    const container = this.shadowRoot?.querySelector('.container') as HTMLElement | null;
+    if (!container) return;
+    try {
+      if (document.fullscreenElement === container) {
+        await document.exitFullscreen();
+      } else if (!document.fullscreenElement) {
+        await container.requestFullscreen();
+      }
+    } catch {
+      // Fullscreen is optional; hosts such as sandboxed iframes may decline it.
+    }
+  }
+
   render() {
     if (this.loading) return this._renderSkeleton();
     if (this.result === null || this.result === undefined) return html``;
@@ -3516,6 +3551,19 @@ export class ResultViewer extends LitElement {
 
     return html`
       <div class="container">
+        ${this._supportsResultFullscreen(layout)
+          ? html`<div class="header">
+              <span class="title">${formatLabel(this.outputFormat || layout)}</span>
+              <button
+                class="expand-btn"
+                aria-label="Expand ${formatLabel(this.outputFormat || layout)}"
+                title="View fullscreen"
+                @click=${() => void this._toggleResultFullscreen()}
+              >
+                ⤢
+              </button>
+            </div>`
+          : ''}
         <div
           class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}"
           data-enter="scale-in"
