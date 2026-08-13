@@ -1276,26 +1276,14 @@ export class InvokeForm extends LitElement {
                   this._handleChange(key, v);
                 }}
               />
-              <input
-                id=${ifDefined(inputId)}
-                type="number"
-                class="slider-number-input ${errorClass}"
-                min="${min}"
-                max="${max}"
-                step="${step}"
-                .value=${displayValue}
-                @input=${(e: Event) => {
-                  const raw = (e.target as HTMLInputElement).value;
-                  if (raw === '' || raw === '-') return;
-                  this._handleChange(key, Number(raw));
-                }}
-                @change=${(e: Event) => {
-                  const el = e.target as HTMLInputElement;
-                  const v = this._sanitizeSliderValue(Number(el.value), min, max, step);
-                  el.value = String(v);
-                  this._handleChange(key, v);
-                }}
-              />
+              <number-stepper
+                .value=${Number(currentValue)}
+                .min=${min}
+                .max=${max}
+                .step=${step}
+                .hasError=${hasError}
+                @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+              ></number-stepper>
             </div>
             <div class="range-labels">
               <span>${min}</span>
@@ -1313,43 +1301,14 @@ export class InvokeForm extends LitElement {
         ? String(Math.round(Number(currentValue)))
         : String(currentValue);
       return html`
-        <input
+        <number-stepper
           id=${ifDefined(inputId)}
-          type="text"
-          class="number-input-clean ${errorClass}"
-          inputmode=${isInteger ? 'numeric' : 'decimal'}
-          ${hasMin ? `min="${schema.minimum}"` : ''}
-          placeholder="${defaultVal}"
-          .value=${displayValue}
-          @keypress=${(e: KeyboardEvent) => {
-            const char = e.key;
-            const isDigit = /\d/.test(char);
-            const isMinus = char === '-';
-            const isDecimal = char === '.' && !isInteger;
-
-            // Allow: digits, minus at start, decimal (for floats)
-            if (!isDigit && !isMinus && !isDecimal) {
-              e.preventDefault();
-            }
-          }}
-          @input=${(e: Event) => {
-            let text = (e.target as HTMLInputElement).value;
-
-            if (isInteger) {
-              // Remove all non-digit, non-minus characters for integers
-              const cleaned = text.replace(/[^\d-]/g, '');
-              // Fix multiple minus signs (only allow at start)
-              text = cleaned.match(/-.*-/) ? cleaned.replace(/-/g, '').replace(/^/, '-') : cleaned;
-            }
-
-            let v = text === '' || text === '-' ? defaultVal : Number(text);
-            // If parsing resulted in NaN, use the default value
-            if (isNaN(v)) {
-              v = defaultVal;
-            }
-            this._handleChange(key, v);
-          }}
-        />
+          .value=${Number(currentValue)}
+          .min=${hasMin ? schema.minimum : undefined}
+          .step=${step}
+          .hasError=${hasError}
+          @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+        ></number-stepper>
       `;
     }
 

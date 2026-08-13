@@ -3,6 +3,8 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { theme, buttons, forms } from '../styles/index.js';
 import { trapFocus } from '../utils/focus-trap.js';
 import { shieldCheck, sizedIcon } from '../icons.js';
+import './inputs/date-picker.js';
+import './inputs/number-stepper.js';
 
 export interface ElicitationData {
   ask: 'text' | 'password' | 'select' | 'confirm' | 'number' | 'oauth' | 'url' | 'form';
@@ -1164,15 +1166,14 @@ export class ElicitationModal extends LitElement {
 
     // String with date/time format
     if (field.format === 'date' || field.format === 'date-time' || field.format === 'time') {
-      const inputType = field.format === 'date-time' ? 'datetime-local' : field.format;
+      const mode = field.format === 'date-time' ? 'date-time' : field.format;
       return html`
-        <input
-          type=${inputType}
-          class="date-input"
+        <date-picker
           .value=${value}
-          @input=${(e: Event) =>
-            this._updateFormValue(field.name, (e.target as HTMLInputElement).value)}
-        />
+          mode=${mode}
+          placeholder=${field.placeholder || ''}
+          @change=${(e: CustomEvent) => this._updateFormValue(field.name, e.detail.value)}
+        ></date-picker>
       `;
     }
 
@@ -1218,25 +1219,13 @@ export class ElicitationModal extends LitElement {
                 this._updateFormValue(field.name, v);
               }}
             />
-            <input
-              type="number"
-              class="slider-number-input"
-              min="${min}"
-              max="${max}"
-              step="${step}"
-              .value=${String(currentValue)}
-              @input=${(e: Event) => {
-                const raw = (e.target as HTMLInputElement).value;
-                if (raw === '' || raw === '-') return;
-                this._updateFormValue(field.name, Number(raw));
-              }}
-              @change=${(e: Event) => {
-                const el = e.target as HTMLInputElement;
-                const v = this._sanitizeSliderValue(Number(el.value), min, max, step);
-                el.value = String(v);
-                this._updateFormValue(field.name, v);
-              }}
-            />
+            <number-stepper
+              .value=${Number(currentValue)}
+              .min=${min}
+              .max=${max}
+              .step=${step}
+              @change=${(e: CustomEvent) => this._updateFormValue(field.name, e.detail.value)}
+            ></number-stepper>
           </div>
           <div class="range-labels">
             <span>${min}</span>

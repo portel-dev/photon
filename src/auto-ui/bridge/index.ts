@@ -1230,6 +1230,20 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     });
   }
 
+  function _needsRichForm(schema) {
+    var properties = (schema && schema.properties) || {};
+    var keys = Object.keys(properties);
+    for (var i = 0; i < keys.length; i++) {
+      var format = properties[keys[i]] && properties[keys[i]].format;
+      if (format === 'date' || format === 'date-time' || format === 'time' ||
+          format === 'date-range' || format === 'datetime-range') {
+        return true;
+      }
+      if ((properties[keys[i]].type === 'number' || properties[keys[i]].type === 'integer')) return true;
+    }
+    return false;
+  }
+
   function _generateForm(el, method, meta, args, proxy, format, renderResult) {
     _injectFormCSS();
     var schema = meta.inputSchema;
@@ -1510,7 +1524,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           // Use rich invoke-form (Lit component) for pure-view form mode.
           // The form bundle is lazy-loaded on first use — provides custom inputs
           // (date-picker, segmented-control, etc.) without loading full Beam chrome.
-          if (viewOverride === 'form') {
+          if (viewOverride === 'form' || _needsRichForm(meta.inputSchema)) {
             _loadRichForm(el, method, meta, args, proxy, format, renderResult);
           } else {
             _generateForm(el, method, meta, args, proxy, format, renderResult);

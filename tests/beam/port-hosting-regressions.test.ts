@@ -118,6 +118,63 @@ async function run(): Promise<void> {
     );
   });
 
+  await test('date form fields use Photon calendar controls instead of native browser popups', () => {
+    const bridgeSource = source('src/auto-ui/bridge/index.ts');
+    const modalSource = source('src/auto-ui/frontend/components/elicitation-modal.ts');
+
+    assert.match(
+      bridgeSource,
+      /function _needsRichForm\(schema\)/,
+      'metadata-driven forms must detect date fields and select the shared rich form renderer'
+    );
+    assert.match(
+      bridgeSource,
+      /viewOverride === 'form' \|\| _needsRichForm\(meta\.inputSchema\)/,
+      'date fields must not fall back to a native input[type=date] popup'
+    );
+    assert.match(
+      bridgeSource,
+      /properties\[keys\[i\]\]\.type === 'number' \|\| properties\[keys\[i\]\]\.type === 'integer'/,
+      'numeric fields must select the shared rich form renderer'
+    );
+    assert.match(
+      modalSource,
+      /import '\.\/inputs\/date-picker\.js';/,
+      'elicitation forms must register the shared date picker'
+    );
+    assert.match(
+      modalSource,
+      /<date-picker[\s\S]*mode=\$\{mode\}[\s\S]*@change=/,
+      'elicitation date fields must render the shared date picker'
+    );
+    assert.match(
+      modalSource,
+      /import '\.\/inputs\/number-stepper\.js';/,
+      'elicitation forms must register the shared number stepper'
+    );
+    assert.match(
+      modalSource,
+      /<number-stepper[\s\S]*\.step=\$\{step\}[\s\S]*@change=/,
+      'elicitation numeric fields must render the shared number stepper'
+    );
+  });
+
+  await test('Beam method cards use the canonical method-selection lifecycle', () => {
+    const cardSource = source('src/auto-ui/frontend/components/method-card.ts');
+    const beamSource = source('src/auto-ui/frontend/components/beam-app.ts');
+
+    assert.match(cardSource, /@pointerup=\$\{\(e: PointerEvent\) =>/);
+    assert.match(
+      cardSource,
+      /new CustomEvent\('select',[\s\S]*bubbles: true,[\s\S]*composed: true/
+    );
+    assert.match(
+      beamSource,
+      /<method-card[\s\S]*@select=\$\{this\._handleMethodSelect\}/,
+      'method cards must use the shared method-selection handler'
+    );
+  });
+
   await test('standard elicitation/create payload stays spec-shaped', () => {
     const transportSource = source('src/auto-ui/streamable-http-transport.ts');
     const confirmSchemaMatch = transportSource.match(

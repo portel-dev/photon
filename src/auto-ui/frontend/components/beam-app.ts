@@ -4509,12 +4509,7 @@ export class BeamApp extends LitElement {
                 .method=${method}
                 .photonName=${this._selectedPhoton.name}
                 .selected=${this._selectedMethod?.name === method.name}
-                @select=${(e: CustomEvent) => {
-                  this._selectedMethod = e.detail.method;
-                  this._view = 'form';
-                  this._mainTab = 'methods';
-                  this._updateRoute();
-                }}
+                @select=${this._handleMethodSelect}
               ></method-card>
             `
           )}
@@ -5220,11 +5215,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                               .method=${method}
                               .photonName=${this._selectedPhoton.name}
                               .selected=${this._selectedMethod?.name === method.name}
-                              @select=${(e: CustomEvent) => {
-                                this._selectedMethod = e.detail.method;
-                                this._view = 'form';
-                                this._updateRoute();
-                              }}
+                              @select=${this._handleMethodSelect}
                             ></method-card>
                           `
                         )}
@@ -5956,7 +5947,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
   }
 
-  private _handleMethodSelect(e: CustomEvent) {
+  private _handleMethodSelect = (e: CustomEvent) => {
     // Teardown any active custom-ui-renderer before switching methods
     this._teardownActiveCustomUI();
     this._canvasActive = false;
@@ -5978,7 +5969,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     // Auto-invoke if method has autorun or has no required parameters
     this._maybeAutoInvoke(e.detail.method);
-  }
+  };
 
   /**
    * Check if method is an HTML UI that should show in minimal "UI mode"

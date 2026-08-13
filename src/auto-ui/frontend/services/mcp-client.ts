@@ -435,23 +435,20 @@ class MCPClientService {
 
   private async initialize(): Promise<void> {
     const sdk = this.sdk!;
-    const result = await sdk.request('initialize', {
-      protocolVersion: '2025-03-26',
-      capabilities: {
-        roots: { listChanged: false },
-        // Beam answers `sampling/createMessage` by asking the human
-        // at the browser — the person watching what AI is doing IS
-        // the LLM. beam-app registers a handler via
-        // `mcpClient.setRequestHandler('sampling/createMessage', ...)`
-        // that opens a modal showing the prompt and returns the
-        // user's typed response as the sampling result. Photons that
-        // call `this.sample(...)` from a Beam-driven invocation
-        // therefore route to the human, not a model API.
-        sampling: {},
-      },
-      clientInfo: {
-        name: 'beam',
-        version: '1.0.0',
+    // Beam speaks the current stateless MCP revision. Photon authors do not
+    // select a revision; this is entirely a client/runtime concern.
+    const result = await sdk.request('server/discover', {
+      _meta: {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientInfo': { name: 'beam', version: '1.0.0' },
+        'io.modelcontextprotocol/clientCapabilities': {
+          tools: {},
+          resources: {},
+          extensions: {
+            'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+            'io.modelcontextprotocol/photon': { version: '1.0.0' },
+          },
+        },
       },
     });
 
@@ -462,8 +459,6 @@ class MCPClientService {
       this._configurationSchema = result.configurationSchema;
       this.emit('configuration-available', this._configurationSchema);
     }
-
-    await sdk.notify('notifications/initialized', {});
   }
 
   // ═══ Tool / Resource API ═══

@@ -492,6 +492,7 @@ export class MethodCard extends LitElement {
 
   @state() private _editingDescription = false;
   @state() private _editingIcon = false;
+  private _pointerActivationPending = false;
   @state() private _editedDescription = '';
 
   connectedCallback() {
@@ -563,7 +564,19 @@ export class MethodCard extends LitElement {
         aria-label="${this.method.title || this.method.name}${hasDescription
           ? ': ' + this._renderDescription(this.method.description)
           : ''}"
-        @click=${(e: Event) => this._handleCardClick(e)}
+        @pointerup=${(e: PointerEvent) => {
+          if (e.button === 0) {
+            this._pointerActivationPending = true;
+            this._handleCardClick(e);
+          }
+        }}
+        @click=${(e: Event) => {
+          if (this._pointerActivationPending) {
+            this._pointerActivationPending = false;
+            return;
+          }
+          this._handleCardClick(e);
+        }}
         @keydown=${(e: Event) => this._handleCardKeydown(e as KeyboardEvent)}
       >
         <div>
@@ -795,12 +808,24 @@ export class MethodCard extends LitElement {
     if (this._editingDescription || this._editingIcon) {
       return;
     }
-    this.dispatchEvent(new CustomEvent('select', { detail: { method: this.method } }));
+    this.dispatchEvent(
+      new CustomEvent('select', {
+        detail: { method: this.method },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _handleRunClick(e: Event) {
     e.stopPropagation();
-    this.dispatchEvent(new CustomEvent('select', { detail: { method: this.method } }));
+    this.dispatchEvent(
+      new CustomEvent('select', {
+        detail: { method: this.method },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _pickerPos = { top: 0, left: 0 };

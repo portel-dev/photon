@@ -21,6 +21,7 @@ import './components/context-bar.js';
 import './components/fork-dialog.js';
 import './components/app-layout.js';
 import './components/inputs/date-picker.js';
+import './components/inputs/number-stepper.js';
 import './components/inputs/tag-input.js';
 import './components/inputs/star-rating.js';
 import './components/inputs/segmented-control.js';

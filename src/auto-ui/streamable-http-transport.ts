@@ -134,6 +134,7 @@ import { isPathInScope } from '../daemon/claims.js';
 import {
   MCP_PROTOCOL_VERSIONS,
   SUPPORTED_MCP_PROTOCOL_VERSIONS,
+  negotiateMCPProtocolVersion,
   isStatelessMCPProtocolVersion,
   isSupportedMCPProtocolVersion,
 } from '../mcp/protocol/versions.js';
@@ -2918,12 +2919,17 @@ const handlers: Record<string, RequestHandler> = {
     session.clientCapabilities =
       (req.params?.capabilities as Record<string, unknown> | undefined) || {};
     session.clientProfile = resolveClientProfile(req, session, {});
+    const protocolVersion = negotiateMCPProtocolVersion(req.params?.protocolVersion);
 
     return {
       jsonrpc: '2.0',
       id: req.id,
       result: {
-        protocolVersion: '2025-11-25',
+        // Protocol negotiation is a runtime concern. Photon files do not
+        // target a revision; the server selects the client's supported
+        // revision and advertises the complete compatibility set.
+        protocolVersion,
+        supportedProtocolVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
         serverInfo: buildServerInfo(),
         capabilities: buildServerCapabilities(ctx.wireAdapter),
         // SEP-1596 inspired: configuration schema for unconfigured photons

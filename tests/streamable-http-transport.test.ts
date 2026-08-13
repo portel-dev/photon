@@ -1359,6 +1359,12 @@ async function runTests(): Promise<void> {
         },
       });
       assert.equal(initialized.status, 200);
+      assert.equal(initialized.body.result.protocolVersion, '2025-11-25');
+      assert.deepEqual(initialized.body.result.supportedProtocolVersions, [
+        '2025-03-26',
+        '2025-11-25',
+        '2026-07-28',
+      ]);
 
       const meta = mcp2026PhotonMeta();
       delete meta['io.modelcontextprotocol/clientInfo'];

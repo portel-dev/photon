@@ -45,6 +45,8 @@ interface JSONRPCMessage {
 
 type Listener = (data?: unknown) => void;
 
+const MCP_2026_PROTOCOL_VERSION = '2026-07-28';
+
 /**
  * Default idle timeout for any tool call: if no progress notification
  * arrives for this long, the request is aborted. Each matching progress
@@ -85,6 +87,10 @@ export interface CallOptions {
 
 export interface MCPClientSDKOptions {
   authToken?: string;
+  /** Protocol selected by the host. Beam uses the current stateless revision. */
+  protocolVersion?: string;
+  clientInfo?: { name: string; version: string };
+  clientCapabilities?: Record<string, unknown>;
   /**
    * Optional fetch override. The outer MCPClientService wraps window.fetch
    * here to intercept 401s and harvest WWW-Authenticate → resource_metadata_url
@@ -105,7 +111,13 @@ export interface MCPClientSDKOptions {
 type RequestHandler = (params: Record<string, unknown>) => unknown;
 
 export class MCPClientSDK {
-  private transport: StreamableHTTPClientTransport;
+  private transport: StreamableHTTPClientTransport | undefined;
+  private readonly baseUrl: URL;
+  private readonly fetchImpl: typeof fetch;
+  private readonly authToken?: string;
+  private readonly protocolVersion: string;
+  private readonly clientInfo: { name: string; version: string };
+  private readonly clientCapabilities: Record<string, unknown>;
   private listeners = new Map<string, Set<Listener>>();
   private pending = new Map<string | number, PendingRequest>();
   private requestHandlers = new Map<string, RequestHandler>();
@@ -113,37 +125,57 @@ export class MCPClientSDK {
   private connected = false;
 
   constructor(baseUrl: string, opts: MCPClientSDKOptions = {}) {
-    this.transport = new StreamableHTTPClientTransport(new URL(baseUrl), {
-      requestInit: opts.authToken
-        ? { headers: { Authorization: `Bearer ${opts.authToken}` } }
-        : undefined,
-      fetch: opts.fetch,
-      // SDK's default maxRetries is 2. We match the old client's
-      // never-give-up behavior so the user doesn't need to refresh
-      // after a daemon restart or transient network blip.
-      reconnectionOptions: {
-        initialReconnectionDelay: 1_000,
-        maxReconnectionDelay: 30_000,
-        reconnectionDelayGrowFactor: 1.5,
-        maxRetries: Number.MAX_SAFE_INTEGER,
+    this.baseUrl = new URL(baseUrl);
+    this.fetchImpl = opts.fetch ?? fetch;
+    this.authToken = opts.authToken;
+    this.protocolVersion = opts.protocolVersion ?? MCP_2026_PROTOCOL_VERSION;
+    this.clientInfo = opts.clientInfo ?? { name: 'beam', version: '1.0.0' };
+    this.clientCapabilities = opts.clientCapabilities ?? {
+      tools: {},
+      resources: {},
+      extensions: {
+        'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+        'io.modelcontextprotocol/photon': { version: '1.0.0' },
       },
-    });
-
-    this.transport.onmessage = (msg) => this.handleMessage(msg as JSONRPCMessage);
-    this.transport.onclose = () => {
-      this.connected = false;
-      this.emit('disconnected');
     };
-    this.transport.onerror = (err) => this.emit('error', err);
+
+    if (this.protocolVersion !== MCP_2026_PROTOCOL_VERSION) {
+      this.transport = new StreamableHTTPClientTransport(this.baseUrl, {
+        requestInit: opts.authToken
+          ? { headers: { Authorization: `Bearer ${opts.authToken}` } }
+          : undefined,
+        fetch: this.fetchImpl,
+        // SDK's default maxRetries is 2. We match the old client's
+        // never-give-up behavior so the user doesn't need to refresh
+        // after a daemon restart or transient network blip.
+        reconnectionOptions: {
+          initialReconnectionDelay: 1_000,
+          maxReconnectionDelay: 30_000,
+          reconnectionDelayGrowFactor: 1.5,
+          maxRetries: Number.MAX_SAFE_INTEGER,
+        },
+      });
+
+      this.transport.onmessage = (msg) => this.handleMessage(msg as JSONRPCMessage);
+      this.transport.onclose = () => {
+        this.connected = false;
+        this.emit('disconnected');
+      };
+      this.transport.onerror = (err) => this.emit('error', err);
+    }
   }
 
   async connect(): Promise<void> {
-    await this.transport.start();
+    if (this.transport) await this.transport.start();
     this.connected = true;
     this.emit('connected');
   }
 
   async disconnect(): Promise<void> {
+    if (!this.transport) {
+      this.connected = false;
+      return;
+    }
     try {
       await this.transport.terminateSession();
     } catch {
@@ -157,7 +189,7 @@ export class MCPClientSDK {
   }
 
   get sessionId(): string | undefined {
-    return this.transport.sessionId;
+    return this.transport?.sessionId;
   }
 
   // ── Request/response correlation ─────────────────────────────────
@@ -233,9 +265,9 @@ export class MCPClientSDK {
 
       this.pending.set(id, pending);
 
-      this.transport
-        .send({ jsonrpc: '2.0', id, method, params: messageParams })
-        .catch((err) => clearAndFail(err instanceof Error ? err : new Error(String(err))));
+      this.send({ jsonrpc: '2.0', id, method, params: messageParams }).catch((err) =>
+        clearAndFail(err instanceof Error ? err : new Error(String(err)))
+      );
     });
   }
 
@@ -244,7 +276,40 @@ export class MCPClientSDK {
    * `notifications/initialized`, `beam/viewing`, etc.
    */
   async notify(method: string, params: Record<string, unknown> = {}): Promise<void> {
-    await this.transport.send({ jsonrpc: '2.0', method, params });
+    await this.send({ jsonrpc: '2.0', method, params });
+  }
+
+  private async send(message: JSONRPCMessage): Promise<void> {
+    if (this.transport) {
+      await this.transport.send(message);
+      return;
+    }
+
+    const meta = {
+      ...((message.params?._meta as Record<string, unknown> | undefined) ?? {}),
+      'io.modelcontextprotocol/protocolVersion': this.protocolVersion,
+      'io.modelcontextprotocol/clientInfo': this.clientInfo,
+      'io.modelcontextprotocol/clientCapabilities': this.clientCapabilities,
+    };
+    const params = { ...(message.params ?? {}), _meta: meta };
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'Mcp-Protocol-Version': this.protocolVersion,
+      ...(message.method ? { 'Mcp-Method': message.method } : {}),
+      ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
+    };
+    const response = await this.fetchImpl(this.baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...message, params }),
+    });
+    if (!response.ok) {
+      throw new Error(`MCP request failed (${response.status}): ${await response.text()}`);
+    }
+    if (message.id === undefined) return;
+    const payload = (await response.json()) as JSONRPCMessage;
+    this.handleMessage(payload);
   }
 
   /**
@@ -278,16 +343,14 @@ export class MCPClientSDK {
   }
 
   private sendCancel(id: string | number, reason: string): void {
-    void this.transport
-      .send({
-        jsonrpc: '2.0',
-        method: 'notifications/cancelled',
-        params: { requestId: id, reason },
-      })
-      .catch(() => {
-        // Cancellation is best-effort. If it fails, we've already rejected
-        // the caller's promise; further retries add nothing.
-      });
+    void this.send({
+      jsonrpc: '2.0',
+      method: 'notifications/cancelled',
+      params: { requestId: id, reason },
+    }).catch(() => {
+      // Cancellation is best-effort. If it fails, we've already rejected
+      // the caller's promise; further retries add nothing.
+    });
   }
 
   /**
@@ -390,32 +453,27 @@ export class MCPClientSDK {
       const handler = this.requestHandlers.get(msg.method);
       const requestId = msg.id;
       if (!handler) {
-        void this.transport
-          .send({
-            jsonrpc: '2.0',
-            id: requestId,
-            error: {
-              code: -32601,
-              message: `Method not found: ${msg.method}`,
-            },
-          })
-          .catch(() => {});
+        void this.send({
+          jsonrpc: '2.0',
+          id: requestId,
+          error: {
+            code: -32601,
+            message: `Method not found: ${msg.method}`,
+          },
+        }).catch(() => {});
         return;
       }
       void Promise.resolve()
         .then(() => handler(msg.params ?? {}))
         .then(
-          (result) =>
-            this.transport.send({ jsonrpc: '2.0', id: requestId, result }).catch(() => {}),
+          (result) => this.send({ jsonrpc: '2.0', id: requestId, result }).catch(() => {}),
           (err: unknown) => {
             const message = err instanceof Error ? err.message : String(err);
-            return this.transport
-              .send({
-                jsonrpc: '2.0',
-                id: requestId,
-                error: { code: -32603, message },
-              })
-              .catch(() => {});
+            return this.send({
+              jsonrpc: '2.0',
+              id: requestId,
+              error: { code: -32603, message },
+            }).catch(() => {});
           }
         );
       return;
