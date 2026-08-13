@@ -38,7 +38,8 @@ export type {
  */
 export function generateBridgeScript(context: PhotonBridgeContext): string {
   // Get theme tokens for the specified theme (light or dark)
-  const themeTokens = getThemeTokens(context.theme);
+  const themeDefaults = { light: getThemeTokens('light'), dark: getThemeTokens('dark') };
+  const themeTokens = themeDefaults[context.theme] || themeDefaults.light;
 
   // When hosted in Beam, override surface tokens to match Beam's backgrounds
   if (context.hostName === 'beam') {
@@ -57,6 +58,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     }
   }
 
+  const themeDefaultsJson = JSON.stringify(themeDefaults);
   const themeTokensJson = JSON.stringify(themeTokens);
   const contextJson = JSON.stringify(context);
 
@@ -70,7 +72,9 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   // ═══════════════════════════════════════════════════════════════════════════
 
   var ctx = ${contextJson};
+  var themeDefaults = ${themeDefaultsJson};
   var themeTokens = ${themeTokensJson};
+  var themeTokenTheme = ctx.theme;
   var toolInput = {};
   var toolOutput = null;
   var widgetState = {};
@@ -90,6 +94,23 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   var eventListeners = {};  // For specific event subscriptions (e.g., 'taskMove')
   var photonEventListeners = {};  // Namespaced by photon name for injected photons
   var injectedPhotons = ctx.injectedPhotons || [];
+
+  // MCP hosts may provide only a partial styles.variables map. Merge host
+  // overrides with Photon defaults so custom UIs retain their colour tokens.
+  function setThemeContext(theme, overrides) {
+    var nextTheme = theme || ctx.theme;
+    if (nextTheme !== themeTokenTheme) {
+      themeTokens = Object.assign({}, themeDefaults[nextTheme] || themeDefaults.light);
+      themeTokenTheme = nextTheme;
+    }
+    if (overrides && typeof overrides === 'object') {
+      Object.keys(overrides).forEach(function(key) {
+        if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype' && overrides[key] != null) {
+          themeTokens[key] = overrides[key];
+        }
+      });
+    }
+  }
 
   function subscribe(arr, cb) {
     arr.push(cb);
@@ -173,7 +194,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         if (params.hostContext) {
           if (params.hostContext.theme) ctx.theme = params.hostContext.theme;
           if (params.hostContext.styles && params.hostContext.styles.variables) {
-            themeTokens = params.hostContext.styles.variables;
+            setThemeContext(ctx.theme, params.hostContext.styles.variables);
           }
         }
         applyThemeTokens();
@@ -205,7 +226,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         var ctxParams = m.params || {};
         // Standard theme/styles handling
         if (ctxParams.styles && ctxParams.styles.variables) {
-          themeTokens = ctxParams.styles.variables;
+          setThemeContext(ctxParams.theme || ctx.theme, ctxParams.styles.variables);
           applyThemeTokens();
         }
         if (ctxParams.theme) {
@@ -294,7 +315,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       }
       else if (m.type === 'photon:theme-change') {
         ctx.theme = m.theme || 'dark';
-        if (m.themeTokens) themeTokens = m.themeTokens;
+        if (m.themeTokens) setThemeContext(m.theme || ctx.theme, m.themeTokens);
         applyThemeTokens();
         applyThemeClass();
         listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
@@ -306,7 +327,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       else if (m.type === 'photon:context') {
         Object.assign(ctx, m.context);
         if (m.themeTokens) {
-          themeTokens = m.themeTokens;
+          setThemeContext(m.context && m.context.theme || ctx.theme, m.themeTokens);
           applyThemeTokens();
         }
         if (m.context && m.context.theme) {
@@ -329,6 +350,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   // ═══════════════════════════════════════════════════════════════════════════
 
   function applyThemeTokens() {
+    if (ctx.theme !== themeTokenTheme) setThemeContext(ctx.theme);
     var root = document.documentElement;
     for (var key in themeTokens) {
       root.style.setProperty(key, themeTokens[key]);
@@ -1646,7 +1668,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         hostContext = result.hostContext;
         if (result.hostContext.theme) ctx.theme = result.hostContext.theme;
         if (result.hostContext.styles && result.hostContext.styles.variables) {
-          themeTokens = result.hostContext.styles.variables;
+          setThemeContext(ctx.theme, result.hostContext.styles.variables);
         }
         applyThemeTokens();
       }

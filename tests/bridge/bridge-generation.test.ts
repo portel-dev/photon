@@ -6,6 +6,7 @@
  */
 
 import { generateBridgeScript } from '../../dist/auto-ui/bridge/index.js';
+import { generatePlatformBridgeScript } from '../../dist/auto-ui/platform-compat.js';
 
 const TEST_CONTEXT = {
   photon: 'test-photon',
@@ -317,6 +318,31 @@ test('ui/initialize includes protocolVersion', () => {
 test('applies theme tokens to CSS variables', () => {
   const script = generateBridgeScript(TEST_CONTEXT);
   assert(script.includes('root.style.setProperty(key, themeTokens[key])'), 'Should set CSS vars');
+});
+
+test('merges partial host theme variables with Photon defaults', () => {
+  const script = generateBridgeScript(TEST_CONTEXT);
+  assert(
+    script.includes('function setThemeContext(theme, overrides)'),
+    'Should merge host theme context'
+  );
+  assert(script.includes('overrides[key] != null'), 'Should ignore null theme overrides');
+  assert(
+    !script.includes('themeTokens = params.hostContext.styles.variables'),
+    'Should not replace Photon defaults'
+  );
+});
+
+test('platform compatibility bridge preserves Photon tokens for partial host themes', () => {
+  const script = generatePlatformBridgeScript(TEST_CONTEXT as any);
+  assert(
+    script.includes('function setThemeContext(theme, overrides)'),
+    'Should merge platform theme context'
+  );
+  assert(
+    !script.includes('if (initTokens) themeTokens = initTokens'),
+    'Should not replace Photon defaults'
+  );
 });
 
 test('applies theme class to documentElement', () => {
