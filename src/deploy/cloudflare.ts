@@ -957,9 +957,12 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       if (tool.outputSchema) toolDef.outputSchema = tool.outputSchema;
       if (uiByTool.has(tool.name)) toolDef.linkedUi = uiByTool.get(tool.name);
       const annotations: Record<string, unknown> = {};
-      if (tool.readOnlyHint) annotations.readOnlyHint = true;
-      if (tool.destructiveHint) annotations.destructiveHint = true;
-      if (tool.idempotentHint) annotations.idempotentHint = true;
+      // Keep safety classifications explicit for MCP clients. In particular,
+      // an omitted destructiveHint is interpreted as destructive by some
+      // approval UIs, even when readOnlyHint is true.
+      annotations.readOnlyHint = tool.readOnlyHint === true;
+      annotations.destructiveHint = tool.destructiveHint === true;
+      annotations.idempotentHint = tool.idempotentHint === true;
       if (tool.openWorldHint !== undefined) annotations.openWorldHint = tool.openWorldHint;
       if (Object.keys(annotations).length > 0) toolDef.annotations = annotations;
       const renderMeta = buildPhotonRenderMeta(tool);

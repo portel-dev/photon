@@ -1643,9 +1643,12 @@ export class PhotonServer {
         const schema = tool as ExtractedSchema;
         const annotations: Record<string, unknown> = {};
         if (schema.title) annotations.title = schema.title;
-        if (schema.readOnlyHint) annotations.readOnlyHint = true;
-        if (schema.destructiveHint) annotations.destructiveHint = true;
-        if (schema.idempotentHint) annotations.idempotentHint = true;
+        // Emit explicit boolean safety classifications. Some MCP clients
+        // treat an omitted destructiveHint as destructive by default, which
+        // makes a read-only tool appear unsafe in their approval UI.
+        annotations.readOnlyHint = schema.readOnlyHint === true;
+        annotations.destructiveHint = schema.destructiveHint === true;
+        annotations.idempotentHint = schema.idempotentHint === true;
         if (schema.openWorldHint !== undefined) annotations.openWorldHint = schema.openWorldHint;
         if (Object.keys(annotations).length > 0) toolDef.annotations = annotations;
 

@@ -139,7 +139,7 @@ async function run() {
       subject: 'status',
       confidence: 0.95,
       sources: ['description', 'methodName', 'annotations', 'format', 'schema'],
-      safety: { readOnly: true },
+      safety: { readOnly: true, destructive: false },
       input: { requiresInput: false },
       output: { structured: true, format: 'dashboard' },
     });

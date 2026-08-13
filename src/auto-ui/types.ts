@@ -691,9 +691,9 @@ export function buildToolMetadataExtensions(
   // MCP standard annotations (not x-* extensions)
   const annotations: Record<string, unknown> = {};
   if (method.title) annotations.title = method.title;
-  if (method.readOnlyHint) annotations.readOnlyHint = true;
-  if (method.destructiveHint) annotations.destructiveHint = true;
-  if (method.idempotentHint) annotations.idempotentHint = true;
+  annotations.readOnlyHint = method.readOnlyHint === true;
+  annotations.destructiveHint = method.destructiveHint === true;
+  annotations.idempotentHint = method.idempotentHint === true;
   if (method.openWorldHint !== undefined) annotations.openWorldHint = method.openWorldHint;
   if (Object.keys(annotations).length > 0) {
     extensions.annotations = annotations;
@@ -937,9 +937,11 @@ function summarizeOutput(method: Partial<MethodInfo>): PhotonIntentMeta['output'
 
 function summarizeSafety(method: Partial<MethodInfo>): PhotonIntentMeta['safety'] | undefined {
   const safety: PhotonIntentMeta['safety'] = {};
-  if (method.readOnlyHint) safety.readOnly = true;
-  if (method.destructiveHint) safety.destructive = true;
-  if (method.idempotentHint) safety.idempotent = true;
+  if (method.readOnlyHint !== undefined) safety.readOnly = method.readOnlyHint === true;
+  if (method.destructiveHint !== undefined || method.readOnlyHint !== undefined) {
+    safety.destructive = method.destructiveHint === true;
+  }
+  if (method.idempotentHint !== undefined) safety.idempotent = method.idempotentHint === true;
   if (method.openWorldHint !== undefined) safety.openWorld = method.openWorldHint;
   return Object.keys(safety).length > 0 ? safety : undefined;
 }
