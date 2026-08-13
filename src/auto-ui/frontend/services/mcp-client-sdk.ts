@@ -135,7 +135,7 @@ export class MCPClientSDK {
       resources: {},
       extensions: {
         'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
-        'io.modelcontextprotocol/photon': { version: '1.0.0' },
+        'dev.portel.photon': { version: '1.0.0' },
       },
     };
 
@@ -293,7 +293,9 @@ export class MCPClientSDK {
     };
     const params = { ...(message.params ?? {}), _meta: meta };
     const headers: Record<string, string> = {
-      Accept: 'application/json',
+      // MCP Streamable HTTP requires clients to advertise both response
+      // forms, even when this stateless request expects JSON.
+      Accept: 'application/json, text/event-stream',
       'Content-Type': 'application/json',
       'Mcp-Protocol-Version': this.protocolVersion,
       ...(message.method ? { 'Mcp-Method': message.method } : {}),
@@ -308,8 +310,28 @@ export class MCPClientSDK {
       throw new Error(`MCP request failed (${response.status}): ${await response.text()}`);
     }
     if (message.id === undefined) return;
-    const payload = (await response.json()) as JSONRPCMessage;
+    const payload = (await this.readResponse(response)) as JSONRPCMessage;
     this.handleMessage(payload);
+  }
+
+  private async readResponse(response: Response): Promise<unknown> {
+    const body = await response.text();
+    if (!body.trimStart().startsWith('data:')) return JSON.parse(body);
+
+    // Streamable HTTP may choose an SSE response when the client advertises
+    // both JSON and event-stream media types. A single request response is
+    // the last JSON data event in that stream.
+    const events = body
+      .split(/\r?\n\r?\n/)
+      .flatMap((event) =>
+        event
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+      )
+      .filter(Boolean);
+    if (events.length === 0) throw new Error('MCP SSE response did not contain a data event');
+    return JSON.parse(events[events.length - 1]);
   }
 
   /**

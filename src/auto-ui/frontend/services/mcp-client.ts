@@ -446,7 +446,7 @@ class MCPClientService {
           resources: {},
           extensions: {
             'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
-            'io.modelcontextprotocol/photon': { version: '1.0.0' },
+            'dev.portel.photon': { version: '1.0.0' },
           },
         },
       },
