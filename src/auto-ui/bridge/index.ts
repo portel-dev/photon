@@ -790,7 +790,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
 
   window.openai = {
     get theme() { return ctx.theme; },
-    get displayMode() { return 'inline'; },
+    get displayMode() { return ctx.displayMode || 'inline'; },
     get locale() { return ctx.locale || 'en-US'; },
     get maxHeight() { return 800; },
     get toolInput() { return toolInput; },
@@ -814,6 +814,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       return Promise.reject(new Error('File download not supported'));
     },
     requestDisplayMode: function(mode) {
+      postToHost({ type: 'photon:request-display-mode', mode: mode });
       return Promise.resolve();
     },
     requestModal: function(opts) {
@@ -825,7 +826,9 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     openExternal: function(opts) {
       window.open(opts.href, '_blank', 'noopener,noreferrer');
     },
-    setOpenInAppUrl: function(opts) {}
+    setOpenInAppUrl: function(opts) {
+      postToHost({ type: 'photon:set-open-in-app-url', href: opts.href });
+    }
   };
 
   // ═══════════════════════════════════════════════════════════════════════════

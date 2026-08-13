@@ -582,7 +582,11 @@ export type UIHint =
   | 'columns'
   | 'qr'
   | 'checklist'
-  | 'article';
+  | 'article'
+  | 'image'
+  | 'carousel'
+  | 'gallery'
+  | 'masonry';
 
 export type ProgressType = 'spinner' | 'percentage' | 'steps';
 

@@ -110,6 +110,54 @@ async function main() {
     await page.setContent('<!doctype html><html><body></body></html>');
     await page.addScriptTag({ content: generateRenderersScript() });
 
+    const galleryBehavior = await page.evaluate(() => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      (window as any)._photonRenderers.render(
+        container,
+        [
+          {
+            src: 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=',
+            caption: 'First',
+            openUrl: 'https://example.com',
+            openLabel: 'Open example',
+          },
+          { src: 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', caption: 'Second' },
+        ],
+        'gallery'
+      );
+      const tiles = container.querySelectorAll('button');
+      (tiles[0] as HTMLButtonElement).click();
+      const overlay = document.querySelector('[role="dialog"]') as HTMLElement | null;
+      const result = {
+        tileCount: tiles.length,
+        overlay: Boolean(overlay),
+        closeLabel: overlay
+          ?.querySelector('button[aria-label="Close preview"]')
+          ?.getAttribute('aria-label'),
+        actionLabel: overlay?.querySelector('a')?.textContent,
+        imageAlt: overlay?.querySelector('img')?.getAttribute('alt'),
+        navigationCount: overlay?.querySelectorAll(
+          'button[aria-label="Previous image"], button[aria-label="Next image"]'
+        ).length,
+      };
+      overlay
+        ?.querySelector('button[aria-label="Close preview"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return { ...result, closed: !document.querySelector('[role="dialog"]') };
+    });
+    check(
+      'gallery opens a navigable preview with close and action controls',
+      galleryBehavior.tileCount === 2 &&
+        galleryBehavior.overlay &&
+        galleryBehavior.closeLabel === 'Close preview' &&
+        galleryBehavior.actionLabel === 'Open example' &&
+        galleryBehavior.imageAlt === 'First' &&
+        galleryBehavior.navigationCount === 2 &&
+        galleryBehavior.closed,
+      JSON.stringify(galleryBehavior)
+    );
+
     const registered: string[] = await page.evaluate(
       () => (window as any)._photonRenderers.formats
     );
