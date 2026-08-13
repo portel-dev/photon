@@ -659,11 +659,11 @@ export class ResourceServer {
   //   1. Inside a host iframe that speaks postMessage (Beam, Claude Apps).
   //   2. Standalone browser tab (no host) — needs to use fetch.
   //   3. Iframe inside a host that ignores us — also fetch.
-  // window.parent === window only catches the second case; (1) and (3) both
-  // have a parent, so we ping it with a hello and wait 200ms for an ack
-  // before committing to fetch. Hosts that want postMessage must reply
-  // with { type: 'photon:ack', id } within that window.
-  var transport = 'pending';
+  // window.parent === window identifies a standalone browser tab. An
+  // embedded resource belongs to its MCP Apps host, so it must use
+  // postMessage immediately; waiting for a private ack is not portable
+  // because standard hosts (including Claude) do not implement it.
+  var transport = window.parent !== window ? 'postmessage' : 'pending';
   var resolveTransport;
   var transportReady = new Promise(function(resolve) { resolveTransport = resolve; });
   function settleTransport(t) {
@@ -715,7 +715,9 @@ export class ResourceServer {
   // Hello handshake. Standalone tabs (no host) silently drop the message;
   // the timeout below guarantees we still flip to fetch.
   postToHost({ type: 'photon:hello', id: 'init-' + Math.random().toString(36).slice(2) });
-  setTimeout(function() { settleTransport('fetch'); }, 200);
+  if (window.parent === window) {
+    setTimeout(function() { settleTransport('fetch'); }, 1000);
+  }
 
   // Listen for messages from host
   window.addEventListener('message', function(e) {
@@ -734,6 +736,10 @@ export class ResourceServer {
     if (m.jsonrpc === '2.0') {
       // Response to our request (has id, no method)
       if (m.id && !m.method && pendingCalls[m.id]) {
+        // Standard MCP Apps hosts answer ui/initialize but do not know
+        // Photon’s private hello/ack message. That response proves that
+        // postMessage transport is available before the fetch fallback wins.
+        if (m.id === initId) settleTransport('postmessage');
         var pending = pendingCalls[m.id];
         delete pendingCalls[m.id];
         if (m.error) {

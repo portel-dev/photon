@@ -29,5 +29,8 @@ describe('Cloudflare MCP App bridge code generation', () => {
     );
     expect(worker).toContain("'openai/widgetDescription'");
     expect(worker).toContain('prefersBorder: true');
+    expect(bridge).toContain("settleTransport('postmessage')");
+    expect(bridge).toContain("setTimeout(function() { settleTransport('fetch'); }, 1000)");
+    expect(bridge).toContain("window.parent !== window ? 'postmessage' : 'pending'");
   });
 });
