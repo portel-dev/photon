@@ -158,6 +158,37 @@ async function main() {
       JSON.stringify(galleryBehavior)
     );
 
+    const expandableCard = await page.evaluate(() => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      (window as any)._photonRenderers.render(container, { status: 'Ready', total: 42 }, 'card');
+      const expand = container.querySelector(
+        'button[aria-label="Expand Card"]'
+      ) as HTMLButtonElement | null;
+      expand?.click();
+      const dialog = document.querySelector(
+        '[role="dialog"][aria-label="Card"]'
+      ) as HTMLElement | null;
+      const close = dialog?.querySelector(
+        'button[aria-label="Close expanded view"]'
+      ) as HTMLButtonElement | null;
+      close?.click();
+      return {
+        hasExpand: Boolean(expand),
+        hasDialog: Boolean(dialog),
+        hasClose: Boolean(close),
+        closed: !document.querySelector('[role="dialog"][aria-label="Card"]'),
+      };
+    });
+    check(
+      'large card results get a reusable fullscreen surface with close control',
+      expandableCard.hasExpand &&
+        expandableCard.hasDialog &&
+        expandableCard.hasClose &&
+        expandableCard.closed,
+      JSON.stringify(expandableCard)
+    );
+
     const registered: string[] = await page.evaluate(
       () => (window as any)._photonRenderers.formats
     );

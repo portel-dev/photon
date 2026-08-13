@@ -865,6 +865,94 @@ export function generateRenderersScript(): string {
     catch(e) { return v; }
   }
 
+  // ─── Expandable surfaces ───
+  // Large result formats share one presentation contract. The host may grant
+  // fullscreen, while this overlay remains a useful fallback for hosts that
+  // keep the app inline (such as the current Beam shell).
+  function _requestDisplayMode(mode) {
+    try {
+      if (window.photon && typeof window.photon.requestDisplayMode === 'function') return window.photon.requestDisplayMode(mode);
+      if (window.openai && typeof window.openai.requestDisplayMode === 'function') return window.openai.requestDisplayMode(mode);
+    } catch (_) {}
+    return Promise.resolve(mode);
+  }
+
+  function _makeExpandableSurface(container, title, opts) {
+    if (!container || (opts && opts.expandable === false) || container.getAttribute('data-photon-expandable') === 'true') return;
+    container.setAttribute('data-photon-expandable', 'true');
+    var content = document.createElement('div');
+    content.style.cssText = 'min-width:0;min-height:0';
+    while (container.firstChild) content.appendChild(container.firstChild);
+
+    var shell = document.createElement('div');
+    shell.style.cssText = 'position:relative;color:' + colors.text;
+    var header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;min-height:28px';
+    var heading = document.createElement('span');
+    heading.textContent = title || 'View';
+    heading.style.cssText = 'font-size:12px;font-weight:600;color:' + colors.textMuted + ';letter-spacing:.02em';
+    var expand = document.createElement('button');
+    expand.type = 'button';
+    expand.textContent = '\u2922';
+    expand.setAttribute('aria-label', 'Expand ' + (title || 'view'));
+    expand.title = 'Expand';
+    expand.style.cssText = 'padding:4px 8px;border:1px solid ' + colors.border + ';border-radius:6px;background:' + colors.bgAlt + ';color:' + colors.text + ';cursor:pointer;font-size:15px;line-height:1';
+    header.appendChild(heading);
+    header.appendChild(expand);
+    shell.appendChild(header);
+    shell.appendChild(content);
+    container.appendChild(shell);
+
+    var overlay = null;
+    function close() {
+      if (!overlay) return;
+      content.style.cssText = 'min-width:0;min-height:0';
+      shell.appendChild(content);
+      overlay.remove();
+      overlay = null;
+      _requestDisplayMode('inline');
+      expand.focus();
+    }
+    function open() {
+      if (overlay) return;
+      overlay = document.createElement('div');
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-label', title || 'Expanded view');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9998;background:' + colors.bg + ';color:' + colors.text + ';display:flex;flex-direction:column;padding:16px;box-sizing:border-box;overflow:auto';
+      var toolbar = document.createElement('div');
+      toolbar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;margin-bottom:12px';
+      var overlayTitle = document.createElement('strong');
+      overlayTitle.textContent = title || 'Expanded view';
+      overlayTitle.style.cssText = 'font-size:14px';
+      var closeButton = document.createElement('button');
+      closeButton.type = 'button';
+      closeButton.textContent = '\u00d7';
+      closeButton.setAttribute('aria-label', 'Close expanded view');
+      closeButton.title = 'Close';
+      closeButton.style.cssText = 'width:34px;height:34px;border:1px solid ' + colors.border + ';border-radius:50%;background:' + colors.bgAlt + ';color:' + colors.text + ';cursor:pointer;font-size:22px;line-height:1';
+      closeButton.onclick = close;
+      toolbar.appendChild(overlayTitle);
+      toolbar.appendChild(closeButton);
+      overlay.appendChild(toolbar);
+      content.style.cssText = 'flex:1;min-width:0;min-height:0;overflow:auto';
+      overlay.appendChild(content);
+      overlay.addEventListener('keydown', function(e) { if (e.key === 'Escape') close(); });
+      document.body.appendChild(overlay);
+      _requestDisplayMode('fullscreen');
+      closeButton.focus();
+    }
+    expand.onclick = open;
+  }
+
+  var EXPANDABLE_FORMATS = {
+    card: true, kv: true, a2ui: true, table: true, chart: true,
+    datatable: true, calendar: true, timeline: true, kanban: true,
+    heatmap: true, network: true, graph: true, map: true, tree: true,
+    comparison: true, invoice: true, tabs: true, panels: true, dashboard: true,
+    embed: true
+  };
+
   // ─── QR code ───
   var _loadQRJS = _makeLoader('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js');
 
@@ -2306,6 +2394,10 @@ export function generateRenderersScript(): string {
       var fn = renderers[key] || renderers[key.split(':')[0]];
       if (!fn) { renderers.json(container, data); return; }
       fn(container, data, opts, key);
+      var baseKey = key.split(':')[0];
+      if (EXPANDABLE_FORMATS[key] || EXPANDABLE_FORMATS[baseKey]) {
+        _makeExpandableSurface(container, (opts && opts.title) || formatLabel(baseKey), opts);
+      }
     },
     formats: Object.keys(renderers)
   };

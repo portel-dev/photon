@@ -170,6 +170,11 @@ sendFollowUpMessage(message: string): void;
 requestDisplayMode(mode: 'inline' | 'fullscreen' | 'pip'):
   Promise<'inline' | 'fullscreen' | 'pip'>;
 
+// Large renderers such as card, table, chart, calendar, map, graph, and A2UI
+// surfaces automatically receive an Expand control. Opt out when embedding a
+// renderer inside another surface:
+photon.render(target, data, 'card', { expandable: false });
+
 // Event subscriptions (each returns an unsubscribe function)
 onProgress(cb: (event: { value: number; message?: string }) => void): () => void;
 onStatus(cb: (event: { message: string }) => void): () => void;
