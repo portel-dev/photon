@@ -237,7 +237,12 @@ function injectCloudflareUiBridge(
   if (!key) return;
 
   const html = Buffer.from(contents[key], 'base64').toString('utf8');
-  if (html.includes('window.photon =') || html.includes('ui/initialize')) return;
+  // A custom UI may mention the MCP Apps handshake without embedding the
+  // Photon bridge itself. Only skip injection when the generated bridge
+  // marker is present; checking for `ui/initialize` caused Cloudflare builds
+  // to silently omit Photon theme tokens and host-context handling.
+  if (html.includes('window.photon =') || html.includes('window.__MCP_APPS_CONTEXT__ = true'))
+    return;
   // Reuse the ResourceServer bridge that local MCP/HTTP hosts use. This keeps
   // Cloudflare on the same compatibility path, including hello/fetch fallback.
   const bridge = new ResourceServer({} as any, { filePath: '' }).generateMcpAppsBridge({

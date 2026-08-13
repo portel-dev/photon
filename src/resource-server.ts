@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { readText } from './shared/io.js';
 import type { PhotonClassExtended } from '@portel/photon-core';
+import { getThemeTokens } from './auto-ui/design-system/tokens.js';
 /** Minimal interface for executing tool calls — avoids importing PhotonLoader */
 export interface ResourceToolExecutor {
   executeTool(
@@ -639,6 +640,10 @@ export class ResourceServer {
   generateMcpAppsBridge(mcp: PhotonClassExtended | null): string {
     const photonName = mcp?.name || 'photon-app';
     const injectedPhotons = mcp?.injectedPhotons || [];
+    const themeDefaultsJson = JSON.stringify({
+      light: getThemeTokens('light'),
+      dark: getThemeTokens('dark'),
+    });
     return (
       `<script>
 (function() {
@@ -653,7 +658,39 @@ export class ResourceServer {
   var eventListeners = {};  // For specific event subscriptions (e.g., 'taskMove')
   var photonEventListeners = {};  // Namespaced by photon name for injected photons
   var currentTheme = 'dark';
+  var themeDefaults = ${themeDefaultsJson};
+  var themeTokens = Object.assign({}, themeDefaults.dark);
+  var themeTokenTheme = currentTheme;
   var injectedPhotons = ${JSON.stringify(injectedPhotons)};
+
+  // MCP hosts may provide only a partial styles.variables map. Merge host
+  // overrides with Photon defaults so custom UIs retain their colour tokens.
+  function applyThemeContext(theme, overrides) {
+    var nextTheme = theme || currentTheme;
+    if (nextTheme !== themeTokenTheme) {
+      themeTokens = Object.assign({}, themeDefaults[nextTheme] || themeDefaults.light);
+      themeTokenTheme = nextTheme;
+    }
+    currentTheme = nextTheme;
+    if (overrides && typeof overrides === 'object') {
+      Object.keys(overrides).forEach(function(key) {
+        if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype' && overrides[key] != null) {
+          themeTokens[key] = overrides[key];
+        }
+      });
+    }
+    var root = document.documentElement;
+    for (var key in themeTokens) root.style.setProperty(key, themeTokens[key]);
+    root.classList.remove('light', 'dark', 'light-theme');
+    root.classList.add(currentTheme);
+    root.setAttribute('data-theme', currentTheme);
+    if (currentTheme === 'light') root.classList.add('light-theme');
+    root.style.colorScheme = currentTheme;
+    var bg = themeTokens['--bg'] || (currentTheme === 'light' ? '#ffffff' : '#0d0d0d');
+    var text = themeTokens['--text'] || (currentTheme === 'light' ? '#1a1a1a' : '#e6e6e6');
+    root.style.backgroundColor = bg;
+    if (document.body) { document.body.style.backgroundColor = bg; document.body.style.color = text; }
+  }
 
   // Transport discriminator (Track D1). The bridge runs in three contexts:
   //   1. Inside a host iframe that speaks postMessage (Beam, Claude Apps).
@@ -711,6 +748,10 @@ export class ResourceServer {
       return ct.indexOf('application/json') >= 0 ? r.json() : r.text();
     });
   }
+
+  // Apply Photon defaults before the host handshake so standalone UIs also
+  // receive the same token set.
+  applyThemeContext(currentTheme);
 
   // Hello handshake. Standalone tabs (no host) silently drop the message;
   // the timeout below guarantees we still flip to fetch.
@@ -809,27 +850,7 @@ export class ResourceServer {
       if (m.method === 'ui/notifications/host-context-changed') {
         // Standard theme handling
         if (m.params && m.params.theme) {
-          currentTheme = m.params.theme;
-          document.documentElement.classList.remove('light', 'dark', 'light-theme');
-          document.documentElement.classList.add(m.params.theme);
-          document.documentElement.setAttribute('data-theme', m.params.theme);
-          // Apply theme token CSS variables (matching platform-compat applyThemeTokens)
-          if (m.params.styles && m.params.styles.variables) {
-            var root = document.documentElement;
-            var vars = m.params.styles.variables;
-            for (var key in vars) { root.style.setProperty(key, vars[key]); }
-          }
-          // Apply background/text colors to match platform-compat bridge
-          if (m.params.theme === 'light') {
-            document.documentElement.classList.add('light-theme');
-            document.documentElement.style.colorScheme = 'light';
-            document.documentElement.style.backgroundColor = '#ffffff';
-            if (document.body) { document.body.style.backgroundColor = '#ffffff'; document.body.style.color = '#1a1a1a'; }
-          } else {
-            document.documentElement.style.colorScheme = 'dark';
-            document.documentElement.style.backgroundColor = '#0d0d0d';
-            if (document.body) { document.body.style.backgroundColor = '#0d0d0d'; document.body.style.color = '#e6e6e6'; }
-          }
+          applyThemeContext(m.params.theme, m.params.styles && m.params.styles.variables);
           themeListeners.forEach(function(cb) { cb(currentTheme); });
         }
         if (m.params && m.params.displayMode) currentDisplayMode = m.params.displayMode;
@@ -1074,23 +1095,8 @@ export class ResourceServer {
   pendingCalls[initId] = {
     resolve: function(result) {
       // Apply theme from host context (matching platform-compat bridge)
-      if (result.hostContext && result.hostContext.theme) {
-        currentTheme = result.hostContext.theme;
-        document.documentElement.classList.remove('light', 'dark', 'light-theme');
-        document.documentElement.classList.add(result.hostContext.theme);
-        document.documentElement.setAttribute('data-theme', result.hostContext.theme);
-        // Apply theme token CSS variables from host context
-        if (result.hostContext.styles && result.hostContext.styles.variables) {
-          var root = document.documentElement;
-          var vars = result.hostContext.styles.variables;
-          for (var key in vars) { root.style.setProperty(key, vars[key]); }
-        }
-        if (result.hostContext.theme === 'light') {
-          document.documentElement.classList.add('light-theme');
-          document.documentElement.style.colorScheme = 'light';
-        } else {
-          document.documentElement.style.colorScheme = 'dark';
-        }
+      if (result.hostContext) {
+        applyThemeContext(result.hostContext.theme, result.hostContext.styles && result.hostContext.styles.variables);
       }
       // Complete handshake
       postToHost({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
