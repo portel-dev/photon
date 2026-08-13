@@ -1166,6 +1166,12 @@ const MCP_METHODS_BYPASSING_BEARER = new Set([
   'tools/list',
   'resources/list',
   'resources/read',
+  // Capability discovery is metadata-only. MCP clients such as ChatGPT
+  // call these while validating an app before they have a caller token.
+  'resources/templates/list',
+  'prompts/list',
+  // OpenAI/ChatGPT connector validation uses this metadata discovery method.
+  'server/discover',
 ]);
 
 function toolAccessAllows(tool: any, photon: any): boolean {

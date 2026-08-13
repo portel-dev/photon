@@ -46,6 +46,11 @@ const MCP_METHODS_BYPASSING_BEARER = new Set([
   'notifications/cancelled',
   'ping',
   'tools/list',
+  'resources/list',
+  'resources/read',
+  'resources/templates/list',
+  'prompts/list',
+  'server/discover',
 ]);
 
 function makeRequest(headers: Record<string, string>) {
@@ -145,6 +150,12 @@ describe('CF /mcp bearer auth — helpers', () => {
 
     it('does NOT exempt tools/call', () => {
       expect(MCP_METHODS_BYPASSING_BEARER.has('tools/call')).toBe(false);
+    });
+
+    it('exempts metadata discovery used by MCP app validators', () => {
+      expect(MCP_METHODS_BYPASSING_BEARER.has('prompts/list')).toBe(true);
+      expect(MCP_METHODS_BYPASSING_BEARER.has('resources/templates/list')).toBe(true);
+      expect(MCP_METHODS_BYPASSING_BEARER.has('server/discover')).toBe(true);
     });
   });
 
