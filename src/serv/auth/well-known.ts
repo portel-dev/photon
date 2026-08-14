@@ -343,23 +343,29 @@ export const __test__ = { isDomainAllowed, resolveTtlMs };
 // URI Builders
 // ============================================================================
 
+function customDomainBase(customDomain: string): string {
+  return /^https?:\/\//i.test(customDomain)
+    ? customDomain.replace(/\/+$/, '')
+    : `https://${customDomain}`;
+}
+
 function buildResourceUri(baseUrl: string, tenant: Tenant): string {
   if (tenant.settings.customDomain) {
-    return `https://${tenant.settings.customDomain}/mcp`;
+    return `${customDomainBase(tenant.settings.customDomain)}/mcp`;
   }
   return `${baseUrl}/tenant/${tenant.slug}/mcp`;
 }
 
 function buildAuthServerUri(baseUrl: string, tenant: Tenant): string {
   if (tenant.settings.customDomain) {
-    return `https://${tenant.settings.customDomain}`;
+    return customDomainBase(tenant.settings.customDomain);
   }
   return `${baseUrl}/tenant/${tenant.slug}`;
 }
 
 function buildTenantUri(baseUrl: string, tenant: Tenant): string {
   if (tenant.settings.customDomain) {
-    return `https://${tenant.settings.customDomain}`;
+    return customDomainBase(tenant.settings.customDomain);
   }
   return `${baseUrl}/tenant/${tenant.slug}`;
 }

@@ -88,6 +88,7 @@ import type {
   ServerCapabilitiesWithWeb,
 } from './types/server-types.js';
 import { verifyPhotonAuthToken } from './auth/mcp-jwt.js';
+import type { PhotonOAuthRuntime } from './auth/runtime-oauth.js';
 import { loadPhotonAuth } from './cli/commands/auth.js';
 import {
   installLocalWebSocketPair,
@@ -455,6 +456,20 @@ function authHeaderToken(req: IncomingMessage): string | null {
   return match ? match[1] : null;
 }
 
+function callerFromVerifiedClaims(claims?: Record<string, unknown>) {
+  if (!claims || typeof claims.sub !== 'string') return undefined;
+  const scope = typeof claims.scope === 'string' ? claims.scope : undefined;
+  return {
+    id: claims.sub,
+    name: typeof claims.name === 'string' ? claims.name : undefined,
+    anonymous: false,
+    role: typeof claims.role === 'string' ? claims.role : undefined,
+    scope,
+    scopes: scope ? scope.split(/\s+/).filter(Boolean) : [],
+    claims,
+  };
+}
+
 function unauthorizedJson(
   res: ServerResponse,
   id: unknown,
@@ -539,8 +554,21 @@ class BeamCompatTransport implements Transport {
   subPhotons: SubPhotonInfo[] = [];
   /** Main photon tools, mirrored so auth can enforce scopes before dispatch. */
   mainTools: any[] = [];
+  /** OAuth 2.1 authorization/resource server when the Photon declares it. */
+  oauthRuntime?: PhotonOAuthRuntime;
   /** Callback to execute a tool on a sub-photon by name. */
-  subPhotonExecutor?: (photonName: string, method: string, args: any) => Promise<any>;
+  subPhotonExecutor?: (
+    photonName: string,
+    method: string,
+    args: any,
+    caller?: ReturnType<typeof callerFromVerifiedClaims>
+  ) => Promise<any>;
+  /** Applies the same property-based catalog/call policy to aggregated photons. */
+  subPhotonAuthorizer?: (
+    photonName: string,
+    method: string,
+    caller?: ReturnType<typeof callerFromVerifiedClaims>
+  ) => boolean;
 
   constructor(
     private photonName: string,
@@ -552,6 +580,7 @@ class BeamCompatTransport implements Transport {
       webUrl?: string;
       webDescription?: string;
       auth?: string;
+      authDirective?: { scheme: string; mode: 'required' | 'optional' };
     }
   ) {}
 
@@ -712,16 +741,25 @@ class BeamCompatTransport implements Transport {
         return;
       }
 
-      const authMode = localMcpAuthMode();
+      const authMode =
+        this.photonMeta.authDirective?.scheme === 'oauth' ? 'oauth' : localMcpAuthMode();
       const dispatchesUserCode = parsed?.method === 'tools/call';
       const suppliedBearer = authHeaderToken(req);
       const authenticatesDiscovery = parsed?.method === 'tools/list' && suppliedBearer !== null;
       // Optional-auth photons may expose user-role tools to anonymous callers.
       // Validate a supplied credential, but do not reject an anonymous call
       // before the property-based tool evaluator can decide whether it is safe.
-      const optionalPhotonAuth = this.photonMeta.auth === 'optional';
+      const optionalPhotonAuth =
+        this.photonMeta.authDirective?.mode === 'optional' || this.photonMeta.auth === 'optional';
+      const requiresAuthenticatedDiscovery =
+        parsed?.method === 'tools/list' &&
+        (this.photonMeta.authDirective?.mode === 'required' || this.photonMeta.auth === 'required');
+      const requiresOAuthOnEveryRequest =
+        authMode === 'oauth' && this.photonMeta.authDirective?.mode === 'required';
       const requiresCallerAuthentication =
+        requiresOAuthOnEveryRequest ||
         (dispatchesUserCode && !optionalPhotonAuth) ||
+        requiresAuthenticatedDiscovery ||
         authenticatesDiscovery ||
         suppliedBearer !== null;
       const requiredScopes =
@@ -729,7 +767,33 @@ class BeamCompatTransport implements Transport {
           ? this.requiredScopesForTool(parsed.params.name)
           : [];
       let jwtClaims: Record<string, unknown> | undefined;
-      if (requiresCallerAuthentication && authMode === 'jwt') {
+      if (requiresCallerAuthentication && authMode === 'oauth') {
+        const result = this.oauthRuntime?.verifyBearer(suppliedBearer, requiredScopes);
+        if (!result?.ok) {
+          const reason = result?.reason ?? (suppliedBearer ? 'invalid_token' : 'missing_token');
+          const insufficientScope = reason === 'insufficient_scope';
+          unauthorizedJson(
+            res,
+            parsed.id,
+            insufficientScope ? 403 : 401,
+            insufficientScope ? -32003 : -32001,
+            insufficientScope ? 'Forbidden' : 'Unauthorized',
+            reason,
+            this.oauthRuntime?.wwwAuthenticate(
+              requiredScopes,
+              insufficientScope ? 'insufficient_scope' : 'invalid_token'
+            ) ??
+              localMcpWwwAuthenticate(
+                req,
+                insufficientScope ? 'insufficient_scope' : 'invalid_token',
+                requiredScopes
+              ),
+            corsOrigin
+          );
+          return;
+        }
+        jwtClaims = result.caller;
+      } else if (requiresCallerAuthentication && authMode === 'jwt') {
         let jwks: { keys: JsonWebKey[] } | null = null;
         let issuer: string | undefined;
         const profileName = process.env.PHOTON_MCP_JWT_PROFILE;
@@ -812,8 +876,12 @@ class BeamCompatTransport implements Transport {
         // A valid shared bearer identifies an authenticated operator even
         // though it does not carry JWT claims. Keep role-based Photon tools
         // consistent with Cloudflare's bearer runtime.
-        jwtClaims = { sub: 'bearer', name: 'bearer', auth: 'bearer' };
+        jwtClaims = { sub: 'bearer', name: 'bearer', auth: 'bearer', role: 'host' };
       }
+
+      const { extractClaimsFromHeaders } = await import('./shared/extract-claims.js');
+      const claims = jwtClaims ?? extractClaimsFromHeaders(req.headers);
+      const requestCaller = callerFromVerifiedClaims(claims);
 
       // Transform incoming tools/call: strip photonName.method prefix from tool name
       // and route sub-photon calls directly
@@ -829,11 +897,48 @@ class BeamCompatTransport implements Transport {
           if (targetPhoton !== this.photonName && this.subPhotonExecutor) {
             const sub = this.subPhotons.find((s) => s.name === targetPhoton);
             if (sub) {
+              if (!this.subPhotonAuthorizer?.(targetPhoton, methodName, requestCaller)) {
+                if (authMode === 'oauth' && !suppliedBearer) {
+                  unauthorizedJson(
+                    res,
+                    parsed.id,
+                    401,
+                    -32001,
+                    'Unauthorized',
+                    'missing_token',
+                    this.oauthRuntime?.wwwAuthenticate(requiredScopes, 'invalid_token') ??
+                      localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes),
+                    corsOrigin
+                  );
+                  return;
+                }
+                const denied = {
+                  jsonrpc: '2.0',
+                  id: parsed.id,
+                  result: {
+                    content: [
+                      {
+                        type: 'text',
+                        text: `Tool '${methodName}' is not available for this caller`,
+                      },
+                    ],
+                    isError: true,
+                  },
+                };
+                const deniedHeaders: Record<string, string> = {
+                  'Content-Type': 'application/json',
+                };
+                if (corsOrigin) deniedHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+                res.writeHead(200, deniedHeaders);
+                res.end(JSON.stringify(denied));
+                return;
+              }
               try {
                 const result = await this.subPhotonExecutor(
                   targetPhoton,
                   methodName,
-                  parsed.params.arguments || {}
+                  parsed.params.arguments || {},
+                  requestCaller
                 );
                 const response = { jsonrpc: '2.0', id: parsed.id, result };
                 const subHeaders: Record<string, string> = {
@@ -874,8 +979,6 @@ class BeamCompatTransport implements Transport {
       // request handlers so the per-claim instance pool can route. The
       // claims ride on the SDK's MessageExtraInfo.authInfo.extra, which
       // the protocol layer propagates to setRequestHandler's `extra` arg.
-      const { extractClaimsFromHeaders } = await import('./shared/extract-claims.js');
-      const claims = jwtClaims ?? extractClaimsFromHeaders(req.headers);
       const messageExtra = claims
         ? {
             sessionId: this.sessionId,
@@ -905,6 +1008,55 @@ class BeamCompatTransport implements Transport {
         this.pendingResponse = resolve;
         this.onmessage?.(parsed, messageExtra);
       });
+
+      if (
+        parsed.method === 'tools/list' &&
+        Array.isArray(response?.result?.tools) &&
+        this.subPhotonAuthorizer
+      ) {
+        response.result.tools = response.result.tools.filter((tool: any) => {
+          if (typeof tool?.name !== 'string') return false;
+          const separator = tool.name.indexOf('.');
+          if (separator < 0) return true;
+          return this.subPhotonAuthorizer!(
+            tool.name.slice(0, separator),
+            tool.name.slice(separator + 1),
+            requestCaller
+          );
+        });
+      }
+
+      // Optional OAuth advertises only the anonymous catalog initially.  If a
+      // caller nevertheless invokes a protected/hidden tool, turn the
+      // transport-level denial into the OAuth challenge MCP clients expect.
+      if (
+        authMode === 'oauth' &&
+        optionalPhotonAuth &&
+        !suppliedBearer &&
+        parsed.method === 'tools/call' &&
+        (response?.error || response?.result?.isError) &&
+        /not available for this caller|authentication required/i.test(
+          String(
+            response.error?.message ??
+              response.error?.data?.message ??
+              response.result?.content?.map((item: any) => item?.text ?? '').join('\n') ??
+              ''
+          )
+        )
+      ) {
+        unauthorizedJson(
+          res,
+          parsed.id,
+          401,
+          -32001,
+          'Unauthorized',
+          'missing_token',
+          this.oauthRuntime?.wwwAuthenticate(requiredScopes, 'invalid_token') ??
+            localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes),
+          corsOrigin
+        );
+        return;
+      }
 
       const resHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -941,6 +1093,7 @@ export class PhotonServer {
   private options: PhotonServerOptions;
   private mcpClientFactory: SDKMCPClientFactory | null = null;
   private httpServer: ReturnType<typeof createServer> | null = null;
+  private oauthRuntime: PhotonOAuthRuntime | null = null;
   private webSocketServer = new WebSocketServer({ noServer: true });
   private sseSessions: Map<string, SSESession> = new Map();
   private devMode: boolean;
@@ -1603,16 +1756,7 @@ export class PhotonServer {
     }
     const mcpName = this.mcp.name;
     const claims = extra?.authInfo?.extra;
-    const caller =
-      claims && typeof claims.sub === 'string'
-        ? {
-            id: claims.sub,
-            name: typeof claims.name === 'string' ? claims.name : undefined,
-            anonymous: false,
-            scope: typeof claims.scope === 'string' ? claims.scope : undefined,
-            claims,
-          }
-        : undefined;
+    const caller = callerFromVerifiedClaims(claims);
     const tools = this.mcp.tools
       .filter((tool) => {
         const surfaces = (tool as ExtractedSchema & { surfaces?: string[] }).surfaces;
@@ -1829,16 +1973,7 @@ export class PhotonServer {
 
     const { name: toolName, arguments: args } = request.params;
     const claims = extra?.authInfo?.extra;
-    const caller =
-      claims && typeof claims.sub === 'string'
-        ? {
-            id: claims.sub,
-            name: typeof claims.name === 'string' ? claims.name : undefined,
-            anonymous: false,
-            scope: typeof claims.scope === 'string' ? claims.scope : undefined,
-            claims,
-          }
-        : undefined;
+    const caller = callerFromVerifiedClaims(claims);
     if (!this.loader.isToolAccessible(targetMcp, toolName, caller)) {
       throw new Error(`Tool '${toolName}' is not available for this caller`);
     }
@@ -3416,10 +3551,33 @@ export class PhotonServer {
         stateful: !!this.mcp?.stateful,
         hasSettings: !!this.mcp?.hasSettings,
         auth: this.mcp?.auth,
+        authDirective: this.mcp?.authDirective,
         ...(photonWebUrl
           ? { webUrl: photonWebUrl, webDescription: this.mcp?.description || `${photonName} MCP` }
           : {}),
       });
+      if (this.mcp?.authDirective?.scheme === 'oauth') {
+        const { PhotonOAuthRuntime } = await import('./auth/runtime-oauth.js');
+        const publicBase =
+          process.env.PHOTON_PUBLIC_URL?.replace(/\/+$/, '') || `http://127.0.0.1:${port}`;
+        this.oauthRuntime = new PhotonOAuthRuntime({
+          baseUrl: publicBase,
+          photonName,
+          devMode: this.devMode,
+          scopesSupported: Array.from(
+            new Set(
+              (this.mcp?.tools || []).flatMap((tool: any) =>
+                Array.isArray(tool.scopes)
+                  ? tool.scopes.filter(
+                      (scope: unknown): scope is string => typeof scope === 'string'
+                    )
+                  : []
+              )
+            )
+          ),
+        });
+        beamTransport.oauthRuntime = this.oauthRuntime;
+      }
       this.capabilityNegotiator.interceptTransportForRawCapabilities(
         beamTransport,
         this.server,
@@ -3477,10 +3635,17 @@ export class PhotonServer {
       }
 
       // Wire sub-photon tool executor — returns MCP-formatted result
-      beamTransport.subPhotonExecutor = async (photonName: string, method: string, args: any) => {
+      beamTransport.subPhotonExecutor = async (
+        photonName: string,
+        method: string,
+        args: any,
+        caller
+      ) => {
         for (const [, loaded] of allLoaded) {
           if (loaded.name === photonName) {
-            const result = await this.loader.executeTool(loaded, method, args);
+            const result = await this.loader.executeTool(loaded, method, args, {
+              caller,
+            });
             // Wrap raw result in MCP content format if not already wrapped
             if (result && result.content && Array.isArray(result.content)) {
               return result;
@@ -3503,6 +3668,14 @@ export class PhotonServer {
         }
         throw new Error(`Photon not found: ${photonName}`);
       };
+      beamTransport.subPhotonAuthorizer = (photonName, method, caller) => {
+        for (const [, loaded] of allLoaded) {
+          if (loaded.name === photonName) {
+            return this.loader.isToolAccessible(loaded, method, caller);
+          }
+        }
+        return false;
+      };
     }
 
     this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -3521,6 +3694,10 @@ export class PhotonServer {
           format?: string;
           expose?: 'private' | 'public';
         } | null = null;
+
+        if (this.oauthRuntime && (await this.oauthRuntime.handle(req, res))) {
+          return;
+        }
         const route = findServerWebRoute(this.mcp?._httpRoutes, req.method, url.pathname);
         if (route) matchedRoute = { handler: route.handler, format: route.format };
         const clientAppUi = selectServerClientAppUi(
@@ -3532,7 +3709,7 @@ export class PhotonServer {
           const preflightHeaders: Record<string, string> = {
             'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
             'Access-Control-Allow-Headers':
-              'Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version, X-Photon-Request',
+              'Content-Type, Accept, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, X-Photon-Request',
             'Access-Control-Expose-Headers': 'Mcp-Session-Id',
           };
           if (corsOrigin) preflightHeaders['Access-Control-Allow-Origin'] = corsOrigin;

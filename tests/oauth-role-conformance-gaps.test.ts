@@ -1,12 +1,9 @@
 /**
- * Strict OAuth role-conformance expectations that current Photon exposes as
- * gaps. This file is intentionally non-zero while those behaviors are absent.
+ * Strict OAuth role-conformance expectations for transport-level challenges.
  *
  * Run with:
  *   bunx tsx tests/oauth-role-conformance-gaps.test.ts
  *
- * Exit code 2 means the expected gaps were reproduced. Exit code 1 means a
- * gap unexpectedly passed or the harness itself failed.
  */
 
 import assert from 'node:assert/strict';
@@ -79,9 +76,6 @@ async function main(): Promise<number> {
 
   const port = 31000 + Math.floor(Math.random() * 20000);
   const server = new PhotonServer({ filePath: fixturePath, transport: 'sse', port });
-  const gaps: string[] = [];
-  let reproduced = 0;
-
   try {
     await server.start();
     const customerRead = oauthToken(server, {
@@ -89,21 +83,14 @@ async function main(): Promise<number> {
       scope: 'bookings:read',
     });
 
-    const expectGap = async (name: string, assertion: () => Promise<void>) => {
-      try {
-        await assertion();
-        console.error(`  ✗ GAP NOT REPRODUCED: ${name}`);
-        gaps.push(`${name} unexpectedly passed`);
-      } catch (error) {
-        reproduced++;
-        console.log(`  ⚠ EXPECTED GAP: ${name}`);
-        console.log(`    ${error instanceof Error ? error.message : String(error)}`);
-      }
+    const test = async (name: string, assertion: () => Promise<void>) => {
+      await assertion();
+      console.log(`  ✓ ${name}`);
     };
 
-    console.log('OAuth role conformance — known current gaps:');
+    console.log('OAuth role conformance — transport challenges:');
 
-    await expectGap('missing scope uses 403 insufficient_scope', async () => {
+    await test('missing scope uses 403 insufficient_scope', async () => {
       const response = await postMcp(
         port,
         {
@@ -119,7 +106,7 @@ async function main(): Promise<number> {
       assert.match(response.wwwAuthenticate ?? '', /error="insufficient_scope"/);
     });
 
-    await expectGap('anonymous protected call returns an OAuth challenge', async () => {
+    await test('anonymous protected call returns an OAuth challenge', async () => {
       const response = await postMcp(port, {
         jsonrpc: '2.0',
         id: 'connect-customer',
@@ -133,7 +120,7 @@ async function main(): Promise<number> {
       assert.equal(contentText(response.body), '');
     });
 
-    return gaps.length > 0 ? 1 : reproduced > 0 ? 2 : 0;
+    return 0;
   } finally {
     await server.stop();
     process.env = { ...oldEnv };

@@ -18,6 +18,8 @@ export interface PhotonAuthIssuer {
 export interface PhotonAuthTokenOptions {
   agent: string;
   audience: string;
+  /** Server-assigned application role carried into `this.caller.role`. */
+  role?: string;
   tenant?: string;
   scopes?: string[];
   ttlSeconds?: number;
@@ -111,6 +113,7 @@ export function signPhotonAuthToken(
     aud: options.audience,
     tenant_id: options.tenant ?? 'default',
     client_id: options.agent,
+    ...(options.role ? { role: options.role } : {}),
     ...(scopes.length > 0 ? { scope: scopes.join(' ') } : {}),
     iat: nowSec,
     nbf: nowSec,

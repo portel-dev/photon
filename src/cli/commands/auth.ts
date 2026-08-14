@@ -89,6 +89,7 @@ export function registerAuthCommands(program: Command): void {
     .requiredOption('--agent <id>', 'Stable agent/client identifier')
     .requiredOption('--audience <url>', 'MCP resource audience, usually https://host/mcp')
     .option('--tenant <id>', 'Tenant id claim', 'default')
+    .option('--role <role>', 'Application role claim, such as customer or host')
     .option('--scope <scope...>', 'OAuth scopes; may be repeated or space-delimited')
     .option('--ttl <duration>', 'TTL such as 900s, 15m, or 1h')
     .description('Sign a short-lived JWT access token for an agent')
@@ -99,6 +100,7 @@ export function registerAuthCommands(program: Command): void {
           agent: string;
           audience: string;
           tenant?: string;
+          role?: string;
           scope?: string[];
           ttl?: string;
         }
@@ -108,6 +110,7 @@ export function registerAuthCommands(program: Command): void {
           agent: options.agent,
           audience: options.audience,
           tenant: options.tenant,
+          role: options.role,
           scopes: normalizeScopes(options.scope ?? []),
           ttlSeconds: parseTtlSeconds(options.ttl, auth.issuer.defaultTtlSeconds),
         });

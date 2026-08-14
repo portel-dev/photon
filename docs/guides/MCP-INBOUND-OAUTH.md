@@ -82,7 +82,7 @@ to the Photon. Each property comparison is exact string equality; there is no
 inheritance or prefix matching. Multiple conditions are combined with AND:
 
 ```ts
-/** @class Consult {@role host @plan pro} */
+/** @class Consult {@role host} {@plan pro} */
 async premiumHostOperation() {}
 ```
 
@@ -145,9 +145,12 @@ Deploy the MCP endpoint with OAuth enabled:
 
 ```sh
 photon host deploy cf consult \
-  --mcp-auth oauth \
-  --domain https://consult.example.com
+  --domain consult.example.com
 ```
+
+The class-level `@auth oauth ...` tag enables OAuth automatically. Use
+`--mcp-auth oauth` only when overriding a Photon that has no OAuth tag; that
+explicit form defaults to required authentication.
 
 The issuer must be a stable HTTPS URL. Set it explicitly with
 `PHOTON_MCP_OAUTH_ISSUER`, or provide a canonical `--domain`, `--url`, or
@@ -160,7 +163,9 @@ the host Durable Object's persistent storage. An optional
 `PHOTON_MCP_OAUTH_KV_ID` binding is for integration, audit, replication, or
 migration; it is not the authoritative OAuth state store. Configure the
 generated login route with `PHOTON_MCP_OAUTH_LOGIN_URL` and
-`PHOTON_MCP_OAUTH_LOGIN_SECRET`, or protect it with Cloudflare Access.
+`PHOTON_MCP_OAUTH_LOGIN_SECRET`. Photon does not trust unsigned identity
+headers; a login adapter must return the signed callback expected by the
+generated authorization server.
 
 If the installed CLI does not list `oauth` for `--mcp-auth`, update the CLI
 before deploying; the guide does not change CLI compatibility.

@@ -184,7 +184,7 @@ export {
 
 import type { Tenant, Session, SessionCreateOptions } from './types/index.js';
 import { MemorySessionStore, type SessionStore } from './session/store.js';
-import { JwtService } from './auth/jwt.js';
+import { JwtService, type JwtConfig } from './auth/jwt.js';
 import { LocalTokenVault, type TokenVault } from './vault/token-vault.js';
 import { TenantResolver, MemoryTenantStore, type TenantStore } from './middleware/tenant.js';
 import { AuthMiddleware, type UserStore, type MembershipStore } from './middleware/auth.js';
@@ -221,10 +221,14 @@ export interface ServConfig {
   baseDomain: string;
   /** JWT signing secret (min 32 chars) */
   jwtSecret: string;
+  /** Optional asymmetric JWT configuration for published OAuth/OIDC issuers. */
+  jwt?: Partial<Omit<JwtConfig, 'issuer' | 'secret'>>;
   /** Token encryption master key (min 32 chars) */
   encryptionKey: string;
   /** OAuth state encryption secret */
   stateSecret: string;
+  /** OAuth scopes exposed by this authorization server. */
+  scopesSupported?: string[];
   /** Session store (optional, defaults to memory) */
   sessionStore?: SessionStore;
   /** Tenant store (optional, defaults to memory) */
@@ -256,6 +260,12 @@ export interface ServConfig {
   endpointConfig?: Partial<
     Omit<EndpointConfig, 'issuer' | 'resource' | 'authorizeUrl' | 'consentUrl'>
   >;
+}
+
+function customDomainBase(customDomain: string): string {
+  return /^https?:\/\//i.test(customDomain)
+    ? customDomain.replace(/\/+$/, '')
+    : `https://${customDomain}`;
 }
 
 export class Serv {
@@ -297,6 +307,7 @@ export class Serv {
     this.jwtService = new JwtService({
       secret: config.jwtSecret,
       issuer: config.baseUrl,
+      ...(config.jwt ?? {}),
     });
 
     // Initialize tenant resolver
@@ -313,7 +324,7 @@ export class Serv {
       membershipStore: config.membershipStore,
       oauthResource: (tenant) => {
         const issuer = tenant.settings.customDomain
-          ? `https://${tenant.settings.customDomain}`
+          ? customDomainBase(tenant.settings.customDomain)
           : `${config.baseUrl}/tenant/${tenant.slug}`;
         return {
           issuer,
@@ -338,6 +349,7 @@ export class Serv {
     // Well-known config
     this.wellKnownConfig = {
       baseUrl: config.baseUrl,
+      scopesSupported: config.scopesSupported,
     };
 
     // Authorization-server stores (in-memory defaults; callers override for prod)
@@ -360,7 +372,7 @@ export class Serv {
    */
   buildEndpointDeps(tenant: Tenant): EndpointDeps {
     const baseUri = tenant.settings.customDomain
-      ? `https://${tenant.settings.customDomain}`
+      ? customDomainBase(tenant.settings.customDomain)
       : `${this.config.baseUrl}/tenant/${tenant.slug}`;
     // The login URL is the embedder's responsibility — the AS adapter
     // doesn't serve a `/login` handler, it only knows how to redirect

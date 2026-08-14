@@ -25,6 +25,7 @@ import {
 } from '../access-control.js';
 import { compileTsxSync } from '../tsx-compiler.js';
 import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
+import { extractPhotonAuthDirectiveFromSource } from '../auth/directive.js';
 import { buildPhotonRenderMeta } from '../auto-ui/types.js';
 import { ResourceServer } from '../resource-server.js';
 import { cleanMcpToolDescription } from '../shared/mcp-tool-metadata.js';
@@ -547,40 +548,17 @@ export interface CloudflareDeployOptions {
 type CloudflareOAuthAuthMode = 'optional' | 'required';
 
 /**
- * Read only the class-level OAuth directive used by the Cloudflare generator.
- * This intentionally stays local to avoid coupling deploy code to the
- * in-progress shared auth-directive module. Non-OAuth tags retain legacy
- * behavior; malformed or duplicate OAuth metadata fails deployment closed.
+ * Read the shared class-level OAuth directive used by every Photon runtime.
+ * Non-OAuth tags retain legacy behavior; malformed or duplicate metadata
+ * fails deployment closed.
  */
 function parseCloudflareOAuthAuthMode(source: string): CloudflareOAuthAuthMode | undefined {
-  const classMatch = source.match(
-    /(?:export\s+default\s+|export\s+)?(?:abstract\s+)?class\s+[A-Za-z_$][\w$]*/
-  );
-  if (classMatch?.index === undefined) return undefined;
-
-  const beforeClass = source.slice(0, classMatch.index);
-  const docblockStart = beforeClass.lastIndexOf('/**');
-  if (docblockStart < 0) return undefined;
-  const docblock = beforeClass.slice(docblockStart).match(/\/\*\*([\s\S]*?)\*\/\s*$/)?.[1];
-  if (!docblock) return undefined;
-
-  const matches = [...docblock.matchAll(/@auth\b([^\r\n*]*)/gi)];
-  if (matches.length > 1) {
-    throw new Error('Invalid class-level @auth metadata: multiple @auth tags are not allowed.');
+  const result = extractPhotonAuthDirectiveFromSource(source);
+  if (!result) return undefined;
+  if (result.error || !result.directive) {
+    throw new Error(`Invalid class-level @auth metadata: ${result.error ?? 'unknown error'}`);
   }
-  if (matches.length === 0) return undefined;
-  const tokens = matches[0][1]
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((token) => token.toLowerCase());
-  if (tokens[0] !== 'oauth') return undefined;
-  if (tokens.length !== 2 || (tokens[1] !== 'optional' && tokens[1] !== 'required')) {
-    throw new Error(
-      "Invalid class-level @auth metadata: use '@auth oauth optional' or '@auth oauth required'."
-    );
-  }
-  return tokens[1] === 'optional' || tokens[1] === 'required' ? tokens[1] : undefined;
+  return result.directive.scheme === 'oauth' ? result.directive.mode : undefined;
 }
 
 interface CloudflareRouteConfig {

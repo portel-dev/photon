@@ -18,6 +18,10 @@ export interface ToolAccessMetadata {
 export interface AccessCaller {
   id?: string;
   anonymous?: boolean;
+  /** Server-assigned coarse role, normally sourced from a verified token. */
+  role?: string;
+  /** Granted OAuth scopes normalized by the transport. */
+  scopes?: string[];
   claims?: Record<string, unknown>;
 }
 

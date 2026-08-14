@@ -33,7 +33,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@internal` | Marks entire photon as internal (hidden from sidebar). | `@internal` |
 | `@worker` | Forces the photon to run in an isolated worker thread. See [Worker Isolation](#worker-isolation). | `@worker` |
 | `@noworker` | Forces the photon to run in-process even if it has lifecycle hooks. See [Worker Isolation](#worker-isolation). | `@noworker` |
-| `@auth` | MCP OAuth auth requirement. Enables `this.caller` for identity-aware methods. | `@auth required` or `@auth optional` |
+| `@auth` | Selects inbound MCP authentication. Explicit OAuth uses a scheme and mode. | `@auth oauth optional` or `@auth oauth required` |
 | `@forkedFrom` | Origin reference for forked photons. Auto-injected on install. | `@forkedFrom portel-dev/photons#kanban` |
 
 ### Worker Isolation
@@ -77,20 +77,25 @@ The `@runtime` tag supports semver-style version ranges:
 
 ### MCP OAuth Authentication
 
-The `@auth` tag enables MCP OAuth 2.1 authentication, making `this.caller` available in every method. The runtime handles the full OAuth flow per the [MCP authorization spec](https://modelcontextprotocol.io/specification/latest/basic/authorization).
+The `@auth oauth <mode>` tag enables inbound MCP OAuth 2.1 authentication,
+making `this.caller` available in every method. Photon handles discovery,
+authorization, PKCE, token issuance and refresh, and bearer verification per
+the [MCP authorization spec](https://modelcontextprotocol.io/specification/latest/basic/authorization).
 
 | Value | Behavior |
 |-------|----------|
-| `@auth required` | All methods require a valid JWT. Anonymous callers get 401. |
-| `@auth optional` | Caller populated if token present, anonymous allowed (default without tag). |
+| `@auth oauth required` | Every MCP HTTP request requires a valid OAuth access token. Anonymous callers get 401. |
+| `@auth oauth optional` | Anonymous public tools remain available; supplied tokens are verified and may expose a different catalog. |
+| `@auth required` / `@auth optional` | Backward-compatible legacy authentication modes. These do not opt into Photon's authorization server. |
+| `@auth oauth` | Backward-compatible per-subject instance binding. Add `required` or `optional` to opt into inbound OAuth. |
 | `@auth https://accounts.google.com` | OIDC provider URL (implies required). Advertised in PRM metadata. |
 | `@auth cf-access` | Cloudflare Access mode. CF Access JWT email is used as the instance identity on CF deployments. Each unique email gets its own isolated DO instance. |
 
-**What the runtime does when `@auth` is set:**
+**What the runtime does when explicit OAuth is set:**
 1. Serves `/.well-known/oauth-protected-resource` (RFC 9728 Protected Resource Metadata)
 2. Returns `401 WWW-Authenticate` challenge when no Bearer token is present
-3. Decodes JWT claims from `Authorization: Bearer` header
-4. Populates `this.caller` with `{ id, name, anonymous, scope, claims }`
+3. Validates issuer, audience, expiry, signature, and exact tool scopes
+4. Populates `this.caller` with `{ id, name, anonymous, role, scope, scopes, claims }`
 5. Upgrades `@locked` middleware to check `this.caller.id` against lock holder
 
 ### Tool Scopes
@@ -139,7 +144,7 @@ matches and multiple conditions are combined with AND:
 /** @class Appointments {@role user} */
 async findSlots() {}
 
-/** @class Appointments {@role host @plan pro} */
+/** @class Appointments {@role host} {@plan pro} */
 async updateAvailability() {}
 ```
 

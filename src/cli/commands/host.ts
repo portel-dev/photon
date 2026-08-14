@@ -84,7 +84,7 @@ export function registerHostCommand(program: Command): void {
       '--route <pattern>',
       'Cloudflare route pattern for this deployment, for example example.com/*; disables workers.dev'
     )
-    .option('--mcp-auth <mode>', 'MCP auth mode: jwt, bearer, or open')
+    .option('--mcp-auth <mode>', 'MCP auth mode: oauth, jwt, bearer, or open')
     .option(
       '--mcp-audience <url>',
       'Expected MCP JWT audience URL, for example https://app.example.com/mcp'
@@ -110,9 +110,12 @@ export function registerHostCommand(program: Command): void {
         const normalizedTarget = target.toLowerCase();
 
         if (normalizedTarget === 'cloudflare' || normalizedTarget === 'cf') {
-          if (options.mcpAuth && !['jwt', 'bearer', 'open'].includes(String(options.mcpAuth))) {
+          if (
+            options.mcpAuth &&
+            !['oauth', 'jwt', 'bearer', 'open'].includes(String(options.mcpAuth))
+          ) {
             logger.error(`Unknown MCP auth mode: ${options.mcpAuth}`);
-            console.error('Supported MCP auth modes: jwt, bearer, open');
+            console.error('Supported MCP auth modes: oauth, jwt, bearer, open');
             process.exit(1);
           }
           const { deployToCloudflare } = await import('../../deploy/cloudflare.js');

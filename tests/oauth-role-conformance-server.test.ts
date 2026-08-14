@@ -213,11 +213,9 @@ async function main(): Promise<void> {
         },
         customerRead
       );
-      // The current OAuth runtime rejects the token at the HTTP boundary as
-      // 401. The stricter 403 + insufficient_scope conformance requirement is
-      // pinned separately in oauth-role-conformance-gaps.test.ts.
-      assert.equal(tooBroad.status, 401);
-      assert.equal(tooBroad.body.error?.data?.reason, 'invalid_token');
+      assert.equal(tooBroad.status, 403);
+      assert.equal(tooBroad.body.error?.data?.reason, 'insufficient_scope');
+      assert.match(tooBroad.wwwAuthenticate ?? '', /error="insufficient_scope"/);
 
       const exact = await postMcp(
         port,

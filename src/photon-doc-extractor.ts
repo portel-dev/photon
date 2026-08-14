@@ -5,6 +5,7 @@ import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_PACKAGE_VERSION } from './version.js';
 import { extractSkillDeclarations, type PhotonSkillDescriptor } from './skills.js';
 import { parseAccessMetadata, type ToolAccessMetadata } from './access-control.js';
+import { extractPhotonAuthDirective, legacyAuthValue } from './auth/directive.js';
 
 interface ConfigParam {
   name: string;
@@ -311,95 +312,24 @@ export class PhotonDocExtractor {
     value?: string;
     diagnostics: PhotonDocDiagnostic[];
   } {
-    const docblock = this.extractClassDocblock();
-    const matches = [...docblock.matchAll(/@auth\b([^\r\n*]*)/gi)];
-    if (matches.length === 0) return { diagnostics: [] };
-
-    if (matches.length > 1) {
+    const result = extractPhotonAuthDirective(this.extractClassDocblock());
+    if (!result) return { diagnostics: [] };
+    if (result.error || !result.directive) {
       return {
         diagnostics: [
           {
-            code: 'conflicting-auth-tag',
-            message: 'Only one class-level @auth tag is allowed.',
+            code: result.error.startsWith('Only one') ? 'conflicting-auth-tag' : 'invalid-auth-tag',
+            message: result.error ?? 'Invalid @auth directive.',
             severity: 'error',
             tag: 'auth',
           },
         ],
       };
     }
-
-    const rawTokens = matches[0][1].trim().split(/\s+/).filter(Boolean);
-    if (rawTokens.length === 0) {
-      return {
-        metadata: { scheme: 'legacy', mode: 'required' },
-        value: 'required',
-        diagnostics: [],
-      };
-    }
-
-    const [scheme, modeToken, ...extraTokens] = rawTokens;
-    const isMode = scheme === 'required' || scheme === 'optional';
-
-    if (isMode && modeToken !== undefined) {
-      return {
-        diagnostics: [
-          {
-            code: 'invalid-auth-tag',
-            message:
-              'Legacy @auth required/optional directives cannot be followed by another token.',
-            severity: 'error',
-            tag: 'auth',
-          },
-        ],
-      };
-    }
-
-    if (isMode) {
-      return {
-        metadata: { scheme: 'legacy', mode: scheme as PhotonAuthMode },
-        value: scheme,
-        diagnostics: [],
-      };
-    }
-
-    if (scheme === 'oauth') {
-      const mode = modeToken ?? 'required';
-      if ((mode !== 'required' && mode !== 'optional') || extraTokens.length > 0) {
-        return {
-          diagnostics: [
-            {
-              code: 'invalid-auth-tag',
-              message:
-                'OAuth auth must use @auth oauth, @auth oauth required, or @auth oauth optional.',
-              severity: 'error',
-              tag: 'auth',
-            },
-          ],
-        };
-      }
-      return { metadata: { scheme, mode }, value: rawTokens.join(' '), diagnostics: [] };
-    }
-
-    if (modeToken !== undefined || extraTokens.length > 0) {
-      return {
-        diagnostics: [
-          {
-            code: 'invalid-auth-tag',
-            message:
-              'Legacy @auth schemes accept exactly one token; use @auth oauth <mode> for OAuth.',
-            severity: 'error',
-            tag: 'auth',
-          },
-        ],
-      };
-    }
-
+    const directive = result.directive;
     return {
-      metadata: {
-        scheme,
-        mode: 'required',
-      },
-      value: scheme,
+      metadata: { scheme: directive.scheme, mode: directive.mode },
+      value: legacyAuthValue(directive),
       diagnostics: [],
     };
   }

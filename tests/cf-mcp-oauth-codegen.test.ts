@@ -81,7 +81,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('scope: scope || undefined');
     expect(generated.worker).toContain("role: 'user'");
     expect(generated.worker).toContain("role !== 'customer'");
-    expect(generated.worker).toContain('PHOTON_MCP_OAUTH_TRUST_CF_ACCESS');
+    expect(generated.worker).not.toContain('PHOTON_MCP_OAUTH_TRUST_CF_ACCESS');
     expect(generated.worker).toContain('if (DEV_MODE)');
     expect(generated.worker).toContain('const origin = MCP_OAUTH_ISSUER');
     expect(generated.worker).toContain(
@@ -92,6 +92,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
       "const instance = isOAuthEndpoint ? 'default' : extractInstance(request, env);"
     );
     expect(generated.worker).toContain('this.ctx.storage');
+    expect(generated.worker.match(/storage\.transaction/g)).toHaveLength(2);
     expect(generated.wrangler).toContain(
       'MCP OAuth state is authoritative in the host Durable Object ctx.storage.'
     );
@@ -112,7 +113,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('const MCP_AUTH_MODE = "oauth"');
     expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "optional"');
     expect(generated.worker).toContain(
-      "method === 'tools/list' ? supplied : !bypass.has(method) && !publicPropertyTool"
+      "supplied || (method !== 'tools/list' && !bypass.has(method) && !publicPropertyTool)"
     );
   });
 
@@ -124,8 +125,11 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain("request.method === 'POST'");
   });
 
-  it('fails closed for malformed and duplicate OAuth auth metadata', async () => {
-    await expect(generate({ authTag: '@auth oauth', inferFromAuth: true })).rejects.toThrow(
+  it('preserves legacy @auth oauth and fails closed for malformed or duplicate metadata', async () => {
+    const legacy = await generate({ authTag: '@auth oauth', inferFromAuth: true });
+    expect(legacy.worker).toContain('const MCP_AUTH_MODE = "legacy"');
+    expect(legacy.worker).not.toContain('Generated inbound MCP OAuth');
+    await expect(generate({ authTag: '@auth oauth maybe', inferFromAuth: true })).rejects.toThrow(
       /Invalid class-level @auth metadata/
     );
     await expect(
@@ -133,7 +137,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
         authTag: '@auth oauth optional\n * @auth oauth required',
         inferFromAuth: true,
       })
-    ).rejects.toThrow(/multiple @auth tags/);
+    ).rejects.toThrow(/Only one class-level @auth tag/);
   });
 
   it('keeps legacy auth generation untouched when oauth is not selected', async () => {

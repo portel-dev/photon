@@ -27,7 +27,7 @@ export function renderCloudflareMcpOAuthBindings(kvNamespaceId?: string): string
     return `# MCP OAuth state is authoritative in the host Durable Object ctx.storage.
 # Public authorization requires a trusted identity adapter: configure
 # PHOTON_MCP_OAUTH_LOGIN_URL and PHOTON_MCP_OAUTH_LOGIN_SECRET as Worker
-# bindings, or protect the route with Cloudflare Access.
+# bindings.
 # Optional external state contract: set PHOTON_MCP_OAUTH_KV_ID at deploy time
 # to emit a PHOTON_OAUTH_KV binding for migration/caching integrations.`;
   }
@@ -37,7 +37,7 @@ id = "${escapeToml(kvNamespaceId)}"
 # MCP OAuth remains authoritative in Durable Object storage; this binding is
 # available for deployment-specific replication, audit, or migration code.
 # Configure PHOTON_MCP_OAUTH_LOGIN_URL and PHOTON_MCP_OAUTH_LOGIN_SECRET for
-# a public-user login callback, or protect the route with Cloudflare Access.`;
+# a public-user login callback.`;
 }
 
 function escapeToml(value: string): string {
@@ -389,7 +389,7 @@ async function checkMcpOAuth(
   const supplied = request.headers.has('Authorization');
   const mustAuthenticate = MCP_OAUTH_AUTH_MODE === 'required'
     ? request.method === 'POST'
-    : method === 'tools/list' ? supplied : !bypass.has(method) && !publicPropertyTool;
+    : supplied || (method !== 'tools/list' && !bypass.has(method) && !publicPropertyTool);
   if (!mustAuthenticate) return { enforced: false, ok: true, authed: false };
   return photonOAuthAuthenticate(request, storage, photonOAuthToolScopes(toolDefinitions, body));
 }
@@ -429,17 +429,10 @@ async function photonOAuthClient(storage: PhotonOAuthStorage, clientId: string):
   return (await storage.get<any>('oauth:client:' + clientId)) ?? null;
 }
 
-async function photonOAuthSubject(request: Request, env: Env): Promise<{ sub: string; role: string; name?: string } | null> {
-  const trustCfAccess = String((env as any).PHOTON_MCP_OAUTH_TRUST_CF_ACCESS ?? '').toLowerCase() === 'true';
-  const accessEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
-  if (trustCfAccess && accessEmail) {
-    const sub = 'email:' + accessEmail.trim().toLowerCase();
-    const hosts = String((env as any).PHOTON_MCP_OAUTH_HOST_SUBJECTS ?? '').split(',').map((value) => value.trim()).filter(Boolean);
-    return { sub, role: hosts.includes(sub) ? 'host' : 'customer', name: accessEmail.trim() };
-  }
+async function photonOAuthSubject(_request: Request, env: Env): Promise<{ sub: string; role: string; name?: string } | null> {
   // A static subject is intentionally development-only. In production, an
-  // OAuth login adapter must establish identity (or Access must be explicitly
-  // trusted above); otherwise a caller could impersonate the configured user.
+  // OAuth login adapter must establish identity; otherwise a caller could
+  // impersonate the configured user.
   if (DEV_MODE) {
     const configured = (env as any).PHOTON_MCP_OAUTH_SUBJECT;
     if (typeof configured === 'string' && configured.trim()) return { sub: configured.trim(), role: 'customer' };
@@ -601,12 +594,15 @@ async function handlePhotonMcpOAuth(
     }
     if (grantType === 'authorization_code') {
       const codeValue = form.get('code');
-      const code = codeValue ? await storage.get<any>('oauth:code:' + codeValue) : null;
-      await storage.delete('oauth:code:' + codeValue);
-      if (!code || code.expiresAt < Date.now() || code.clientId !== clientId || code.redirectUri !== form.get('redirect_uri')) return photonOAuthError(400, 'invalid_grant', 'Invalid authorization code');
       const verifier = form.get('code_verifier') ?? '';
       const challenge = photonOAuthB64(await photonOAuthHash(verifier));
-      if (challenge !== code.codeChallenge) return photonOAuthError(400, 'invalid_grant', 'PKCE verification failed');
+      const code = codeValue ? await storage.transaction(async (transaction) => {
+        const candidate = await transaction.get<any>('oauth:code:' + codeValue);
+        if (!candidate || candidate.expiresAt < Date.now() || candidate.clientId !== clientId || candidate.redirectUri !== form.get('redirect_uri') || candidate.codeChallenge !== challenge) return null;
+        await transaction.delete('oauth:code:' + codeValue);
+        return candidate;
+      }) : null;
+      if (!code) return photonOAuthError(400, 'invalid_grant', 'Invalid authorization code or PKCE verifier');
       const scope = code.scope || scopes.join(' ');
       const accessToken = await photonOAuthJwt(storage, { sub: code.sub, role: code.role ?? 'customer', name: code.name, scope, client_id: clientId }, MCP_OAUTH_ACCESS_TTL, request);
       const refreshToken = 'rt_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(32)));
@@ -616,9 +612,13 @@ async function handlePhotonMcpOAuth(
     if (grantType === 'refresh_token') {
       const old = form.get('refresh_token') ?? '';
       const key = 'oauth:refresh:' + await photonOAuthHashKey(old);
-      const grant = await storage.get<any>(key);
-      if (!grant || grant.expiresAt < Date.now() || grant.clientId !== clientId) return photonOAuthError(400, 'invalid_grant', 'Invalid refresh token');
-      await storage.delete(key);
+      const grant = await storage.transaction(async (transaction) => {
+        const candidate = await transaction.get<any>(key);
+        if (!candidate || candidate.expiresAt < Date.now() || candidate.clientId !== clientId) return null;
+        await transaction.delete(key);
+        return candidate;
+      });
+      if (!grant) return photonOAuthError(400, 'invalid_grant', 'Invalid refresh token');
       const accessToken = await photonOAuthJwt(storage, { sub: grant.sub, role: grant.role, name: grant.name, scope: grant.scope, client_id: clientId }, MCP_OAUTH_ACCESS_TTL, request);
       const refreshToken = 'rt_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(32)));
       await storage.put('oauth:refresh:' + await photonOAuthHashKey(refreshToken), { ...grant, expiresAt: Date.now() + MCP_OAUTH_REFRESH_TTL * 1000 });

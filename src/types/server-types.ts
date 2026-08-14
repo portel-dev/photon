@@ -10,6 +10,7 @@ import type { ServerCapabilities } from '../mcp/sdk-v1-2025/types.js';
 import type { HttpRouteDef } from '../shared/http-route-extractor.js';
 import type { ExposeDef } from '../shared/expose-route-extractor.js';
 import type { FiniteJSONValue, JSONSchema202012 } from '../mcp/protocol/json-schema.js';
+import type { PhotonAuthDirective } from '../auth/directive.js';
 
 /**
  * ServerCapabilities plus Photon's web-app capability extension.
@@ -34,6 +35,8 @@ export interface PhotonClassWithMeta extends PhotonClassExtended {
   hasSettings?: boolean;
   /** Auth scheme directive from @auth class-level tag (e.g. "bearer:claim"). */
   auth?: string;
+  /** Structured inbound MCP auth contract parsed from the class-level @auth tag. */
+  authDirective?: PhotonAuthDirective;
   /** Internal tool schema map used for diagnostics */
   _toolSchemas?: Record<string, unknown>;
   /** HTTP routes from @get / @post method-level tags */

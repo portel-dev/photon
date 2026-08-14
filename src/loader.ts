@@ -319,6 +319,11 @@ import { getErrorMessage } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
 import { warnIfDangerous } from './shared/security.js';
 import { detectPM } from './shared-utils.js';
+import {
+  extractPhotonAuthDirective,
+  legacyAuthValue,
+  type PhotonAuthDirective,
+} from './auth/directive.js';
 
 /** Detect preferred package manager. Prefers bun for speed, falls back to npm. */
 function detectPreferredPackageManager(): string {
@@ -2254,6 +2259,7 @@ export class PhotonLoader {
         statics,
         settingsSchema,
         auth: extractedAuth,
+        authDirective: extractedAuthDirective,
         httpRoutes: extractedHttpRoutes,
         exposes: extractedExposes,
       } = await this.extractTools(MCPClass, absolutePath);
@@ -2331,6 +2337,7 @@ export class PhotonLoader {
         icon?: string;
         stateful?: boolean;
         auth?: string;
+        authDirective?: PhotonAuthDirective;
         _httpRoutes?: HttpRouteDef[];
         _exposes?: ExposeDef[];
         _accessClasses?: Record<string, any>;
@@ -2348,6 +2355,7 @@ export class PhotonLoader {
       if (classIcon) result.icon = classIcon;
       if (isStateful) result.stateful = true;
       if (extractedAuth) result.auth = extractedAuth;
+      if (extractedAuthDirective) result.authDirective = extractedAuthDirective;
       if (extractedHttpRoutes?.length) result._httpRoutes = extractedHttpRoutes;
       if (extractedExposes?.length) result._exposes = extractedExposes;
 
@@ -2760,6 +2768,7 @@ export class PhotonLoader {
       statics,
       settingsSchema,
       auth: extractedAuth,
+      authDirective: extractedAuthDirective,
       httpRoutes: extractedHttpRoutes,
       exposes: extractedExposes,
     } = await this.extractTools(MCPClass, absolutePath, tsContent);
@@ -2800,6 +2809,7 @@ export class PhotonLoader {
       icon?: string;
       stateful?: boolean;
       auth?: string;
+      authDirective?: PhotonAuthDirective;
       _httpRoutes?: HttpRouteDef[];
       _exposes?: ExposeDef[];
       _accessClasses?: Record<string, any>;
@@ -2817,6 +2827,7 @@ export class PhotonLoader {
     if (classIcon) result.icon = classIcon;
     if (isStateful) result.stateful = true;
     if (extractedAuth) result.auth = extractedAuth;
+    if (extractedAuthDirective) result.authDirective = extractedAuthDirective;
     if (extractedHttpRoutes?.length) result._httpRoutes = extractedHttpRoutes;
     if (extractedExposes?.length) result._exposes = extractedExposes;
 
@@ -2849,12 +2860,17 @@ export class PhotonLoader {
     return leadingMatch ? leadingMatch[1] : '';
   }
 
-  private extractAuthTag(source: string): string | undefined {
+  private extractAuthDirective(source: string): PhotonAuthDirective | undefined {
     const docblock = this.extractClassDocblock(source);
-    // Use \b to avoid matching @author, @authorize, etc.
-    const match = docblock.match(/@auth\b(?:\s+(\S+))?/i);
-    if (!match) return undefined;
-    return match[1]?.trim() || 'required';
+    const result = extractPhotonAuthDirective(docblock);
+    if (!result) return undefined;
+    if (result.error) throw new Error(result.error);
+    return result.directive;
+  }
+
+  private extractAuthTag(source: string): string | undefined {
+    const directive = this.extractAuthDirective(source);
+    return directive ? legacyAuthValue(directive) : undefined;
   }
 
   private extractToolScopesFromSource(source: string): Record<string, string[]> {
@@ -3278,6 +3294,7 @@ export class PhotonLoader {
     statics: StaticInfo[];
     settingsSchema?: SettingsSchema;
     auth?: string;
+    authDirective?: PhotonAuthDirective;
     httpRoutes?: Array<{ method: string; path: string; handler: string }>;
     /** Track C: methods tagged `@expose` for auto-RPC at /api/<kebab>. */
     exposes?: ExposeDef[];
@@ -3430,6 +3447,7 @@ export class PhotonLoader {
             statics,
             settingsSchema: metadata.settingsSchema,
             auth: this.extractAuthTag(source),
+            authDirective: this.extractAuthDirective(source),
             httpRoutes: httpRoutesFromSource.length ? httpRoutesFromSource : undefined,
             exposes: exposesFromSource.length ? exposesFromSource : undefined,
           };
