@@ -97,6 +97,9 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
       'MCP OAuth state is authoritative in the host Durable Object ctx.storage.'
     );
     expect(generated.wrangler).toContain('PHOTON_MCP_OAUTH_LOGIN_URL');
+    expect(generated.worker).toContain("pathname === '/oauth/login'");
+    expect(generated.worker).toContain('PHOTON_MCP_OAUTH_HOST_SUBJECTS');
+    expect(generated.worker).toContain('Cf-Access-Authenticated-User-Email');
   });
 
   it('emits the optional KV binding contract without changing the authoritative state model', async () => {

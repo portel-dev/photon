@@ -458,6 +458,33 @@ async function photonOAuthVerifyLoginCallback(request: Request, env: Env, tx: an
   return { sub, role };
 }
 
+/**
+ * Complete an OAuth transaction from a Cloudflare Access-protected login
+ * route. The Access email header is only accepted on this dedicated route;
+ * the route itself must be protected by a Cloudflare Access application.
+ */
+async function photonOAuthAccessLogin(request: Request, storage: PhotonOAuthStorage, env: Env, origin: string): Promise<Response> {
+  const url = new URL(request.url);
+  const txId = url.searchParams.get('oauth_state') ?? url.searchParams.get('tx');
+  if (!txId) return photonOAuthError(400, 'invalid_request', 'oauth_state is required');
+  const tx = await storage.get<any>('oauth:tx:' + txId);
+  if (!tx || tx.expiresAt < Date.now()) return photonOAuthError(400, 'invalid_request', 'authorization transaction expired');
+
+  const subject = request.headers.get('Cf-Access-Authenticated-User-Email')?.trim().toLowerCase();
+  if (!subject || !subject.includes('@')) return photonOAuthError(401, 'login_required', 'Cloudflare Access identity is required');
+
+  const hostSubjects = String((env as any).PHOTON_MCP_OAUTH_HOST_SUBJECTS ?? '')
+    .split(/[\s,]+/)
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const role = hostSubjects.includes(subject) ? 'host' : 'customer';
+  await storage.put('oauth:tx:' + tx.id, { ...tx, sub: subject, role, name: subject });
+  return new Response(null, {
+    status: 302,
+    headers: { Location: origin + '/consent?tx=' + encodeURIComponent(tx.id), 'Cache-Control': 'no-store', ...CORS_HEADERS },
+  });
+}
+
 function photonOAuthConstantTimeEqual(left: string, right: string): boolean {
   if (left.length !== right.length) return false;
   let mismatch = 0;
@@ -480,7 +507,7 @@ async function handlePhotonMcpOAuth(
 ): Promise<Response | null> {
   const url = new URL(request.url);
   const pathname = url.pathname;
-  const isOAuthPath = pathname === '/authorize' || pathname === '/token' || pathname === '/register' || pathname === '/consent' || pathname === '/revoke' || pathname === '/introspect' || pathname === '/.well-known/jwks.json' || pathname === '/.well-known/oauth-protected-resource' || pathname === '/.well-known/oauth-authorization-server';
+  const isOAuthPath = pathname === '/oauth/login' || pathname === '/authorize' || pathname === '/token' || pathname === '/register' || pathname === '/consent' || pathname === '/revoke' || pathname === '/introspect' || pathname === '/.well-known/jwks.json' || pathname === '/.well-known/oauth-protected-resource' || pathname === '/.well-known/oauth-authorization-server';
   if (!isOAuthPath) return null;
   // All OAuth metadata, issuer claims, redirects, and resource identifiers
   // must use the configured canonical issuer. Request aliases are not OAuth
@@ -488,6 +515,10 @@ async function handlePhotonMcpOAuth(
   const origin = MCP_OAUTH_ISSUER;
   const resource = origin + '/mcp';
   const scopes = MCP_OAUTH_DEFAULT_SCOPES.length > 0 ? MCP_OAUTH_DEFAULT_SCOPES : ['mcp:read'];
+
+  if (pathname === '/oauth/login' && request.method === 'GET') {
+    return photonOAuthAccessLogin(request, storage, env, origin);
+  }
 
   if (pathname === '/.well-known/oauth-protected-resource' && request.method === 'GET') {
     return photonOAuthJson(200, { resource, authorization_servers: [origin], scopes_supported: scopes });

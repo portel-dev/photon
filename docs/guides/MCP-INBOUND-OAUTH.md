@@ -167,6 +167,14 @@ generated login route with `PHOTON_MCP_OAUTH_LOGIN_URL` and
 headers; a login adapter must return the signed callback expected by the
 generated authorization server.
 
+For Cloudflare Access, Photon also provides a built-in adapter. Protect
+`/oauth/login` with a Cloudflare Access application, set
+`PHOTON_MCP_OAUTH_LOGIN_URL=https://your-host.example/oauth/login`, and set
+`PHOTON_MCP_OAUTH_HOST_SUBJECTS` to a comma-separated allowlist of verified
+Access email identities that should receive the `host` role. Every other
+verified Access identity receives `customer`; unauthenticated requests and
+user-controlled identity headers are rejected.
+
 If the installed CLI does not list `oauth` for `--mcp-auth`, update the CLI
 before deploying; the guide does not change CLI compatibility.
 
