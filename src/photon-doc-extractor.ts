@@ -57,6 +57,25 @@ interface ExternalCall {
   method: string;
 }
 
+/** Authentication mode supported by Photon class-level auth metadata. */
+export type PhotonAuthMode = 'required' | 'optional';
+
+/** Structured representation of a class-level `@auth` directive. */
+export interface PhotonAuthMetadata {
+  /** Authenticator/scheme name, for example `oauth` or `cf-access`. */
+  scheme: string;
+  /** Whether the caller must authenticate before using the Photon. */
+  mode: PhotonAuthMode;
+}
+
+/** Diagnostic emitted by documentation extraction when metadata is unsafe. */
+export interface PhotonDocDiagnostic {
+  code: 'invalid-auth-tag' | 'conflicting-auth-tag';
+  message: string;
+  severity: 'error';
+  tag: 'auth';
+}
+
 export interface PhotonMetadata {
   name: string;
   label?: string;
@@ -72,6 +91,12 @@ export interface PhotonMetadata {
   category?: string;
   configParams?: ConfigParam[];
   setupInstructions?: string;
+  /** Backward-compatible normalized value from the class-level `@auth` tag. */
+  auth?: string;
+  /** Structured class-level authentication metadata. */
+  authMetadata?: PhotonAuthMetadata;
+  /** Fail-closed metadata diagnostics produced during extraction. */
+  diagnostics?: PhotonDocDiagnostic[];
   tools?: Tool[];
   dependencies?: string;
   runtime?: string;
@@ -116,6 +141,7 @@ export class PhotonDocExtractor {
     const channelTag = this.extractTag('channel');
     const idleTimeoutTag = this.extractTag('idleTimeout');
     const internalTag = this.extractTag('internal');
+    const authResult = this.extractAuthMetadata();
     const tools = await this.extractTools();
     const photonType = this.detectPhotonType(tools);
     const features = this.detectFeatures(tools, statefulTag !== undefined);
@@ -137,6 +163,8 @@ export class PhotonDocExtractor {
       category: this.extractTag('category'),
       configParams: this.extractConfigParams(),
       setupInstructions: this.extractSetupInstructions(),
+      ...(authResult.metadata ? { auth: authResult.value, authMetadata: authResult.metadata } : {}),
+      ...(authResult.diagnostics.length > 0 ? { diagnostics: authResult.diagnostics } : {}),
       tools,
       dependencies: this.extractTag('dependencies'),
       runtime: this.extractTag('runtime'),
@@ -239,6 +267,141 @@ export class PhotonDocExtractor {
     }
 
     return undefined;
+  }
+
+  /**
+   * Extract the class-level JSDoc block.
+   *
+   * Auth is intentionally read from this block only. A method-level `@auth`
+   * must not silently change the authentication mode of the whole Photon.
+   */
+  private extractClassDocblock(): string {
+    const classMatch = this.content.match(
+      /(?:export\s+default\s+|export\s+)?(?:abstract\s+)?class\s+[A-Za-z_$][\w$]*/
+    );
+    if (classMatch?.index !== undefined) {
+      const beforeClass = this.content.slice(0, classMatch.index);
+      const start = beforeClass.lastIndexOf('/**');
+      if (start !== -1) {
+        const docblock = beforeClass.slice(start).match(/\/\*\*([\s\S]*?)\*\/\s*$/);
+        if (docblock) return docblock[1];
+      }
+    }
+
+    // Keep the same leading-file-docblock fallback used by the extractor's
+    // other class metadata paths.
+    return this.content.match(/^\s*\/\*\*([\s\S]*?)\*\//)?.[1] ?? '';
+  }
+
+  /**
+   * Parse `@auth` while preserving legacy one-token directives.
+   *
+   * Supported forms are:
+   *   @auth required
+   *   @auth optional
+   *   @auth oauth required
+   *   @auth oauth optional
+   *   @auth <legacy-scheme>
+   *
+   * Invalid multi-token forms are rejected instead of being partially
+   * interpreted, so a malformed directive cannot accidentally open access.
+   */
+  private extractAuthMetadata(): {
+    metadata?: PhotonAuthMetadata;
+    value?: string;
+    diagnostics: PhotonDocDiagnostic[];
+  } {
+    const docblock = this.extractClassDocblock();
+    const matches = [...docblock.matchAll(/@auth\b([^\r\n*]*)/gi)];
+    if (matches.length === 0) return { diagnostics: [] };
+
+    if (matches.length > 1) {
+      return {
+        diagnostics: [
+          {
+            code: 'conflicting-auth-tag',
+            message: 'Only one class-level @auth tag is allowed.',
+            severity: 'error',
+            tag: 'auth',
+          },
+        ],
+      };
+    }
+
+    const rawTokens = matches[0][1].trim().split(/\s+/).filter(Boolean);
+    if (rawTokens.length === 0) {
+      return {
+        metadata: { scheme: 'legacy', mode: 'required' },
+        value: 'required',
+        diagnostics: [],
+      };
+    }
+
+    const [scheme, modeToken, ...extraTokens] = rawTokens;
+    const isMode = scheme === 'required' || scheme === 'optional';
+
+    if (isMode && modeToken !== undefined) {
+      return {
+        diagnostics: [
+          {
+            code: 'invalid-auth-tag',
+            message:
+              'Legacy @auth required/optional directives cannot be followed by another token.',
+            severity: 'error',
+            tag: 'auth',
+          },
+        ],
+      };
+    }
+
+    if (isMode) {
+      return {
+        metadata: { scheme: 'legacy', mode: scheme as PhotonAuthMode },
+        value: scheme,
+        diagnostics: [],
+      };
+    }
+
+    if (scheme === 'oauth') {
+      const mode = modeToken ?? 'required';
+      if ((mode !== 'required' && mode !== 'optional') || extraTokens.length > 0) {
+        return {
+          diagnostics: [
+            {
+              code: 'invalid-auth-tag',
+              message:
+                'OAuth auth must use @auth oauth, @auth oauth required, or @auth oauth optional.',
+              severity: 'error',
+              tag: 'auth',
+            },
+          ],
+        };
+      }
+      return { metadata: { scheme, mode }, value: rawTokens.join(' '), diagnostics: [] };
+    }
+
+    if (modeToken !== undefined || extraTokens.length > 0) {
+      return {
+        diagnostics: [
+          {
+            code: 'invalid-auth-tag',
+            message:
+              'Legacy @auth schemes accept exactly one token; use @auth oauth <mode> for OAuth.',
+            severity: 'error',
+            tag: 'auth',
+          },
+        ],
+      };
+    }
+
+    return {
+      metadata: {
+        scheme,
+        mode: 'required',
+      },
+      value: scheme,
+      diagnostics: [],
+    };
   }
 
   /**

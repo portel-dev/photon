@@ -13,6 +13,14 @@ export interface PhotonDocblockTagCatalog {
   inlineParamTags: PhotonDocblockTagDef[];
 }
 
+/** Supported class-level @auth spellings, including the OAuth modes. */
+export const photonAuthTagValues = [
+  'required',
+  'optional',
+  'oauth required',
+  'oauth optional',
+] as const;
+
 export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDocblockTagCatalog {
   const ver = runtimeVersion || '1.0.0';
 
@@ -157,8 +165,9 @@ export function buildPhotonDocblockTagCatalog(runtimeVersion: string): PhotonDoc
     },
     {
       label: '@auth',
-      detail: 'OAuth auth requirement',
-      snippetTmpl: '@auth ${1:required}',
+      detail: 'Authentication scheme and requirement mode',
+      info: 'Use @auth oauth required or @auth oauth optional for inbound MCP OAuth. One-token legacy schemes remain supported.',
+      snippetTmpl: '@auth ${1|required,optional,oauth required,oauth optional|}',
       type: 'keyword',
     },
     {
