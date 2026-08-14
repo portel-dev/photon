@@ -175,6 +175,34 @@ Access email identities that should receive the `host` role. Every other
 verified Access identity receives `customer`; unauthenticated requests and
 user-controlled identity headers are rejected.
 
+### Owner deployment checklist
+
+The owner identity is deployment configuration. It must not be embedded in the
+Photon source file or accepted from a tool argument. For each deployment:
+
+1. Create a Cloudflare Access self-hosted application for the exact
+   `/oauth/login` path and choose the identity providers that may sign in.
+2. Add an Access allow policy for the owner's verified email address (and any
+   additional operators). Do not use a broad `Everyone` policy for a host
+   login route.
+3. Configure the Worker secrets:
+
+   ```sh
+   printf '%s' 'https://consult.example.com/oauth/login' \
+     | wrangler secret put PHOTON_MCP_OAUTH_LOGIN_URL
+   printf '%s' 'owner@example.com,operator@example.com' \
+     | wrangler secret put PHOTON_MCP_OAUTH_HOST_SUBJECTS
+   ```
+
+4. Deploy, then verify the complete chain: Access login, OAuth consent,
+   authorization-code exchange, host-only `tools/list`, and a protected
+   `tools/call`.
+
+`PHOTON_MCP_OAUTH_HOST_SUBJECTS` is an exact, case-insensitive email allowlist.
+Changing ownership means updating both this Worker secret and the matching
+Cloudflare Access policy. Removing an address from either place removes its
+host access after the caller's existing token expires or is revoked.
+
 If the installed CLI does not list `oauth` for `--mcp-auth`, update the CLI
 before deploying; the guide does not change CLI compatibility.
 
