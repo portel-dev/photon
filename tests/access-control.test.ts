@@ -13,6 +13,8 @@ export default class Appointments {
   async findSlots() {}
   /** @class Appointments {@role host @plan pro} */
   async updateAvailability() {}
+  /** @class Appointments {@role user} */
+  async *waitForPayment() {}
 }`;
 
 const metadata = extractAccessMetadata(source);
@@ -25,6 +27,7 @@ assert.deepEqual(metadata.updateAvailability.conditions, [
   { property: 'role', value: 'host' },
   { property: 'plan', value: 'pro' },
 ]);
+assert.deepEqual(metadata.waitForPayment.conditions, [{ property: 'role', value: 'user' }]);
 assert.deepEqual(parseAccessMetadata('@class Appointments {malformed}'), {
   className: 'Appointments',
   conditions: [],

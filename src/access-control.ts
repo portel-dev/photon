@@ -55,7 +55,7 @@ export function parseAccessMetadata(docblock: string): ToolAccessMetadata | unde
 export function extractAccessMetadata(source: string): Record<string, ToolAccessMetadata> {
   const result: Record<string, ToolAccessMetadata> = {};
   const methodRe =
-    /\/\*\*([\s\S]*?)\*\/\s*(?:public\s+|protected\s+|private\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/g;
+    /\/\*\*([\s\S]*?)\*\/\s*(?:public\s+|protected\s+|private\s+)?(?:async\s+\*?\s*)?([A-Za-z_$][\w$]*)\s*\(/g;
   let match: RegExpExecArray | null;
   while ((match = methodRe.exec(source)) !== null) {
     const access = parseAccessMetadata(match[1]);
