@@ -1,0 +1,150 @@
+/**
+ * Strict OAuth role-conformance expectations that current Photon exposes as
+ * gaps. This file is intentionally non-zero while those behaviors are absent.
+ *
+ * Run with:
+ *   bunx tsx tests/oauth-role-conformance-gaps.test.ts
+ *
+ * Exit code 2 means the expected gaps were reproduced. Exit code 1 means a
+ * gap unexpectedly passed or the harness itself failed.
+ */
+
+import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { PhotonServer } from '../src/server.js';
+
+const fixturePath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  'fixtures/oauth-role-conformance/roles.photon.ts'
+);
+const oldEnv = { ...process.env };
+
+async function postMcp(port: number, body: unknown, token?: string) {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  return {
+    status: response.status,
+    body: (await response.json()) as any,
+    wwwAuthenticate: response.headers.get('www-authenticate'),
+  };
+}
+
+function oauthToken(
+  server: PhotonServer,
+  input: { sub: string; scope: string; audience?: string }
+): string {
+  const runtime = (server as any).oauthRuntime;
+  const now = Math.floor(Date.now() / 1000);
+  return runtime.serv.jwtService.exchangeSign({
+    iss: runtime.issuer,
+    sub: input.sub,
+    aud: input.audience ?? runtime.resource,
+    exp: now + 900,
+    iat: now,
+    jti: `oauth-role-conformance-gap-${input.sub}-${now}`,
+    tenant_id: runtime.tenant.id,
+    client_id: 'oauth-role-conformance-client',
+    scope: input.scope,
+  });
+}
+
+function contentText(body: any): string {
+  return (body?.result?.content ?? []).map((content: any) => content.text ?? '').join('\n');
+}
+
+async function main(): Promise<number> {
+  const keypair = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  process.env.PHOTON_OAUTH_HOST_SUBJECTS = 'host-1';
+  delete process.env.PHOTON_OAUTH_SINGLE_USER_ID;
+  delete process.env.PHOTON_OAUTH_SUBJECT_HEADER;
+  process.env.PHOTON_OAUTH_JWT_SECRET = 'oauth-role-conformance-jwt-secret';
+  process.env.PHOTON_OAUTH_ENCRYPTION_KEY = 'oauth-role-conformance-encryption-key';
+  process.env.PHOTON_OAUTH_STATE_SECRET = 'oauth-role-conformance-state-secret';
+  process.env.PHOTON_OAUTH_PRIVATE_KEY_PEM = keypair.privateKey
+    .export({ format: 'pem', type: 'pkcs8' })
+    .toString();
+  process.env.PHOTON_OAUTH_PUBLIC_KEY_PEM = keypair.publicKey
+    .export({ format: 'pem', type: 'spki' })
+    .toString();
+
+  const port = 31000 + Math.floor(Math.random() * 20000);
+  const server = new PhotonServer({ filePath: fixturePath, transport: 'sse', port });
+  const gaps: string[] = [];
+  let reproduced = 0;
+
+  try {
+    await server.start();
+    const customerRead = oauthToken(server, {
+      sub: 'customer-1',
+      scope: 'bookings:read',
+    });
+
+    const expectGap = async (name: string, assertion: () => Promise<void>) => {
+      try {
+        await assertion();
+        console.error(`  ✗ GAP NOT REPRODUCED: ${name}`);
+        gaps.push(`${name} unexpectedly passed`);
+      } catch (error) {
+        reproduced++;
+        console.log(`  ⚠ EXPECTED GAP: ${name}`);
+        console.log(`    ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+
+    console.log('OAuth role conformance — known current gaps:');
+
+    await expectGap('missing scope uses 403 insufficient_scope', async () => {
+      const response = await postMcp(
+        port,
+        {
+          jsonrpc: '2.0',
+          id: 'missing-scope',
+          method: 'tools/call',
+          params: { name: 'customerExactScope', arguments: {} },
+        },
+        customerRead
+      );
+      assert.equal(response.status, 403);
+      assert.equal(response.body.error?.data?.reason, 'insufficient_scope');
+      assert.match(response.wwwAuthenticate ?? '', /error="insufficient_scope"/);
+    });
+
+    await expectGap('anonymous protected call returns an OAuth challenge', async () => {
+      const response = await postMcp(port, {
+        jsonrpc: '2.0',
+        id: 'connect-customer',
+        method: 'tools/call',
+        params: { name: 'customerBookings', arguments: {} },
+      });
+      assert.equal(response.status, 401);
+      assert.match(response.wwwAuthenticate ?? '', /resource_metadata=/);
+      assert.match(response.wwwAuthenticate ?? '', /error="invalid_token"/);
+      assert.equal(response.body.result?.isError, undefined);
+      assert.equal(contentText(response.body), '');
+    });
+
+    return gaps.length > 0 ? 1 : reproduced > 0 ? 2 : 0;
+  } finally {
+    await server.stop();
+    process.env = { ...oldEnv };
+  }
+}
+
+main().then(
+  (code) => process.exit(code),
+  (error) => {
+    console.error(error);
+    process.env = { ...oldEnv };
+    process.exit(1);
+  }
+);
