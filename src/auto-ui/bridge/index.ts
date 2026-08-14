@@ -191,6 +191,14 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       if (m.method === 'ui/initialize') {
         var params = m.params || {};
         hostContext = params.hostContext;
+        // MCP Apps hosts may include the initial tool input/output in the
+        // initialize request instead of sending separate notifications.
+        if (params.toolInput !== undefined) toolInput = params.toolInput || {};
+        if (params.toolOutput !== undefined) {
+          toolOutput = extractData(params.toolOutput);
+          window.__PHOTON_DATA__ = toolOutput;
+          listeners.result.forEach(function(cb) { cb(toolOutput); });
+        }
         if (params.hostContext) {
           if (params.hostContext.theme) ctx.theme = params.hostContext.theme;
           if (params.hostContext.styles && params.hostContext.styles.variables) {
@@ -202,7 +210,10 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         postToHost({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
       }
       else if (m.method === 'ui/notifications/tool-result') {
-        var notifiedResult = m.params && m.params.result;
+        var resultParams = m.params || {};
+        // The installed MCP Apps hosts use both forms: { result } and the
+        // result object directly. Accept both so tool output is never lost.
+        var notifiedResult = resultParams.result ?? resultParams.toolResult ?? resultParams;
         if (notifiedResult && notifiedResult.isError) {
           window.dispatchEvent(new CustomEvent('photon:tool-error', {
             detail: {
@@ -220,7 +231,8 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         listeners.result.forEach(function(cb) { cb(toolOutput); });
       }
       else if (m.method === 'ui/notifications/tool-input') {
-        toolInput = (m.params && m.params.input) || {};
+        var inputParams = m.params || {};
+        toolInput = inputParams.input ?? inputParams.toolInput ?? inputParams;
       }
       else if (m.method === 'ui/notifications/host-context-changed' || m.method === 'ui/notifications/context') {
         var ctxParams = m.params || {};

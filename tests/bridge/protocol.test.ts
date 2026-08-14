@@ -429,6 +429,33 @@ await test('ui/notifications/tool-result triggers onResult callback', () => {
   assertEqual(receivedData, { boards: ['board1', 'board2'] }, 'Should receive result data');
 });
 
+await test('ui/notifications/tool-result accepts direct results with nested prefill', () => {
+  const mock = createMockBrowser();
+  const win = executeBridgeScript(mock);
+  let receivedData: any = null;
+  win.photon.onResult((data: any) => {
+    receivedData = data;
+  });
+
+  mock.sendToIframe({
+    jsonrpc: '2.0',
+    method: 'ui/notifications/tool-result',
+    params: {
+      structuredContent: {
+        dates: [{ date: '2026-08-19', slots: [] }],
+        prefill: { name: 'Arul Test', email: 'arul@example.com' },
+      },
+    },
+  });
+
+  assertEqual(receivedData?.prefill?.name, 'Arul Test', 'Should preserve nested prefill data');
+  assertEqual(
+    win.photon.toolOutput?.prefill?.email,
+    'arul@example.com',
+    'Should expose toolOutput to the UI'
+  );
+});
+
 await test('ui/notifications/tool-result surfaces isError without resolving result listeners', () => {
   const mock = createMockBrowser();
   const win = executeBridgeScript(mock);
