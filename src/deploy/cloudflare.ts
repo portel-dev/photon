@@ -28,6 +28,10 @@ import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
 import { buildPhotonRenderMeta } from '../auto-ui/types.js';
 import { ResourceServer } from '../resource-server.js';
 import { cleanMcpToolDescription } from '../shared/mcp-tool-metadata.js';
+import {
+  injectCloudflareMcpOAuth,
+  renderCloudflareMcpOAuthBindings,
+} from './oauth/cloudflare-mcp-oauth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -529,7 +533,7 @@ export interface CloudflareDeployOptions {
   publicUrl?: string;
   customDomain?: string;
   routePattern?: string;
-  mcpAuth?: 'jwt' | 'bearer' | 'open';
+  mcpAuth?: 'jwt' | 'bearer' | 'open' | 'oauth';
   mcpAudience?: string;
   /**
    * Enable Cloudflare Workers Logs in the generated `wrangler.toml`.
@@ -997,6 +1001,29 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   if (routeConfig.publicUrl && routeConfig.toml) {
     logger.info(`Deploy target: ${routeConfig.publicUrl} (workers.dev disabled)`);
   }
+  const oauthIssuer = process.env.PHOTON_MCP_OAUTH_ISSUER || routeConfig.publicUrl;
+  if (options.mcpAuth === 'oauth') {
+    if (!oauthIssuer) {
+      throw new Error(
+        'MCP OAuth requires a stable issuer. Pass --domain/--url/--route or set PHOTON_MCP_OAUTH_ISSUER.'
+      );
+    }
+    let parsedIssuer: URL;
+    try {
+      parsedIssuer = new URL(oauthIssuer);
+    } catch {
+      throw new Error(`Invalid MCP OAuth issuer: ${oauthIssuer}`);
+    }
+    if (
+      parsedIssuer.protocol !== 'https:' ||
+      parsedIssuer.username ||
+      parsedIssuer.password ||
+      parsedIssuer.search ||
+      parsedIssuer.hash
+    ) {
+      throw new Error('MCP OAuth issuer must be an HTTPS URL without credentials, query, or hash.');
+    }
+  }
 
   // Extract `@dependencies` from the photon source. These get bundled into
   // the Worker by wrangler, so they must land in package.json's dependencies
@@ -1229,6 +1256,24 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .replace(/__MCP_JWT_AUDIENCE__/g, JSON.stringify(jwtConfig?.audience ?? ''))
     .replace(/__MCP_JWT_JWKS__/g, JSON.stringify(jwtConfig?.jwks ?? null));
 
+  if (options.mcpAuth === 'oauth') {
+    const oauthScopes = Array.from(
+      new Set(
+        toolDefs.flatMap((tool: any) =>
+          Array.isArray(tool.scopes)
+            ? tool.scopes.filter((scope: unknown): scope is string => typeof scope === 'string')
+            : []
+        )
+      )
+    );
+    workerCode = injectCloudflareMcpOAuth(workerCode, {
+      photonName,
+      scopes: oauthScopes,
+      issuer: oauthIssuer!,
+      kvNamespaceId: process.env.PHOTON_MCP_OAUTH_KV_ID,
+    });
+  }
+
   // Write photon source files (host + each sibling)
   await fs.writeFile(path.join(outputDir, 'src', 'worker.ts'), workerCode);
   for (const p of photons) {
@@ -1439,6 +1484,9 @@ class_name = "${p.doClass}"`
     .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement)
     .replace(/__ASSETS_BLOCK__\n?/g, assetsBlock)
     .replace(/__CF_BINDINGS__\n?/g, cfBindingsToml);
+  if (options.mcpAuth === 'oauth') {
+    wranglerConfig += `\n\n${renderCloudflareMcpOAuthBindings(process.env.PHOTON_MCP_OAUTH_KV_ID)}\n`;
+  }
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);
 
   // Create package.json. Photon-declared dependencies land in `dependencies`
