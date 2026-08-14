@@ -26,6 +26,18 @@ const MCP_JWT_AUDIENCE = __MCP_JWT_AUDIENCE__;
 const MCP_JWT_JWKS = __MCP_JWT_JWKS__;
 const DEPLOY_INSTANCE_ALIASES: Record<string, string> = __INSTANCE_ALIASES__;
 
+// Keep the generated Cloudflare adapter on the same negotiated protocol
+// surface as the local runtime and Beam. Photon authors should not need to
+// target a protocol version themselves; the adapter selects the newest
+// version understood by both sides.
+const SUPPORTED_MCP_PROTOCOL_VERSIONS = ['2025-03-26', '2025-11-25', '2026-07-28'];
+
+function negotiateMCPProtocolVersion(requested: unknown): string {
+  return typeof requested === 'string' && SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(requested)
+    ? requested
+    : '2025-11-25';
+}
+
 /**
  * Photon name → Worker env binding name. Generated at deploy time from the
  * host photon's source plus every `@photons` sibling. `this.call('foo.bar')`
@@ -1433,12 +1445,20 @@ async function handleMCPRequest(
 
   switch (method) {
     case 'initialize':
+      const negotiatedProtocolVersion = negotiateMCPProtocolVersion(params?.protocolVersion);
       return {
         jsonrpc: '2.0',
         id,
         result: {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: {}, resources: {} },
+          protocolVersion: negotiatedProtocolVersion,
+          supportedProtocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
+          capabilities: {
+            tools: {},
+            resources: {},
+            ...(negotiatedProtocolVersion === '2026-07-28'
+              ? { extensions: { 'io.modelcontextprotocol/ui': {} } }
+              : {}),
+          },
           serverInfo: { name: photonName, version: '1.0.0' },
         },
       };
@@ -1487,7 +1507,20 @@ async function handleMCPRequest(
           throw new Error(`Unknown tool: ${name}`);
         }
         const callArgs = spreadArgs(toolDef, args || {});
-        const result = await fn.call(photon, ...callArgs);
+        let result = await fn.call(photon, ...callArgs);
+        // Async-generator photons use the final generator return value as the
+        // MCP result. Cloudflare's JSON/SSE adapter cannot expose the local
+        // task stream directly, but it must still drain the generator instead
+        // of serializing the iterator object as `{}`. Clients can use the
+        // companion status tool while a long-running payment is pending.
+        if (result && typeof result[Symbol.asyncIterator] === 'function') {
+          const iterator = result[Symbol.asyncIterator]();
+          let step: IteratorResult<unknown>;
+          do {
+            step = await iterator.next();
+          } while (!step.done);
+          result = step.value;
+        }
         const isString = typeof result === 'string';
         const text = isString ? result : JSON.stringify(result, null, 2);
         const isObject = result !== null && typeof result === 'object';
