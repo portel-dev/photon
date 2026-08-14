@@ -544,6 +544,45 @@ export interface CloudflareDeployOptions {
   withLogs?: boolean;
 }
 
+type CloudflareOAuthAuthMode = 'optional' | 'required';
+
+/**
+ * Read only the class-level OAuth directive used by the Cloudflare generator.
+ * This intentionally stays local to avoid coupling deploy code to the
+ * in-progress shared auth-directive module. Non-OAuth tags retain legacy
+ * behavior; malformed or duplicate OAuth metadata fails deployment closed.
+ */
+function parseCloudflareOAuthAuthMode(source: string): CloudflareOAuthAuthMode | undefined {
+  const classMatch = source.match(
+    /(?:export\s+default\s+|export\s+)?(?:abstract\s+)?class\s+[A-Za-z_$][\w$]*/
+  );
+  if (classMatch?.index === undefined) return undefined;
+
+  const beforeClass = source.slice(0, classMatch.index);
+  const docblockStart = beforeClass.lastIndexOf('/**');
+  if (docblockStart < 0) return undefined;
+  const docblock = beforeClass.slice(docblockStart).match(/\/\*\*([\s\S]*?)\*\/\s*$/)?.[1];
+  if (!docblock) return undefined;
+
+  const matches = [...docblock.matchAll(/@auth\b([^\r\n*]*)/gi)];
+  if (matches.length > 1) {
+    throw new Error('Invalid class-level @auth metadata: multiple @auth tags are not allowed.');
+  }
+  if (matches.length === 0) return undefined;
+  const tokens = matches[0][1]
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => token.toLowerCase());
+  if (tokens[0] !== 'oauth') return undefined;
+  if (tokens.length !== 2 || (tokens[1] !== 'optional' && tokens[1] !== 'required')) {
+    throw new Error(
+      "Invalid class-level @auth metadata: use '@auth oauth optional' or '@auth oauth required'."
+    );
+  }
+  return tokens[1] === 'optional' || tokens[1] === 'required' ? tokens[1] : undefined;
+}
+
 interface CloudflareRouteConfig {
   toml: string;
   publicUrl?: string;
@@ -979,15 +1018,21 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       return toolDef;
     });
 
+  const declaredOAuthMode = parseCloudflareOAuthAuthMode(sourceCode);
+  // An explicit CLI value is authoritative. When it is omitted, the
+  // class-level Photon contract can opt the generated Worker into OAuth.
+  const effectiveMcpAuth = options.mcpAuth ?? (declaredOAuthMode ? 'oauth' : undefined);
+  const oauthAuthMode: CloudflareOAuthAuthMode | undefined =
+    effectiveMcpAuth === 'oauth' ? (declaredOAuthMode ?? 'required') : undefined;
   const cfAccessEnabled = metadata.auth === 'cf-access';
   const jwtAudience = options.mcpAudience || process.env.PHOTON_MCP_JWT_AUDIENCE;
-  if (options.mcpAuth === 'jwt' && !jwtAudience) {
+  if (effectiveMcpAuth === 'jwt' && !jwtAudience) {
     throw new Error(
       'MCP JWT auth requires an audience. Pass --mcp-audience <url> or set PHOTON_MCP_JWT_AUDIENCE.'
     );
   }
   const jwtConfig =
-    options.mcpAuth === 'jwt' ? await loadDeployJwtConfig(photonName, jwtAudience!) : null;
+    effectiveMcpAuth === 'jwt' ? await loadDeployJwtConfig(photonName, jwtAudience!) : null;
   if (jwtConfig) {
     logger.warn(
       'MCP JWT auth is enabled. Existing PHOTON_MCP_BEARER clients will not authenticate unless they switch to JWT.'
@@ -1002,7 +1047,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     logger.info(`Deploy target: ${routeConfig.publicUrl} (workers.dev disabled)`);
   }
   const oauthIssuer = process.env.PHOTON_MCP_OAUTH_ISSUER || routeConfig.publicUrl;
-  if (options.mcpAuth === 'oauth') {
+  if (effectiveMcpAuth === 'oauth') {
     if (!oauthIssuer) {
       throw new Error(
         'MCP OAuth requires a stable issuer. Pass --domain/--url/--route or set PHOTON_MCP_OAUTH_ISSUER.'
@@ -1251,12 +1296,12 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .replace(/__DEV_MODE__/g, String(devMode))
     .replace(/__CF_ACCESS_ENABLED__/g, String(cfAccessEnabled))
     .replace(/__INSTANCE_ALIASES__/g, JSON.stringify(parseInstanceAliases()))
-    .replace(/__MCP_AUTH_MODE__/g, JSON.stringify(jwtConfig?.mode ?? options.mcpAuth ?? 'legacy'))
+    .replace(/__MCP_AUTH_MODE__/g, JSON.stringify(jwtConfig?.mode ?? effectiveMcpAuth ?? 'legacy'))
     .replace(/__MCP_JWT_ISSUER__/g, JSON.stringify(jwtConfig?.issuer ?? ''))
     .replace(/__MCP_JWT_AUDIENCE__/g, JSON.stringify(jwtConfig?.audience ?? ''))
     .replace(/__MCP_JWT_JWKS__/g, JSON.stringify(jwtConfig?.jwks ?? null));
 
-  if (options.mcpAuth === 'oauth') {
+  if (effectiveMcpAuth === 'oauth') {
     const oauthScopes = Array.from(
       new Set(
         toolDefs.flatMap((tool: any) =>
@@ -1270,6 +1315,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       photonName,
       scopes: oauthScopes,
       issuer: oauthIssuer!,
+      oauthAuthMode: oauthAuthMode!,
       kvNamespaceId: process.env.PHOTON_MCP_OAUTH_KV_ID,
     });
   }
@@ -1484,7 +1530,7 @@ class_name = "${p.doClass}"`
     .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement)
     .replace(/__ASSETS_BLOCK__\n?/g, assetsBlock)
     .replace(/__CF_BINDINGS__\n?/g, cfBindingsToml);
-  if (options.mcpAuth === 'oauth') {
+  if (effectiveMcpAuth === 'oauth') {
     wranglerConfig += `\n\n${renderCloudflareMcpOAuthBindings(process.env.PHOTON_MCP_OAUTH_KV_ID)}\n`;
   }
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);

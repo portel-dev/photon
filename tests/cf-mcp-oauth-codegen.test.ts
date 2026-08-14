@@ -6,7 +6,14 @@ import * as ts from 'typescript';
 import { build } from 'esbuild';
 import { deployToCloudflare } from '../src/deploy/cloudflare.js';
 
-async function generate(options: { kvId?: string } = {}) {
+async function generate(
+  options: {
+    kvId?: string;
+    authMode?: 'optional' | 'required';
+    authTag?: string;
+    inferFromAuth?: boolean;
+  } = {}
+) {
   const root = await mkdtemp(join(tmpdir(), 'photon-cf-mcp-oauth-'));
   const project = join(root, 'project');
   const output = join(root, 'out');
@@ -15,6 +22,7 @@ async function generate(options: { kvId?: string } = {}) {
   await writeFile(
     photonPath,
     `
+${options.authTag ? `/** ${options.authTag} */` : options.authMode ? `/** @auth oauth ${options.authMode} */` : ''}
 export default class Appointments {
   get role() { return this.caller.anonymous ? 'user' : 'host'; }
 
@@ -31,13 +39,14 @@ export default class Appointments {
   if (options.kvId) process.env.PHOTON_MCP_OAUTH_KV_ID = options.kvId;
   else delete process.env.PHOTON_MCP_OAUTH_KV_ID;
   try {
-    await deployToCloudflare({
+    const deployOptions: Parameters<typeof deployToCloudflare>[0] = {
       photonPath,
       outputDir: output,
       dryRun: true,
-      mcpAuth: 'oauth',
       publicUrl: 'https://consult.example.test',
-    });
+      ...(options.inferFromAuth ? {} : { mcpAuth: 'oauth' as const }),
+    };
+    await deployToCloudflare(deployOptions);
   } finally {
     if (previousKvId === undefined) delete process.env.PHOTON_MCP_OAUTH_KV_ID;
     else process.env.PHOTON_MCP_OAUTH_KV_ID = previousKvId;
@@ -55,6 +64,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
 
     expect(generated.worker).toContain('const MCP_AUTH_MODE = "oauth"');
     expect(generated.worker).toContain('const MCP_OAUTH_ISSUER = "https://consult.example.test"');
+    expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "required"');
     expect(generated.worker).toContain("'/.well-known/oauth-protected-resource'");
     expect(generated.worker).toContain("'/.well-known/oauth-authorization-server'");
     expect(generated.worker).toContain("'/.well-known/jwks.json'");
@@ -67,8 +77,17 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('resource_metadata="');
     expect(generated.worker).toContain('photonOAuthCaller');
     expect(generated.worker).toContain('const role = typeof claims.role');
+    expect(generated.worker).toContain(": 'customer'");
     expect(generated.worker).toContain('scope: scope || undefined');
     expect(generated.worker).toContain("role: 'user'");
+    expect(generated.worker).toContain("role !== 'customer'");
+    expect(generated.worker).toContain('PHOTON_MCP_OAUTH_TRUST_CF_ACCESS');
+    expect(generated.worker).toContain('if (DEV_MODE)');
+    expect(generated.worker).toContain('const origin = MCP_OAUTH_ISSUER');
+    expect(generated.worker).toContain(
+      "token_endpoint_auth_methods_supported: ['none', 'client_secret_post']"
+    );
+    expect(generated.worker).not.toContain('client_secret_basic');
     expect(generated.worker).toContain(
       "const instance = isOAuthEndpoint ? 'default' : extractInstance(request, env);"
     );
@@ -85,6 +104,36 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.wrangler).toContain('binding = "PHOTON_OAUTH_KV"');
     expect(generated.wrangler).toContain('id = "oauth-kv-id"');
     expect(generated.wrangler).toContain('authoritative in Durable Object storage');
+  });
+
+  it('infers optional OAuth from the class-level Photon auth contract', async () => {
+    const generated = await generate({ authMode: 'optional', inferFromAuth: true });
+
+    expect(generated.worker).toContain('const MCP_AUTH_MODE = "oauth"');
+    expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "optional"');
+    expect(generated.worker).toContain(
+      "method === 'tools/list' ? supplied : !bypass.has(method) && !publicPropertyTool"
+    );
+  });
+
+  it('infers required OAuth and challenges anonymous discovery and calls', async () => {
+    const generated = await generate({ authMode: 'required', inferFromAuth: true });
+
+    expect(generated.worker).toContain('const MCP_AUTH_MODE = "oauth"');
+    expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "required"');
+    expect(generated.worker).toContain("request.method === 'POST'");
+  });
+
+  it('fails closed for malformed and duplicate OAuth auth metadata', async () => {
+    await expect(generate({ authTag: '@auth oauth', inferFromAuth: true })).rejects.toThrow(
+      /Invalid class-level @auth metadata/
+    );
+    await expect(
+      generate({
+        authTag: '@auth oauth optional\n * @auth oauth required',
+        inferFromAuth: true,
+      })
+    ).rejects.toThrow(/multiple @auth tags/);
   });
 
   it('keeps legacy auth generation untouched when oauth is not selected', async () => {

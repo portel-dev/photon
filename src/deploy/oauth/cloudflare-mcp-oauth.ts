@@ -16,6 +16,8 @@ export interface CloudflareMcpOAuthCodegenOptions {
   scopes: string[];
   /** Stable canonical issuer/resource origin for RFC 8414 and RFC 8707. */
   issuer: string;
+  /** Whether anonymous MCP discovery and public user tools are allowed. */
+  oauthAuthMode: 'optional' | 'required';
   /** Optional KV namespace id supplied by the deploy environment. */
   kvNamespaceId?: string;
 }
@@ -117,6 +119,7 @@ function renderRuntime(options: CloudflareMcpOAuthCodegenOptions): string {
 const MCP_OAUTH_DEFAULT_SCOPES: string[] = ${scopes};
 const MCP_OAUTH_PHOTON_NAME = ${photonName};
 const MCP_OAUTH_ISSUER = ${issuer};
+const MCP_OAUTH_AUTH_MODE = ${JSON.stringify(options.oauthAuthMode)};
 const MCP_OAUTH_ACCESS_TTL = 15 * 60;
 const MCP_OAUTH_REFRESH_TTL = 30 * 24 * 60 * 60;
 const MCP_OAUTH_CODE_TTL = 60;
@@ -301,7 +304,9 @@ async function photonOAuthVerifyJwt(
 
 function photonOAuthCaller(claims: Record<string, unknown>): any {
   const scope = typeof claims.scope === 'string' ? claims.scope : '';
-  const role = typeof claims.role === 'string' ? claims.role : 'user';
+  // Anonymous callers are represented separately by the MCP runtime. Every
+  // authenticated OAuth subject defaults to the ordinary customer role.
+  const role = typeof claims.role === 'string' ? claims.role : 'customer';
   return {
     id: String(claims.sub ?? 'unknown'),
     name: typeof claims.name === 'string' ? claims.name : undefined,
@@ -382,7 +387,9 @@ async function checkMcpOAuth(
   ) === true;
   const bypass = new Set(['initialize', 'notifications/initialized', 'notifications/cancelled', 'ping', 'resources/list', 'resources/read', 'resources/templates/list', 'prompts/list', 'server/discover']);
   const supplied = request.headers.has('Authorization');
-  const mustAuthenticate = method === 'tools/list' ? supplied : !bypass.has(method) && !publicPropertyTool;
+  const mustAuthenticate = MCP_OAUTH_AUTH_MODE === 'required'
+    ? request.method === 'POST'
+    : method === 'tools/list' ? supplied : !bypass.has(method) && !publicPropertyTool;
   if (!mustAuthenticate) return { enforced: false, ok: true, authed: false };
   return photonOAuthAuthenticate(request, storage, photonOAuthToolScopes(toolDefinitions, body));
 }
@@ -423,14 +430,20 @@ async function photonOAuthClient(storage: PhotonOAuthStorage, clientId: string):
 }
 
 async function photonOAuthSubject(request: Request, env: Env): Promise<{ sub: string; role: string; name?: string } | null> {
+  const trustCfAccess = String((env as any).PHOTON_MCP_OAUTH_TRUST_CF_ACCESS ?? '').toLowerCase() === 'true';
   const accessEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
-  if (accessEmail) {
+  if (trustCfAccess && accessEmail) {
     const sub = 'email:' + accessEmail.trim().toLowerCase();
     const hosts = String((env as any).PHOTON_MCP_OAUTH_HOST_SUBJECTS ?? '').split(',').map((value) => value.trim()).filter(Boolean);
-    return { sub, role: hosts.includes(sub) ? 'host' : 'user', name: accessEmail.trim() };
+    return { sub, role: hosts.includes(sub) ? 'host' : 'customer', name: accessEmail.trim() };
   }
-  const configured = (env as any).PHOTON_MCP_OAUTH_SUBJECT;
-  if (typeof configured === 'string' && configured.trim()) return { sub: configured.trim(), role: 'user' };
+  // A static subject is intentionally development-only. In production, an
+  // OAuth login adapter must establish identity (or Access must be explicitly
+  // trusted above); otherwise a caller could impersonate the configured user.
+  if (DEV_MODE) {
+    const configured = (env as any).PHOTON_MCP_OAUTH_SUBJECT;
+    if (typeof configured === 'string' && configured.trim()) return { sub: configured.trim(), role: 'customer' };
+  }
   return null;
 }
 
@@ -442,11 +455,11 @@ async function photonOAuthLoginSignature(secret: string, value: string): Promise
 async function photonOAuthVerifyLoginCallback(request: Request, env: Env, tx: any): Promise<{ sub: string; role: string; name?: string } | null> {
   const url = new URL(request.url);
   const sub = url.searchParams.get('subject');
-  const role = url.searchParams.get('role') ?? 'user';
+  const role = url.searchParams.get('role') ?? 'customer';
   const signature = url.searchParams.get('signature');
   const secret = (env as any).PHOTON_MCP_OAUTH_LOGIN_SECRET;
   if (!sub || !signature || typeof secret !== 'string' || !secret) return null;
-  if (role !== 'user' && role !== 'host') return null;
+  if (role !== 'customer' && role !== 'host') return null;
   const expected = await photonOAuthLoginSignature(secret, [tx.id, sub, role].join('.'));
   if (!photonOAuthConstantTimeEqual(expected, signature)) return null;
   return { sub, role };
@@ -476,7 +489,10 @@ async function handlePhotonMcpOAuth(
   const pathname = url.pathname;
   const isOAuthPath = pathname === '/authorize' || pathname === '/token' || pathname === '/register' || pathname === '/consent' || pathname === '/revoke' || pathname === '/introspect' || pathname === '/.well-known/jwks.json' || pathname === '/.well-known/oauth-protected-resource' || pathname === '/.well-known/oauth-authorization-server';
   if (!isOAuthPath) return null;
-  const origin = url.origin;
+  // All OAuth metadata, issuer claims, redirects, and resource identifiers
+  // must use the configured canonical issuer. Request aliases are not OAuth
+  // issuers and must never be allowed to change this value.
+  const origin = MCP_OAUTH_ISSUER;
   const resource = origin + '/mcp';
   const scopes = MCP_OAUTH_DEFAULT_SCOPES.length > 0 ? MCP_OAUTH_DEFAULT_SCOPES : ['mcp:read'];
 
@@ -494,7 +510,7 @@ async function handlePhotonMcpOAuth(
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
-      token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
+      token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
       client_id_metadata_document_supported: false,
     });
   }
@@ -565,7 +581,7 @@ async function handlePhotonMcpOAuth(
     await storage.delete('oauth:tx:' + tx.id);
     if (form.get('action') !== 'approve') return photonOAuthRedirectError(tx.redirectUri, tx.state, 'access_denied', 'The resource owner denied the request');
     const code = 'code_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(32)));
-    await storage.put('oauth:code:' + code, { ...tx, code, role: tx.role ?? 'user', createdAt: Date.now(), expiresAt: Date.now() + MCP_OAUTH_CODE_TTL * 1000 });
+    await storage.put('oauth:code:' + code, { ...tx, code, role: tx.role ?? 'customer', createdAt: Date.now(), expiresAt: Date.now() + MCP_OAUTH_CODE_TTL * 1000 });
     const target = new URL(tx.redirectUri);
     target.searchParams.set('code', code);
     if (tx.state) target.searchParams.set('state', tx.state);
@@ -592,9 +608,9 @@ async function handlePhotonMcpOAuth(
       const challenge = photonOAuthB64(await photonOAuthHash(verifier));
       if (challenge !== code.codeChallenge) return photonOAuthError(400, 'invalid_grant', 'PKCE verification failed');
       const scope = code.scope || scopes.join(' ');
-      const accessToken = await photonOAuthJwt(storage, { sub: code.sub, role: code.role ?? 'user', name: code.name, scope, client_id: clientId }, MCP_OAUTH_ACCESS_TTL, request);
+      const accessToken = await photonOAuthJwt(storage, { sub: code.sub, role: code.role ?? 'customer', name: code.name, scope, client_id: clientId }, MCP_OAUTH_ACCESS_TTL, request);
       const refreshToken = 'rt_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(32)));
-      await storage.put('oauth:refresh:' + await photonOAuthHashKey(refreshToken), { sub: code.sub, role: code.role ?? 'user', name: code.name, scope, clientId, resource, expiresAt: Date.now() + MCP_OAUTH_REFRESH_TTL * 1000 });
+      await storage.put('oauth:refresh:' + await photonOAuthHashKey(refreshToken), { sub: code.sub, role: code.role ?? 'customer', name: code.name, scope, clientId, resource, expiresAt: Date.now() + MCP_OAUTH_REFRESH_TTL * 1000 });
       return photonOAuthJson(200, { access_token: accessToken, token_type: 'Bearer', expires_in: MCP_OAUTH_ACCESS_TTL, refresh_token: refreshToken, scope });
     }
     if (grantType === 'refresh_token') {
