@@ -80,3 +80,12 @@ export {
   colorsLight,
   type ThemeMode,
 } from './design-system/tokens';
+
+// Optional Photon-owned stylesheet assets
+export {
+  resolvePhotonStylesheetAssets,
+  type PhotonStylesheetAsset,
+  type PhotonStylesheetAssets,
+  type PhotonStylesheetKind,
+  type ResolvePhotonStylesheetOptions,
+} from './stylesheet-assets';
