@@ -16,10 +16,9 @@
  * declared) and tests/conformance (data survives transport): this proves
  * the renderer turns data into visible DOM.
  *
- * External-library formats (chart loads Chart.js from CDN, map/graph
- * load leaflet/vis) run with network blocked for hermeticity; for those
- * we assert structure-only (non-empty, no crash), since their data pass
- * happens inside the external lib.
+ * Every renderer runs with network blocked for hermeticity. Formats whose
+ * primary output is graphical use structure-only assertions; the dedicated
+ * renderer CSP contract separately proves they make no external requests.
  */
 
 import { strict as assert } from 'assert';
@@ -27,16 +26,13 @@ import * as fs from 'fs/promises';
 import { chromium, type Browser, type Page } from 'playwright';
 import { FORMAT_CATALOG, generateRenderersScript } from '../../dist/auto-ui/bridge/renderers.js';
 
-// Formats whose visible output is produced by an external library or is
-// inherently non-textual. Structure-only assertions apply. Every entry
+// Formats whose visible output is primarily graphical or inherently
+// non-textual. Structure-only assertions apply. Every entry
 // must have a reason — additions without one should be rejected in review.
-// chart:* is NOT here: with the network blocked, charts degrade to a data
-// table fallback, so their data-presence assertion exercises exactly that
-// fallback path (the one that used to crash with "Chart is not defined").
 const STRUCTURE_ONLY: Record<string, string> = {
-  map: 'leaflet from CDN; blocked network shows fallback message',
-  network: 'vis-network from CDN draws into canvas',
-  graph: 'graph library from CDN',
+  map: 'self-contained coordinate plot is inline SVG',
+  network: 'self-contained deterministic graph is inline SVG',
+  graph: 'self-contained deterministic graph is inline SVG',
   qr: 'QR code is pixels, not text',
   image: 'renders <img>, no text content',
   sparkline: 'inline SVG path, no text',
