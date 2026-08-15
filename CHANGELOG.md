@@ -8,11 +8,16 @@
 * **mcp:** add property-based tool exposure, A2A agent cards, and safety metadata for read-only, idempotent, and open/closed-world tools
 * **mcp-apps:** add official MCP Apps resources and bridge support across Beam, local HTTP, and Cloudflare deployments
 * **ui:** add generic MCP App display modes, expandable result surfaces, gallery/lightbox controls, and native result viewers
+* **ui:** share one renderer and rich-form runtime across Beam, MCP Apps, and generated web shells, with secure automatic screens for ordinary Photon methods
+* **ui:** load optional companion `photon.css`, `oauth.css`, and `formats/*.css` branding assets while preserving host theme tokens
+* **oauth:** share the accessible consent presentation across local and Cloudflare runtimes and support Photon-owned consent-page branding
 
 ### Bug Fixes
 
 * **cloudflare:** preserve MCP App resources, render metadata, bridge transport, and promoted deployment versions in generated Workers
 * **beam:** improve MCP App startup, sizing, postMessage transport, and asset rendering
+* **ui:** remove public-CDN dependencies from chart, QR, map, and network renderers so generated interfaces work under strict CSP
+* **cloudflare:** embed the canonical form runtime alongside the MCP Apps bridge and renderer
 * **server:** support user-defined WebSocket upgrade routes in the local Photon runtime with a Workers-compatible `WebSocketPair`, a cross-runtime 101 response helper, bidirectional network bridging, shutdown cleanup, and an end-to-end echo regression
 
 ## [1.36.1](https://github.com/portel-dev/photon/compare/v1.36.0...v1.36.1) (2026-07-16)
