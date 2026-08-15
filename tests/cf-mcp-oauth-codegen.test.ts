@@ -102,7 +102,12 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('PHOTON_MCP_OAUTH_HOST_SUBJECTS');
     expect(generated.worker).toContain('Cf-Access-Authenticated-User-Email');
     expect(generated.worker).toContain('wants to connect to Photon');
-    expect(generated.worker).toContain('name="scope"');
+    expect(generated.worker).toContain('photonOAuthConsentScopeRow');
+    expect(generated.worker).toContain('name=\\"{{scopeField}}\\"');
+    expect(generated.worker).toContain('.oauth-card');
+    expect(generated.worker).toContain(
+      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'"
+    );
     expect(generated.worker).toContain('Allow access');
     expect(generated.worker).toContain('const grantedScope = selectedScopes.join');
   });

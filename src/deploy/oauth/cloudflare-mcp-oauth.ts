@@ -11,6 +11,8 @@
  * externally managed state.
  */
 
+import { renderOAuthConsentRuntimeSource } from '../../serv/auth/oauth-consent.js';
+
 export interface CloudflareMcpOAuthCodegenOptions {
   photonName: string;
   scopes: string[];
@@ -111,6 +113,7 @@ function renderRuntime(options: CloudflareMcpOAuthCodegenOptions): string {
   const scopes = JSON.stringify(options.scopes);
   const photonName = JSON.stringify(options.photonName);
   const issuer = JSON.stringify(options.issuer);
+  const consentRuntime = renderOAuthConsentRuntimeSource();
   return String.raw`
 // ════════════════════════════════════════════════════════════════════════════
 // Generated inbound MCP OAuth (RFC 8414 / 7591 / 7636 / 7662)
@@ -126,6 +129,8 @@ const MCP_OAUTH_CODE_TTL = 60;
 const MCP_OAUTH_TX_TTL = 10 * 60;
 
 type PhotonOAuthStorage = DurableObjectStorage;
+
+${consentRuntime}
 
 function photonOAuthJson(status: number, value: unknown, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(value), {
@@ -147,7 +152,7 @@ function photonOAuthHtml(status: number, html: string): Response {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'X-Frame-Options': 'DENY',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'",
       ...CORS_HEADERS,
     },
   });
@@ -495,22 +500,25 @@ function photonOAuthConstantTimeEqual(left: string, right: string): boolean {
 }
 
 async function photonOAuthConsentPage(tx: any): Promise<Response> {
-  const scope = String(tx.scope ?? '').replace(/[<&>"']/g, '');
-  const clientName = String(tx.clientName ?? tx.clientId).replace(/[<&>"']/g, '');
-  const scopes = scope.split(/\s+/).filter(Boolean);
-  const scopeRows = scopes.map((item) => {
-    const parts = item.split(':');
-    const operation = parts.pop() ?? 'use';
-    const subject = parts.join(' ').replace(/[-_]/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
-    const title = (operation === 'read' ? 'View ' : operation === 'write' ? 'Manage ' : 'Use ') + subject;
-    const detail = operation === 'read' ? 'Read information needed for this connection.' : operation === 'write' ? 'Make changes or run actions through this connection.' : 'Use this capability through the connection.';
-    return '<label class="permission"><input type="checkbox" name="scope" value="' + item + '" checked><span class="check"></span><span><strong>' + title.replace(/\b\w/g, (value) => value.toUpperCase()) + '</strong><small>' + detail + '</small></span><code>' + item + '</code></label>';
-  }).join('');
-  const subject = String(tx.name ?? tx.sub ?? 'Authenticated account').replace(/[<&>"']/g, '');
-  const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect ' + clientName + '</title><style>' +
-    ':root{color-scheme:light dark;--bg:#f7f8fa;--panel:#fff;--ink:#1d2433;--muted:#697386;--line:#e7e9ee;--accent:#635bff;--soft:#f3f2ff}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--bg);font:15px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);display:grid;place-items:center;padding:24px 16px}.shell{width:min(100%,500px)}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #1d243314;overflow:hidden}.top{padding:28px 30px 24px}.app{display:flex;align-items:center;gap:12px;margin-bottom:24px}.mark{width:42px;height:42px;border-radius:12px;background:#635bff;color:#fff;display:grid;place-items:center;font-size:20px;font-weight:750}.app strong{display:block;font-size:15px}.app small{display:block;color:var(--muted);font-size:12px;margin-top:2px}.hero h1{font-size:25px;letter-spacing:-.035em;line-height:1.15;margin:0 0 8px}.hero p{color:var(--muted);margin:0}.identity{display:flex;align-items:center;gap:10px;margin-top:20px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}.avatar{width:30px;height:30px;border-radius:50%;background:var(--soft);color:#4f46c8;display:grid;place-items:center;font-weight:700}.identity small{display:block;color:var(--muted);font-size:12px}.content{border-top:1px solid var(--line);padding:22px 30px 26px}.section-head{display:flex;justify-content:space-between;align-items:center}.section-head h2{font-size:14px;margin:0}.section-head button{border:0;background:none;color:var(--accent);font:inherit;font-size:12px;font-weight:650;cursor:pointer}.summary{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:13px 14px;border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:13px}.summary b{color:var(--ink);font-weight:650}.advanced{margin-top:10px}.advanced summary{cursor:pointer;color:var(--accent);font-size:12px;font-weight:650}.permission{display:grid;grid-template-columns:20px 1fr;gap:10px;align-items:start;padding:12px 0;border-bottom:1px solid var(--line);cursor:pointer}.permission input{position:absolute;opacity:0}.check{width:18px;height:18px;border:1px solid #b9bfca;border-radius:5px;position:relative}.permission input:checked+.check{background:var(--accent);border-color:var(--accent)}.permission input:checked+.check:after{content:"";position:absolute;left:5px;top:2px;width:5px;height:9px;border:solid white;border-width:0 2px 2px 0;transform:rotate(45deg)}.permission strong{display:block;font-size:13px;font-weight:650}.permission small{display:block;color:var(--muted);font-size:11px;margin-top:2px}.permission code{display:none}.notice{margin-top:18px;color:var(--muted);font-size:12px}.actions{display:flex;flex-direction:row-reverse;gap:9px;margin-top:22px}.actions button{border-radius:9px;padding:10px 16px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.allow{border:1px solid var(--accent);background:var(--accent);color:#fff}.allow:hover{filter:brightness(.94)}.deny{border:1px solid var(--line);background:transparent;color:var(--ink)}.allow:focus-visible,.deny:focus-visible,.section-head button:focus-visible,.advanced summary:focus-visible,.permission:has(input:focus-visible){outline:3px solid #aaa5ff;outline-offset:3px}@media(prefers-color-scheme:dark){:root{--bg:#121318;--panel:#1b1d24;--ink:#f4f5f7;--muted:#9da6b7;--line:#30333d;--soft:#292744}.avatar{background:#302c55;color:#c9c4ff}}@media(max-width:560px){body{padding:10px}.top,.content{padding-left:20px;padding-right:20px}.actions{flex-direction:column}.actions button{width:100%}}' +
-    '</style></head><body><main class="shell"><section class="card"><header class="top"><div class="app"><span class="mark">P</span><span><strong>' + clientName + '</strong><small>wants to connect to Photon</small></span></div><div class="hero"><h1>Allow this connection?</h1><p>Review the access ' + clientName + ' will have to your Photon account.</p><div class="identity"><span class="avatar">' + (subject.charAt(0).toUpperCase() || 'A') + '</span><span><strong>' + subject + '</strong><small>Signed-in account</small></span></div></div></header><form method="post" action="/consent" class="content"><div class="section-head"><h2>Access requested</h2><button type="button" id="toggle">Edit access</button></div><div class="summary"><span><b>' + scopes.length + ' permissions</b> requested</span><span>ⓘ</span></div><details class="advanced"><summary>Choose individual permissions</summary><div id="permissions">' + scopeRows + '</div></details><div class="notice">You can revoke this connection at any time from your assistant settings.</div><input type="hidden" name="tx" value="' + encodeURIComponent(tx.id) + '"><div class="actions"><button class="allow" name="action" value="approve" type="submit">Allow access</button><button class="deny" name="action" value="deny" type="submit">Cancel</button></div></form></section></main><script>const boxes=[...document.querySelectorAll("input[name=scope]")],toggle=document.getElementById("toggle"),advanced=document.querySelector(".advanced");toggle.onclick=()=>{advanced.open=!advanced.open;toggle.textContent=advanced.open?"Hide details":"Edit access"};</script></body></html>';
-  return photonOAuthHtml(200, html);
+  const scopeValues = String(tx.scope ?? '').split(/\s+/).filter(Boolean);
+  return photonOAuthHtml(200, photonOAuthRenderConsent({
+    pageTitle: 'Connect ' + String(tx.clientName ?? tx.clientId),
+    clientName: String(tx.clientName ?? tx.clientId),
+    clientSubtitle: 'wants to connect to Photon',
+    resourceName: 'Photon',
+    description: 'Review the access ' + String(tx.clientName ?? tx.clientId) + ' will have to your Photon account.',
+    subject: String(tx.name ?? tx.sub ?? 'Authenticated account'),
+    subjectSubtitle: 'Signed-in account',
+    scopes: scopeValues,
+    formAction: '/consent',
+    transactionField: 'tx',
+    transactionValue: String(tx.id),
+    decisionField: 'action',
+    approveValue: 'approve',
+    denyValue: 'deny',
+    hiddenFields: [],
+    allowScopeSelection: true,
+  }));
 }
 
 async function handlePhotonMcpOAuth(

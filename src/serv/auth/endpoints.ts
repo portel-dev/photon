@@ -44,6 +44,7 @@ import {
 import { JwtService, verifyCodeChallenge } from './jwt.js';
 import { resolveClientMetadata, CimdCache } from './well-known.js';
 import { recordAuthEvent, recordCimdFetch } from '../../telemetry/metrics.js';
+import { createOAuthConsentViewModel, renderOAuthConsentPage } from './oauth-consent.js';
 
 // ============================================================================
 // Request / Response Types
@@ -177,7 +178,8 @@ function htmlResponse(status: number, html: string): AuthResponse {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'X-Frame-Options': 'DENY',
-      'Content-Security-Policy': "default-src 'self'; style-src 'unsafe-inline'; img-src https:",
+      'Content-Security-Policy':
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'",
     },
     body: html,
   };
@@ -479,7 +481,28 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
       return errorResponse(400, 'invalid_request', 'pending request not found or expired');
     }
     const client = await resolveClient(pending.clientId, deps);
-    return htmlResponse(200, renderConsentPage(pending, client, deps.tenant));
+    return htmlResponse(
+      200,
+      renderOAuthConsentPage(
+        createOAuthConsentViewModel({
+          clientName: client?.clientName ?? pending.clientId,
+          clientSubtitle: `wants to connect to ${deps.tenant.name}`,
+          resourceName: deps.tenant.name,
+          description: `Review the access ${client?.clientName ?? pending.clientId} will have to your ${deps.tenant.name} account.`,
+          subject: pending.userId,
+          subjectSubtitle: 'Signed-in account',
+          cimdUrl: client?.cimdUrl,
+          scopeValues: pending.scope.split(' ').filter(Boolean),
+          formAction: pendingConsentUrl(pending.id),
+          transactionField: 'req',
+          transactionValue: pending.id,
+          decisionField: 'decision',
+          approveValue: 'approve',
+          denyValue: 'deny',
+          allowScopeSelection: false,
+        })
+      )
+    );
   }
 
   if (req.method === 'POST') {
@@ -1470,69 +1493,9 @@ function firstHeaderValue(raw: string | string[] | undefined): string | undefine
   return raw;
 }
 
-// ============================================================================
-// Consent screen HTML (minimal, inlined styles)
-// ============================================================================
-
-function renderConsentPage(
-  pending: PendingAuthorization,
-  client: ResolvedClient | null,
-  tenant: Tenant
-): string {
-  const clientName = client?.clientName ?? pending.clientId;
-  const cimdBadge = client?.cimdUrl
-    ? `<span class="cimd">hosted metadata: ${escapeHtml(client.cimdUrl)}</span>`
-    : '';
-  const scopes = pending.scope.split(' ').filter(Boolean);
-  const scopeList = scopes.length
-    ? `<ul class="scopes">${scopes.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>`
-    : '<p class="muted">No specific scopes requested.</p>';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Authorize ${escapeHtml(clientName)}</title>
-<style>
-  body { font-family: -apple-system, system-ui, sans-serif; max-width: 480px; margin: 60px auto; padding: 24px; color: #1a1a1a; }
-  h1 { font-size: 20px; margin: 0 0 8px; }
-  .muted { color: #666; }
-  .cimd { display: inline-block; font-size: 12px; color: #555; background: #f4f4f4; padding: 2px 8px; border-radius: 4px; margin-top: 8px; }
-  .scopes { background: #fafafa; border: 1px solid #eee; border-radius: 8px; padding: 12px 24px; list-style: disc; }
-  .scopes li { margin: 6px 0; font-family: monospace; font-size: 13px; }
-  form { margin-top: 24px; display: flex; gap: 12px; }
-  button { flex: 1; padding: 12px 16px; font-size: 15px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
-  button.approve { background: #0066cc; color: #fff; border-color: #0066cc; }
-  button:hover { filter: brightness(0.95); }
-</style>
-</head>
-<body>
-<h1>${escapeHtml(clientName)} wants to access ${escapeHtml(tenant.name)}</h1>
-<p class="muted">The application is requesting permission to act on your behalf.</p>
-${cimdBadge}
-<p><strong>Requested scopes:</strong></p>
-${scopeList}
-<form method="POST" action="${escapeHtml(pendingConsentUrl(pending.id))}">
-  <input type="hidden" name="req" value="${escapeHtml(pending.id)}">
-  <button type="submit" name="decision" value="deny">Deny</button>
-  <button type="submit" name="decision" value="approve" class="approve">Approve</button>
-</form>
-</body>
-</html>`;
-}
-
 function pendingConsentUrl(id: string): string {
   // Relative to current host — the HTML template posts to the same /consent path.
   return `?req=${encodeURIComponent(id)}`;
-}
-
-function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 // ============================================================================

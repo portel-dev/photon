@@ -633,9 +633,9 @@ async function testConsent() {
     assert.equal(res.status, 200);
     assert.match(res.headers['Content-Type'], /html/);
     assert.match(res.body, /Test Client/);
-    assert.match(res.body, /Requested scopes/);
-    assert.match(res.body, /Approve/);
-    assert.match(res.body, /Deny/);
+    assert.match(res.body, /Access requested/);
+    assert.match(res.body, /Allow access/);
+    assert.match(res.body, /Cancel/);
   });
 
   await test('POST approve issues code and stores consent record', async () => {
