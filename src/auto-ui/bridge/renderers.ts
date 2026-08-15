@@ -11,11 +11,18 @@
  *   photon.render(container, data, 'gauge', { min: 0, max: 100 })
  */
 
+import { getBundledQrRuntime } from './renderer-assets.js';
+
 export function generateRenderersScript(): string {
   // This is generated as a self-contained JS module that registers
   // window._photonRenderers with all format renderer functions
+  var qrRuntime = getBundledQrRuntime();
   return `(function() {
   'use strict';
+
+  // QR support is embedded in this response; no secondary script request is
+  // needed. Charts, maps, and graphs below are rendered with inline SVG.
+  ${qrRuntime}
 
   // ── Theme helpers ──
 
@@ -58,36 +65,6 @@ export function generateRenderersScript(): string {
     info: colors.accent,
     neutral: colors.textMuted
   };
-
-  // Factory for lazy-loading CDN scripts with queued callbacks
-  function _makeLoader(url, cssUrl) {
-    var loading = false, loaded = false, queue = [];
-    return function(cb) {
-      if (loaded) { cb(); return; }
-      queue.push(cb);
-      if (loading) return;
-      loading = true;
-      if (cssUrl) {
-        var link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = cssUrl;
-        document.head.appendChild(link);
-      }
-      var s = document.createElement('script');
-      s.src = url;
-      s.onload = function() { loaded = true; queue.forEach(function(fn) { fn(); }); queue = []; };
-      s.onerror = function() {
-        // Reset so the NEXT render retries the load. Leaving loading=true
-        // stranded every later caller in the queue forever — first CDN
-        // failure meant all subsequent renders of the format silently
-        // produced an empty container.
-        loading = false;
-        var q = queue; queue = [];
-        q.forEach(function(fn) { fn(); });
-      };
-      document.head.appendChild(s);
-    };
-  }
 
   function esc(s) {
     if (typeof s !== 'string') return String(s == null ? '' : s);
@@ -346,10 +323,11 @@ export function generateRenderersScript(): string {
     container.innerHTML = h;
   };
 
-  // ─── Chart (lazy-loads Chart.js) ───
+  // ─── Chart (self-contained SVG) ───
   renderers['chart'] = renderers['chart:bar'] = renderers['chart:hbar'] = renderers['chart:line'] = renderers['chart:pie'] = renderers['chart:area'] = renderers['chart:donut'] = renderers['chart:radar'] = function(container, data, opts, formatKey) {
     opts = opts || {};
-    var items = Array.isArray(data) ? data : (data.data || data.items || data.rows || [data]);
+    var chartData = data && typeof data === 'object' ? data : {};
+    var items = Array.isArray(data) ? data : (chartData.data || chartData.items || chartData.rows || []);
     if (!items.length || typeof items[0] !== 'object') { container.innerHTML = '<p style="color:' + colors.textMuted + '">No chart data</p>'; return; }
 
     // Detect fields
@@ -378,55 +356,59 @@ export function generateRenderersScript(): string {
       else if (items.length <= 8 && valueKeys.length === 1) chartType = 'pie';
     }
 
-    var canvasId = '_pc' + Math.random().toString(36).slice(2, 8);
-    container.innerHTML = '<div style="position:relative;width:100%;max-height:360px"><canvas id="' + canvasId + '"></canvas></div>';
-
-    _loadChartJS(function() {
-      var canvas = document.getElementById(canvasId);
-      if (!canvas) return;
-      if (!window.Chart) {
-        // Chart.js failed to load (offline/CSP) — degrade to the data,
-        // never drop it. A table is ugly but complete.
-        container.innerHTML = '<p style="font-size:11px;color:' + colors.textMuted + ';margin:0 0 6px">Chart library unavailable — showing data</p>';
-        var fallbackDiv = document.createElement('div');
-        container.appendChild(fallbackDiv);
-        renderers.table(fallbackDiv, items);
-        return;
+    var labels = items.map(function(r) { return r[labelKey]; });
+    var width = 720, height = 340, left = isHorizontal ? 150 : 54, right = 24, top = 28, bottom = isHorizontal ? 28 : 54;
+    var plotWidth = width - left - right, plotHeight = height - top - bottom;
+    var allValues = [];
+    valueKeys.forEach(function(vk) { items.forEach(function(r) { if (typeof r[vk] === 'number' && isFinite(r[vk])) allValues.push(r[vk]); }); });
+    var maxValue = Math.max.apply(null, allValues.concat([0]));
+    var minValue = Math.min.apply(null, allValues.concat([0]));
+    var range = maxValue - minValue || 1;
+    var yFor = function(value) { return top + (maxValue - value) / range * plotHeight; };
+    var xFor = function(index) { return items.length < 2 ? left + plotWidth / 2 : left + index / (items.length - 1) * plotWidth; };
+    var svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="' + esc(formatLabel(chartType) + ' chart') + '" style="width:100%;height:auto;max-height:360px;font-family:system-ui,sans-serif">';
+    svg += '<line x1="' + left + '" y1="' + yFor(0) + '" x2="' + (width - right) + '" y2="' + yFor(0) + '" stroke="' + colors.border + '"/>';
+    if (chartType === 'pie' || chartType === 'doughnut') {
+      var pieValues = items.map(function(r) { return Math.max(0, Number(r[valueKeys[0]]) || 0); });
+      var total = pieValues.reduce(function(a, b) { return a + b; }, 0) || 1;
+      var cx = width / 2, cy = height / 2 - 4, radius = Math.min(plotWidth, plotHeight) * 0.35;
+      var angle = -Math.PI / 2;
+      pieValues.forEach(function(value, i) {
+        var next = angle + value / total * Math.PI * 2;
+        var large = next - angle > Math.PI ? 1 : 0;
+        var x1 = cx + radius * Math.cos(angle), y1 = cy + radius * Math.sin(angle);
+        var x2 = cx + radius * Math.cos(next), y2 = cy + radius * Math.sin(next);
+        var path = value === total ? 'M ' + cx + ' ' + (cy - radius) + ' A ' + radius + ' ' + radius + ' 0 1 1 ' + (cx - 0.01) + ' ' + (cy - radius) + ' Z' : 'M ' + cx + ' ' + cy + ' L ' + x1 + ' ' + y1 + ' A ' + radius + ' ' + radius + ' 0 ' + large + ' 1 ' + x2 + ' ' + y2 + ' Z';
+        svg += '<path d="' + path + '" fill="' + colors.palette[i % colors.palette.length] + '" stroke="' + colors.bg + '" stroke-width="2"><title>' + esc(String(labels[i])) + ': ' + esc(String(value)) + '</title></path>';
+        angle = next;
+      });
+      if (chartType === 'doughnut') svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + radius * 0.52 + '" fill="' + colors.bg + '"/>';
+      items.forEach(function(r, i) { svg += '<text x="' + (left + (i % 2) * 260) + '" y="' + (height - 24 - Math.floor(i / 2) * 16) + '" fill="' + colors.text + '" font-size="11"><tspan fill="' + colors.palette[i % colors.palette.length] + '">●</tspan> ' + esc(String(labels[i])) + '</text>'; });
+    } else if (chartType === 'radar') {
+      var rcx = width / 2, rcy = height / 2 - 4, rr = Math.min(plotWidth, plotHeight) * 0.38;
+      var count = Math.max(items.length, 3);
+      for (var ring = 1; ring <= 4; ring++) {
+        var ringPoints = [];
+        for (var ri = 0; ri < count; ri++) { var ra = -Math.PI / 2 + ri / count * Math.PI * 2; ringPoints.push((rcx + Math.cos(ra) * rr * ring / 4) + ',' + (rcy + Math.sin(ra) * rr * ring / 4)); }
+        svg += '<polygon points="' + ringPoints.join(' ') + '" fill="none" stroke="' + colors.border + '" stroke-width="1"/>';
       }
-
-      var labels = items.map(function(r) { return r[labelKey]; });
-      var datasets = valueKeys.map(function(vk, di) {
-        var c = colors.palette[di % colors.palette.length];
-        return {
-          label: formatLabel(vk),
-          data: items.map(function(r) { return r[vk]; }),
-          backgroundColor: (chartType === 'pie' || chartType === 'doughnut') ? colors.palette.slice(0, items.length) : c + '80',
-          borderColor: c,
-          borderWidth: chartType === 'line' ? 2 : 1,
-          fill: formatKey === 'chart:area',
-          tension: 0.3
-        };
+      valueKeys.forEach(function(vk, di) {
+        var points = items.map(function(r, i) { var a = -Math.PI / 2 + i / count * Math.PI * 2; var n = Math.max(0, Number(r[vk]) || 0) / (maxValue || 1); return (rcx + Math.cos(a) * rr * n) + ',' + (rcy + Math.sin(a) * rr * n); });
+        svg += '<polygon points="' + points.join(' ') + '" fill="' + colors.palette[di % colors.palette.length] + '40" stroke="' + colors.palette[di % colors.palette.length] + '" stroke-width="2"/>';
       });
-
-      // Force high-DPI rendering: use at least 2x pixel ratio so charts
-      // stay crisp inside transform:scale() slide canvases on retina displays.
-      var dpr = Math.max(window.devicePixelRatio || 1, 2);
-      new Chart(canvas, {
-        type: chartType,
-        data: { labels: labels, datasets: datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          devicePixelRatio: dpr,
-          indexAxis: isHorizontal ? 'y' : 'x',
-          plugins: { legend: { labels: { color: colors.textMuted } } },
-          scales: (chartType === 'pie' || chartType === 'doughnut') ? {} : {
-            x: { ticks: { color: colors.textMuted }, grid: { color: colors.border + '40' } },
-            y: { ticks: { color: colors.textMuted }, grid: { color: colors.border + '40' } }
-          }
-        }
-      });
-    });
+      items.forEach(function(r, i) { var a = -Math.PI / 2 + i / count * Math.PI * 2; svg += '<text x="' + (rcx + Math.cos(a) * (rr + 18)) + '" y="' + (rcy + Math.sin(a) * (rr + 18)) + '" text-anchor="middle" fill="' + colors.text + '" font-size="11">' + esc(String(labels[i])) + '</text>'; });
+    } else if (isHorizontal) {
+      var rowHeight = plotHeight / Math.max(items.length, 1);
+      items.forEach(function(r, i) { var y = top + i * rowHeight + rowHeight * 0.18; valueKeys.forEach(function(vk, di) { var value = Number(r[vk]) || 0; var barWidth = Math.abs(value) / (maxValue || 1) * plotWidth; svg += '<rect x="' + left + '" y="' + (y + di * rowHeight * 0.58 / valueKeys.length) + '" width="' + barWidth + '" height="' + Math.max(5, rowHeight * 0.5 / valueKeys.length) + '" rx="3" fill="' + colors.palette[di % colors.palette.length] + '"><title>' + esc(String(labels[i])) + ': ' + esc(String(value)) + '</title></rect>'; }); svg += '<text x="' + (left - 8) + '" y="' + (y + rowHeight * 0.42) + '" text-anchor="end" fill="' + colors.text + '" font-size="11">' + esc(String(labels[i])) + '</text>'; });
+    } else if (chartType === 'line') {
+      valueKeys.forEach(function(vk, di) { var points = items.map(function(r, i) { return xFor(i) + ',' + yFor(Number(r[vk]) || 0); }).join(' '); if (formatKey === 'chart:area') { svg += '<polygon points="' + xFor(0) + ',' + yFor(0) + ' ' + points + ' ' + xFor(items.length - 1) + ',' + yFor(0) + '" fill="' + colors.palette[di % colors.palette.length] + '30"/>'; } svg += '<polyline points="' + points + '" fill="none" stroke="' + colors.palette[di % colors.palette.length] + '" stroke-width="3" stroke-linejoin="round"/>'; items.forEach(function(r, i) { svg += '<circle cx="' + xFor(i) + '" cy="' + yFor(Number(r[vk]) || 0) + '" r="3" fill="' + colors.palette[di % colors.palette.length] + '"><title>' + esc(String(labels[i])) + ': ' + esc(String(r[vk])) + '</title></circle>'; }); });
+      items.forEach(function(r, i) { svg += '<text x="' + xFor(i) + '" y="' + (height - 24) + '" text-anchor="middle" fill="' + colors.text + '" font-size="11">' + esc(String(labels[i])) + '</text>'; });
+    } else {
+      var groupWidth = plotWidth / Math.max(items.length, 1);
+      items.forEach(function(r, i) { valueKeys.forEach(function(vk, di) { var value = Number(r[vk]) || 0; var barHeight = Math.abs(value) / (maxValue || 1) * plotHeight; var barWidth = Math.max(4, groupWidth * 0.72 / valueKeys.length); var x = left + i * groupWidth + groupWidth * 0.14 + di * barWidth; var y = value >= 0 ? yFor(value) : yFor(0); svg += '<rect x="' + x + '" y="' + y + '" width="' + barWidth + '" height="' + barHeight + '" rx="3" fill="' + colors.palette[di % colors.palette.length] + '"><title>' + esc(String(labels[i])) + ': ' + esc(String(value)) + '</title></rect>'; }); svg += '<text x="' + (left + i * groupWidth + groupWidth / 2) + '" y="' + (height - 24) + '" text-anchor="middle" fill="' + colors.text + '" font-size="11">' + esc(String(labels[i])) + '</text>'; });
+    }
+    svg += '</svg>';
+    container.innerHTML = '<div style="position:relative;width:100%;max-height:360px">' + svg + '</div>';
   };
 
   // ─── Markdown ───
@@ -963,8 +945,7 @@ export function generateRenderersScript(): string {
     embed: true
   };
 
-  // ─── QR code ───
-  var _loadQRJS = _makeLoader('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js');
+  // ─── QR code (embedded qrcode package, rendered as inline SVG) ───
 
   renderers.qr = function(container, data) {
     var text = typeof data === 'object' && data !== null
@@ -972,20 +953,18 @@ export function generateRenderersScript(): string {
       : String(data);
     var isUrl = /^https?:\\/\\//i.test(text);
     container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px">' +
-      '<div id="_qr_canvas" style="background:#fff;padding:12px;border-radius:8px"></div>' +
+      '<div data-photon-qr style="background:#fff;padding:12px;border-radius:8px"></div>' +
       (isUrl ? '<a href="' + esc(text) + '" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:' + colors.accent + ';word-break:break-all;text-align:center">' + esc(text) + '</a>' : '<span style="font-size:12px;color:' + colors.textMuted + ';word-break:break-all;text-align:center">' + esc(text) + '</span>') +
       '</div>';
-    var canvas = container.querySelector('#_qr_canvas');
-    _loadQRJS(function() {
-      if (!canvas || !window.QRCode) return;
-      try {
-        var size = Math.max(160, Math.min(container.clientWidth - 64, 280));
-        new window.QRCode(canvas, { text: text, width: size, height: size, colorDark: '#000000', colorLight: '#ffffff' });
-      } catch(e) { canvas.textContent = text; }
-    });
+    var qrTarget = container.querySelector('[data-photon-qr]');
+    if (!qrTarget || typeof PhotonQRCode === 'undefined') return;
+    try {
+      var size = Math.max(160, Math.min((container.clientWidth || 320) - 64, 280));
+      PhotonQRCode.toString(text, { type: 'svg', width: size, margin: 2 }).then(function(svg) {
+        qrTarget.innerHTML = svg;
+      }).catch(function() { qrTarget.textContent = text; });
+    } catch(e) { qrTarget.textContent = text; }
   };
-
-  var _loadChartJS = _makeLoader('https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js');
 
   // ─── Steps/Stepper ───
   renderers.steps = renderers.stepper = function(container, data) {
@@ -1642,44 +1621,25 @@ export function generateRenderersScript(): string {
     container.innerHTML = h;
   };
 
-  // ─── Map (Leaflet) ───
-  var _loadLeaflet = _makeLoader(
-    'https://cdn.jsdelivr.net/npm/leaflet@1.9/dist/leaflet.min.js',
-    'https://cdn.jsdelivr.net/npm/leaflet@1.9/dist/leaflet.min.css'
-  );
-
+  // ─── Map (self-contained coordinate plot) ───
   renderers.map = function(container, data) {
-    var items = Array.isArray(data) ? data : [data];
-    var mapId = '_map_' + Math.random().toString(36).slice(2, 8);
-    container.innerHTML = '<div id="' + mapId + '" style="height:350px;border-radius:8px;overflow:hidden;border:1px solid ' + colors.border + '"></div>';
-    _loadLeaflet(function() {
-      if (!window.L) { container.innerHTML = '<p style="color:' + colors.textMuted + '">Failed to load map library</p>'; return; }
-      var el = document.getElementById(mapId);
-      if (!el) return;
-      var map = L.map(el);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '\\u00A9 OpenStreetMap'
-      }).addTo(map);
-      var bounds = [];
-      for (var i = 0; i < items.length; i++) {
-        var item = items[i];
-        var lat = item.lat || item.latitude;
-        var lng = item.lng || item.lon || item.longitude;
-        if (lat == null || lng == null) continue;
-        var label = item.label || item.name || item.title || '';
-        var popup = item.popup || item.description || label;
-        var marker = L.marker([lat, lng]).addTo(map);
-        if (popup) marker.bindPopup(esc(popup));
-        bounds.push([lat, lng]);
-      }
-      if (bounds.length > 1) {
-        map.fitBounds(bounds, { padding: [30, 30] });
-      } else if (bounds.length === 1) {
-        map.setView(bounds[0], 13);
-      } else {
-        map.setView([0, 0], 2);
-      }
-    });
+    var items = Array.isArray(data) ? data : (data && typeof data === 'object' ? [data] : []);
+    var points = items.filter(function(item) { return item && typeof item === 'object'; }).map(function(item) { return { item: item, lat: Number(item.lat != null ? item.lat : item.latitude), lng: Number(item.lng != null ? item.lng : item.lon != null ? item.lon : item.longitude) }; }).filter(function(point) { return isFinite(point.lat) && isFinite(point.lng); });
+    if (!points.length) { container.innerHTML = '<p style="color:' + colors.textMuted + '">No coordinates for map</p>'; return; }
+    var width = 720, height = 350, pad = 34;
+    var minLat = Math.min.apply(null, points.map(function(p) { return p.lat; })), maxLat = Math.max.apply(null, points.map(function(p) { return p.lat; }));
+    var minLng = Math.min.apply(null, points.map(function(p) { return p.lng; })), maxLng = Math.max.apply(null, points.map(function(p) { return p.lng; }));
+    var latRange = Math.max(maxLat - minLat, 0.01), lngRange = Math.max(maxLng - minLng, 0.01);
+    var x = function(lng) { return pad + (lng - minLng) / lngRange * (width - pad * 2); };
+    var y = function(lat) { return height - pad - (lat - minLat) / latRange * (height - pad * 2); };
+    var svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Coordinate map" style="width:100%;height:auto;border:1px solid ' + colors.border + ';border-radius:8px;background:' + colors.bgAlt + ';font-family:system-ui,sans-serif">';
+    for (var gx = 1; gx < 6; gx++) { var gxPos = pad + gx / 6 * (width - pad * 2); svg += '<line x1="' + gxPos + '" y1="' + pad + '" x2="' + gxPos + '" y2="' + (height - pad) + '" stroke="' + colors.border + '" stroke-dasharray="2 4"/>'; }
+    for (var gy = 1; gy < 5; gy++) { var gyPos = pad + gy / 5 * (height - pad * 2); svg += '<line x1="' + pad + '" y1="' + gyPos + '" x2="' + (width - pad) + '" y2="' + gyPos + '" stroke="' + colors.border + '" stroke-dasharray="2 4"/>'; }
+    svg += '<text x="' + pad + '" y="20" fill="' + colors.text + '" font-size="13" font-weight="600">Offline coordinate map</text>';
+    svg += '<text x="' + pad + '" y="' + (height - 10) + '" fill="' + colors.textMuted + '" font-size="10">lng ' + esc(minLng.toFixed(3)) + ' → ' + esc(maxLng.toFixed(3)) + '</text>';
+    points.forEach(function(point, i) { var label = point.item.label || point.item.name || point.item.title || ('Point ' + (i + 1)); var popup = point.item.popup || point.item.description || label; svg += '<g tabindex="0" role="img" aria-label="' + esc(String(label) + ': ' + point.lat + ', ' + point.lng) + '"><circle cx="' + x(point.lng) + '" cy="' + y(point.lat) + '" r="8" fill="' + colors.palette[i % colors.palette.length] + '" stroke="' + colors.bg + '" stroke-width="3"><title>' + esc(String(popup)) + '</title></circle><text x="' + (x(point.lng) + 12) + '" y="' + (y(point.lat) + 4) + '" fill="' + colors.text + '" font-size="11">' + esc(String(label)) + '</text></g>'; });
+    svg += '</svg>';
+    container.innerHTML = svg;
   };
 
   // ─── Calendar ───
@@ -1771,48 +1731,20 @@ export function generateRenderersScript(): string {
     container.innerHTML = h;
   };
 
-  // ─── Network/Graph (force-directed via vis-network) ───
-  var _loadVisNetwork = _makeLoader('https://cdn.jsdelivr.net/npm/vis-network@9/standalone/umd/vis-network.min.js');
-
+  // ─── Network/Graph (self-contained deterministic SVG graph) ───
   renderers.network = renderers.graph = function(container, data) {
-    var nodes = data.nodes || [];
-    var edges = data.edges || data.links || [];
-    var netId = '_net_' + Math.random().toString(36).slice(2, 8);
-    container.innerHTML = '<div id="' + netId + '" style="height:400px;border-radius:8px;overflow:hidden;border:1px solid ' + colors.border + ';background:' + colors.bgAlt + '"></div>';
-    _loadVisNetwork(function() {
-      if (!window.vis) { container.innerHTML = '<p style="color:' + colors.textMuted + '">Failed to load graph library</p>'; return; }
-      var el = document.getElementById(netId);
-      if (!el) return;
-      // Map groups to colors
-      var groupColors = {};
-      var ci = 0;
-      var visNodes = nodes.map(function(n) {
-        var group = n.group || n.category || n.type || 'default';
-        if (!groupColors[group]) groupColors[group] = colors.palette[ci++ % colors.palette.length];
-        return {
-          id: n.id || n.name,
-          label: n.label || n.name || n.id || '',
-          color: { background: groupColors[group], border: groupColors[group], highlight: { background: groupColors[group], border: colors.accent } },
-          font: { color: colors.text, size: 12 },
-          shape: 'dot',
-          size: n.size || 16
-        };
-      });
-      var visEdges = edges.map(function(e) {
-        return {
-          from: e.from || e.source,
-          to: e.to || e.target,
-          label: e.label || '',
-          color: { color: colors.border, highlight: colors.accent },
-          font: { color: colors.textMuted, size: 10, align: 'middle' },
-          arrows: e.directed !== false ? 'to' : ''
-        };
-      });
-      new vis.Network(el, { nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges) }, {
-        physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -30 } },
-        interaction: { hover: true, tooltipDelay: 200 }
-      });
-    });
+    var graphData = data && typeof data === 'object' ? data : {};
+    var nodes = Array.isArray(graphData.nodes) ? graphData.nodes : [];
+    var edges = Array.isArray(graphData.edges) ? graphData.edges : (Array.isArray(graphData.links) ? graphData.links : []);
+    if (!nodes.length) { container.innerHTML = '<p style="color:' + colors.textMuted + '">No graph nodes</p>'; return; }
+    var width = 720, height = 400, cx = width / 2, cy = height / 2, radius = Math.min(width, height) * 0.32;
+    var positions = {}, groupColors = {}, nextColor = 0;
+    nodes.forEach(function(node, i) { var id = String(node.id || node.name || i); var angle = -Math.PI / 2 + i / Math.max(nodes.length, 1) * Math.PI * 2; positions[id] = { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius }; var group = node.group || node.category || node.type || 'default'; if (!groupColors[group]) groupColors[group] = colors.palette[nextColor++ % colors.palette.length]; });
+    var svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Network graph" style="width:100%;height:auto;border:1px solid ' + colors.border + ';border-radius:8px;background:' + colors.bgAlt + ';font-family:system-ui,sans-serif"><defs><marker id="photon-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="' + colors.accent + '"/></marker></defs>';
+    edges.forEach(function(edge) { var from = positions[String(edge.from || edge.source)], to = positions[String(edge.to || edge.target)]; if (!from || !to) return; svg += '<line x1="' + from.x + '" y1="' + from.y + '" x2="' + to.x + '" y2="' + to.y + '" stroke="' + colors.border + '" stroke-width="2"' + (edge.directed === false ? '' : ' marker-end="url(#photon-arrow)"') + '/>'; if (edge.label) svg += '<text x="' + ((from.x + to.x) / 2) + '" y="' + ((from.y + to.y) / 2 - 5) + '" text-anchor="middle" fill="' + colors.textMuted + '" font-size="10">' + esc(String(edge.label)) + '</text>'; });
+    nodes.forEach(function(node, i) { var id = String(node.id || node.name || i), point = positions[id], group = node.group || node.category || node.type || 'default', label = node.label || node.name || node.id || ''; svg += '<g tabindex="0" role="img" aria-label="' + esc(String(label)) + '"><circle cx="' + point.x + '" cy="' + point.y + '" r="' + Math.max(10, Math.min(24, Number(node.size) || 16)) + '" fill="' + groupColors[group] + '" stroke="' + colors.bg + '" stroke-width="3"><title>' + esc(String(label)) + '</title></circle><text x="' + point.x + '" y="' + (point.y + 4) + '" text-anchor="middle" fill="' + colors.text + '" font-size="11">' + esc(String(label)) + '</text></g>'; });
+    svg += '</svg>';
+    container.innerHTML = svg;
   };
 
   // ── Checklist ──
