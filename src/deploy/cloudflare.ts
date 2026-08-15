@@ -250,8 +250,11 @@ function injectCloudflareUiBridge(
   const resourceServer = new ResourceServer({} as any, { filePath: '' });
   const hasBridge =
     html.includes('window.photon =') || html.includes('window.__MCP_APPS_CONTEXT__ = true');
+  const hasFormRuntime =
+    html.includes('data-photon-form-runtime') ||
+    html.includes('customElements.define("invoke-form"');
   const hasRenderer = html.includes('data-photon-renderer-runtime');
-  if (hasBridge && hasRenderer) return;
+  if (hasBridge && hasFormRuntime && hasRenderer) return;
   // Reuse the ResourceServer browser pieces that local MCP/HTTP hosts use.
   // A custom UI may already ship its own MCP bridge while still relying on
   // photon.render(), so install the renderer independently when necessary.
@@ -262,6 +265,7 @@ function injectCloudflareUiBridge(
           name: photonName,
           injectedPhotons: [],
         } as any),
+    hasFormRuntime ? '' : resourceServer.generatePhotonFormRuntime(),
     hasRenderer ? '' : resourceServer.generatePhotonRendererRuntime(),
   ]
     .filter(Boolean)

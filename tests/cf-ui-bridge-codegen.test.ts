@@ -44,6 +44,7 @@ describe('Cloudflare MCP App bridge code generation', () => {
     expect(bridge).toContain('applyThemeContext(theme, overrides)');
     expect(bridge).toContain('themeDefaults');
     expect(appRuntime).toContain('data-photon-renderer-runtime="embedded"');
+    expect(appRuntime).toContain('data-photon-form-runtime');
     expect(appRuntime).toContain('window._photonRenderers');
   });
 
