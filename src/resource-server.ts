@@ -13,6 +13,7 @@
 
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readText } from './shared/io.js';
 import type { PhotonClassExtended } from '@portel/photon-core';
 import { getThemeTokens } from './auto-ui/design-system/tokens.js';
@@ -673,7 +674,37 @@ export class ResourceServer {
    * endpoint or weakening CSP with eval/CDN access.
    */
   generateMcpAppsRuntime(mcp: PhotonClassExtended | null): string {
-    return `${this.generateMcpAppsBridge(mcp)}\n${this.generatePhotonRendererRuntime()}`;
+    return `${this.generateMcpAppsBridge(mcp)}\n${this.generatePhotonFormRuntime()}\n${this.generatePhotonRendererRuntime()}`;
+  }
+
+  /**
+   * Inline the canonical rich form bundle for originless MCP App resources.
+   *
+   * The bundle is also served by Beam at /beam-form.bundle.js for backwards
+   * compatibility, but MCP Apps must not depend on a Photon HTTP origin or a
+   * second host-specific component implementation.
+   */
+  generatePhotonFormRuntime(): string {
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const bundlePaths = [
+      path.join(moduleDir, 'photon-form.bundle.js'),
+      path.join(moduleDir, 'beam-form.bundle.js'),
+      path.resolve(moduleDir, '../dist/photon-form.bundle.js'),
+      path.resolve(moduleDir, '../dist/beam-form.bundle.js'),
+    ];
+
+    for (const bundlePath of bundlePaths) {
+      try {
+        const bundle = readFileSync(bundlePath, 'utf8')
+          .replace(/\n\/\/# sourceMappingURL=.*$/gm, '')
+          .replace(/<\/script/gi, '<\\/script');
+        return `<script type="module" data-photon-form-runtime>\n${bundle}\n</script>`;
+      } catch {
+        // Source-tree consumers may not have run the Beam asset build yet.
+      }
+    }
+
+    return '';
   }
 
   /** Standalone script element for hosts/UIs that already provide their own MCP bridge. */

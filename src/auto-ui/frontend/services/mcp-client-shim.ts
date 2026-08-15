@@ -1,7 +1,7 @@
 /**
  * Lightweight MCP client shim for pure-view context.
- * Uses window.postMessage to communicate with the pure-view MCP adapter
- * (which proxies to the Beam server via HTTP fetch).
+ * Uses the owning window's postMessage channel to communicate with the
+ * pure-view MCP adapter (which proxies to the Beam server via HTTP fetch).
  *
  * This replaces the full mcpClient singleton when building the form bundle,
  * so invoke-form can resolve x-choiceFrom fields without the heavy Beam SSE client.
@@ -29,7 +29,8 @@ function callToolViaPostMessage(toolName: string, args: Record<string, unknown>)
       reject(new Error('MCP call timeout'));
     }, 10000);
 
-    window.postMessage(
+    const targetWindow = window.parent;
+    targetWindow.postMessage(
       {
         jsonrpc: '2.0',
         id,

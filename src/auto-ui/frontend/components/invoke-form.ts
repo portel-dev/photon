@@ -6,6 +6,7 @@ import { showToast } from './toast-manager.js';
 import { confirmElicit } from '../utils/elicit.js';
 import { formatLabel } from '../utils/format-label.js';
 import { mcpClient } from '../services/mcp-client.js';
+import { callFormTool } from '../services/form-runtime.js';
 
 /**
  * Capitalize an enum value for display purposes.
@@ -852,7 +853,7 @@ export class InvokeForm extends LitElement {
       this._choiceFromLoading = new Set(this._choiceFromLoading);
 
       try {
-        const result = await mcpClient.callTool(`${this.photonName}/${toolName}`, {});
+        const result = await callFormTool(`${this.photonName}/${toolName}`, {}, mcpClient);
         let values: string[] = [];
 
         // Parse the MCP tool result — content is an array of { type, text } blocks

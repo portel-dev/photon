@@ -1,12 +1,12 @@
 /**
  * Form Components Bundle
  *
- * Minimal entry point for rendering invoke-form with custom input components
- * in pure-view context (no beam-app chrome). Lazy-loaded by the bridge when
- * data-view="form" is set on an element.
+ * Canonical entry point for rendering invoke-form with custom input
+ * components in pure-view and embedded MCP App contexts. The same bundle is
+ * lazy-loaded by Beam and can be inlined into originless resources.
  *
- * Built separately from the main beam.bundle.js with an esbuild alias
- * that replaces mcpClient with a postMessage-based shim.
+ * Built separately from the main beam.bundle.js with an esbuild alias that
+ * replaces the full Beam MCP client with a lightweight host fallback.
  */
 
 // Core form component

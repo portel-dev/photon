@@ -1195,8 +1195,12 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
    * (date-picker, segmented-control, star-rating, etc.) in pure-view context.
    */
   function _loadRichForm(el, method, meta, args, proxy, format, renderResult) {
-    // Inject form bundle script (once)
-    if (!document.querySelector('script[data-form-bundle]')) {
+    // MCP App resources can provide the canonical form runtime inline. Beam
+    // keeps the legacy URL as a compatibility fallback for older pure views.
+    if (
+      !customElements.get('invoke-form') &&
+      !document.querySelector('script[data-photon-form-runtime], script[data-form-bundle]')
+    ) {
       var s = document.createElement('script');
       s.type = 'module';
       s.src = '/beam-form.bundle.js';

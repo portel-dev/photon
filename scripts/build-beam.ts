@@ -17,6 +17,15 @@ function copyHtmlTemplates() {
   fs.copyFileSync(path.join(frontendDir, 'pure-view.html'), path.join(destDir, 'pure-view.html'));
 }
 
+// Keep the old Beam filename as a compatibility alias. MCP App resources use
+// the canonical photon-form bundle and inline it instead of fetching either
+// filename from a host origin.
+function copyFormBundleCompatibility() {
+  const canonicalPath = path.join(__dirname, '../dist/photon-form.bundle.js');
+  const compatibilityPath = path.join(__dirname, '../dist/beam-form.bundle.js');
+  fs.copyFileSync(canonicalPath, compatibilityPath);
+}
+
 async function build() {
   const buildOptions: esbuild.BuildOptions = {
     entryPoints: ['src/auto-ui/frontend/main.ts'],
@@ -42,8 +51,9 @@ async function build() {
     tsconfig: 'src/auto-ui/frontend/tsconfig.json',
   };
 
-  // Form components bundle — invoke-form + custom inputs for pure-view context.
-  // Uses mcp-client-shim (postMessage-based) instead of the full Beam SSE client.
+  // Canonical host-neutral form runtime — invoke-form + custom inputs for
+  // pure-view and embedded MCP App contexts. The Beam filename is copied as a
+  // compatibility alias after the build.
   const mcpClientShimPlugin: esbuild.Plugin = {
     name: 'mcp-client-shim',
     setup(build) {
@@ -62,7 +72,7 @@ async function build() {
   const formBundleOptions: esbuild.BuildOptions = {
     entryPoints: ['src/auto-ui/frontend/form-bundle.ts'],
     bundle: true,
-    outfile: 'dist/beam-form.bundle.js',
+    outfile: 'dist/photon-form.bundle.js',
     format: 'esm',
     target: 'es2020',
     platform: 'browser',
@@ -112,6 +122,7 @@ async function build() {
           setup(build) {
             build.onEnd((result) => {
               if (result.errors.length === 0) {
+                copyFormBundleCompatibility();
                 console.log(`⚡️ Beam form bundle rebuilt at ${new Date().toLocaleTimeString()}`);
               }
             });
@@ -127,6 +138,7 @@ async function build() {
     await esbuild.build(buildOptions);
     await esbuild.build(workerBuildOptions);
     await esbuild.build(formBundleOptions);
+    copyFormBundleCompatibility();
     copyHtmlTemplates();
     console.log('⚡️ Beam UI bundle built');
   }
