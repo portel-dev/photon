@@ -22,6 +22,7 @@ import { getThemeTokens } from '../../design-system/tokens.js';
 import { beamTypographyTokens } from '../styles/beam-tokens.js';
 import { mcpClient } from '../services/mcp-client.js';
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
+import { normalizeInlineScript } from '../utils/mcp-app-html.js';
 
 /**
  * Override design-system surface tokens with Beam's own background colors
@@ -362,9 +363,40 @@ export class McpAppRenderer extends LitElement {
       'allow-scripts allow-forms allow-same-origin allow-popups allow-modals'
     );
     iframe.setAttribute('allowtransparency', 'true');
-    iframe.addEventListener('load', (e) => this._handleIframeLoad(e));
+    iframe.addEventListener('load', (e) => {
+      // Some embedded Chromium/Safari hosts refuse to expose or paint a
+      // sandboxed blob document created from a shadow root. If the first load
+      // is empty, retry with srcdoc before wiring the MCP bridge.
+      const frameDocument = iframe.contentDocument;
+      if (
+        !iframe.dataset.srcdocFallback &&
+        (!frameDocument || !frameDocument.body || frameDocument.body.childElementCount === 0)
+      ) {
+        iframe.dataset.srcdocFallback = '1';
+        iframe.srcdoc = this._srcDoc;
+        setTimeout(() => this._handleIframeLoad({ target: iframe } as unknown as Event), 50);
+        return;
+      }
+      this._handleIframeLoad(e);
+    });
     iframe.src = this._blobUrl;
     container.appendChild(iframe);
+
+    // A few embedded browser shells never dispatch `load` for sandboxed blob
+    // URLs. Give the blob a short chance, then use the standards-supported
+    // srcdoc path so the app cannot remain as a silent blank panel.
+    setTimeout(() => {
+      if (
+        !iframe.dataset.srcdocFallback &&
+        (!iframe.contentDocument ||
+          !iframe.contentDocument.body ||
+          iframe.contentDocument.body.childElementCount === 0)
+      ) {
+        iframe.dataset.srcdocFallback = '1';
+        iframe.srcdoc = this._srcDoc;
+        setTimeout(() => this._handleIframeLoad({ target: iframe } as unknown as Event), 50);
+      }
+    }, 1500);
   }
 
   private async _loadContent() {
@@ -394,9 +426,15 @@ export class McpAppRenderer extends LitElement {
 
       let htmlContent = await res.text();
 
-      // For photon-based external MCPs with a linked tool, inject the platform bridge script
-      // This enables window.callTool, window.onResult, etc. that photon UIs expect
-      if (this.linkedTool) {
+      // Photon resource-server responses already contain the canonical Photon
+      // runtime (`data-photon-renderer-runtime`). Do not inject Beam's private
+      // compatibility bridge a second time: duplicate embedded runtimes can
+      // leave the MCP App iframe with conflicting globals/custom elements.
+      const hasEmbeddedPhotonRuntime = /data-photon-(?:renderer|form)-runtime/i.test(htmlContent);
+
+      // For older Photon resources without an embedded runtime, inject the
+      // platform bridge as a compatibility fallback.
+      if (this.linkedTool && !hasEmbeddedPhotonRuntime) {
         // Extract the photon name from the MCP name (e.g., "git-box-mcp" -> "git-box")
         const photonName = this.mcpName.replace(/-mcp$/, '');
 
@@ -408,7 +446,10 @@ export class McpAppRenderer extends LitElement {
 
         if (bridgeRes.ok) {
           const bridgeScript = await bridgeRes.text();
-          htmlContent = injectIntoDocumentHead(htmlContent, bridgeScript);
+          // The Beam endpoint may return either raw JavaScript (`raw=1`) or
+          // an HTML script fragment for older servers. Normalize both forms
+          // before inserting so we never produce nested <script> tags.
+          htmlContent = injectIntoDocumentHead(htmlContent, normalizeInlineScript(bridgeScript));
         }
       }
 
