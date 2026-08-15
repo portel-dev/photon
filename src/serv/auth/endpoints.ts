@@ -103,6 +103,8 @@ export interface EndpointConfig {
   clientIdleTtlMs: number;
   /** PHOTON_SINGLE_USER self-host mode: always treat caller as this user id. */
   singleUserId?: string;
+  /** Optional Photon-owned CSS appended after the safe OAuth defaults. */
+  oauthCustomCss?: string;
 }
 
 export const DEFAULT_ENDPOINT_CONFIG: Omit<
@@ -500,6 +502,7 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
           approveValue: 'approve',
           denyValue: 'deny',
           allowScopeSelection: false,
+          customCss: deps.config.oauthCustomCss,
         })
       )
     );

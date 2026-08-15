@@ -44,6 +44,7 @@ export class PhotonOAuthRuntime {
     photonName: string;
     devMode?: boolean;
     scopesSupported?: string[];
+    oauthCustomCss?: string;
   }) {
     this.issuer = options.baseUrl.replace(/\/+$/, '');
     this.resource = `${this.issuer}/mcp`;
@@ -119,6 +120,7 @@ export class PhotonOAuthRuntime {
       endpointConfig: {
         loginUrl,
         singleUserId: this.singleUserId,
+        oauthCustomCss: options.oauthCustomCss,
       },
     });
     this.serv.addTenant(this.tenant);

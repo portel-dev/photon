@@ -27,6 +27,7 @@ import { compileTsxSync } from '../tsx-compiler.js';
 import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
 import { extractPhotonAuthDirectiveFromSource } from '../auth/directive.js';
 import { buildPhotonRenderMeta } from '../auto-ui/types.js';
+import { resolvePhotonStylesheetAssets } from '../auto-ui/stylesheet-assets.js';
 import { ResourceServer } from '../resource-server.js';
 import { cleanMcpToolDescription } from '../shared/mcp-tool-metadata.js';
 import {
@@ -981,6 +982,10 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const metadata = extractor.extractAllFromSource(sourceCode);
   const assetResolver = new AssetResolver(() => {});
   const hostAssets = await assetResolver.discover(absolutePath, sourceCode);
+  const hostStylesheets = await resolvePhotonStylesheetAssets(absolutePath, sourceCode);
+  const oauthCustomCss = hostStylesheets.oauth
+    ? await fs.readFile(hostStylesheets.oauth.resolvedPath, 'utf8')
+    : undefined;
   const uiByTool = new Map<string, string>();
   for (const ui of hostAssets?.ui ?? []) {
     for (const toolName of ui.linkedTools ?? (ui.linkedTool ? [ui.linkedTool] : [])) {
@@ -1330,6 +1335,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       issuer: oauthIssuer!,
       oauthAuthMode: oauthAuthMode!,
       kvNamespaceId: process.env.PHOTON_MCP_OAUTH_KV_ID,
+      oauthCustomCss,
     });
   }
 

@@ -55,6 +55,7 @@ const TEST_CONFIG: EndpointConfig = {
   authorizeUrl: 'https://serv.test/authorize',
   consentUrl: 'https://serv.test/consent',
   loginUrl: 'https://serv.test/login',
+  oauthCustomCss: '.oauth-mark{--tenant-brand:tomato}',
 };
 
 function makeDeps(overrides: Partial<EndpointDeps> = {}): EndpointDeps {
@@ -636,6 +637,7 @@ async function testConsent() {
     assert.match(res.body, /Access requested/);
     assert.match(res.body, /Allow access/);
     assert.match(res.body, /Cancel/);
+    assert.match(res.body, /--tenant-brand:tomato/);
   });
 
   await test('POST approve issues code and stores consent record', async () => {

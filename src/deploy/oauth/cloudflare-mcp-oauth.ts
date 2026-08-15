@@ -22,6 +22,8 @@ export interface CloudflareMcpOAuthCodegenOptions {
   oauthAuthMode: 'optional' | 'required';
   /** Optional KV namespace id supplied by the deploy environment. */
   kvNamespaceId?: string;
+  /** Photon-owned oauth.css embedded after the safe default consent styles. */
+  oauthCustomCss?: string;
 }
 
 export function renderCloudflareMcpOAuthBindings(kvNamespaceId?: string): string {
@@ -114,6 +116,7 @@ function renderRuntime(options: CloudflareMcpOAuthCodegenOptions): string {
   const photonName = JSON.stringify(options.photonName);
   const issuer = JSON.stringify(options.issuer);
   const consentRuntime = renderOAuthConsentRuntimeSource();
+  const oauthCustomCss = JSON.stringify(options.oauthCustomCss ?? '');
   return String.raw`
 // ════════════════════════════════════════════════════════════════════════════
 // Generated inbound MCP OAuth (RFC 8414 / 7591 / 7636 / 7662)
@@ -127,6 +130,7 @@ const MCP_OAUTH_ACCESS_TTL = 15 * 60;
 const MCP_OAUTH_REFRESH_TTL = 30 * 24 * 60 * 60;
 const MCP_OAUTH_CODE_TTL = 60;
 const MCP_OAUTH_TX_TTL = 10 * 60;
+const MCP_OAUTH_CUSTOM_CSS = ${oauthCustomCss};
 
 type PhotonOAuthStorage = DurableObjectStorage;
 
@@ -518,6 +522,7 @@ async function photonOAuthConsentPage(tx: any): Promise<Response> {
     denyValue: 'deny',
     hiddenFields: [],
     allowScopeSelection: true,
+    customCss: MCP_OAUTH_CUSTOM_CSS,
   }));
 }
 

@@ -31,6 +31,7 @@ import {
 import { readText } from './shared/io.js';
 import { cleanMcpToolDescription } from './shared/mcp-tool-metadata.js';
 import { detectIsolationMode } from './shared/cross-origin-headers.js';
+import { resolvePhotonStylesheetAssets } from './auto-ui/stylesheet-assets.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import type { Duplex } from 'node:stream';
@@ -3558,12 +3559,21 @@ export class PhotonServer {
       });
       if (this.mcp?.authDirective?.scheme === 'oauth') {
         const { PhotonOAuthRuntime } = await import('./auth/runtime-oauth.js');
+        const photonSource = await readText(this.options.filePath);
+        const oauthStylesheets = await resolvePhotonStylesheetAssets(
+          this.options.filePath,
+          photonSource
+        );
+        const oauthCustomCss = oauthStylesheets.oauth
+          ? await readText(oauthStylesheets.oauth.resolvedPath)
+          : undefined;
         const publicBase =
           process.env.PHOTON_PUBLIC_URL?.replace(/\/+$/, '') || `http://127.0.0.1:${port}`;
         this.oauthRuntime = new PhotonOAuthRuntime({
           baseUrl: publicBase,
           photonName,
           devMode: this.devMode,
+          oauthCustomCss,
           scopesSupported: Array.from(
             new Set(
               (this.mcp?.tools || []).flatMap((tool: any) =>

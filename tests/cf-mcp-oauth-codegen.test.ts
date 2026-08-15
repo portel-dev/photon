@@ -34,6 +34,11 @@ export default class Appointments {
 }
 `
   );
+  await mkdir(join(project, 'appointments', 'assets'), { recursive: true });
+  await writeFile(
+    join(project, 'appointments', 'assets', 'oauth.css'),
+    '.oauth-mark{border-radius:50%;--consult-brand:coral}'
+  );
 
   const previousKvId = process.env.PHOTON_MCP_OAUTH_KV_ID;
   if (options.kvId) process.env.PHOTON_MCP_OAUTH_KV_ID = options.kvId;
@@ -65,6 +70,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('const MCP_AUTH_MODE = "oauth"');
     expect(generated.worker).toContain('const MCP_OAUTH_ISSUER = "https://consult.example.test"');
     expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "required"');
+    expect(generated.worker).toContain('--consult-brand:coral');
     expect(generated.worker).toContain("'/.well-known/oauth-protected-resource'");
     expect(generated.worker).toContain("'/.well-known/oauth-authorization-server'");
     expect(generated.worker).toContain("'/.well-known/jwks.json'");
