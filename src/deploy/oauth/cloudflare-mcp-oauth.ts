@@ -84,13 +84,13 @@ export function injectCloudflareMcpOAuth(
   }
   output = output.replace(callSite, `      body,\n      this.ctx.storage\n    );`);
 
-  const fetchMarker = `    const url = new URL(request.url);\n\n    // Internal cross-photon call`;
+  const fetchMarker = `  async fetch(request: Request): Promise<Response> {\n    this.getPhoton();\n    const url = new URL(request.url);`;
   if (!output.includes(fetchMarker)) {
     throw new Error('Cloudflare OAuth injection seam missing: Durable Object fetch');
   }
   output = output.replace(
     fetchMarker,
-    `    const url = new URL(request.url);\n\n    if (MCP_AUTH_MODE === 'oauth') {\n      const oauthResponse = await handlePhotonMcpOAuth(\n        request,\n        this.ctx.storage,\n        this.photonName,\n        this.toolDefinitions,\n        this.env\n      );\n      if (oauthResponse) return oauthResponse;\n    }\n\n    // Internal cross-photon call`
+    `${fetchMarker}\n\n    if (MCP_AUTH_MODE === 'oauth') {\n      const oauthResponse = await handlePhotonMcpOAuth(\n        request,\n        this.ctx.storage,\n        this.photonName,\n        this.toolDefinitions,\n        this.env\n      );\n      if (oauthResponse) return oauthResponse;\n    }`
   );
 
   const outerInstance = `    const instance = extractInstance(request, env);`;
