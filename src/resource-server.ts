@@ -48,6 +48,16 @@ export interface ResourceServerOptions {
 }
 
 /**
+ * Inject browser code without allowing String#replace to interpret `$` in
+ * template literals as replacement tokens.
+ */
+export function injectIntoHead(html: string, injected: string): string {
+  return html.includes('<head>')
+    ? html.replace('<head>', () => `<head>\n${injected}`)
+    : `<html><head>${injected}</head><body>${html}</body></html>`;
+}
+
+/**
  * Check if a URI contains template parameters, e.g. `person://{slug}`.
  * Exported so both STDIO (ResourceServer) and the streamable-HTTP
  * transport can split static vs templated URIs the same way.
@@ -540,7 +550,7 @@ export class ResourceServer {
     // Inject MCP Apps bridge script for Claude Desktop compatibility
     const appRuntime = this.generateMcpAppsRuntime(mcp);
     const styles = await this.generatePhotonStyles();
-    content = content.replace('<head>', `<head>\n${styles}${appRuntime}`);
+    content = injectIntoHead(content, `${styles}${appRuntime}`);
 
     return {
       contents: [
@@ -598,7 +608,7 @@ export class ResourceServer {
       if (assetType === 'ui') {
         const appRuntime = this.generateMcpAppsRuntime(mcp);
         const styles = await this.generatePhotonStyles();
-        content = content.replace('<head>', `<head>\n${styles}${appRuntime}`);
+        content = injectIntoHead(content, `${styles}${appRuntime}`);
       }
 
       return {
@@ -781,7 +791,9 @@ export class ResourceServer {
   // because standard hosts (including Claude) do not implement it.
   var transport = window.parent !== window ? 'postmessage' : 'pending';
   var resolveTransport;
-  var transportReady = new Promise(function(resolve) { resolveTransport = resolve; });
+  var transportReady = transport === 'postmessage'
+    ? Promise.resolve(transport)
+    : new Promise(function(resolve) { resolveTransport = resolve; });
   function settleTransport(t) {
     if (transport === 'pending') {
       transport = t;

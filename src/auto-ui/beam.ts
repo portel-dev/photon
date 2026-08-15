@@ -2848,7 +2848,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 })();
 </script>`;
             body = body.includes('<head>')
-              ? body.replace('<head>', '<head>' + interceptor)
+              ? body.replace('<head>', () => '<head>' + interceptor)
               : interceptor + body;
             // The compiled shell references the bundle relatively
             // (`./<base>.<hash>.js`). Under the /web/<photon> mount the
@@ -2954,7 +2954,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   };
 })();
 </script>`;
-                const bodyStr = body.toString('utf-8').replace('<head>', '<head>' + interceptor);
+                const bodyStr = body
+                  .toString('utf-8')
+                  .replace('<head>', () => '<head>' + interceptor);
                 body = Buffer.from(bodyStr, 'utf-8');
                 responseHeaders['content-length'] = String(body.length);
 

@@ -363,6 +363,11 @@ export class McpAppRenderer extends LitElement {
       'allow-scripts allow-forms allow-same-origin allow-popups allow-modals'
     );
     iframe.setAttribute('allowtransparency', 'true');
+    // Install the host bridge before navigation. Photon UIs call their linked
+    // tool during script evaluation, which can happen before iframe `load`.
+    // Waiting until load loses that first JSON-RPC request and leaves the UI
+    // stuck in its loading state.
+    this._installMessageHandler(iframe);
     iframe.addEventListener('load', (e) => {
       // Some embedded Chromium/Safari hosts refuse to expose or paint a
       // sandboxed blob document created from a shadow root. If the first load
@@ -523,7 +528,18 @@ export class McpAppRenderer extends LitElement {
       this._contentResizeObserver.observe(body);
     }
 
-    // Remove previous message handler if any
+    // The host message handler is installed before navigation in
+    // `_mountIframe`; keep the load handler focused on frame setup.
+    this._installMessageHandler(iframe);
+    this._connectBridge(iframe);
+  }
+
+  /**
+   * Install the host-side message handler before the embedded app can call a
+   * tool. This is intentionally idempotent because the iframe load/fallback
+   * paths may call it more than once.
+   */
+  private _installMessageHandler(iframe: HTMLIFrameElement) {
     if (this._messageHandler) {
       window.removeEventListener('message', this._messageHandler);
     }
@@ -619,6 +635,11 @@ export class McpAppRenderer extends LitElement {
       void asyncMessageHandler(event);
     };
     window.addEventListener('message', this._messageHandler);
+  }
+
+  private _connectBridge(iframe: HTMLIFrameElement) {
+    if (!iframe.contentWindow) return;
+    if (this._bridge) return;
 
     // Create AppBridge for MCP Apps protocol (some external MCPs may use it)
     const specTokens = filterSpecVariables(getBeamThemeTokens(this.theme));

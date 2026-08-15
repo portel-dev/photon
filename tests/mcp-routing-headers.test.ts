@@ -3,6 +3,7 @@ import {
   buildMCPParamHeaders,
   decodeMCPHeaderValue,
   encodeMCPHeaderValue,
+  getMCPRequestRoutingHeaders,
   parseMCPHeaderBindings,
   validateMCPParamHeaders,
 } from '../dist/mcp/protocol/routing-headers.js';
@@ -287,6 +288,21 @@ await test('outbound HTTP calls mirror routing values without mutating shared he
     assert.equal(request.headers.get('Mcp-Name'), 'geo.lookup');
     assert.equal(request.headers.get('Authorization'), 'Bearer test');
   }
+});
+
+await test('extracts MCP 2026 method and name headers for SDK client calls', async () => {
+  assert.deepEqual(
+    getMCPRequestRoutingHeaders({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'consult/listAvailableSlots', arguments: {} },
+    }),
+    { 'Mcp-Method': 'tools/call', 'Mcp-Name': 'consult/listAvailableSlots' }
+  );
+  assert.deepEqual(getMCPRequestRoutingHeaders({ method: 'tools/list', params: {} }), {
+    'Mcp-Method': 'tools/list',
+  });
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

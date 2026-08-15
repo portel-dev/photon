@@ -182,7 +182,10 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
     return result;
   });
 
-  const sseTransport = new SSEClientTransport(new URL(url));
+  // Keep the same routing-aware fetch on the legacy fallback. Photon
+  // deployments require Mcp-Name/Mcp-Method on every JSON-RPC request, and
+  // the SDK's SSE transport uses separate POSTs for tools/call.
+  const sseTransport = new SSEClientTransport(new URL(url), { fetch: routingFetch });
   const connectPromise = sseClient.connect(sseTransport);
   await withTimeout(connectPromise, 10000, 'Connection timeout (10s)');
   logger.debug(`Connected to ${url} via legacy SSE`);

@@ -36,7 +36,7 @@ import { generateStandaloneWebShell } from '../auto-ui/standalone-web/app-shell.
 import { extractClassMetadataFromSource } from '../auto-ui/beam/class-metadata.js';
 import { contractsForTools } from '../capability-contract.js';
 import { generateRenderersScript } from '../auto-ui/bridge/renderers.js';
-import { ResourceServer } from '../resource-server.js';
+import { injectIntoHead, ResourceServer } from '../resource-server.js';
 import { cleanMcpToolDescription } from '../shared/mcp-tool-metadata.js';
 import {
   injectCloudflareMcpOAuth,
@@ -334,9 +334,7 @@ function injectCloudflareUiBridge(
     })
     .join('\n');
   const browserRuntime = [styleEntries, bridge].filter(Boolean).join('\n');
-  const injected = html.includes('<head>')
-    ? html.replace('<head>', `<head>\n${browserRuntime}`)
-    : `<html><head>${browserRuntime}</head><body>${html}</body></html>`;
+  const injected = injectIntoHead(html, browserRuntime);
   contents[key] = Buffer.from(injected, 'utf8').toString('base64');
 }
 

@@ -19,6 +19,22 @@ export type MCPHeaderBindingResult =
   | { ok: true; bindings: readonly MCPHeaderBinding[] }
   | { ok: false; issue: string };
 
+/**
+ * Return the MCP 2026 routing values declared by a JSON-RPC message.
+ *
+ * This small browser-safe helper is shared by Photon clients that delegate
+ * HTTP encoding to the MCP SDK transport.
+ */
+export function getMCPRequestRoutingHeaders(message: unknown): Record<string, string> {
+  if (!isRecord(message) || typeof message.method !== 'string') return {};
+  const headers: Record<string, string> = { 'Mcp-Method': message.method };
+  const params = message.params;
+  if (!isRecord(params)) return headers;
+  const name = params.name ?? params.uri ?? params.taskId;
+  if (typeof name === 'string' && name.length > 0) headers['Mcp-Name'] = name;
+  return headers;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }

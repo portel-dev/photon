@@ -31,6 +31,7 @@
  */
 
 import { StreamableHTTPClientTransport } from '../../../mcp/sdk-v1-2025/client-streamable-http.js';
+import { getMCPRequestRoutingHeaders } from '../../../mcp/protocol/routing-headers.js';
 
 type JSONValue = string | number | boolean | null | JSONValue[] | { [k: string]: JSONValue };
 
@@ -46,6 +47,34 @@ interface JSONRPCMessage {
 type Listener = (data?: unknown) => void;
 
 const MCP_2026_PROTOCOL_VERSION = '2026-07-28';
+
+/**
+ * Add Photon’s MCP 2026 routing headers to SDK transport requests.
+ *
+ * The SDK owns the HTTP transport, so the older hand-written request path
+ * cannot add these headers for it. Beam serves several MCP servers behind one
+ * endpoint and therefore needs the declared method name on every named call.
+ */
+export function createMCPClientRoutingFetch(fetchImpl: typeof fetch = fetch): typeof fetch {
+  return async (input, init) => {
+    if (typeof init?.body !== 'string') return fetchImpl(input, init);
+    let message: unknown;
+    try {
+      message = JSON.parse(init.body);
+    } catch {
+      return fetchImpl(input, init);
+    }
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      return fetchImpl(input, init);
+    }
+
+    const headers = new Headers(init.headers);
+    for (const [name, value] of Object.entries(getMCPRequestRoutingHeaders(message))) {
+      headers.set(name, value);
+    }
+    return fetchImpl(input, { ...init, headers });
+  };
+}
 
 /**
  * Default idle timeout for any tool call: if no progress notification
@@ -126,7 +155,7 @@ export class MCPClientSDK {
 
   constructor(baseUrl: string, opts: MCPClientSDKOptions = {}) {
     this.baseUrl = new URL(baseUrl);
-    this.fetchImpl = opts.fetch ?? fetch;
+    this.fetchImpl = createMCPClientRoutingFetch(opts.fetch ?? fetch);
     this.authToken = opts.authToken;
     this.protocolVersion = opts.protocolVersion ?? MCP_2026_PROTOCOL_VERSION;
     this.clientInfo = opts.clientInfo ?? { name: 'beam', version: '1.0.0' };
