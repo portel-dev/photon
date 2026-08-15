@@ -88,11 +88,17 @@ describe.skipIf(SKIP)('v1.28 byte-compat regression', () => {
   // client compatibility. Aggregated Beam-style servers keep qualified names.
   const TOOL = 'wordCount';
 
-  it('MCP tools/list returns the expected tool set (route handlers excluded)', async () => {
+  it('MCP tools/list preserves user tools while exposing current Photon helpers', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    // hello and echo are @get/@post handlers and must NOT appear as MCP tools.
-    expect(names).toEqual([TOOL]);
+    // HTTP route handlers are not MCP tools. Photon also injects its stable
+    // context/navigation/skill helpers; those are additive to the v1.28
+    // user-defined catalog and must not invalidate the compatibility check.
+    expect(names).toEqual(
+      [TOOL, 'photon_context_get', 'photon_navigate', 'photon_skill_read'].sort()
+    );
+    expect(names).not.toContain('hello');
+    expect(names).not.toContain('echo');
 
     const wordCount = tools.find((t) => t.name === TOOL)!;
     expect(wordCount.inputSchema?.type).toBe('object');

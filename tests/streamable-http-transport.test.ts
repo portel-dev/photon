@@ -3207,6 +3207,7 @@ async function runTests(): Promise<void> {
           requiredFields: ['title'],
           optionalFields: ['notes'],
         },
+        safety: { readOnly: false, destructive: false },
         output: { structured: true },
       });
     });

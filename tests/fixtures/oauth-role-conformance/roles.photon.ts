@@ -11,7 +11,17 @@ export default class OAuthRoleConformance {
   get role(): string {
     const caller = (this as any).caller;
     if (caller?.anonymous === true) return 'user';
-    return typeof caller?.claims?.role === 'string' ? caller.claims.role : 'unknown';
+    // OAuth deliberately normalizes every non-host subject to the public
+    // `user` role. Applications that distinguish an authenticated customer
+    // from an anonymous visitor can normalize that value in the Photon
+    // getter, as documented for the role-based exposure contract.
+    const role =
+      typeof caller?.role === 'string'
+        ? caller.role
+        : typeof caller?.claims?.role === 'string'
+          ? caller.claims.role
+          : 'unknown';
+    return role === 'user' ? 'customer' : role;
   }
 
   /** Anonymous discovery and booking entry point. */
