@@ -110,6 +110,33 @@ async function main() {
     await page.setContent('<!doctype html><html><body></body></html>');
     await page.addScriptTag({ content: generateRenderersScript() });
 
+    const scopedTheme = await page.evaluate(() => {
+      const container = document.createElement('div');
+      container.style.setProperty('--photon-color-text', 'rgb(12, 34, 56)');
+      container.style.setProperty('--photon-color-surface', 'rgb(65, 43, 21)');
+      document.body.appendChild(container);
+      (window as any)._photonRenderers.render(container, { status: 'Scoped theme' }, 'card', {
+        host: 'mcp-app',
+        expandable: false,
+      });
+      return {
+        format: container.getAttribute('data-photon-format'),
+        host: container.getAttribute('data-photon-host'),
+        surfaceClass: container.classList.contains('photon-render-surface'),
+        textColor: getComputedStyle(
+          container.querySelector('div > div > span:last-child') as HTMLElement
+        ).color,
+      };
+    });
+    check(
+      'renderer consumes scoped semantic tokens and exposes stable styling hooks',
+      scopedTheme.format === 'card' &&
+        scopedTheme.host === 'mcp-app' &&
+        scopedTheme.surfaceClass &&
+        scopedTheme.textColor === 'rgb(12, 34, 56)',
+      JSON.stringify(scopedTheme)
+    );
+
     const galleryBehavior = await page.evaluate(() => {
       const container = document.createElement('div');
       document.body.appendChild(container);

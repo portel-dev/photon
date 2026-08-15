@@ -16,6 +16,11 @@ import * as path from 'node:path';
 import { readText } from './shared/io.js';
 import type { PhotonClassExtended } from '@portel/photon-core';
 import { getThemeTokens } from './auto-ui/design-system/tokens.js';
+import { generateRenderersScript } from './auto-ui/bridge/renderers.js';
+import {
+  resolvePhotonStylesheetAssets,
+  type PhotonStylesheetAsset,
+} from './auto-ui/stylesheet-assets.js';
 /** Minimal interface for executing tool calls — avoids importing PhotonLoader */
 export interface ResourceToolExecutor {
   executeTool(
@@ -532,8 +537,9 @@ export class ResourceServer {
     }
 
     // Inject MCP Apps bridge script for Claude Desktop compatibility
-    const bridgeScript = this.generateMcpAppsBridge(mcp);
-    content = content.replace('<head>', `<head>\n${bridgeScript}`);
+    const appRuntime = this.generateMcpAppsRuntime(mcp);
+    const styles = await this.generatePhotonStyles();
+    content = content.replace('<head>', `<head>\n${styles}${appRuntime}`);
 
     return {
       contents: [
@@ -589,8 +595,9 @@ export class ResourceServer {
 
       // Inject MCP Apps bridge for UI assets
       if (assetType === 'ui') {
-        const bridgeScript = this.generateMcpAppsBridge(mcp);
-        content = content.replace('<head>', `<head>\n${bridgeScript}`);
+        const appRuntime = this.generateMcpAppsRuntime(mcp);
+        const styles = await this.generatePhotonStyles();
+        content = content.replace('<head>', `<head>\n${styles}${appRuntime}`);
       }
 
       return {
@@ -632,6 +639,47 @@ export class ResourceServer {
   }
 
   // ─── MCP Apps bridge ────────────────────────────────────────────────
+
+  /** Inline optional companion styles for originless/sandboxed MCP App resources. */
+  private async generatePhotonStyles(): Promise<string> {
+    if (!this.options.filePath) return '';
+    try {
+      const source = await readText(this.options.filePath);
+      const stylesheets = await resolvePhotonStylesheetAssets(this.options.filePath, source);
+      const assets: PhotonStylesheetAsset[] = [
+        ...(stylesheets.photon ? [stylesheets.photon] : []),
+        ...Object.values(stylesheets.formats),
+      ];
+      const blocks = await Promise.all(
+        assets.map(async (asset) => {
+          const css = (await readText(asset.resolvedPath)).replace(/<\/style/gi, '<\\/style');
+          const id = asset.format ? `format:${asset.format}` : asset.kind;
+          return `<style data-photon-style="${id}">\n${css}\n</style>\n`;
+        })
+      );
+      return blocks.join('');
+    } catch {
+      // Companion styling is optional and must never make a resource unreadable.
+      return '';
+    }
+  }
+
+  /**
+   * Complete browser runtime injected into MCP App resources.
+   *
+   * The bridge supplies host communication while the renderer supplies the
+   * canonical @format implementation. Embedding both makes `photon.render()`
+   * work in originless/sandboxed MCP clients without fetching a private Beam
+   * endpoint or weakening CSP with eval/CDN access.
+   */
+  generateMcpAppsRuntime(mcp: PhotonClassExtended | null): string {
+    return `${this.generateMcpAppsBridge(mcp)}\n${this.generatePhotonRendererRuntime()}`;
+  }
+
+  /** Standalone script element for hosts/UIs that already provide their own MCP bridge. */
+  generatePhotonRendererRuntime(): string {
+    return `<script data-photon-renderer-runtime="embedded">\n${generateRenderersScript()}\n</script>`;
+  }
 
   /**
    * Generate minimal MCP Apps bridge script for Claude Desktop compatibility

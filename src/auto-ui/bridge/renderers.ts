@@ -21,17 +21,27 @@ export function generateRenderersScript(): string {
 
   // Read colors dynamically from CSS custom properties so theme changes are reflected.
   // Falls back to sensible defaults if vars aren't set.
-  function getColors() {
-    var root = getComputedStyle(document.documentElement);
-    var get = function(prop, fallback) { return root.getPropertyValue(prop).trim() || fallback; };
+  function getColors(scope) {
+    // Read from the rendered surface, not only documentElement. MCP hosts and
+    // Beam scope their theme tokens to the app/container, and inherited custom
+    // properties are therefore visible here even when the outer document uses
+    // different values.
+    var root = getComputedStyle(scope || document.documentElement);
+    var get = function(props, fallback) {
+      for (var i = 0; i < props.length; i++) {
+        var value = root.getPropertyValue(props[i]).trim();
+        if (value) return value;
+      }
+      return fallback;
+    };
     var isDark = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'light';
     return {
-      text: get('--text', isDark ? '#e0e0e0' : '#1a1a1a'),
-      textMuted: get('--muted', isDark ? '#888' : '#666'),
-      bg: get('--bg', isDark ? '#1a1a1a' : '#ffffff'),
-      bgAlt: get('--bg-tertiary', isDark ? '#242424' : '#f5f5f5'),
-      border: get('--border', isDark ? '#333' : '#e0e0e0'),
-      accent: get('--accent', isDark ? '#6c9eff' : '#2563eb'),
+      text: get(['--photon-color-text', '--color-text', '--t-primary', '--text'], isDark ? '#e0e0e0' : '#1a1a1a'),
+      textMuted: get(['--photon-color-text-muted', '--color-text-secondary', '--t-muted', '--muted'], isDark ? '#888' : '#666'),
+      bg: get(['--photon-color-background', '--color-background-primary', '--bg-app', '--bg'], isDark ? '#1a1a1a' : '#ffffff'),
+      bgAlt: get(['--photon-color-surface', '--color-background-secondary', '--bg-panel', '--bg-tertiary'], isDark ? '#242424' : '#f5f5f5'),
+      border: get(['--photon-color-border', '--color-border', '--border-glass', '--border'], isDark ? '#333' : '#e0e0e0'),
+      accent: get(['--photon-color-accent', '--color-accent', '--accent'], isDark ? '#6c9eff' : '#2563eb'),
       palette: isDark
         ? ['#6c9eff','#34d399','#fbbf24','#f87171','#a78bfa','#fb923c','#38bdf8','#e879f9']
         : ['#2563eb','#059669','#d97706','#dc2626','#7c3aed','#ea580c','#0284c7','#c026d3']
@@ -2384,17 +2394,21 @@ export function generateRenderersScript(): string {
   window._photonRenderers = {
     render: function(container, data, format, opts) {
       if (!container) return;
-      // Refresh colors from CSS vars on every render so theme changes are reflected
-      colors = getColors();
-      VARIANT_COLORS.info = colors.accent;
-      VARIANT_COLORS.neutral = colors.textMuted;
       format = format || 'json';
       var key = format.toLowerCase();
+      var baseKey = key.split(':')[0];
+      container.classList.add('photon-render-surface');
+      container.setAttribute('data-photon-format', key);
+      if (opts && opts.host) container.setAttribute('data-photon-host', String(opts.host));
+      // Refresh colors from the actual render scope on every invocation so
+      // host theme changes and assets/photon.css overrides are respected.
+      colors = getColors(container);
+      VARIANT_COLORS.info = colors.accent;
+      VARIANT_COLORS.neutral = colors.textMuted;
       // Try exact match, then prefix match (chart:bar → chart)
-      var fn = renderers[key] || renderers[key.split(':')[0]];
+      var fn = renderers[key] || renderers[baseKey];
       if (!fn) { renderers.json(container, data); return; }
       fn(container, data, opts, key);
-      var baseKey = key.split(':')[0];
       if (EXPANDABLE_FORMATS[key] || EXPANDABLE_FORMATS[baseKey]) {
         _makeExpandableSurface(container, (opts && opts.title) || formatLabel(baseKey), opts);
       }

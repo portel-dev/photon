@@ -716,11 +716,14 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       try { origin = window.parent.location.origin; } catch(e) { origin = window.location.origin; }
       s.src = origin + '/api/photon-renderers.js';
       s.onload = function() {
+        window._photonRenderersLoading = false;
         var queue = window._photonRenderersQueue || [];
         window._photonRenderersQueue = [];
         queue.forEach(function(fn) { fn(); });
       };
       s.onerror = function() {
+        window._photonRenderersLoading = false;
+        window._photonRenderersQueue = [];
         container.innerHTML = '<pre style="font-size:11px;color:#888;">' + JSON.stringify(data, null, 2) + '</pre>';
       };
       document.head.appendChild(s);

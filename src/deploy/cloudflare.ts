@@ -246,17 +246,52 @@ function injectCloudflareUiBridge(
   // Photon bridge itself. Only skip injection when the generated bridge
   // marker is present; checking for `ui/initialize` caused Cloudflare builds
   // to silently omit Photon theme tokens and host-context handling.
-  if (html.includes('window.photon =') || html.includes('window.__MCP_APPS_CONTEXT__ = true'))
-    return;
-  // Reuse the ResourceServer bridge that local MCP/HTTP hosts use. This keeps
-  // Cloudflare on the same compatibility path, including hello/fetch fallback.
-  const bridge = new ResourceServer({} as any, { filePath: '' }).generateMcpAppsBridge({
-    name: photonName,
-    injectedPhotons: [],
-  } as any);
+  const resourceServer = new ResourceServer({} as any, { filePath: '' });
+  const hasBridge =
+    html.includes('window.photon =') || html.includes('window.__MCP_APPS_CONTEXT__ = true');
+  const hasRenderer = html.includes('data-photon-renderer-runtime');
+  if (hasBridge && hasRenderer) return;
+  // Reuse the ResourceServer browser pieces that local MCP/HTTP hosts use.
+  // A custom UI may already ship its own MCP bridge while still relying on
+  // photon.render(), so install the renderer independently when necessary.
+  const bridge = [
+    hasBridge
+      ? ''
+      : resourceServer.generateMcpAppsBridge({
+          name: photonName,
+          injectedPhotons: [],
+        } as any),
+    hasRenderer ? '' : resourceServer.generatePhotonRendererRuntime(),
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const stylesheetById = new Map<string, string>();
+  for (const [assetKey, encoded] of Object.entries(contents)) {
+    const normalized = assetKey.replace(/^assets\//, '');
+    if (
+      normalized !== 'photon.css' &&
+      !/^formats\/[A-Za-z0-9][A-Za-z0-9_-]*\.css$/.test(normalized)
+    ) {
+      continue;
+    }
+    const id =
+      normalized === 'photon.css' ? 'photon' : `format:${path.basename(normalized, '.css')}`;
+    // Canonical and legacy copy roots can expose the same stylesheet under
+    // two keys. Inject each semantic stylesheet once.
+    if (!stylesheetById.has(id)) stylesheetById.set(id, encoded);
+  }
+  const styleEntries = [...stylesheetById.entries()]
+    .map(([id, encoded]) => {
+      const css = Buffer.from(encoded, 'base64')
+        .toString('utf8')
+        .replace(/<\/style/gi, '<\\/style');
+      return `<style data-photon-style="${id}">\n${css}\n</style>`;
+    })
+    .join('\n');
+  const browserRuntime = [styleEntries, bridge].filter(Boolean).join('\n');
   const injected = html.includes('<head>')
-    ? html.replace('<head>', `<head>\n${bridge}`)
-    : `<html><head>${bridge}</head><body>${html}</body></html>`;
+    ? html.replace('<head>', `<head>\n${browserRuntime}`)
+    : `<html><head>${browserRuntime}</head><body>${html}</body></html>`;
   contents[key] = Buffer.from(injected, 'utf8').toString('base64');
 }
 

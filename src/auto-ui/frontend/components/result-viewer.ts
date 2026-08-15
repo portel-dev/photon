@@ -8,6 +8,10 @@ import { formatLabel } from '../utils/format-label.js';
 import { link, expand } from '../icons.js';
 import { mcpClient } from '../services/mcp-client.js';
 import { MotionObserver } from '../services/motion.js';
+import {
+  renderPhotonResult,
+  type PhotonRendererRuntime,
+} from '../services/photon-renderer-runtime.js';
 
 /* ── Window globals loaded via CDN scripts ── */
 interface PrismLib {
@@ -30,9 +34,6 @@ interface PretextModule {
   layout: (prepared: unknown, width: number, lineHeight: number) => { height: number };
   prepare: (text: string, font: string) => unknown;
 }
-interface PhotonRenderers {
-  render: (target: HTMLElement, data: unknown, format: string) => void;
-}
 declare global {
   interface Window {
     Prism?: PrismLib;
@@ -41,7 +42,7 @@ declare global {
     QRCode?: QRCodeConstructor;
     __pretextModule?: PretextModule;
     __photonMCPClient?: unknown;
-    _photonRenderers?: PhotonRenderers;
+    _photonRenderers?: PhotonRendererRuntime;
     _photonRenderersLoading?: boolean;
     _photonRenderersQueue?: Array<() => void>;
   }
@@ -8455,53 +8456,13 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
   }
 
   private _renderSlideFormat(target: HTMLElement, data: unknown, format: string): void {
-    // Use the full photon renderers (same as bridge's photon.render())
-    // Lazy-load on first use from /api/photon-renderers.js
-    const doRender = () => {
-      if (window._photonRenderers?.render) {
-        window._photonRenderers.render(target, data, format);
-      } else {
-        // Final fallback: render as text
-        target.textContent =
-          typeof data === 'object'
-            ? JSON.stringify(data, null, 2)
-            : String((data ?? '') as string | number | boolean);
-      }
-    };
-
-    if (window._photonRenderers) {
-      doRender();
-    } else if (window._photonRenderersLoading) {
-      // Already loading — queue this render
-      window._photonRenderersQueue = window._photonRenderersQueue || [];
-      window._photonRenderersQueue.push(doRender);
-    } else {
-      // Load the renderers script via fetch+eval (avoids strict MIME and quote escaping issues)
-      window._photonRenderersLoading = true;
-      window._photonRenderersQueue = [doRender];
-      fetch('/api/photon-renderers.js', { signal: AbortSignal.timeout(10000) })
-        .then((r) => r.text())
-        .then((code) => {
-          try {
-            // eslint-disable-next-line no-eval
-            (0, eval)(code);
-          } catch (e) {
-            console.warn('[result-viewer] Photon renderers eval failed:', e);
-          }
-          window._photonRenderersLoading = false;
-          const queue = window._photonRenderersQueue || [];
-          window._photonRenderersQueue = [];
-          queue.forEach((fn: () => void) => fn());
-        })
-        .catch((e) => {
-          console.warn('[result-viewer] Failed to load photon renderers:', e);
-          // Reset so a later render can retry instead of queueing forever.
-          window._photonRenderersLoading = false;
-          const queue = window._photonRenderersQueue || [];
-          window._photonRenderersQueue = [];
-          queue.forEach((fn: () => void) => fn());
-        });
-    }
+    // Beam consumes the same browser runtime as MCP Apps and custom @ui.
+    // Script injection (rather than fetch + eval) keeps this compatible with
+    // strict CSP and centralizes retry/fallback behavior.
+    void renderPhotonResult(target, data, format, {
+      host: 'beam',
+      expandable: false,
+    });
   }
 
   private _slidesKeydown(e: KeyboardEvent, total: number): void {
