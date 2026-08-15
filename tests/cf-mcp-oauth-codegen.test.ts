@@ -78,10 +78,10 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('resource_metadata="');
     expect(generated.worker).toContain('photonOAuthCaller');
     expect(generated.worker).toContain('const role = typeof claims.role');
-    expect(generated.worker).toContain(": 'customer'");
+    expect(generated.worker).toContain(": 'user'");
     expect(generated.worker).toContain('scope: scope || undefined');
     expect(generated.worker).toContain("role: 'user'");
-    expect(generated.worker).toContain("role !== 'customer'");
+    expect(generated.worker).toContain("role !== 'user'");
     expect(generated.worker).not.toContain('PHOTON_MCP_OAUTH_TRUST_CF_ACCESS');
     expect(generated.worker).toContain('if (DEV_MODE)');
     expect(generated.worker).toContain('const origin = MCP_OAUTH_ISSUER');

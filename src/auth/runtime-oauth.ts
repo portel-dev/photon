@@ -174,7 +174,9 @@ export class PhotonOAuthRuntime {
       return { ok: false, reason: 'insufficient_scope' };
     }
     const sub = String(claims.sub);
-    const role = this.hostSubjects.has(sub) ? 'host' : 'customer';
+    // OAuth exposes non-host identities as the public user role while keeping
+    // the configured owner on the host role.
+    const role = this.hostSubjects.has(sub) ? 'host' : 'user';
     return {
       ok: true,
       caller: {

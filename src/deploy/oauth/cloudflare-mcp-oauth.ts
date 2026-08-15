@@ -305,8 +305,10 @@ async function photonOAuthVerifyJwt(
 function photonOAuthCaller(claims: Record<string, unknown>): any {
   const scope = typeof claims.scope === 'string' ? claims.scope : '';
   // Anonymous callers are represented separately by the MCP runtime. Every
-  // authenticated OAuth subject defaults to the ordinary customer role.
-  const role = typeof claims.role === 'string' ? claims.role : 'customer';
+  // Authenticated OAuth subjects default to the public user role. Explicit
+  // application roles remain untouched, including a deliberately declared
+  // customer role.
+  const role = typeof claims.role === 'string' ? claims.role : 'user';
   return {
     id: String(claims.sub ?? 'unknown'),
     name: typeof claims.name === 'string' ? claims.name : undefined,
@@ -435,7 +437,7 @@ async function photonOAuthSubject(_request: Request, env: Env): Promise<{ sub: s
   // impersonate the configured user.
   if (DEV_MODE) {
     const configured = (env as any).PHOTON_MCP_OAUTH_SUBJECT;
-    if (typeof configured === 'string' && configured.trim()) return { sub: configured.trim(), role: 'customer' };
+    if (typeof configured === 'string' && configured.trim()) return { sub: configured.trim(), role: 'user' };
   }
   return null;
 }
@@ -448,11 +450,11 @@ async function photonOAuthLoginSignature(secret: string, value: string): Promise
 async function photonOAuthVerifyLoginCallback(request: Request, env: Env, tx: any): Promise<{ sub: string; role: string; name?: string } | null> {
   const url = new URL(request.url);
   const sub = url.searchParams.get('subject');
-  const role = url.searchParams.get('role') ?? 'customer';
+  const role = url.searchParams.get('role') ?? 'user';
   const signature = url.searchParams.get('signature');
   const secret = (env as any).PHOTON_MCP_OAUTH_LOGIN_SECRET;
   if (!sub || !signature || typeof secret !== 'string' || !secret) return null;
-  if (role !== 'customer' && role !== 'host') return null;
+  if (role !== 'user' && role !== 'host') return null;
   const expected = await photonOAuthLoginSignature(secret, [tx.id, sub, role].join('.'));
   if (!photonOAuthConstantTimeEqual(expected, signature)) return null;
   return { sub, role };
@@ -477,7 +479,7 @@ async function photonOAuthAccessLogin(request: Request, storage: PhotonOAuthStor
     .split(/[\s,]+/)
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
-  const role = hostSubjects.includes(subject) ? 'host' : 'customer';
+  const role = hostSubjects.includes(subject) ? 'host' : 'user';
   await storage.put('oauth:tx:' + tx.id, { ...tx, sub: subject, role, name: subject });
   return new Response(null, {
     status: 302,
@@ -602,10 +604,16 @@ async function handlePhotonMcpOAuth(
     const txId = form.get('tx');
     const tx = txId ? await storage.get<any>('oauth:tx:' + txId) : null;
     if (!tx || tx.expiresAt < Date.now() || !tx.sub) return photonOAuthError(400, 'invalid_request', 'authorization transaction expired');
-    await storage.delete('oauth:tx:' + tx.id);
     if (form.get('action') !== 'approve') return photonOAuthRedirectError(tx.redirectUri, tx.state, 'access_denied', 'The resource owner denied the request');
-    const code = 'code_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(32)));
-    await storage.put('oauth:code:' + code, { ...tx, code, role: tx.role ?? 'customer', createdAt: Date.now(), expiresAt: Date.now() + MCP_OAUTH_CODE_TTL * 1000 });
+    // Browsers and MCP clients can retry the consent POST while following the
+    // redirect. Keep the short-lived transaction until the authorization code
+    // is exchanged and return the same code for a duplicate approval instead
+    // of turning a harmless retry into an "expired" authorization error.
+    const code = tx.consentCode ?? ('code_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(32))));
+    if (!tx.consentCode) {
+      await storage.put('oauth:tx:' + tx.id, { ...tx, consentCode: code });
+      await storage.put('oauth:code:' + code, { ...tx, code, role: tx.role ?? 'user', createdAt: Date.now(), expiresAt: Date.now() + MCP_OAUTH_CODE_TTL * 1000 });
+    }
     const target = new URL(tx.redirectUri);
     target.searchParams.set('code', code);
     if (tx.state) target.searchParams.set('state', tx.state);
@@ -631,13 +639,14 @@ async function handlePhotonMcpOAuth(
         const candidate = await transaction.get<any>('oauth:code:' + codeValue);
         if (!candidate || candidate.expiresAt < Date.now() || candidate.clientId !== clientId || candidate.redirectUri !== form.get('redirect_uri') || candidate.codeChallenge !== challenge) return null;
         await transaction.delete('oauth:code:' + codeValue);
+        await transaction.delete('oauth:tx:' + candidate.id);
         return candidate;
       }) : null;
       if (!code) return photonOAuthError(400, 'invalid_grant', 'Invalid authorization code or PKCE verifier');
       const scope = code.scope || scopes.join(' ');
-      const accessToken = await photonOAuthJwt(storage, { sub: code.sub, role: code.role ?? 'customer', name: code.name, scope, client_id: clientId }, MCP_OAUTH_ACCESS_TTL, request);
+      const accessToken = await photonOAuthJwt(storage, { sub: code.sub, role: code.role ?? 'user', name: code.name, scope, client_id: clientId }, MCP_OAUTH_ACCESS_TTL, request);
       const refreshToken = 'rt_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(32)));
-      await storage.put('oauth:refresh:' + await photonOAuthHashKey(refreshToken), { sub: code.sub, role: code.role ?? 'customer', name: code.name, scope, clientId, resource, expiresAt: Date.now() + MCP_OAUTH_REFRESH_TTL * 1000 });
+      await storage.put('oauth:refresh:' + await photonOAuthHashKey(refreshToken), { sub: code.sub, role: code.role ?? 'user', name: code.name, scope, clientId, resource, expiresAt: Date.now() + MCP_OAUTH_REFRESH_TTL * 1000 });
       return photonOAuthJson(200, { access_token: accessToken, token_type: 'Bearer', expires_in: MCP_OAUTH_ACCESS_TTL, refresh_token: refreshToken, scope });
     }
     if (grantType === 'refresh_token') {
