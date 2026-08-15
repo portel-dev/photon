@@ -101,6 +101,10 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain("pathname === '/oauth/login'");
     expect(generated.worker).toContain('PHOTON_MCP_OAUTH_HOST_SUBJECTS');
     expect(generated.worker).toContain('Cf-Access-Authenticated-User-Email');
+    expect(generated.worker).toContain('Photon secure connection');
+    expect(generated.worker).toContain('name="scope"');
+    expect(generated.worker).toContain('Allow selected');
+    expect(generated.worker).toContain('const grantedScope = selectedScopes.join');
   });
 
   it('emits the optional KV binding contract without changing the authoritative state model', async () => {
