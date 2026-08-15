@@ -95,7 +95,7 @@ export function injectCloudflareMcpOAuth(
   }
   output = output.replace(
     outerInstance,
-    `    const requestPath = new URL(request.url).pathname;\n    const isOAuthEndpoint = requestPath === '/authorize' || requestPath === '/token' || requestPath === '/register' || requestPath === '/consent' || requestPath === '/revoke' || requestPath === '/introspect' || requestPath.startsWith('/.well-known/');\n    // Authorization state is single-tenant at the Worker edge. Do not let an\n    // arbitrary instance query/header select a different OAuth key or store.\n    const instance = isOAuthEndpoint ? 'default' : extractInstance(request, env);`
+    `    const requestPath = new URL(request.url).pathname;\n    const isOAuthEndpoint = requestPath === '/oauth/login' || requestPath === '/authorize' || requestPath === '/token' || requestPath === '/register' || requestPath === '/consent' || requestPath === '/revoke' || requestPath === '/introspect' || requestPath.startsWith('/.well-known/');\n    // Authorization state is single-tenant at the Worker edge. Do not let an\n    // arbitrary instance query/header select a different OAuth key or store.\n    const instance = isOAuthEndpoint ? 'default' : extractInstance(request, env);`
   );
 
   // Keep the anonymous caller compatible with @class ... {@role user}.

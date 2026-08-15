@@ -69,6 +69,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain("'/.well-known/oauth-authorization-server'");
     expect(generated.worker).toContain("'/.well-known/jwks.json'");
     expect(generated.worker).toContain("pathname === '/authorize'");
+    expect(generated.worker).toContain("requestPath === '/oauth/login'");
     expect(generated.worker).toContain("pathname === '/token'");
     expect(generated.worker).toContain("pathname === '/register'");
     expect(generated.worker).toContain("pathname === '/consent'");
