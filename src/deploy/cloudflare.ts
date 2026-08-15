@@ -1439,6 +1439,9 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     );
     workerCode = injectCloudflareMcpOAuth(workerCode, {
       photonName,
+      photonDisplayName: classMetadata.label || photonName,
+      photonIcon: classMetadata.icon,
+      photonDescription: classMetadata.description,
       scopes: oauthScopes,
       issuer: oauthIssuer!,
       oauthAuthMode: oauthAuthMode!,

@@ -23,6 +23,8 @@ export interface OAuthConsentViewModel {
   clientName: string;
   clientSubtitle: string;
   resourceName: string;
+  resourceIcon: string;
+  resourceDescription: string;
   description: string;
   subject: string;
   subjectSubtitle: string;
@@ -43,6 +45,8 @@ export interface OAuthConsentInput {
   clientName: string;
   clientSubtitle?: string;
   resourceName?: string;
+  resourceIcon?: string;
+  resourceDescription?: string;
   description?: string;
   subject?: string;
   subjectSubtitle?: string;
@@ -69,6 +73,7 @@ body{margin:0;min-height:100vh;background:var(--oauth-bg);font:15px/1.45 Inter,u
 .oauth-app{display:flex;align-items:center;gap:12px;margin-bottom:24px}
 .oauth-mark{width:42px;height:42px;border-radius:12px;background:var(--oauth-accent);color:#fff;display:grid;place-items:center;font-size:20px;font-weight:750}
 .oauth-app strong{display:block;font-size:15px}.oauth-app small{display:block;color:var(--oauth-muted);font-size:12px;margin-top:2px}
+.oauth-resource-description{color:var(--oauth-muted);font-size:13px;margin:-12px 0 24px;line-height:1.45}
 .oauth-hero h1{font-size:25px;letter-spacing:-.035em;line-height:1.15;margin:0 0 8px}.oauth-hero p{color:var(--oauth-muted);margin:0}
 .oauth-identity{display:flex;align-items:center;gap:10px;margin-top:20px;padding:10px 12px;border:1px solid var(--oauth-line);border-radius:10px}
 .oauth-avatar{width:30px;height:30px;border-radius:50%;background:var(--oauth-soft);color:var(--oauth-accent-strong);display:grid;place-items:center;font-weight:700}
@@ -97,7 +102,7 @@ const OAUTH_CONSENT_DOCUMENT_TEMPLATE = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{pageTitle}}</title><style>{{css}}</style></head>
 <body><main class="oauth-shell"><section class="oauth-card">
-<header class="oauth-top"><div class="oauth-app"><span class="oauth-mark" aria-hidden="true">P</span><span><strong>{{clientName}}</strong><small>{{clientSubtitle}}</small></span></div>
+<header class="oauth-top"><div class="oauth-app"><span class="oauth-mark" aria-label="{{resourceName}}">{{resourceIcon}}</span><span><strong>{{resourceName}}</strong><small>{{clientName}} {{clientSubtitle}}</small></span></div>{{resourceDescription}}
 <div class="oauth-hero"><h1>Allow this connection?</h1><p>{{description}}</p><div class="oauth-identity"><span class="oauth-avatar" aria-hidden="true">{{avatar}}</span><span><strong>{{subject}}</strong><small>{{subjectSubtitle}}</small></span></div>{{cimdBadge}}</div></header>
 <form method="post" action="{{formAction}}" class="oauth-content"><div class="oauth-section-head"><h2>Access requested</h2>{{editControl}}</div>
 <div class="oauth-summary"><span><b>{{scopeSummary}}</b></span><span aria-hidden="true">ⓘ</span></div>{{scopeContent}}
@@ -142,14 +147,17 @@ function humanizeScope(value: string): OAuthConsentScope {
 }
 
 export function createOAuthConsentViewModel(input: OAuthConsentInput): OAuthConsentViewModel {
+  const resourceName = input.resourceName ?? 'Photon';
   return {
     pageTitle: `Connect ${input.clientName}`,
     clientName: input.clientName,
-    clientSubtitle: input.clientSubtitle ?? 'wants to connect to Photon',
-    resourceName: input.resourceName ?? 'Photon',
+    resourceName,
+    resourceIcon: input.resourceIcon ?? '⚡',
+    resourceDescription: input.resourceDescription ?? '',
+    clientSubtitle: input.clientSubtitle ?? 'wants to connect',
     description:
       input.description ??
-      `Review the access ${input.clientName} will have to your Photon account.`,
+      `Review the access ${input.clientName} will have to your ${resourceName} account.`,
     subject: input.subject ?? 'Authenticated account',
     subjectSubtitle: input.subjectSubtitle ?? 'Signed-in account',
     cimdUrl: input.cimdUrl,
@@ -224,6 +232,11 @@ function renderDocument(model: OAuthConsentViewModel, css: string): string {
     pageTitle: escapeHtml(model.pageTitle),
     clientName: escapeHtml(model.clientName),
     clientSubtitle: escapeHtml(model.clientSubtitle),
+    resourceName: escapeHtml(model.resourceName),
+    resourceIcon: escapeHtml(model.resourceIcon),
+    resourceDescription: model.resourceDescription
+      ? `<p class="oauth-resource-description">${escapeHtml(model.resourceDescription)}</p>`
+      : '',
     description: escapeHtml(model.description),
     subject: escapeHtml(model.subject),
     subjectSubtitle: escapeHtml(model.subjectSubtitle),
@@ -283,7 +296,7 @@ function ${functionName}(model) {
   const editControl = '';
   let html = photonOAuthConsentDocument;
   const values = {
-    pageTitle: ${functionName}Escape(model.pageTitle), clientName: ${functionName}Escape(model.clientName), clientSubtitle: ${functionName}Escape(model.clientSubtitle), description: ${functionName}Escape(model.description), subject: ${functionName}Escape(model.subject), subjectSubtitle: ${functionName}Escape(model.subjectSubtitle), avatar: ${functionName}Escape((String(model.subject || '').charAt(0).toUpperCase() || 'A')), cimdBadge: model.cimd ? '<span class="oauth-cimd">Hosted metadata: ' + ${functionName}Escape(model.cimd) + '</span>' : '', formAction: ${functionName}Escape(model.formAction), editControl, scopeSummary: scopes.length ? scopes.length + ' permission' + (scopes.length === 1 ? '' : 's') + ' requested' : 'No permissions requested', scopeContent, hiddenFields, decisionField: ${functionName}Escape(model.decisionField), approveValue: ${functionName}Escape(model.approveValue), denyValue: ${functionName}Escape(model.denyValue), css: ${functionName}Css(photonOAuthConsentCss + '\\n' + (model.customCss || ''))
+    pageTitle: ${functionName}Escape(model.pageTitle), clientName: ${functionName}Escape(model.clientName), clientSubtitle: ${functionName}Escape(model.clientSubtitle || 'wants to connect'), resourceName: ${functionName}Escape(model.resourceName || 'Photon'), resourceIcon: ${functionName}Escape(model.resourceIcon || '⚡'), resourceDescription: model.resourceDescription ? '<p class="oauth-resource-description">' + ${functionName}Escape(model.resourceDescription) + '</p>' : '', description: ${functionName}Escape(model.description), subject: ${functionName}Escape(model.subject), subjectSubtitle: ${functionName}Escape(model.subjectSubtitle), avatar: ${functionName}Escape((String(model.subject || '').charAt(0).toUpperCase() || 'A')), cimdBadge: model.cimd ? '<span class="oauth-cimd">Hosted metadata: ' + ${functionName}Escape(model.cimd) + '</span>' : '', formAction: ${functionName}Escape(model.formAction), editControl, scopeSummary: scopes.length ? scopes.length + ' permission' + (scopes.length === 1 ? '' : 's') + ' requested' : 'No permissions requested', scopeContent, hiddenFields, decisionField: ${functionName}Escape(model.decisionField), approveValue: ${functionName}Escape(model.approveValue), denyValue: ${functionName}Escape(model.denyValue), css: ${functionName}Css(photonOAuthConsentCss + '\\n' + (model.customCss || ''))
   };
   for (const key of Object.keys(values)) html = ${functionName}Replace(html, key, values[key]);
   return html;

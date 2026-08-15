@@ -9,7 +9,10 @@ describe('shared OAuth consent presentation', () => {
   it('renders the local consent form with escaped model values and preserved fields', () => {
     const model = createOAuthConsentViewModel({
       clientName: '<Assistant>',
-      clientSubtitle: 'wants to connect to <Photon>',
+      clientSubtitle: 'wants to connect',
+      resourceName: '<Consult Arul>',
+      resourceIcon: '🗓️',
+      resourceDescription: 'Book a focused consultation with Arul.',
       description: 'Review <access> & permissions.',
       subject: 'user@example.test',
       cimdUrl: 'https://client.example.test/metadata',
@@ -27,6 +30,10 @@ describe('shared OAuth consent presentation', () => {
 
     expect(html).toContain('oauth-card');
     expect(html).toContain('&lt;Assistant&gt;');
+    expect(html).toContain('&lt;Consult Arul&gt;');
+    expect(html).toContain('aria-label="&lt;Consult Arul&gt;"');
+    expect(html).toContain('🗓️');
+    expect(html).toContain('Book a focused consultation with Arul.');
     expect(html).toContain('name="req" value="tx-1"');
     expect(html).toContain('name="decision" value="approve"');
     expect(html).toContain('name="decision" value="deny"');

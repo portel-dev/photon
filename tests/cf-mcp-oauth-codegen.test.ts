@@ -22,7 +22,12 @@ async function generate(
   await writeFile(
     photonPath,
     `
-${options.authTag ? `/** ${options.authTag} */` : options.authMode ? `/** @auth oauth ${options.authMode} */` : ''}
+/**
+ * @label Consult Arul
+ * @icon 🗓️
+ * @description Book a focused consultation with Arul.
+${options.authTag ? ` * ${options.authTag}` : options.authMode ? ` * @auth oauth ${options.authMode}` : ''}
+ */
 export default class Appointments {
   get role() { return this.caller.anonymous ? 'user' : 'host'; }
 
@@ -107,7 +112,13 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain("pathname === '/oauth/login'");
     expect(generated.worker).toContain('PHOTON_MCP_OAUTH_HOST_SUBJECTS');
     expect(generated.worker).toContain('Cf-Access-Authenticated-User-Email');
-    expect(generated.worker).toContain('wants to connect to Photon');
+    expect(generated.worker).toContain('const MCP_OAUTH_PHOTON_DISPLAY_NAME = "Consult Arul"');
+    expect(generated.worker).toContain('const MCP_OAUTH_PHOTON_ICON = "🗓️"');
+    expect(generated.worker).toContain(
+      'const MCP_OAUTH_PHOTON_DESCRIPTION = "Book a focused consultation with Arul."'
+    );
+    expect(generated.worker).toContain("clientSubtitle: 'wants to connect'");
+    expect(generated.worker).toContain('resourceName: MCP_OAUTH_PHOTON_DISPLAY_NAME');
     expect(generated.worker).toContain('photonOAuthConsentScopeRow');
     expect(generated.worker).toContain('name=\\"{{scopeField}}\\"');
     expect(generated.worker).toContain('.oauth-card');

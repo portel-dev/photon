@@ -3666,6 +3666,7 @@ export class PhotonServer {
       });
       if (this.mcp?.authDirective?.scheme === 'oauth') {
         const { PhotonOAuthRuntime } = await import('./auth/runtime-oauth.js');
+        const photonDisplayMeta = this.mcp as PhotonClassWithMeta & { label?: string };
         const photonSource = await readText(this.options.filePath);
         const oauthStylesheets = await resolvePhotonStylesheetAssets(
           this.options.filePath,
@@ -3679,6 +3680,9 @@ export class PhotonServer {
         this.oauthRuntime = new PhotonOAuthRuntime({
           baseUrl: publicBase,
           photonName,
+          photonDisplayName: photonDisplayMeta.label,
+          photonIcon: this.mcp?.icon,
+          photonDescription: this.mcp?.description,
           devMode: this.devMode,
           oauthCustomCss,
           scopesSupported: Array.from(

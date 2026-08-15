@@ -103,6 +103,12 @@ export interface EndpointConfig {
   clientIdleTtlMs: number;
   /** PHOTON_SINGLE_USER self-host mode: always treat caller as this user id. */
   singleUserId?: string;
+  /** Display name shown as the OAuth resource being connected. */
+  resourceName?: string;
+  /** Display icon shown beside the OAuth resource name. */
+  resourceIcon?: string;
+  /** Optional Photon description shown on the OAuth consent page. */
+  resourceDescription?: string;
   /** Optional Photon-owned CSS appended after the safe OAuth defaults. */
   oauthCustomCss?: string;
 }
@@ -488,9 +494,11 @@ async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<
       renderOAuthConsentPage(
         createOAuthConsentViewModel({
           clientName: client?.clientName ?? pending.clientId,
-          clientSubtitle: `wants to connect to ${deps.tenant.name}`,
-          resourceName: deps.tenant.name,
-          description: `Review the access ${client?.clientName ?? pending.clientId} will have to your ${deps.tenant.name} account.`,
+          clientSubtitle: 'wants to connect',
+          resourceName: deps.config.resourceName ?? deps.tenant.name,
+          resourceIcon: deps.config.resourceIcon,
+          resourceDescription: deps.config.resourceDescription,
+          description: `Review the access ${client?.clientName ?? pending.clientId} will have to your ${deps.config.resourceName ?? deps.tenant.name} account.`,
           subject: pending.userId,
           subjectSubtitle: 'Signed-in account',
           cimdUrl: client?.cimdUrl,

@@ -55,6 +55,9 @@ const TEST_CONFIG: EndpointConfig = {
   authorizeUrl: 'https://serv.test/authorize',
   consentUrl: 'https://serv.test/consent',
   loginUrl: 'https://serv.test/login',
+  resourceName: 'Consult Arul',
+  resourceIcon: '🗓️',
+  resourceDescription: 'Book a focused consultation with Arul.',
   oauthCustomCss: '.oauth-mark{--tenant-brand:tomato}',
 };
 
@@ -634,6 +637,9 @@ async function testConsent() {
     assert.equal(res.status, 200);
     assert.match(res.headers['Content-Type'], /html/);
     assert.match(res.body, /Test Client/);
+    assert.match(res.body, /Consult Arul/);
+    assert.match(res.body, /🗓️/);
+    assert.match(res.body, /Book a focused consultation with Arul\./);
     assert.match(res.body, /Access requested/);
     assert.match(res.body, /Allow access/);
     assert.match(res.body, /Cancel/);

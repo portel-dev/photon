@@ -15,6 +15,12 @@ import { renderOAuthConsentRuntimeSource } from '../../serv/auth/oauth-consent.j
 
 export interface CloudflareMcpOAuthCodegenOptions {
   photonName: string;
+  /** Display name shown as the OAuth resource being connected. */
+  photonDisplayName?: string;
+  /** Display icon shown beside the Photon name. */
+  photonIcon?: string;
+  /** Optional Photon description shown on the OAuth consent page. */
+  photonDescription?: string;
   scopes: string[];
   /** Stable canonical issuer/resource origin for RFC 8414 and RFC 8707. */
   issuer: string;
@@ -114,6 +120,9 @@ export function injectCloudflareMcpOAuth(
 function renderRuntime(options: CloudflareMcpOAuthCodegenOptions): string {
   const scopes = JSON.stringify(options.scopes);
   const photonName = JSON.stringify(options.photonName);
+  const photonDisplayName = JSON.stringify(options.photonDisplayName ?? options.photonName);
+  const photonIcon = JSON.stringify(options.photonIcon ?? '⚡');
+  const photonDescription = JSON.stringify(options.photonDescription ?? '');
   const issuer = JSON.stringify(options.issuer);
   const consentRuntime = renderOAuthConsentRuntimeSource();
   const oauthCustomCss = JSON.stringify(options.oauthCustomCss ?? '');
@@ -124,6 +133,9 @@ function renderRuntime(options: CloudflareMcpOAuthCodegenOptions): string {
 
 const MCP_OAUTH_DEFAULT_SCOPES: string[] = ${scopes};
 const MCP_OAUTH_PHOTON_NAME = ${photonName};
+const MCP_OAUTH_PHOTON_DISPLAY_NAME = ${photonDisplayName};
+const MCP_OAUTH_PHOTON_ICON = ${photonIcon};
+const MCP_OAUTH_PHOTON_DESCRIPTION = ${photonDescription};
 const MCP_OAUTH_ISSUER = ${issuer};
 const MCP_OAUTH_AUTH_MODE = ${JSON.stringify(options.oauthAuthMode)};
 const MCP_OAUTH_ACCESS_TTL = 15 * 60;
@@ -508,9 +520,11 @@ async function photonOAuthConsentPage(tx: any): Promise<Response> {
   return photonOAuthHtml(200, photonOAuthRenderConsent({
     pageTitle: 'Connect ' + String(tx.clientName ?? tx.clientId),
     clientName: String(tx.clientName ?? tx.clientId),
-    clientSubtitle: 'wants to connect to Photon',
-    resourceName: 'Photon',
-    description: 'Review the access ' + String(tx.clientName ?? tx.clientId) + ' will have to your Photon account.',
+    clientSubtitle: 'wants to connect',
+    resourceName: MCP_OAUTH_PHOTON_DISPLAY_NAME,
+    resourceIcon: MCP_OAUTH_PHOTON_ICON,
+    resourceDescription: MCP_OAUTH_PHOTON_DESCRIPTION,
+    description: 'Review the access ' + String(tx.clientName ?? tx.clientId) + ' will have to your ' + MCP_OAUTH_PHOTON_DISPLAY_NAME + ' account.',
     subject: String(tx.name ?? tx.sub ?? 'Authenticated account'),
     subjectSubtitle: 'Signed-in account',
     scopes: scopeValues,

@@ -42,6 +42,9 @@ export class PhotonOAuthRuntime {
   constructor(options: {
     baseUrl: string;
     photonName: string;
+    photonDisplayName?: string;
+    photonIcon?: string;
+    photonDescription?: string;
     devMode?: boolean;
     scopesSupported?: string[];
     oauthCustomCss?: string;
@@ -120,6 +123,9 @@ export class PhotonOAuthRuntime {
       endpointConfig: {
         loginUrl,
         singleUserId: this.singleUserId,
+        resourceName: options.photonDisplayName ?? options.photonName,
+        resourceIcon: options.photonIcon,
+        resourceDescription: options.photonDescription,
         oauthCustomCss: options.oauthCustomCss,
       },
     });
