@@ -81,7 +81,7 @@ body{margin:0;min-height:100vh;background:var(--oauth-bg);font:15px/1.45 Inter,u
 .oauth-content{border-top:1px solid var(--oauth-line);padding:22px 30px 26px}
 .oauth-section-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.oauth-section-head h2{font-size:14px;margin:0}
 .oauth-summary{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:13px 14px;border:1px solid var(--oauth-line);border-radius:10px;color:var(--oauth-muted);font-size:13px}.oauth-summary b{color:var(--oauth-ink);font-weight:650}
-.oauth-permissions{margin-top:10px}.oauth-permissions summary{cursor:pointer;color:var(--oauth-accent);font-size:12px;font-weight:650;padding:4px 0}
+.oauth-permissions{margin-top:10px}.oauth-permissions summary{cursor:pointer;color:var(--oauth-accent);font-size:12px;font-weight:650;padding:4px 0}.oauth-permissions>div{max-height:min(42vh,360px);overflow-y:auto;padding-right:6px;scrollbar-gutter:stable;overscroll-behavior:contain}
 .oauth-permission{display:grid;grid-template-columns:20px 1fr;gap:10px;align-items:start;padding:12px 0;border-bottom:1px solid var(--oauth-line);cursor:pointer}
 .oauth-permission input{position:absolute;opacity:0}.oauth-check{width:18px;height:18px;border:1px solid #b9bfca;border-radius:5px;position:relative}
 .oauth-permission input:checked+.oauth-check{background:var(--oauth-accent);border-color:var(--oauth-accent)}
