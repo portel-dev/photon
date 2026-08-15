@@ -21,6 +21,8 @@ import {
   backfillEnvDefaults,
 } from './class-metadata.js';
 import { saveConfig } from './config.js';
+import { browserInvocableMethodNames, extractApplicationManifest } from '../app-manifest.js';
+import { contractsForTools } from '../../capability-contract.js';
 import type { AnyPhotonInfo, PhotonInfo, MethodInfo, ConfigParam } from '../types.js';
 import type { PhotonConfig } from './types.js';
 import type { PhotonClassWithMeta } from '../../types/server-types.js';
@@ -164,6 +166,14 @@ export async function configurePhotonViaMCP(
 
     const mainMethod = methods.find((m) => m.name === 'main') ?? methods.find((m) => m.linkedUi);
     const classMeta = extractClassMetadataFromSource(configSource);
+    const browserMethods = browserInvocableMethodNames(contractsForTools((mcp.tools || []) as any));
+    const appManifest = extractApplicationManifest(methods, {
+      entry: mainMethod?.name,
+      settings: !!mcp.settingsSchema?.hasSettings,
+      name: classMeta.label,
+      autoScreens: true,
+      browserInvocableMethods: browserMethods,
+    });
 
     const configuredPhoton: PhotonInfo = {
       id: generatePhotonId(targetPhoton.path),
@@ -173,6 +183,7 @@ export async function configurePhotonViaMCP(
       methods,
       isApp: !!mainMethod,
       appEntry: mainMethod,
+      ...(appManifest ? { appManifest } : {}),
       assets: mcp.assets,
       description: classMeta.description,
       icon: classMeta.icon,
@@ -260,6 +271,14 @@ export async function reloadPhotonViaMCP(
 
     const mainMethod = methods.find((m) => m.name === 'main') ?? methods.find((m) => m.linkedUi);
     const reloadClassMeta = extractClassMetadataFromSource(reloadSrc);
+    const browserMethods = browserInvocableMethodNames(contractsForTools((mcp.tools || []) as any));
+    const appManifest = extractApplicationManifest(methods, {
+      entry: mainMethod?.name,
+      settings: !!mcp.settingsSchema?.hasSettings,
+      name: reloadClassMeta.label,
+      autoScreens: true,
+      browserInvocableMethods: browserMethods,
+    });
 
     const reloadedPhoton: PhotonInfo = {
       id: generatePhotonId(photonPath),
@@ -269,6 +288,7 @@ export async function reloadPhotonViaMCP(
       methods,
       isApp: !!mainMethod,
       appEntry: mainMethod,
+      ...(appManifest ? { appManifest } : {}),
       description: reloadClassMeta.description,
       icon: reloadClassMeta.icon,
       internal: reloadClassMeta.internal,

@@ -1,3 +1,5 @@
+import type { CapabilityContractV1 } from '../capability-contract.js';
+
 export interface ApplicationScreen {
   id: string;
   method: string;
@@ -35,17 +37,36 @@ export interface ApplicationManifestOptions {
   name?: string;
   /** Derive navigable screens from ordinary methods when no @ui screen exists. */
   autoScreens?: boolean;
+  /**
+   * Methods that the current host may invoke through the existing MCP surface.
+   * When supplied, automatic screens are limited to this set. Explicit @ui
+   * screens remain unchanged and continue through their existing host path.
+   */
+  browserInvocableMethods?: ReadonlySet<string>;
 }
 
 const LIFECYCLE_METHODS = new Set(['onInitialize', 'onShutdown', 'constructor']);
 const NON_SCREEN_METHODS = new Set(['_use', '_instances', 'settings']);
 
-function isGeneratedScreenMethod(method: ApplicationManifestMethod): boolean {
+function isGeneratedScreenMethod(
+  method: ApplicationManifestMethod,
+  browserInvocableMethods?: ReadonlySet<string>
+): boolean {
   if (LIFECYCLE_METHODS.has(method.name) || NON_SCREEN_METHODS.has(method.name)) return false;
   if (method.internal || method.isTemplate || method.scheduled || method.webhook) return false;
   if (method.description && /@internal\b/i.test(method.description)) return false;
   if (method.visibility && !method.visibility.includes('app')) return false;
+  if (browserInvocableMethods && !browserInvocableMethods.has(method.name)) return false;
   return true;
+}
+
+/** Return the methods the existing MCP host can invoke for a capability set. */
+export function browserInvocableMethodNames(
+  contracts: ReadonlyArray<Pick<CapabilityContractV1, 'name' | 'exposure'>>
+): ReadonlySet<string> {
+  return new Set(
+    contracts.filter((contract) => contract.exposure.has('mcp')).map((contract) => contract.name)
+  );
 }
 
 function generatedScreenLabel(method: ApplicationManifestMethod): string {
@@ -92,9 +113,15 @@ export function extractApplicationManifest(
   const entry = options?.entry || methods.find((method) => method.name === 'main')?.name;
 
   if (options?.autoScreens && screens.length === 0) {
-    const generatedMethods = methods.filter(isGeneratedScreenMethod);
+    const generatedMethods = methods.filter((method) =>
+      isGeneratedScreenMethod(method, options.browserInvocableMethods)
+    );
     const entryMethod = entry
-      ? methods.find((method) => method.name === entry && isGeneratedScreenMethod(method))
+      ? methods.find(
+          (method) =>
+            method.name === entry &&
+            isGeneratedScreenMethod(method, options.browserInvocableMethods)
+        )
       : undefined;
 
     if (entryMethod) {

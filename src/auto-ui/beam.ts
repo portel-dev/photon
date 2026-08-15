@@ -27,7 +27,9 @@ import { fileURLToPath } from 'url';
 import { createHash, randomUUID } from 'crypto';
 import { extractA2AHandler, extractA2ASkills } from '../a2a/handler.js';
 import type { A2AEvent, A2AMessage, A2AInvocationContext } from '../a2a/types.js';
-import { extractApplicationManifest } from './app-manifest.js';
+import { browserInvocableMethodNames, extractApplicationManifest } from './app-manifest.js';
+import { contractsForTools } from '../capability-contract.js';
+import { generateStandaloneWebShell } from './standalone-web/app-shell.js';
 import {
   setSecurityHeaders,
   SimpleRateLimiter,
@@ -155,6 +157,7 @@ export function shouldBypassBeamServiceWorkerNavigation(pathname: string): boole
     pathname.startsWith('/web/') ||
     pathname === '/sw.js' ||
     pathname === '/beam.bundle.js' ||
+    pathname === '/photon-form.bundle.js' ||
     pathname === '/beam-form.bundle.js' ||
     pathname === '/beam-ts-worker.js'
   );
@@ -1274,10 +1277,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Extract class-level metadata — reuse source already read
       const classMetadata = extractClassMetadataFromSource(schemaSource);
       const mainMethod = methods.find((m) => m.name === 'main') ?? methods.find((m) => m.linkedUi);
+      const browserMethods = browserInvocableMethodNames(
+        contractsForTools((mcp.tools || []) as any)
+      );
       const appManifest = extractApplicationManifest(methods, {
         entry: mainMethod?.name,
         settings: !!mcp.settingsSchema?.hasSettings,
         name: classMetadata.label,
+        autoScreens: true,
+        browserInvocableMethods: browserMethods,
       });
 
       // Extract class-level @csp metadata and apply to all UI assets.
@@ -2119,10 +2127,22 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       // Serve form components bundle (invoke-form + custom inputs for pure-view)
-      if (url.pathname === '/beam-form.bundle.js') {
+      if (url.pathname === '/photon-form.bundle.js' || url.pathname === '/beam-form.bundle.js') {
         try {
-          const formBundlePath = path.join(__dirname, '../../dist/beam-form.bundle.js');
-          const content = await readText(formBundlePath);
+          const bundleNames =
+            url.pathname === '/photon-form.bundle.js'
+              ? ['photon-form.bundle.js', 'beam-form.bundle.js']
+              : ['beam-form.bundle.js', 'photon-form.bundle.js'];
+          let content: string | undefined;
+          for (const bundleName of bundleNames) {
+            try {
+              content = await readText(path.join(__dirname, '../../dist', bundleName));
+              break;
+            } catch {
+              // Try the compatibility filename when the canonical bundle is unavailable.
+            }
+          }
+          if (content === undefined) throw new Error('form bundle unavailable');
           res.writeHead(200, {
             'Content-Type': 'text/javascript',
             'Cache-Control': 'no-cache',
@@ -2182,6 +2202,27 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           (c: string) =>
             ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] || c
         );
+
+        // Automatic screens use the same /app host path, but only when the
+        // photon has no explicit @ui entry. Explicit @ui remains the source of
+        // truth and continues through the iframe/bridge host below.
+        const hasExplicitUi =
+          photon.configured && photon.methods.some((method) => Boolean(method.linkedUi));
+        if (photon.configured && photon.appManifest && !hasExplicitUi) {
+          const generatedShell = generateStandaloneWebShell({
+            photonName,
+            title: label,
+            description,
+            icon: iconValue,
+            manifest: photon.appManifest,
+          });
+          res.writeHead(200, {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          });
+          res.end(generatedShell);
+          return;
+        }
 
         const html = `<!DOCTYPE html>
 <html lang="en">
@@ -3439,10 +3480,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               // Extract class metadata from source
               const reloadClassMeta = extractClassMetadataFromSource(reloadSource);
               const mainMethod = methods.find((m) => m.name === 'main');
+              const browserMethods = browserInvocableMethodNames(
+                contractsForTools((mcp.tools || []) as any)
+              );
               const appManifest = extractApplicationManifest(methods, {
                 entry: mainMethod?.name,
                 settings: !!mcp.settingsSchema?.hasSettings,
                 name: reloadClassMeta.label,
+                autoScreens: true,
+                browserInvocableMethods: browserMethods,
               });
 
               // Extract constructor params for reconfiguration support
