@@ -28,6 +28,14 @@ import type { PhotonAuthIssuer } from '../auth/mcp-jwt.js';
 import { extractPhotonAuthDirectiveFromSource } from '../auth/directive.js';
 import { buildPhotonRenderMeta } from '../auto-ui/types.js';
 import { resolvePhotonStylesheetAssets } from '../auto-ui/stylesheet-assets.js';
+import {
+  browserInvocableMethodNames,
+  extractApplicationManifest,
+} from '../auto-ui/app-manifest.js';
+import { generateStandaloneWebShell } from '../auto-ui/standalone-web/app-shell.js';
+import { extractClassMetadataFromSource } from '../auto-ui/beam/class-metadata.js';
+import { contractsForTools } from '../capability-contract.js';
+import { generateRenderersScript } from '../auto-ui/bridge/renderers.js';
 import { ResourceServer } from '../resource-server.js';
 import { cleanMcpToolDescription } from '../shared/mcp-tool-metadata.js';
 import {
@@ -211,6 +219,38 @@ async function collectAssetFiles(root: string, prefix = ''): Promise<Record<stri
     result[key] = readFileSync(absolute).toString('base64');
   }
   return result;
+}
+
+/**
+ * Read the browser runtimes used by the generated standalone shell. These
+ * files are built as part of Photon itself, so the deployed Worker never
+ * needs a public CDN or a runtime package install to render forms/results.
+ */
+async function readCanonicalWebAssets(packageRoot: string): Promise<Record<string, string>> {
+  const formCandidates = [
+    path.join(packageRoot, 'dist', 'photon-form.bundle.js'),
+    path.join(packageRoot, 'dist', 'beam-form.bundle.js'),
+  ];
+  let formBundle: string | undefined;
+  for (const candidate of formCandidates) {
+    try {
+      formBundle = await fs.readFile(candidate, 'utf8');
+      break;
+    } catch {
+      // Try the compatibility filename when the canonical bundle is absent.
+    }
+  }
+  if (!formBundle) {
+    throw new Error(
+      'Photon standalone web assets are unavailable. Run `npm run build` before deploying to Cloudflare.'
+    );
+  }
+
+  return {
+    'photon-form.bundle.js': formBundle,
+    'beam-form.bundle.js': formBundle,
+    'api/photon-renderers.js': generateRenderersScript(),
+  };
 }
 
 /**
@@ -1040,6 +1080,57 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       return toolDef;
     });
 
+  // The generated web shell is deliberately a composition hint, not a
+  // second tool catalog. Build its navigation from the canonical capability
+  // contracts, then let the shell reconcile that manifest with this caller's
+  // runtime `tools/list` response. Access/role filtering therefore remains a
+  // Worker/MCP concern rather than becoming deploy-time HTML state.
+  const manifestTools = (metadata.tools as any[]).filter(
+    (tool) => !routeHandlerNames.has(tool.name)
+  );
+  const browserInvocableMethods = browserInvocableMethodNames(
+    contractsForTools(manifestTools as any)
+  );
+  const manifestMethods = manifestTools.map((tool: any) => ({
+    name: tool.name,
+    description: cleanMcpToolDescription(tool.description),
+    ...(uiByTool.has(tool.name) ? { linkedUi: uiByTool.get(tool.name) } : {}),
+    ...(tool.title ? { title: tool.title } : {}),
+    ...(tool.buttonLabel ? { buttonLabel: tool.buttonLabel } : {}),
+    ...(tool.icon ? { icon: tool.icon } : {}),
+    ...(tool.internal ? { internal: true } : {}),
+    ...(tool.isTemplate ? { isTemplate: true } : {}),
+    ...(tool.scheduled ? { scheduled: tool.scheduled } : {}),
+    ...(tool.webhook ? { webhook: tool.webhook } : {}),
+    ...(tool.visibility ? { visibility: tool.visibility } : {}),
+  }));
+  const classMetadata = extractClassMetadataFromSource(sourceCode);
+  const appEntry =
+    manifestMethods.find((method) => method.name === 'main')?.name ||
+    manifestMethods.find((method) => method.linkedUi)?.name;
+  const appManifest = extractApplicationManifest(manifestMethods, {
+    entry: appEntry,
+    settings: (metadata as any).settingsSchema?.hasSettings === true,
+    name: classMetadata.label,
+    autoScreens: true,
+    browserInvocableMethods,
+  });
+  const hasExplicitHttpRoot = routeDefs.some(
+    (route) => route.method === 'GET' && route.path === '/'
+  );
+  const hasCustomUi = (hostAssets?.ui?.length ?? 0) > 0;
+  const standaloneWebShell =
+    appManifest && !hasExplicitHttpRoot && !hasCustomUi
+      ? generateStandaloneWebShell({
+          photonName,
+          title: classMetadata.label || photonName,
+          description: classMetadata.description,
+          icon: classMetadata.icon,
+          manifest: appManifest,
+          browserInvocableMethods,
+        })
+      : undefined;
+
   const declaredOAuthMode = parseCloudflareOAuthAuthMode(sourceCode);
   // An explicit CLI value is authoritative. When it is omitted, the
   // class-level Photon contract can opt the generated Worker into OAuth.
@@ -1166,6 +1257,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     accessClassImports: string[];
     /** Embedded MCP App UI assets for this photon. */
     uiAssets: Array<{ id: string; file?: string }>;
+    /** Generated secure web shell, present only when no explicit web UI wins. */
+    standaloneWebShell?: string;
   };
 
   function nameToImportSymbol(n: string): string {
@@ -1201,6 +1294,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
         id: ui.id,
         file: ui.resolvedPath ? path.basename(ui.resolvedPath) : undefined,
       })),
+      standaloneWebShell,
     },
   ];
 
@@ -1276,6 +1370,14 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const packageRoot = getPackageRoot();
   const templatePath = path.join(packageRoot, 'templates', 'cloudflare', 'worker.ts.template');
   let workerCode = await fs.readFile(templatePath, 'utf-8');
+  const standaloneWebShells = Object.fromEntries(
+    photons
+      .filter((photon) => photon.standaloneWebShell)
+      .map((photon) => [photon.name, photon.standaloneWebShell])
+  );
+  const canonicalWebAssets = Object.keys(standaloneWebShells).length
+    ? await readCanonicalWebAssets(packageRoot)
+    : {};
 
   const photonImports = photons
     .map(
@@ -1312,6 +1414,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .replace(/__PHOTON_IMPORTS__/g, photonImports)
     .replace(/__PHOTON_BINDINGS_MAP__/g, photonBindingsMap)
     .replace(/__PHOTON_UI_ASSETS__/g, photonUiAssets)
+    .replace(/__STANDALONE_WEB_SHELLS__/g, () => JSON.stringify(standaloneWebShells))
+    .replace(/__CANONICAL_WEB_ASSETS__/g, () => JSON.stringify(canonicalWebAssets))
     .replace(/__PHOTON_DO_CLASSES__/g, photonDoClasses)
     .replace(/__HOST_PHOTON_NAME__/g, photonName)
     .replace(/__HOST_BINDING__/g, 'PHOTON')

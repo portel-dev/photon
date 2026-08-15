@@ -46,6 +46,13 @@ function negotiateMCPProtocolVersion(requested: unknown): string {
 const PHOTON_BINDINGS: Record<string, string> = __PHOTON_BINDINGS_MAP__;
 const PHOTON_UI_ASSETS: Record<string, Array<{ id: string; file?: string }>> = __PHOTON_UI_ASSETS__;
 
+/** Generated standalone shells keyed by photon name. Empty when an explicit
+ * HTTP root or custom @ui owns the web surface. */
+const STANDALONE_WEB_SHELLS: Record<string, string> = __STANDALONE_WEB_SHELLS__;
+
+/** Canonical Photon browser runtimes embedded by deploy-time codegen. */
+const CANONICAL_WEB_ASSETS: Record<string, string> = __CANONICAL_WEB_ASSETS__;
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
@@ -1363,6 +1370,23 @@ function uiResource(photonName: string, asset: { id: string; file?: string }): a
   };
 }
 
+function canonicalWebAssetResponse(pathname: string): Response | undefined {
+  const content = CANONICAL_WEB_ASSETS[pathname];
+  if (content === undefined) return undefined;
+  const contentType = pathname.endsWith('.css')
+    ? 'text/css; charset=utf-8'
+    : pathname.endsWith('.js')
+      ? 'text/javascript; charset=utf-8'
+      : 'application/octet-stream';
+  return new Response(content, {
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      ...CORS_HEADERS,
+    },
+  });
+}
+
 /**
  * Match a request against the `@get`/`@post` route table. Two passes:
  * exact paths first (cheaper, also gives them precedence over patterns
@@ -1627,6 +1651,25 @@ abstract class BasePhotonDO extends DurableObject<Env> {
     this.getPhoton();
     const url = new URL(request.url);
 
+    // The generated standalone shell and its canonical browser runtimes are
+    // same-origin Worker assets. They intentionally do not use a public CDN;
+    // MCP calls below still pass through the normal /mcp auth and capability
+    // checks for this caller.
+    if (request.method === 'GET') {
+      const canonicalAsset = canonicalWebAssetResponse(url.pathname.slice(1));
+      if (canonicalAsset) return canonicalAsset;
+    }
+
+    const standaloneShell = STANDALONE_WEB_SHELLS[this.photonName];
+    if (standaloneShell && request.method === 'GET') {
+      const webPath = `/web/${this.photonName}`;
+      if (url.pathname === webPath || url.pathname === `${webPath}/`) {
+        return new Response(standaloneShell, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...CORS_HEADERS },
+        });
+      }
+    }
+
     // Internal cross-photon call — invoked by sibling DOs via this.call.
     // Not exposed externally (outer Worker doesn't route to this path).
     if (url.pathname === '/__call' && request.method === 'POST') {
@@ -1694,7 +1737,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       const userHomeRoute = this.httpRoutes.find(
         (r) => r.method === 'GET' && r.path === '/'
       );
-      if (wantsJson || !userHomeRoute) {
+      if (wantsJson || (!userHomeRoute && !standaloneShell)) {
         return Response.json(
           {
             name: this.photonName,
@@ -1710,6 +1753,15 @@ abstract class BasePhotonDO extends DurableObject<Env> {
           },
           { headers: CORS_HEADERS }
         );
+      }
+      if (!userHomeRoute && standaloneShell) {
+        return new Response(standaloneShell, {
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            ...CORS_HEADERS,
+          },
+        });
       }
       // Fall through to the tagged HTTP route table (handles `@get /`).
     }
