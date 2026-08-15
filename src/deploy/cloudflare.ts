@@ -5,7 +5,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { execSync, spawn } from 'child_process';
+import { execSync, spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { homedir, tmpdir } from 'node:os';
 import { detectPM, detectRunner } from '../shared-utils.js';
@@ -1848,45 +1848,54 @@ async function promoteLatestCloudflareVersion(
   env: NodeJS.ProcessEnv
 ): Promise<void> {
   logger.info('Confirming the uploaded Cloudflare version is serving traffic...');
-  let versionList: string;
-  try {
-    versionList = execSync(`${detectRunner()} wrangler versions list --name ${photonName} --json`, {
-      cwd: outputDir,
-      encoding: 'utf-8',
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (error) {
-    throw new Error(
-      `could not list Worker versions: ${error instanceof Error ? error.message : String(error)}`
+  let versionList = '';
+  let lastListError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = spawnSync(
+      detectRunner(),
+      ['wrangler', 'versions', 'list', '--name', photonName, '--json'],
+      { cwd: outputDir, encoding: 'utf-8', env }
     );
+    // Wrangler has emitted the JSON payload on either stdout or stderr across
+    // releases. Combine both streams before parsing and retry briefly while a
+    // just-uploaded version becomes visible in the API.
+    versionList = `${result.stdout || ''}\n${result.stderr || ''}`;
+    try {
+      const versionId = selectLatestCloudflareVersion(versionList);
+      logger.info(`Promoting Worker version ${versionId} to 100%...`);
+      await new Promise<void>((resolve, reject) => {
+        const promotion = spawn(
+          detectRunner(),
+          [
+            'wrangler',
+            'versions',
+            'deploy',
+            '--name',
+            photonName,
+            '--version-id',
+            versionId,
+            '--percentage',
+            '100',
+            '--yes',
+          ],
+          { cwd: outputDir, stdio: 'inherit', env }
+        );
+        promotion.on('error', reject);
+        promotion.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`wrangler version promotion failed with exit code ${code}`));
+        });
+      });
+      return;
+    } catch (error) {
+      lastListError = error;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
   }
 
-  const versionId = selectLatestCloudflareVersion(versionList);
-  logger.info(`Promoting Worker version ${versionId} to 100%...`);
-  await new Promise<void>((resolve, reject) => {
-    const promotion = spawn(
-      detectRunner(),
-      [
-        'wrangler',
-        'versions',
-        'deploy',
-        '--name',
-        photonName,
-        '--version-id',
-        versionId,
-        '--percentage',
-        '100',
-        '--yes',
-      ],
-      { cwd: outputDir, stdio: 'inherit', env }
-    );
-    promotion.on('error', reject);
-    promotion.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`wrangler version promotion failed with exit code ${code}`));
-    });
-  });
+  throw new Error(
+    `could not list Worker versions: ${lastListError instanceof Error ? lastListError.message : String(lastListError)}`
+  );
 }
 
 export async function devCloudflare(options: CloudflareDeployOptions): Promise<void> {
