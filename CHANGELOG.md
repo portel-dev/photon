@@ -4,6 +4,15 @@
 
 ### Features
 
+* **mcp:** add release-candidate MCP 2026 stateless Streamable HTTP support with request-scoped discovery, subscriptions, Tasks, JSON Schema 2020-12, OAuth/JWT hardening, and compatibility coverage for MCP 2025 clients
+* **mcp:** add property-based tool exposure, A2A agent cards, and safety metadata for read-only, idempotent, and open/closed-world tools
+* **mcp-apps:** add official MCP Apps resources and bridge support across Beam, local HTTP, and Cloudflare deployments
+* **ui:** add generic MCP App display modes, expandable result surfaces, gallery/lightbox controls, and native result viewers
+
+### Bug Fixes
+
+* **cloudflare:** preserve MCP App resources, render metadata, bridge transport, and promoted deployment versions in generated Workers
+* **beam:** improve MCP App startup, sizing, postMessage transport, and asset rendering
 * **server:** support user-defined WebSocket upgrade routes in the local Photon runtime with a Workers-compatible `WebSocketPair`, a cross-runtime 101 response helper, bidirectional network bridging, shutdown cleanup, and an end-to-end echo regression
 
 ## [1.36.1](https://github.com/portel-dev/photon/compare/v1.36.0...v1.36.1) (2026-07-16)

@@ -16,7 +16,6 @@ if ! command -v bun &>/dev/null; then
   exit 1
 fi
 RUN="bun"
-VITEST="bunx vitest run"
 # bun needs 'bun test' for node:test describe/it, not 'bun file.ts'
 RUN_TEST="bun test"
 
@@ -35,6 +34,10 @@ if [ -z "$NODE_BIN" ]; then
   done
 fi
 NODE_BIN="${NODE_BIN:-$RUN}"
+# Run Vitest under the real Node binary as well. Some integration tests use
+# Node HTTP behavior (including ephemeral ports) that Bun's compatibility
+# wrapper does not reproduce reliably.
+VITEST="$NODE_BIN node_modules/vitest/vitest.mjs run"
 
 # Build first
 echo "━━━ Building ━━━"
@@ -63,6 +66,8 @@ SUITES=(
   "logger:$RUN tests/logger.test.ts"
   "error-handler:$RUN tests/error-handler.test.ts"
   "validation:$RUN tests/validation.test.ts"
+  "access-control:$RUN tests/access-control.test.ts"
+  "agent-native-patterns:$RUN_TEST tests/agent-native-patterns.test.ts"
   "bridge-generation:$RUN tests/bridge/bridge-generation.test.ts"
   "bridge-protocol:$RUN tests/bridge/protocol.test.ts"
   "bridge-integration:$RUN tests/bridge/beam-integration.test.ts"
@@ -136,6 +141,7 @@ SUITES=(
   "version-notify:$RUN tests/version-notify.test.ts"
   "mcp-client-sdk:$RUN tests/mcp-client-sdk.test.ts"
   "mcp-sdk-boundary:$RUN tests/mcp-sdk-boundary.test.ts"
+  "mcp-tool-metadata:$RUN tests/mcp-tool-metadata.test.ts"
   "mcp-documentation:$NODE_BIN --import tsx tests/mcp-documentation.test.ts"
   "schedule-autonomous-fire:$RUN tests/schedule-autonomous-fire.test.ts"
   "schedule-boot-load:$RUN tests/schedule-boot-load.test.ts"
@@ -150,6 +156,9 @@ SUITES=(
   "cf-route-matcher:$VITEST tests/cf-template-route-matcher.test.ts"
   "cf-deploy-codegen:$VITEST tests/cf-deploy-codegen.test.ts"
   "cf-deploy-stale-core:$VITEST tests/cf-deploy-codegen-stale-core.test.ts"
+  "cf-deploy-toml:$VITEST tests/cf-deploy-toml.test.ts"
+  "cf-mcp-jwt:$VITEST tests/cf-mcp-jwt.test.ts"
+  "cf-ui-bridge-codegen:$VITEST tests/cf-ui-bridge-codegen.test.ts"
   "daemon-rpc-contract:$RUN tests/daemon-rpc-contract.test.ts"
   "durable-lines:$RUN tests/durable-lines.test.ts"
   "daemon-parent-watchdog:$RUN tests/daemon-parent-watchdog.test.ts"
@@ -163,6 +172,7 @@ SUITES=(
   "roots:$VITEST tests/roots.test.ts"
   "subscribe-sse-e2e:$VITEST tests/dynamic-resources-subscribe-sse.e2e.test.ts"
   "beam-status-sse:$VITEST tests/beam-status-sse.test.ts"
+  "websocket-upgrade:$VITEST tests/websocket-upgrade.test.ts"
 )
 
 TOTAL=0

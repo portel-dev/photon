@@ -1,6 +1,6 @@
 # MCP compatibility
 
-Photon 1.36.1 supports existing MCP 2025 clients and the MCP `2026-07-28`
+Photon supports existing MCP 2025 clients and the MCP `2026-07-28`
 release-candidate wire protocol. The 2026 support promise applies to
 Streamable HTTP. Local stdio remains on the stable MCP 2025 SDK adapter.
 

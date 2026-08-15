@@ -24,6 +24,15 @@ if [ -z "$RELEASE_TEST_NODE" ]; then
 fi
 RELEASE_TEST_NODE="${RELEASE_TEST_NODE:-node}"
 
+# Ensure package scripts that invoke `tsx` or a `node` shebang use the same
+# genuine Node binary. Some macOS installations place Bun's compatibility
+# wrapper earlier on PATH, which breaks tsx's local IPC transport.
+RELEASE_NODE_DIR=$(dirname "$RELEASE_TEST_NODE")
+case ":$PATH:" in
+  *":$RELEASE_NODE_DIR:"*) ;;
+  *) PATH="$RELEASE_NODE_DIR:$PATH"; export PATH ;;
+esac
+
 echo "═══════════════════════════════════════════════════"
 echo "  Pre-Release Verification"
 echo "═══════════════════════════════════════════════════"
@@ -179,6 +188,16 @@ if [ "${PHOTON_RELEASE_ASSUME_TESTED:-}" = "1" ]; then
 else
   bun run test
   echo "  ✓ Tests pass"
+fi
+echo ""
+
+# Keep the versioned MCP compatibility and conformance gate explicit. It has
+# its own pinned SDKs, official runner, and MCP Apps contract suite.
+if [ "${PHOTON_RELEASE_ASSUME_MCP_TESTED:-}" = "1" ]; then
+  echo "  ✓ MCP release gate already passed in this release session"
+else
+  bun run test:mcp-release
+  echo "  ✓ MCP release gate passes"
 fi
 echo ""
 

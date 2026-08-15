@@ -1,7 +1,8 @@
 # MCP 2026 compatibility release notes
 
-Photon 1.36.1 adds release-candidate support for MCP `2026-07-28` over
-Streamable HTTP while retaining the existing MCP 2025 HTTP and stdio paths.
+The current Photon release adds release-candidate support for MCP `2026-07-28`
+over Streamable HTTP while retaining the existing MCP 2025 HTTP and stdio
+paths.
 
 ## What changed
 
@@ -86,7 +87,7 @@ If a rollout exposes an incompatible client or proxy:
    back:
 
    ```bash
-   bun add -g @portel/photon@1.36.0
+   bun add -g @portel/photon@1.36.1
    ```
 
 4. Restart the Photon HTTP process. Do not delete the Photon state directory;

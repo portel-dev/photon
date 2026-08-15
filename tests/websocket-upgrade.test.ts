@@ -9,14 +9,27 @@ import {
 } from '../src/shared/local-websocket-pair.js';
 
 async function unusedPort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const address = probe.address();
-  const port = typeof address === 'object' && address ? address.port : 0;
-  await new Promise<void>((resolve, reject) => {
-    probe.close((error) => (error ? reject(error) : resolve()));
-  });
-  return port;
+  // Avoid listen(0): some managed macOS environments reject ephemeral-port
+  // allocation even though explicit loopback ports are available.
+  const first = 39000 + (process.pid % 1000);
+  for (let offset = 0; offset < 32; offset++) {
+    const port = first + offset;
+    const probe = createServer();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        probe.once('error', reject);
+        probe.listen(port, '127.0.0.1', () => resolve());
+      });
+      await new Promise<void>((resolve, reject) => {
+        probe.close((error) => (error ? reject(error) : resolve()));
+      });
+      return port;
+    } catch (error: any) {
+      await new Promise<void>((resolve) => probe.close(() => resolve()));
+      if (error?.code !== 'EADDRINUSE') throw error;
+    }
+  }
+  throw new Error('Unable to find an available loopback test port');
 }
 
 describe('Photon local WebSocket routes', () => {

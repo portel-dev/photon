@@ -6,7 +6,8 @@
       "url": "https://raw.githubusercontent.com/portel-dev/photons/main",
       "sourceType": "github",
       "source": "portel-dev/photons",
-      "enabled": true
+      "enabled": true,
+      "lastUpdated": "2026-08-13T15:01:31.847Z"
     },
     {
       "name": "examples",
@@ -14,7 +15,8 @@
       "url": "https://raw.githubusercontent.com/portel-dev/photon-examples/main",
       "sourceType": "github",
       "source": "portel-dev/photon-examples",
-      "enabled": true
+      "enabled": true,
+      "lastUpdated": "2026-08-13T15:01:32.190Z"
     }
   ]
 }
