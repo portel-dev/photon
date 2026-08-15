@@ -83,3 +83,99 @@ test('application manifest composes screens and settings from existing methods',
   assert.equal(manifest?.screens[0].route, 'tasks');
   assert.equal(manifest?.settings, 'settings');
 });
+
+test('application manifest can derive stable screens from ordinary methods', () => {
+  const manifest = extractApplicationManifest(
+    [
+      { name: 'main', icon: '🏠' },
+      { name: 'listTasks', label: 'Tasks', icon: '📋' },
+      { name: 'archive_tasks', title: 'Archive' },
+    ],
+    { autoScreens: true }
+  );
+
+  assert.deepEqual(
+    manifest?.screens.map(({ id, method, label, icon, route }) => ({
+      id,
+      method,
+      label,
+      icon,
+      route,
+    })),
+    [
+      { id: 'home', method: 'main', label: 'Main', icon: '🏠', route: 'main' },
+      { id: 'listTasks', method: 'listTasks', label: 'Tasks', icon: '📋', route: 'listTasks' },
+      {
+        id: 'archive_tasks',
+        method: 'archive_tasks',
+        label: 'Archive',
+        icon: undefined,
+        route: 'archive_tasks',
+      },
+    ]
+  );
+  assert.equal(manifest?.entry, 'main');
+});
+
+test('explicit linked UI screens take precedence over generated screens', () => {
+  const manifest = extractApplicationManifest(
+    [
+      { name: 'main' },
+      { name: 'dashboard', linkedUi: 'dashboard-ui', label: 'Dashboard' },
+      { name: 'listTasks', label: 'Tasks' },
+    ],
+    { autoScreens: true }
+  );
+
+  assert.deepEqual(manifest?.screens, [
+    { id: 'dashboard-ui', method: 'dashboard', label: 'Dashboard', route: 'dashboard-ui' },
+  ]);
+  assert.equal(manifest?.entry, 'main');
+});
+
+test('generated screens exclude lifecycle, internal, scheduled, and app-invisible methods', () => {
+  const manifest = extractApplicationManifest(
+    [
+      { name: 'main' },
+      { name: 'onInitialize' },
+      { name: 'onShutdown' },
+      { name: 'constructor' },
+      { name: 'privateHelper', internal: true },
+      { name: 'documentedHelper', description: 'Helper @internal' },
+      { name: 'nightlyJob', scheduled: '0 0 * * *' },
+      { name: 'webhookHandler', webhook: true },
+      { name: 'modelOnly', visibility: ['model'] },
+      { name: 'appOnly', visibility: ['app'] },
+      { name: 'usable' },
+    ],
+    { autoScreens: true }
+  );
+
+  assert.deepEqual(
+    manifest?.screens.map((screen) => screen.method),
+    ['main', 'appOnly', 'usable']
+  );
+});
+
+test('generated screen labels use existing display metadata before method-name fallback', () => {
+  const manifest = extractApplicationManifest(
+    [
+      { name: 'withTitle', title: 'Title' },
+      { name: 'withLabel', label: 'Label', buttonLabel: 'Button' },
+      { name: 'withButton', buttonLabel: 'Button' },
+      { name: 'withName' },
+    ],
+    { autoScreens: true }
+  );
+
+  assert.deepEqual(
+    manifest?.screens.map((screen) => screen.label),
+    ['Title', 'Label', 'Button', 'With Name']
+  );
+});
+
+test('omitting autoScreens preserves the existing manifest behavior', () => {
+  const manifest = extractApplicationManifest([{ name: 'main' }, { name: 'listTasks' }]);
+
+  assert.deepEqual(manifest?.screens, [{ id: 'home', method: 'main' }]);
+});

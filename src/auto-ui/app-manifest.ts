@@ -14,6 +14,54 @@ export interface ApplicationManifest {
   settings?: string;
 }
 
+export interface ApplicationManifestMethod {
+  name: string;
+  label?: string;
+  icon?: string;
+  linkedUi?: string;
+  title?: string;
+  buttonLabel?: string;
+  description?: string;
+  internal?: boolean;
+  isTemplate?: boolean;
+  scheduled?: string;
+  webhook?: string | boolean;
+  visibility?: Array<'model' | 'app'>;
+}
+
+export interface ApplicationManifestOptions {
+  entry?: string;
+  settings?: boolean;
+  name?: string;
+  /** Derive navigable screens from ordinary methods when no @ui screen exists. */
+  autoScreens?: boolean;
+}
+
+const LIFECYCLE_METHODS = new Set(['onInitialize', 'onShutdown', 'constructor']);
+const NON_SCREEN_METHODS = new Set(['_use', '_instances', 'settings']);
+
+function isGeneratedScreenMethod(method: ApplicationManifestMethod): boolean {
+  if (LIFECYCLE_METHODS.has(method.name) || NON_SCREEN_METHODS.has(method.name)) return false;
+  if (method.internal || method.isTemplate || method.scheduled || method.webhook) return false;
+  if (method.description && /@internal\b/i.test(method.description)) return false;
+  if (method.visibility && !method.visibility.includes('app')) return false;
+  return true;
+}
+
+function generatedScreenLabel(method: ApplicationManifestMethod): string {
+  return (
+    method.title ||
+    method.label ||
+    method.buttonLabel ||
+    method.name
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  );
+}
+
 /**
  * Build the application composition contract consumed by the existing PWA.
  * Business methods remain the source of truth; this only describes navigation.
@@ -22,8 +70,8 @@ export interface ApplicationManifest {
  * and protected settings schema; it introduces no new user-facing tags.
  */
 export function extractApplicationManifest(
-  methods: Array<{ name: string; label?: string; icon?: string; linkedUi?: string }>,
-  options?: { entry?: string; settings?: boolean; name?: string }
+  methods: ApplicationManifestMethod[],
+  options?: ApplicationManifestOptions
 ): ApplicationManifest | undefined {
   const linkedMethods = methods.filter((method) => !!method.linkedUi);
   const screens: ApplicationScreen[] = [];
@@ -42,6 +90,35 @@ export function extractApplicationManifest(
   }
 
   const entry = options?.entry || methods.find((method) => method.name === 'main')?.name;
+
+  if (options?.autoScreens && screens.length === 0) {
+    const generatedMethods = methods.filter(isGeneratedScreenMethod);
+    const entryMethod = entry
+      ? methods.find((method) => method.name === entry && isGeneratedScreenMethod(method))
+      : undefined;
+
+    if (entryMethod) {
+      screens.push({
+        id: 'home',
+        method: entryMethod.name,
+        label: generatedScreenLabel(entryMethod),
+        ...(entryMethod.icon ? { icon: entryMethod.icon } : {}),
+        route: entryMethod.name,
+      });
+    }
+
+    for (const method of generatedMethods) {
+      if (method.name === entryMethod?.name) continue;
+      screens.push({
+        id: method.name,
+        method: method.name,
+        label: generatedScreenLabel(method),
+        ...(method.icon ? { icon: method.icon } : {}),
+        route: method.name,
+      });
+    }
+  }
+
   if (screens.length === 0 && !entry && !options?.settings) return undefined;
 
   if (screens.length === 0 && entry) {
