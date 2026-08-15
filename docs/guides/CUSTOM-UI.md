@@ -14,6 +14,7 @@ Build rich interactive UIs for your photons. A global named after your photon fi
 - [Platform Compatibility](#platform-compatibility)
 - [Window.photon API](#windowphoton-api)
 - [Theming](#theming)
+- [Companion Stylesheets](#companion-stylesheets)
 - [State Management](#state-management)
 - [Tool Invocation](#tool-invocation)
 - [Real-time Updates](#real-time-updates)
@@ -347,6 +348,47 @@ photon.onThemeChange((theme) => {
   :root { /* light theme */ }
 }
 ```
+
+## Companion Stylesheets
+
+Use the Photon companion folder when you want to brand generated interfaces
+without replacing them with a custom `@ui` application:
+
+```text
+consult.photon.ts
+consult/
+  assets/
+    photon.css
+    oauth.css
+    formats/
+      card.css
+      chart-bar.css
+```
+
+- `photon.css` applies to Photon-generated render surfaces.
+- `oauth.css` is appended after Photon's safe OAuth consent defaults, locally
+  and in generated Cloudflare Workers.
+- `formats/<format>.css` keeps renderer-specific rules separate. Colons in
+  format names use a filesystem-safe name (for example `chart-bar.css`); scope
+  those rules with `data-photon-format='chart:bar'`.
+
+Prefer semantic Photon and host tokens over fixed colors. A generated render
+surface exposes `.photon-render-surface`, `data-photon-format`, and, where the
+host supplies it, `data-photon-host`. This keeps customization scoped and lets
+Claude, ChatGPT, Beam, and future hosts continue to control light/dark context.
+
+```css
+.photon-render-surface[data-photon-format='card'] {
+  border-radius: 18px;
+}
+
+.oauth-mark {
+  background: var(--brand-accent, var(--oauth-accent));
+}
+```
+
+The legacy companion root (`consult/photon.css`) is still read for
+compatibility, but new Photons should use `consult/assets/`.
 
 ---
 

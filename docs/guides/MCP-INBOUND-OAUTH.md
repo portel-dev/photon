@@ -33,6 +33,35 @@ Photon performs OAuth discovery and bearer verification at the MCP endpoint.
 Missing or invalid credentials are rejected; a valid token that lacks a
 required scope is rejected separately.
 
+## Brand the consent page
+
+The consent page uses accessible Photon defaults and follows the browser's
+light/dark preference. Add an optional companion stylesheet to apply the
+Photon's own brand without maintaining a separate OAuth template:
+
+```text
+consult.photon.ts
+consult/assets/oauth.css
+```
+
+```css
+:root {
+  --oauth-accent: #126c59;
+  --oauth-accent-strong: #0b5546;
+  --oauth-soft: #e8f5f1;
+}
+
+.oauth-mark {
+  border-radius: 50%;
+}
+```
+
+Photon appends this CSS after its defaults for both local OAuth and generated
+Cloudflare Workers. Keep selectors scoped to `.oauth-*` and override the
+documented `--oauth-*` variables where possible. Photon escapes closing style
+tags before embedding the asset, and the page remains under the runtime's
+strict content-security policy.
+
 ## Anonymous, customer, and host access
 
 Use three application roles:
