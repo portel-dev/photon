@@ -75,7 +75,6 @@ body{margin:0;min-height:100vh;background:var(--oauth-bg);font:15px/1.45 Inter,u
 .oauth-identity small{display:block;color:var(--oauth-muted);font-size:12px}
 .oauth-content{border-top:1px solid var(--oauth-line);padding:22px 30px 26px}
 .oauth-section-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.oauth-section-head h2{font-size:14px;margin:0}
-.oauth-section-head button{border:0;background:none;color:var(--oauth-accent);font:inherit;font-size:12px;font-weight:650;cursor:pointer;padding:4px 0}
 .oauth-summary{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:13px 14px;border:1px solid var(--oauth-line);border-radius:10px;color:var(--oauth-muted);font-size:13px}.oauth-summary b{color:var(--oauth-ink);font-weight:650}
 .oauth-permissions{margin-top:10px}.oauth-permissions summary{cursor:pointer;color:var(--oauth-accent);font-size:12px;font-weight:650;padding:4px 0}
 .oauth-permission{display:grid;grid-template-columns:20px 1fr;gap:10px;align-items:start;padding:12px 0;border-bottom:1px solid var(--oauth-line);cursor:pointer}
@@ -86,7 +85,7 @@ body{margin:0;min-height:100vh;background:var(--oauth-bg);font:15px/1.45 Inter,u
 .oauth-scope-list{list-style:none;margin:10px 0 0;padding:0;border:1px solid var(--oauth-line);border-radius:10px;overflow:hidden}.oauth-scope-list .oauth-permission{padding:12px 14px}
 .oauth-notice{margin-top:18px;color:var(--oauth-muted);font-size:12px}.oauth-cimd{display:inline-block;font-size:11px;color:var(--oauth-muted);background:var(--oauth-soft);padding:4px 8px;border-radius:6px;margin-top:12px;overflow-wrap:anywhere}
 .oauth-actions{display:flex;flex-direction:row-reverse;gap:9px;margin-top:22px}.oauth-actions button{border-radius:9px;padding:10px 16px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.oauth-allow{border:1px solid var(--oauth-accent);background:var(--oauth-accent);color:#fff}.oauth-allow:hover{background:var(--oauth-accent-strong);border-color:var(--oauth-accent-strong)}.oauth-deny{border:1px solid var(--oauth-line);background:transparent;color:var(--oauth-ink)}
-.oauth-allow:focus-visible,.oauth-deny:focus-visible,.oauth-section-head button:focus-visible,.oauth-permissions summary:focus-visible,.oauth-permission:has(input:focus-visible){outline:3px solid #aaa5ff;outline-offset:3px}
+.oauth-allow:focus-visible,.oauth-deny:focus-visible,.oauth-permissions summary:focus-visible,.oauth-permission:has(input:focus-visible){outline:3px solid #aaa5ff;outline-offset:3px}
 @media(prefers-color-scheme:dark){:root{--oauth-bg:#121318;--oauth-panel:#1b1d24;--oauth-ink:#f4f5f7;--oauth-muted:#9da6b7;--oauth-line:#30333d;--oauth-soft:#292744;--oauth-shadow:#0008}.oauth-avatar{background:#302c55;color:#c9c4ff}}
 @media(max-width:560px){body{padding:10px}.oauth-top,.oauth-content{padding-left:20px;padding-right:20px}.oauth-actions{flex-direction:column}.oauth-actions button{width:100%}}
 `;
@@ -104,7 +103,7 @@ const OAUTH_CONSENT_DOCUMENT_TEMPLATE = `<!doctype html>
 <div class="oauth-summary"><span><b>{{scopeSummary}}</b></span><span aria-hidden="true">ⓘ</span></div>{{scopeContent}}
 <div class="oauth-notice">You can revoke this connection later from your assistant settings. Only the permissions selected here will be granted.</div>{{hiddenFields}}
 <div class="oauth-actions"><button class="oauth-allow" name="{{decisionField}}" value="{{approveValue}}" type="submit">Allow access</button><button class="oauth-deny" name="{{decisionField}}" value="{{denyValue}}" type="submit">Cancel</button></div>
-</form></section></main><script>const toggle=document.querySelector('[data-oauth-toggle]'),details=document.querySelector('[data-oauth-permissions]');if(toggle&&details){toggle.addEventListener('click',()=>{details.open=!details.open;toggle.textContent=details.open?'Hide details':'Edit access';});}</script></body></html>`;
+</form></section></main></body></html>`;
 
 function escapeHtml(value: string): string {
   return value
@@ -216,10 +215,7 @@ function renderDocument(model: OAuthConsentViewModel, css: string): string {
         `<input type="hidden" name="${escapeHtml(field.name)}" value="${escapeHtml(field.value)}">`
     )
     .join('');
-  const editControl =
-    model.allowScopeSelection && scopes.length
-      ? '<button type="button" data-oauth-toggle>Edit access</button>'
-      : '';
+  const editControl = '';
   const cimdBadge = model.cimdUrl
     ? `<span class="oauth-cimd">Hosted metadata: ${escapeHtml(model.cimdUrl)}</span>`
     : '';
@@ -284,7 +280,7 @@ function ${functionName}(model) {
   }).join('');
   const scopeContent = model.allowScopeSelection ? '<details class="oauth-permissions" data-oauth-permissions><summary>Choose individual permissions</summary><div>' + rows + '</div></details>' : scopes.length ? '<ul class="oauth-scope-list">' + rows.replace(/name="scope-disabled"/g, 'name="scope-disabled" disabled') + '</ul>' : '<p class="oauth-notice">No specific permissions were requested.</p>';
   const hiddenFields = [{ name: model.transactionField, value: model.transactionValue }].concat(model.hiddenFields || []).map((field) => '<input type="hidden" name="' + ${functionName}Escape(field.name) + '" value="' + ${functionName}Escape(field.value) + '">').join('');
-  const editControl = model.allowScopeSelection && scopes.length ? '<button type="button" data-oauth-toggle>Edit access</button>' : '';
+  const editControl = '';
   let html = photonOAuthConsentDocument;
   const values = {
     pageTitle: ${functionName}Escape(model.pageTitle), clientName: ${functionName}Escape(model.clientName), clientSubtitle: ${functionName}Escape(model.clientSubtitle), description: ${functionName}Escape(model.description), subject: ${functionName}Escape(model.subject), subjectSubtitle: ${functionName}Escape(model.subjectSubtitle), avatar: ${functionName}Escape((String(model.subject || '').charAt(0).toUpperCase() || 'A')), cimdBadge: model.cimd ? '<span class="oauth-cimd">Hosted metadata: ' + ${functionName}Escape(model.cimd) + '</span>' : '', formAction: ${functionName}Escape(model.formAction), editControl, scopeSummary: scopes.length ? scopes.length + ' permission' + (scopes.length === 1 ? '' : 's') + ' requested' : 'No permissions requested', scopeContent, hiddenFields, decisionField: ${functionName}Escape(model.decisionField), approveValue: ${functionName}Escape(model.approveValue), denyValue: ${functionName}Escape(model.denyValue), css: ${functionName}Css(photonOAuthConsentCss + '\\n' + (model.customCss || ''))

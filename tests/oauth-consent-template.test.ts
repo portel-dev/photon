@@ -55,6 +55,8 @@ describe('shared OAuth consent presentation', () => {
     expect(html).toContain('name="scope" value="bookings:read" checked');
     expect(html).toContain('name="scope" value="availability:write" checked');
     expect(html).toContain('data-oauth-permissions');
+    expect(html).toContain('<summary>Choose individual permissions</summary>');
+    expect(html).not.toContain('<script>');
     expect(html).toContain('name="tx" value="tx-1"');
     expect(html).toContain('name="action" value="approve"');
   });
