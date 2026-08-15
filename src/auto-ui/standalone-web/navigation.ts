@@ -8,6 +8,15 @@ export interface StandaloneNavigationItem {
   isSettings?: boolean;
 }
 
+export interface StandaloneToolCatalogEntry {
+  name: string;
+  description?: string;
+  title?: string;
+  annotations?: { title?: string };
+  _meta?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 function fallbackLabel(value: string): string {
   return value
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -15,6 +24,53 @@ function fallbackLabel(value: string): string {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+function standaloneMethodName(name: string): string {
+  const slashless = name.includes('/') ? name.slice(name.lastIndexOf('/') + 1) : name;
+  return slashless.includes('.') ? slashless.slice(slashless.lastIndexOf('.') + 1) : slashless;
+}
+
+function isHostTool(name: string): boolean {
+  return (
+    name === 'photon_context_get' ||
+    name === 'photon_navigate' ||
+    name === 'photon_skill_read' ||
+    name.startsWith('_')
+  );
+}
+
+/**
+ * Build generated navigation from the authorized MCP catalog.
+ *
+ * This intentionally does not consult ApplicationManifest. A build-time
+ * manifest may contain methods that the current caller cannot see; the
+ * returned tools/list catalog is the only source of generated screens.
+ */
+export function standaloneNavigationItemsFromTools(
+  tools: ReadonlyArray<StandaloneToolCatalogEntry>
+): StandaloneNavigationItem[] {
+  return tools
+    .filter((tool) => typeof tool.name === 'string' && !isHostTool(tool.name))
+    .map((tool) => {
+      const method = standaloneMethodName(tool.name);
+      const renderMeta = tool._meta?.['photon/render'] as
+        | { buttonLabel?: string; icon?: string }
+        | undefined;
+      const label =
+        [tool.annotations?.title, tool.title, tool['x-button-label'], renderMeta?.buttonLabel].find(
+          (candidate): candidate is string => typeof candidate === 'string'
+        ) || fallbackLabel(method);
+      const icon = [tool['x-icon'], renderMeta?.icon].find(
+        (candidate): candidate is string => typeof candidate === 'string'
+      );
+      return {
+        id: method,
+        method,
+        label: String(label),
+        ...(icon ? { icon: String(icon) } : {}),
+      };
+    });
 }
 
 export function standaloneScreenLabel(screen: ApplicationScreen): string {

@@ -7,6 +7,7 @@ import {
 import { generateStandaloneWebShell } from '../src/auto-ui/standalone-web/app-shell.js';
 import {
   filterStandaloneManifest,
+  standaloneNavigationItemsFromTools,
   standaloneNavigationItems,
   standaloneScreenHref,
 } from '../src/auto-ui/standalone-web/navigation.js';
@@ -83,4 +84,39 @@ test('empty standalone shells render a safe empty state and shared hooks', () =>
   assert.match(html, /capabilities/);
   assert.match(html, /prefers-color-scheme/);
   assert.doesNotMatch(html, /\/api\/invoke/);
+});
+
+test('generated shell discovers screens from the runtime catalog only', () => {
+  const html = generateStandaloneWebShell({
+    photonName: 'secure-app',
+    title: 'Secure App',
+    manifest: {
+      version: 1,
+      entry: 'hiddenAdmin',
+      screens: [
+        {
+          id: 'hiddenAdmin',
+          method: 'hiddenAdmin',
+          label: 'Hidden Admin Console',
+        },
+      ],
+    },
+  });
+
+  assert.doesNotMatch(html, /hiddenAdmin|Hidden Admin Console/);
+  assert.match(html, /tools\/list/);
+  assert.match(html, /annotations\.title/);
+  assert.match(html, /photon\/render/);
+  assert.deepEqual(
+    standaloneNavigationItemsFromTools([
+      {
+        name: 'visible',
+        description: 'Visible description',
+        annotations: { title: 'Visible title' },
+        _meta: { 'photon/render': { icon: '✓' } },
+      },
+      { name: 'photon_context_get', description: 'Host-only helper' },
+    ]),
+    [{ id: 'visible', method: 'visible', label: 'Visible title', icon: '✓' }]
+  );
 });

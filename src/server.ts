@@ -39,7 +39,7 @@ import { WebSocket as NodeWebSocket, WebSocketServer } from 'ws';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { JsonWebKey } from 'node:crypto';
-import { URL } from 'node:url';
+import { URL, fileURLToPath } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import { PhotonClassExtended } from '@portel/photon-core';
 import type { ExtractedSchema, PhotonClass } from '@portel/photon-core';
@@ -97,6 +97,14 @@ import {
 } from './shared/local-websocket-pair.js';
 import { validateStructuredOutput, type FiniteJSONValue } from './mcp/protocol/json-schema.js';
 import { buildMCPToolError, PHOTON_TOOL_ERROR_CODES } from './mcp/protocol/tool-errors.js';
+import {
+  browserInvocableMethodNames,
+  extractApplicationManifest,
+  type ApplicationManifest,
+  type ApplicationManifestMethod,
+} from './auto-ui/app-manifest.js';
+import { generateStandaloneWebShell } from './auto-ui/standalone-web/app-shell.js';
+import { generateRenderersScript } from './auto-ui/bridge/renderers.js';
 
 installLocalWebSocketPair();
 
@@ -323,6 +331,7 @@ function selectServerWebAppUrl(
     | ({
         name?: string;
         _httpRoutes?: ServerHttpRouteDef[];
+        appManifest?: ApplicationManifest;
       } & Parameters<typeof selectServerClientAppUi>[0])
     | null
     | undefined
@@ -331,7 +340,10 @@ function selectServerWebAppUrl(
   const hasWebRoot = photon._httpRoutes?.some(
     (route) => route.method === 'GET' && route.path === '/'
   );
-  if (!hasWebRoot && !selectServerClientAppUi(photon)) return undefined;
+  const hasExplicitUi = (photon.assets?.ui?.length || 0) > 0;
+  if (!hasWebRoot && !selectServerClientAppUi(photon) && !(photon.appManifest && !hasExplicitUi)) {
+    return undefined;
+  }
   return `/web/${photon.name}/`;
 }
 
@@ -3413,6 +3425,100 @@ export class PhotonServer {
     }
   }
 
+  private standaloneApplicationManifest(): ApplicationManifest | undefined {
+    if (!this.mcp) return undefined;
+    const uiAssets = this.mcp.assets?.ui || [];
+    const methods: ApplicationManifestMethod[] = (this.mcp.tools || []).map((tool: any) => {
+      const linkedUi = uiAssets.find(
+        (asset) => asset.linkedTool === tool.name || asset.linkedTools?.includes(tool.name)
+      );
+      return {
+        name: tool.name,
+        description: tool.description,
+        title: tool.title,
+        buttonLabel: tool.buttonLabel,
+        icon: tool.icon,
+        internal: tool.internal,
+        scheduled: tool.scheduled,
+        webhook: tool.webhook,
+        visibility: tool.visibility,
+        ...(linkedUi ? { linkedUi: linkedUi.id } : {}),
+      };
+    });
+    const contracts = this.loader.getCapabilityContracts(this.mcp);
+    return extractApplicationManifest(methods, {
+      entry: methods.find((method) => method.name === 'main')?.name,
+      settings: Boolean(this.mcp.settingsSchema?.hasSettings),
+      autoScreens: true,
+      browserInvocableMethods: browserInvocableMethodNames(contracts),
+    });
+  }
+
+  private hasExplicitStandaloneUi(): boolean {
+    return Boolean(this.mcp?.assets?.ui?.length);
+  }
+
+  private standaloneShell(): string | undefined {
+    if (!this.mcp || this.hasExplicitStandaloneUi()) return undefined;
+    const manifest = this.standaloneApplicationManifest();
+    if (!manifest) return undefined;
+    const photon = this.mcp as PhotonClassWithMeta & { label?: string };
+    const title = photon.label || photon.name || 'Photon App';
+    return generateStandaloneWebShell({
+      photonName: photon.name || 'photon',
+      title,
+      description: photon.description || `${title} - Photon App`,
+      icon: photon.icon || '📦',
+      manifest,
+    });
+  }
+
+  private async serveStandaloneAsset(
+    req: IncomingMessage,
+    res: ServerResponse,
+    pathname: string
+  ): Promise<boolean> {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+    if (pathname === '/api/photon-renderers.js') {
+      res.writeHead(200, {
+        'Content-Type': 'application/javascript',
+        'Cache-Control': 'public, max-age=300',
+      });
+      res.end(req.method === 'HEAD' ? undefined : generateRenderersScript());
+      return true;
+    }
+
+    const bundleNames =
+      pathname === '/photon-form.bundle.js'
+        ? ['photon-form.bundle.js', 'beam-form.bundle.js']
+        : pathname === '/beam-form.bundle.js'
+          ? ['beam-form.bundle.js', 'photon-form.bundle.js']
+          : [];
+    if (bundleNames.length === 0) return false;
+
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    for (const bundleName of bundleNames) {
+      for (const bundlePath of [
+        path.join(moduleDir, bundleName),
+        path.resolve(moduleDir, '../dist', bundleName),
+      ]) {
+        try {
+          const content = readFileSync(bundlePath, 'utf8');
+          res.writeHead(200, {
+            'Content-Type': 'text/javascript',
+            'Cache-Control': 'no-cache',
+          });
+          res.end(req.method === 'HEAD' ? undefined : content);
+          return true;
+        } catch {
+          // Try the compatibility filename and then the source-tree fallback.
+        }
+      }
+    }
+    res.writeHead(404).end('Form bundle not found. Run the Beam asset build first.');
+    return true;
+  }
+
   /**
    * Start server with SSE transport (HTTP)
    */
@@ -3543,8 +3649,9 @@ export class PhotonServer {
     let beamTransport: BeamCompatTransport | null = null;
     {
       const photonName = this.mcp?.name || 'photon';
+      const standaloneManifest = this.standaloneApplicationManifest();
       const photonWebUrl = selectServerWebAppUrl(
-        this.mcp as Parameters<typeof selectServerWebAppUrl>[0]
+        this.mcp ? { ...this.mcp, appManifest: standaloneManifest } : undefined
       );
       beamTransport = new BeamCompatTransport(photonName, {
         description: this.mcp?.description,
@@ -3713,6 +3820,35 @@ export class PhotonServer {
         const clientAppUi = selectServerClientAppUi(
           this.mcp as Parameters<typeof selectServerClientAppUi>[0]
         );
+
+        const generatedShell = this.standaloneShell();
+        const webRoot = this.mcp?._httpRoutes?.some(
+          (candidate) => candidate.method === 'GET' && candidate.path === '/'
+        );
+        const standalonePath =
+          url.pathname === '/' ||
+          url.pathname === `/web/${encodeURIComponent(this.mcp?.name || '')}` ||
+          url.pathname === `/web/${encodeURIComponent(this.mcp?.name || '')}/`;
+
+        if (
+          req.method === 'GET' &&
+          generatedShell &&
+          !matchedRoute &&
+          !clientAppUi &&
+          !webRoot &&
+          standalonePath
+        ) {
+          const shellHeaders: Record<string, string> = {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          };
+          if (corsOrigin) shellHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+          res.writeHead(200, shellHeaders);
+          res.end(generatedShell);
+          return;
+        }
+
+        if (await this.serveStandaloneAsset(req, res, url.pathname)) return;
 
         // Handle CORS preflight
         if (req.method === 'OPTIONS') {

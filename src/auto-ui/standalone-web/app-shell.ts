@@ -1,9 +1,4 @@
 import type { ApplicationManifest } from '../app-manifest.js';
-import {
-  filterStandaloneManifest,
-  initialStandaloneScreen,
-  standaloneNavigationItems,
-} from './navigation.js';
 import { MCP_PROTOCOL_VERSIONS } from '../../mcp/protocol/versions.js';
 
 export interface StandaloneWebShellOptions {
@@ -12,7 +7,11 @@ export interface StandaloneWebShellOptions {
   description?: string;
   icon?: string;
   manifest?: ApplicationManifest;
-  /** Optional static filter from the canonical capability contract. */
+  /**
+   * Build-time manifest retained for callers that already compute one. Its
+   * screen names and metadata are never serialized into the generated page;
+   * navigation is derived from the authorized runtime tools/list catalog.
+   */
   browserInvocableMethods?: ReadonlySet<string>;
 }
 
@@ -50,10 +49,6 @@ const INITIALIZE_PARAMS = {
   },
 };
 
-function emptyStateMarkup(): string {
-  return '<section class="empty-state" aria-live="polite"><div class="empty-icon">◌</div><h2>No screens available</h2><p>This application has no browser-invocable screens yet.</p></section>';
-}
-
 /**
  * Generate the Beam-hosted standalone application shell.
  *
@@ -63,11 +58,6 @@ function emptyStateMarkup(): string {
  * not create an HTTP route for any Photon method.
  */
 export function generateStandaloneWebShell(options: StandaloneWebShellOptions): string {
-  const manifest = options.browserInvocableMethods
-    ? filterStandaloneManifest(options.manifest, options.browserInvocableMethods)
-    : options.manifest;
-  const navigation = standaloneNavigationItems(manifest);
-  const initialScreen = initialStandaloneScreen(manifest);
   const title = escapeHtml(options.title);
   const description = escapeHtml(options.description || '');
   const icon = escapeHtml(options.icon || '◌');
@@ -138,21 +128,45 @@ export function generateStandaloneWebShell(options: StandaloneWebShellOptions): 
     </aside>
     <main class="content">
       <header class="content-header"><h1 id="app-title">${title}</h1><p id="app-description" class="description">${description}</p></header>
-      <div id="app-view">${navigation.length ? '<div class="screen"><p>Loading application…</p></div>' : emptyStateMarkup()}</div>
+      <div id="app-view"><div class="screen"><p>Loading application…</p></div></div>
     </main>
   </div>
   <script>
     const PHOTON = ${safeScriptJson(options.photonName)};
     const MCP_INITIALIZE_PARAMS = ${safeScriptJson(INITIALIZE_PARAMS)};
-    const MANIFEST = ${safeScriptJson(manifest || { version: 1, screens: [] })};
-    const INITIAL_SCREEN = ${safeScriptJson(initialScreen)};
-    const INITIAL_NAVIGATION = ${safeScriptJson(navigation)};
     const appNavigation = document.getElementById('app-navigation');
     const appView = document.getElementById('app-view');
     let sessionId = null;
     let requestId = 1;
     let tools = new Map();
-    let activeScreen = INITIAL_SCREEN;
+    let activeScreen;
+
+    function methodName(name) {
+      const slashless = name.includes('/') ? name.slice(name.lastIndexOf('/') + 1) : name;
+      return slashless.includes('.') ? slashless.slice(slashless.lastIndexOf('.') + 1) : slashless;
+    }
+
+    function fallbackLabel(value) {
+      return value
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
+
+    function catalogNavigationItems(catalog) {
+      return catalog
+        .filter((tool) => typeof tool.name === 'string' && !tool.name.startsWith('photon_') && !tool.name.startsWith('_'))
+        .map((tool) => {
+          const method = methodName(tool.name);
+          const renderMeta = tool._meta && tool._meta['photon/render'];
+          const label = (tool.annotations && tool.annotations.title) || tool.title ||
+            tool['x-button-label'] || (renderMeta && renderMeta.buttonLabel) || fallbackLabel(method);
+          const icon = tool['x-icon'] || (renderMeta && renderMeta.icon);
+          return { id: method, method, label: String(label), ...(icon ? { icon: String(icon) } : {}) };
+        });
+    }
 
     function showEmpty(message) {
       appView.innerHTML = '<section class="empty-state" aria-live="polite"><div class="empty-icon">◌</div><h2>No screens available</h2><p></p></section>';
@@ -160,7 +174,7 @@ export function generateStandaloneWebShell(options: StandaloneWebShellOptions): 
     }
 
     function navigationItems() {
-      return INITIAL_NAVIGATION.filter((item) => tools.has(item.method));
+      return catalogNavigationItems(Array.from(tools.values()));
     }
 
     function drawNavigation(items) {
@@ -271,8 +285,7 @@ export function generateStandaloneWebShell(options: StandaloneWebShellOptions): 
     }
 
     function selectScreen(screenId) {
-      const screen = MANIFEST.screens.find((candidate) => candidate.id === screenId) ||
-        (MANIFEST.settings === screenId ? { id: screenId, method: screenId, label: 'Settings' } : null);
+      const screen = navigationItems().find((candidate) => candidate.id === screenId);
       if (!screen || !tools.has(screen.method)) return;
       activeScreen = screen.id; history.pushState({}, '', '?screen=' + encodeURIComponent(activeScreen));
       drawNavigation(navigationItems()); renderScreen(screen);
@@ -295,8 +308,8 @@ export function generateStandaloneWebShell(options: StandaloneWebShellOptions): 
       drawNavigation(available);
       if (!available.length) { showEmpty(); return; }
       const requested = new URLSearchParams(location.search).get('screen');
-      activeScreen = (requested && available.some((item) => item.id === requested) ? requested : INITIAL_SCREEN) || available[0].id;
-      drawNavigation(available); renderScreen(MANIFEST.screens.find((screen) => screen.id === activeScreen) || { id: activeScreen, method: activeScreen, label: 'Settings' });
+      activeScreen = (requested && available.some((item) => item.id === requested) ? requested : available[0].id);
+      drawNavigation(available); renderScreen(available.find((screen) => screen.id === activeScreen));
     }).catch((error) => showEmpty(error instanceof Error ? error.message : 'Unable to load application capabilities.'));
   </script>
 </body>
