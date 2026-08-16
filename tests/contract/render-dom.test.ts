@@ -41,6 +41,20 @@ const STRUCTURE_ONLY: Record<string, string> = {
   embed: 'renders <iframe>',
 };
 
+// Structure-only formats still need a concrete DOM contract. A non-empty
+// fallback paragraph must not make a broken graphical renderer pass.
+const STRUCTURE_CONTRACTS: Record<string, string[]> = {
+  map: ['<svg'],
+  network: ['<svg'],
+  graph: ['<svg'],
+  qr: ['<svg'],
+  image: ['<img'],
+  sparkline: ['<svg'],
+  gallery: ['<img', '<button'],
+  carousel: ['<img', '<button'],
+  embed: ['<iframe'],
+};
+
 /**
  * Collect probe tokens from example data: whole numbers plus the WORDS of
  * string leaves. Word-level because transforming renderers (markdown,
@@ -49,10 +63,31 @@ const STRUCTURE_ONLY: Record<string, string> = {
  */
 function leaves(value: unknown, out: string[] = []): string[] {
   if (typeof value === 'string' && value.length > 0) {
-    for (const word of value.match(/[A-Za-z0-9][A-Za-z0-9.-]{2,}/g) ?? []) out.push(word);
+    for (const word of value.match(/[A-Za-z0-9]{3,}/g) ?? []) out.push(word);
   } else if (typeof value === 'number' && Number.isFinite(value)) out.push(String(value));
   else if (Array.isArray(value)) for (const v of value) leaves(v, out);
   else if (value && typeof value === 'object') for (const v of Object.values(value)) leaves(v, out);
+  return out;
+}
+
+// Some fields are intentionally represented by visual state rather than
+// literal text (for example a step status or a banner variant). These probes
+// name the semantic content that must be visible for those formats.
+const DATA_PROBES: Record<string, string[]> = {
+  code: ['console', 'log'],
+  metric: ['$142K', '12', 'this', 'month'],
+  steps: ['Build', 'Test', 'Deploy'],
+  banner: ['New', 'release'],
+  alert: ['Deployment', 'complete'],
+  a2ui: ['Hello'],
+};
+
+function stringLeaves(value: unknown, out: string[] = []): string[] {
+  if (typeof value === 'string' && value.length > 0) {
+    for (const word of value.match(/[A-Za-z0-9][A-Za-z0-9.-]{2,}/g) ?? []) out.push(word);
+  } else if (Array.isArray(value)) for (const v of value) stringLeaves(v, out);
+  else if (value && typeof value === 'object')
+    for (const v of Object.values(value)) stringLeaves(v, out);
   return out;
 }
 
@@ -263,17 +298,23 @@ async function main() {
       }
 
       if (format in STRUCTURE_ONLY) {
-        check(`${format} (structure-only: ${STRUCTURE_ONLY[format]})`, true, '');
+        const required = STRUCTURE_CONTRACTS[format] ?? [];
+        const missingStructure = required.filter((token) => !result.html.includes(token));
+        check(
+          `${format} (structure-only: ${STRUCTURE_ONLY[format]})`,
+          missingStructure.length === 0,
+          `missing required DOM contract: ${missingStructure.join(', ')}`
+        );
         continue;
       }
 
-      const expected = leaves(spec.example);
-      const found = expected.filter((leaf) => result.html.includes(leaf));
+      const expected = DATA_PROBES[format] ?? stringLeaves(spec.example);
+      const missing = expected.filter((leaf) => !result.html.includes(leaf));
       check(
         format,
-        expected.length === 0 || found.length > 0,
-        `none of the example's ${expected.length} leaf values appear in output. ` +
-          `leaves=[${expected.slice(0, 5).join(', ')}] html=${result.html.slice(0, 200)}`
+        missing.length === 0,
+        `missing ${missing.length} of ${expected.length} string leaves. ` +
+          `missing=[${missing.slice(0, 5).join(', ')}] html=${result.html.slice(0, 200)}`
       );
     }
   } finally {

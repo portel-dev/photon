@@ -19,7 +19,7 @@ artifact directory:
 ```text
 artifacts/layout-lab/
   index.html             # human gallery; click a screenshot to enlarge it
-  manifest.json          # deterministic measurements and failures
+  manifest.json          # deterministic measurements, failures, provenance
   llm-review-input.json  # screenshots + measurements for advisory review
   screenshots/
 ```
@@ -33,7 +33,9 @@ The machine gate checks every generated composition for:
 
 - non-zero visible nodes;
 - no horizontal overflow at the selected viewport;
+- no clipped vertical overflow inside constrained containers;
 - children staying inside their parent width;
+- children staying inside their parent height;
 - no sibling overlap;
 - declared stack/grid gaps being preserved.
 
@@ -42,13 +44,18 @@ dashboard, the canonical Photon form bundle (including date and numeric
 stepper controls), and a grid containing every format in `FORMAT_CATALOG`. A
 format example is passed through the real renderer and forms use the real
 `invoke-form` custom element; the lab does not replace the runtime with
-test-only markup.
+test-only markup. The form fixture waits for Lit readiness, checks its custom
+controls, runs required-field validation, and verifies a valid submit payload.
 
-The `llm-review-input.json` file is intentionally advisory. An image-capable
-reviewer can use it to comment on hierarchy, density, alignment, clipping,
-contrast, and perceived polish. CI should gate on the deterministic manifest;
-LLM observations should become a fixture or geometry assertion before they
-become a release blocker.
+The manifest records the source commit (including a `-dirty` suffix for
+uncommitted changes), browser version, Node version, relative screenshot paths,
+and every check result. Old screenshots are removed before each run.
+
+The `llm-review-input.json` file is intentionally advisory and does not mark a
+scenario approved. An image-capable reviewer can use it to comment on
+hierarchy, density, alignment, clipping, contrast, and perceived polish. CI
+gates on the deterministic manifest; LLM observations should become a fixture
+or geometry assertion before they become a release blocker.
 
 ## Narrow or expand the loop
 

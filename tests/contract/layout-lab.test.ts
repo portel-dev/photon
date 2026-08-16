@@ -17,6 +17,7 @@
  */
 
 import { strict as assert } from 'assert';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { chromium, type Browser, type Page } from 'playwright';
@@ -64,6 +65,12 @@ interface ScenarioResult {
     maxScrollHeight: number;
     checks: string[];
   };
+}
+
+interface LabMetadata {
+  sourceCommit: string;
+  browserVersion: string;
+  nodeVersion: string;
 }
 
 const PIXEL =
@@ -408,7 +415,7 @@ async function renderAndMeasure(
     else node.children.forEach(collect);
   };
   collect(fixture.root);
-  await page.evaluate((data) => {
+  await page.evaluate(async (data) => {
     (window as any).__photonLabData = data;
     const renderers = (window as any)._photonRenderers;
     for (const node of Array.from(
@@ -422,12 +429,54 @@ async function renderAndMeasure(
         form.params = value;
         form.photonName = 'layout-lab';
         form.methodName = node.dataset.photonLabNode || 'form';
+        await form.updateComplete;
       } else {
         renderers.render(target, value, format, { expandable: false });
       }
     }
   }, dataById);
   await page.waitForTimeout(30);
+
+  const formProbe = containsFormat(fixture.root, 'form')
+    ? await page.evaluate(`(async () => {
+        const form = document.querySelector('invoke-form');
+        if (!form) return { errors: ['form custom element was not rendered'] };
+        await form.updateComplete;
+        const root = form.shadowRoot;
+        const errors = [];
+        const customInputs = {
+          datePicker: root.querySelectorAll('date-picker').length,
+          numberStepper: root.querySelectorAll('number-stepper').length,
+          select: root.querySelectorAll('select').length,
+          textarea: root.querySelectorAll('textarea').length,
+        };
+        if (customInputs.datePicker !== 1) errors.push('expected one date-picker');
+        if (customInputs.numberStepper !== 1) errors.push('expected one number-stepper');
+        if (customInputs.select !== 1) errors.push('expected one select');
+        if (customInputs.textarea !== 1) errors.push('expected one textarea');
+
+        form.handleSubmit();
+        await form.updateComplete;
+        const requiredErrors = root.querySelectorAll('.error-text').length;
+        if (requiredErrors < 3) errors.push('required validation did not report all empty required fields');
+
+        let submitted = null;
+        form.addEventListener('submit', (event) => { submitted = event.detail; }, { once: true });
+        form.sharedValues = {
+          name: 'Layout Lab User',
+          email: 'layout@example.com',
+          date: '2026-08-20',
+          duration: 20,
+          topic: 'MCP development',
+          notes: 'Validate the complete Photon form flow.',
+        };
+        await form.updateComplete;
+        form.handleSubmit();
+        await form.updateComplete;
+        if (!submitted || !submitted.args || submitted.args.email !== 'layout@example.com') errors.push('valid submission did not emit expected args');
+        return { errors, customInputs, requiredErrors, submitted: Boolean(submitted) };
+      })()`)
+    : null;
 
   const evaluation = await page.evaluate(`(() => {
     const errors = [];
@@ -460,7 +509,10 @@ async function renderAndMeasure(
       if (parent) {
         const p = rect(parent);
         if (r.left < p.left - 1 || r.right > p.right + 1) errors.push(node.dataset.photonLabNode + ': escapes parent width');
+        if (r.top < p.top - 1 || r.bottom > p.bottom + 1) errors.push(node.dataset.photonLabNode + ': escapes parent height');
       }
+      const overflowY = getComputedStyle(node).overflowY;
+      if (node.scrollHeight > node.clientHeight + 1 && (overflowY === 'hidden' || overflowY === 'clip')) errors.push(node.dataset.photonLabNode + ': vertically clipped content ' + (node.scrollHeight - node.clientHeight) + 'px');
     }
     for (const parent of Array.from(document.querySelectorAll('[data-photon-lab-kind]:not([data-photon-lab-kind="format"])'))) {
       const children = nodes.filter((node) => node.dataset.photonLabParent === parent.dataset.photonLabNode);
@@ -480,9 +532,12 @@ async function renderAndMeasure(
       formatNodes: nodes.filter((node) => node.dataset.photonLabKind === 'format').length,
       maxScrollWidth,
       maxScrollHeight,
-      checks: ['non-zero nodes', 'no horizontal overflow', 'children stay within parent', 'siblings do not overlap', 'declared gaps are preserved'],
+      checks: ['non-zero nodes', 'no horizontal overflow', 'no clipped vertical overflow', 'children stay within parent width and height', 'siblings do not overlap', 'declared gaps are preserved'],
     };
   })()`);
+  if (formProbe?.errors?.length)
+    evaluation.errors.push(...formProbe.errors.map((error: string) => `form: ${error}`));
+  if (formProbe) evaluation.form = formProbe;
   await page.screenshot({ path: screenshot, fullPage: true });
   return {
     fixture: fixture.id,
@@ -496,12 +551,34 @@ async function renderAndMeasure(
   };
 }
 
-async function writeGallery(results: ScenarioResult[]): Promise<void> {
+function sourceCommit(): string {
+  try {
+    const hash = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim();
+    return dirty ? `${hash}-dirty` : hash;
+  } catch {
+    return process.env.GITHUB_SHA || process.env.PHOTON_LAYOUT_SOURCE_COMMIT || 'unknown';
+  }
+}
+
+async function writeGallery(results: ScenarioResult[], metadata: LabMetadata): Promise<void> {
   const relative = (file: string) => path.relative(ARTIFACT_DIR, file).split(path.sep).join('/');
+  const publicResults = results.map((result) => ({
+    ...result,
+    screenshot: relative(result.screenshot),
+  }));
   await fs.writeFile(
     path.join(ARTIFACT_DIR, 'manifest.json'),
     JSON.stringify(
-      { generatedAt: new Date().toISOString(), viewports: VIEWPORTS, themes: THEMES, results },
+      {
+        generatedAt: new Date().toISOString(),
+        sourceCommit: metadata.sourceCommit,
+        browser: metadata.browserVersion,
+        node: metadata.nodeVersion,
+        viewports: VIEWPORTS,
+        themes: THEMES,
+        results: publicResults,
+      },
       null,
       2
     )
@@ -511,8 +588,8 @@ async function writeGallery(results: ScenarioResult[]): Promise<void> {
     JSON.stringify(
       {
         purpose:
-          'Advisory visual review of Photon format compositions. Deterministic geometry checks remain the CI gate.',
-        results: results.map((result) => ({ ...result, screenshot: relative(result.screenshot) })),
+          'Advisory visual review input only. Deterministic geometry and component-contract checks remain the CI gate; no LLM approval is implied by PASS.',
+        results: publicResults,
       },
       null,
       2
@@ -526,15 +603,21 @@ async function writeGallery(results: ScenarioResult[]): Promise<void> {
     .join('');
   await fs.writeFile(
     path.join(ARTIFACT_DIR, 'index.html'),
-    `<!doctype html><meta charset="utf-8"><title>Photon Layout Lab</title><style>body{font:14px system-ui;margin:24px;background:#f8fafc;color:#1f2937}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}.result{background:#fff;border:2px solid #16a34a;border-radius:14px;padding:14px}.result.fail{border-color:#dc2626}.result img{display:block;width:100%;height:auto;border:1px solid #dbe2ea;border-radius:8px}.result h2{margin:0 0 4px;font-size:16px}.result p{margin:0 0 10px;color:#667085}.result pre{white-space:pre-wrap;overflow-wrap:anywhere}.errors{color:#b91c1c}</style><h1>Photon Layout Lab</h1><p>Generated from the real Photon format renderers. Click any screenshot for a full-size view. The machine checks are recorded in <code>manifest.json</code>; <code>llm-review-input.json</code> is ready for an advisory screenshot review.</p><div class="grid">${cards}</div>`
+    `<!doctype html><meta charset="utf-8"><title>Photon Layout Lab</title><style>body{font:14px system-ui;margin:24px;background:#f8fafc;color:#1f2937}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}.result{background:#fff;border:2px solid #16a34a;border-radius:14px;padding:14px}.result.fail{border-color:#dc2626}.result img{display:block;width:100%;height:auto;border:1px solid #dbe2ea;border-radius:8px}.result h2{margin:0 0 4px;font-size:16px}.result p{margin:0 0 10px;color:#667085}.result pre{white-space:pre-wrap;overflow-wrap:anywhere}.errors{color:#b91c1c}</style><h1>Photon Layout Lab</h1><p>Generated from the real Photon renderers and form bundle. Click any screenshot for a full-size view. PASS means deterministic geometry/component checks passed; it is not an LLM visual approval.</p><div class="grid">${cards}</div>`
   );
 }
 
 async function main(): Promise<void> {
   assert.ok(VIEWPORTS.length > 0, 'PHOTON_LAYOUT_VIEWPORTS must contain at least one width');
   assert.ok(THEMES.length > 0, 'PHOTON_LAYOUT_THEMES must contain light or dark');
+  await fs.rm(path.join(ARTIFACT_DIR, 'screenshots'), { recursive: true, force: true });
   await fs.mkdir(path.join(ARTIFACT_DIR, 'screenshots'), { recursive: true });
   const browser = await launchChromium();
+  const metadata: LabMetadata = {
+    sourceCommit: sourceCommit(),
+    browserVersion: browser.version(),
+    nodeVersion: process.version,
+  };
   const results: ScenarioResult[] = [];
   try {
     for (const fixture of createFixtures()) {
@@ -567,7 +650,7 @@ async function main(): Promise<void> {
   } finally {
     await browser.close();
   }
-  await writeGallery(results);
+  await writeGallery(results, metadata);
   const failed = results.filter((result) => !result.passed);
   console.log(`\nLayout Lab: ${results.length - failed.length}/${results.length} scenarios passed`);
   console.log(`Human gallery: ${path.join(ARTIFACT_DIR, 'index.html')}`);

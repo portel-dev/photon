@@ -198,11 +198,14 @@ export function generateRenderersScript(): string {
     if (trend) {
       var arrow = trend === 'up' ? '\\u2191' : trend === 'down' ? '\\u2193' : '\\u2192';
       var trendColor = trend === 'up' ? '#34d399' : trend === 'down' ? '#f87171' : colors.textMuted;
-      trendHtml = '<span style="font-size:14px;color:' + trendColor + ';margin-left:8px">' + arrow + (delta != null ? ' ' + (delta > 0 ? '+' : '') + formatValue(delta) : '') + '</span>';
+      var trendValue = delta != null ? ' ' + (delta > 0 ? '+' : '') + formatValue(delta) : (typeof trend === 'string' && !/^(up|down|flat)$/.test(trend) ? ' ' + esc(trend) : '');
+      trendHtml = '<span style="font-size:14px;color:' + trendColor + ';margin-left:8px">' + arrow + trendValue + '</span>';
     }
+    var period = opts.period || data.period || '';
     container.innerHTML = '<div style="text-align:center;padding:16px">' +
       '<div style="font-size:36px;font-weight:700;color:' + colors.text + '">' + display + trendHtml + '</div>' +
       (label ? '<div style="font-size:13px;color:' + colors.textMuted + ';margin-top:4px">' + esc(label) + '</div>' : '') +
+      (period ? '<div style="font-size:11px;color:' + colors.textMuted + ';margin-top:2px">' + esc(period) + '</div>' : '') +
       '</div>';
   };
 
@@ -1098,7 +1101,7 @@ export function generateRenderersScript(): string {
   // ─── Banner ───
   renderers.banner = function(container, data) {
     var d = typeof data === 'string' ? { message: data } : data;
-    var message = d.message || d.text || d.title || '';
+    var message = d.message || d.text || d.title || d.description || '';
     var type = (d.type || d.variant || d.severity || 'info').toLowerCase();
     var icon = d.icon || '';
     var bc = VARIANT_COLORS[type] || VARIANT_COLORS.info;
