@@ -103,6 +103,7 @@
     "test:e2e": "bun run build && playwright test",
     "test:e2e:ui": "bun run build && playwright test --ui",
     "test:visual": "bash scripts/run-package-script.sh build && bash scripts/run-package-script.sh build:beam && bash scripts/run-ts-test.sh tests/beam/visual/visual.test.ts",
+    "test:layout-lab": "bun run build && tsx tests/contract/layout-lab.test.ts",
     "test:contracts": "tsx tests/contract/format-coverage.test.ts && tsx tests/contract/schema-contract.test.ts && tsx tests/contract/render-dom.test.ts && tsx tests/contract/security-posture.test.ts && tsx tests/contract/coverage-gate.test.ts",
     "test:conformance": "bun run test:photon-conformance",
     "test:photon-conformance": "bun run build && tsx tests/conformance/conformance.test.ts",

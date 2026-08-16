@@ -818,11 +818,11 @@ export function generateRenderersScript(): string {
   renderers.card = renderers.kv = function(container, data, opts) {
     if (typeof data !== 'object' || Array.isArray(data)) { renderers.json(container, data); return; }
     var keys = Object.keys(data);
-    var h = '<div style="display:grid;gap:1px">';
+    var h = '<div style="display:grid;gap:1px;min-width:0">';
     for (var i = 0; i < keys.length; i++) {
-      h += '<div style="display:flex;justify-content:space-between;padding:8px 12px;background:' + (i % 2 === 0 ? colors.bg : colors.bgAlt) + ';border-bottom:1px solid ' + colors.border + '">' +
-        '<span style="font-size:12px;color:' + colors.textMuted + ';font-weight:500">' + esc(formatLabel(keys[i])) + '</span>' +
-        '<span style="font-size:13px;color:' + colors.text + '">' + formatValue(data[keys[i]]) + '</span>' +
+      h += '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.7fr);align-items:start;column-gap:12px;padding:8px 12px;background:' + (i % 2 === 0 ? colors.bg : colors.bgAlt) + ';border-bottom:1px solid ' + colors.border + ';min-width:0">' +
+        '<span style="font-size:12px;color:' + colors.textMuted + ';font-weight:500;min-width:0;overflow-wrap:break-word">' + esc(formatLabel(keys[i])) + '</span>' +
+        '<span style="font-size:13px;color:' + colors.text + ';min-width:0;text-align:right;overflow-wrap:break-word;word-break:normal">' + formatValue(data[keys[i]]) + '</span>' +
         '</div>';
     }
     h += '</div>';
@@ -1655,7 +1655,9 @@ export function generateRenderersScript(): string {
     var year = firstDate.getFullYear();
     var month = firstDate.getMonth();
     var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    // Two-character labels keep the calendar usable in a card/grid column;
+    // full weekday names otherwise become the minimum width of each track.
+    var dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
     // Build event map: dateStr → events[]
     var eventMap = {};
@@ -1672,12 +1674,12 @@ export function generateRenderersScript(): string {
     var daysInMonth = new Date(year, month + 1, 0).getDate();
     var today = new Date().toISOString().slice(0, 10);
 
-    var h = '<div style="background:' + colors.bgAlt + ';border-radius:10px;padding:16px;border:1px solid ' + colors.border + '">';
+    var h = '<div style="background:' + colors.bgAlt + ';border-radius:10px;padding:16px;border:1px solid ' + colors.border + ';min-width:0;max-width:100%;overflow:hidden">';
     h += '<div style="text-align:center;font-size:16px;font-weight:700;color:' + colors.text + ';margin-bottom:12px">' + monthNames[month] + ' ' + year + '</div>';
-    h += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center">';
+    h += '<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;text-align:center;min-width:0">';
     // Day headers
     for (var d = 0; d < 7; d++) {
-      h += '<div style="font-size:10px;font-weight:600;color:' + colors.textMuted + ';padding:4px">' + dayNames[d] + '</div>';
+      h += '<div style="font-size:10px;font-weight:600;color:' + colors.textMuted + ';padding:4px;min-width:0;overflow:hidden">' + dayNames[d] + '</div>';
     }
     // Empty cells before first day
     for (var e = 0; e < firstDay; e++) {
@@ -1690,7 +1692,7 @@ export function generateRenderersScript(): string {
       var isToday = dateStr === today;
       var cellBg = isToday ? colors.accent + '30' : 'transparent';
       var cellBorder = isToday ? '2px solid ' + colors.accent : '1px solid transparent';
-      h += '<div style="padding:4px;border-radius:6px;background:' + cellBg + ';border:' + cellBorder + ';min-height:32px;cursor:' + (hasEvents ? 'pointer' : 'default') + '" title="' + (hasEvents ? hasEvents.map(function(e) { return e.title || e.name || ''; }).join(', ') : '') + '">';
+      h += '<div style="padding:4px;border-radius:6px;background:' + cellBg + ';border:' + cellBorder + ';min-height:32px;min-width:0;overflow:hidden;cursor:' + (hasEvents ? 'pointer' : 'default') + '" title="' + (hasEvents ? hasEvents.map(function(e) { return e.title || e.name || ''; }).join(', ') : '') + '">';
       h += '<div style="font-size:12px;color:' + (isToday ? colors.accent : colors.text) + ';font-weight:' + (isToday ? '700' : '400') + '">' + day + '</div>';
       if (hasEvents) {
         for (var ei = 0; ei < Math.min(hasEvents.length, 2); ei++) {
