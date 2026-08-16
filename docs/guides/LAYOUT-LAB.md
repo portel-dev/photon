@@ -38,9 +38,11 @@ The machine gate checks every generated composition for:
 - declared stack/grid gaps being preserved.
 
 The fixture set includes a consultation-style search result, a nested
-dashboard, and a grid containing every format in `FORMAT_CATALOG`. A format
-example is passed through the real renderer; the lab does not replace the
-renderer with test-only markup.
+dashboard, the canonical Photon form bundle (including date and numeric
+stepper controls), and a grid containing every format in `FORMAT_CATALOG`. A
+format example is passed through the real renderer and forms use the real
+`invoke-form` custom element; the lab does not replace the runtime with
+test-only markup.
 
 The `llm-review-input.json` file is intentionally advisory. An image-capable
 reviewer can use it to comment on hierarchy, density, alignment, clipping,
