@@ -74,8 +74,6 @@ interface LabMetadata {
   nodeVersion: string;
 }
 
-const PIXEL =
-  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="8" height="8"%3E%3Crect width="8" height="8" fill="%23b8c4d6"/%3E%3C/svg%3E';
 const EMBED =
   'data:text/html,%3Cbody style="font:16px system-ui;padding:16px"%3EEmbedded%20preview%3C/body%3E';
 
@@ -92,20 +90,62 @@ const THEMES = (process.env.PHOTON_LAYOUT_THEMES || 'light,dark')
 
 const DATA_URI_FORMATS = new Set(['image', 'carousel', 'gallery', 'masonry']);
 
+function mediaPlaceholder(label: string, background: string): string {
+  return (
+    'data:image/svg+xml,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" rx="28" fill="${background}"/><path d="M72 264l112-118 80 76 64-58 240 100v48H72z" fill="#0f172a" opacity=".16"/><circle cx="482" cy="92" r="38" fill="#0f172a" opacity=".18"/><text x="320" y="190" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="44" font-weight="700" fill="#0f172a">${label}</text></svg>`
+    )
+  );
+}
+
+const MEDIA_PLACEHOLDERS = [
+  mediaPlaceholder('Image', '#dbeafe'),
+  mediaPlaceholder('Slide 1', '#ddd6fe'),
+  mediaPlaceholder('Slide 2', '#bfdbfe'),
+  mediaPlaceholder('Gallery', '#bbf7d0'),
+  mediaPlaceholder('Masonry', '#fed7aa'),
+];
+
+function placeholderFor(format: string, index = 0): string {
+  if (format === 'carousel') return MEDIA_PLACEHOLDERS[index === 0 ? 1 : 2];
+  if (format === 'gallery') return MEDIA_PLACEHOLDERS[3];
+  if (format === 'masonry') return MEDIA_PLACEHOLDERS[4];
+  return MEDIA_PLACEHOLDERS[0];
+}
+
 function safeExample(format: string, example: unknown): unknown {
   if (DATA_URI_FORMATS.has(format)) {
     if (Array.isArray(example)) {
-      return example.map((item) =>
+      return example.map((item, index) =>
         item && typeof item === 'object'
-          ? { ...(item as Record<string, unknown>), url: PIXEL }
-          : item
+          ? {
+              ...(item as Record<string, unknown>),
+              url: placeholderFor(format, index),
+              caption:
+                (item as Record<string, unknown>).caption ??
+                `${formatLabel(format)} example ${index + 1}`,
+            }
+          : placeholderFor(format, index)
       );
     }
-    if (example && typeof example === 'object')
-      return { ...(example as Record<string, unknown>), url: PIXEL };
+    if (example && typeof example === 'object') {
+      return {
+        ...(example as Record<string, unknown>),
+        url: placeholderFor(format),
+        caption: (example as Record<string, unknown>).caption ?? `${formatLabel(format)} example`,
+      };
+    }
   }
-  if (format === 'embed') return { url: EMBED, type: 'html' };
+  if (format === 'embed') return { url: EMBED, type: 'html', title: 'Embedded preview' };
   return example;
+}
+
+function formatLabel(value: string): string {
+  return value
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]/g, ' ')
+    .replace(/^./, (char) => char.toUpperCase());
 }
 
 function formatNode(id: string, format: string, data?: unknown): FormatNode {

@@ -55,6 +55,8 @@ const STRUCTURE_CONTRACTS: Record<string, string[]> = {
   embed: ['<iframe'],
 };
 
+const MEDIA_FORMATS = new Set(['image', 'carousel', 'gallery']);
+
 /**
  * Collect probe tokens from example data: whole numbers plus the WORDS of
  * string leaves. Word-level because transforming renderers (markdown,
@@ -326,6 +328,22 @@ async function main() {
       if (format in STRUCTURE_ONLY) {
         const required = STRUCTURE_CONTRACTS[format] ?? [];
         const missingStructure = required.filter((token) => !result.html.includes(token));
+        if (MEDIA_FORMATS.has(format)) {
+          if (!result.html.includes('data:image/svg+xml')) {
+            missingStructure.push('data:image/svg+xml catalog image');
+          }
+          if (result.html.includes('https://example.com/')) {
+            missingStructure.push('no remote example.com image URLs');
+          }
+        }
+        if (format === 'embed') {
+          if (!result.html.includes('data:text/html')) {
+            missingStructure.push('data:text/html catalog embed');
+          }
+          if (result.html.includes('youtube.com')) {
+            missingStructure.push('no remote youtube catalog embed URL');
+          }
+        }
         check(
           `${format} (structure-only: ${STRUCTURE_ONLY[format]})`,
           missingStructure.length === 0,

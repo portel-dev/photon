@@ -2380,6 +2380,25 @@ export interface FormatSpec {
   example: unknown; // Minimal working example
 }
 
+function catalogImage(label: string, background: string, foreground = '#0f172a'): string {
+  return (
+    'data:image/svg+xml,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" rx="28" fill="${background}"/><path d="M72 264l112-118 80 76 64-58 240 100v48H72z" fill="${foreground}" opacity=".16"/><circle cx="482" cy="92" r="38" fill="${foreground}" opacity=".18"/><text x="320" y="190" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="44" font-weight="700" fill="${foreground}">${label}</text></svg>`
+    )
+  );
+}
+
+const CATALOG_IMAGE = catalogImage('Image', '#dbeafe');
+const CATALOG_SLIDE_1 = catalogImage('Slide 1', '#ddd6fe');
+const CATALOG_SLIDE_2 = catalogImage('Slide 2', '#bfdbfe');
+const CATALOG_GALLERY = catalogImage('Gallery', '#bbf7d0');
+const CATALOG_EMBED =
+  'data:text/html,' +
+  encodeURIComponent(
+    '<body style="margin:0;display:grid;place-items:center;height:100vh;background:#eef2ff;color:#1e1b4b;font:700 28px system-ui">Embedded preview</body>'
+  );
+
 export const FORMAT_CATALOG: Record<string, FormatSpec> = {
   // ── Data Display ──
   table: {
@@ -2556,18 +2575,21 @@ export const FORMAT_CATALOG: Record<string, FormatSpec> = {
   // ── Media ──
   image: {
     data: '{ url, alt?, caption? } | string (url)',
-    example: { url: 'https://example.com/photo.jpg', alt: 'Screenshot' },
+    example: { url: CATALOG_IMAGE, alt: 'Photon image example', caption: 'Image example' },
   },
   carousel: {
     data: 'Array<{ url, caption? }>',
-    example: [{ url: 'https://example.com/1.jpg' }, { url: 'https://example.com/2.jpg' }],
+    example: [
+      { url: CATALOG_SLIDE_1, caption: 'Carousel slide 1' },
+      { url: CATALOG_SLIDE_2, caption: 'Carousel slide 2' },
+    ],
   },
   gallery: {
     data: 'Array<{ url, caption? }>',
-    example: [{ url: 'https://example.com/1.jpg', caption: 'Photo 1' }],
+    example: [{ url: CATALOG_GALLERY, caption: 'Gallery item' }],
   },
   qr: { data: 'string (url or text)', example: 'https://example.com' },
-  embed: { data: '{ url, type? }', example: { url: 'https://youtube.com/embed/xxx' } },
+  embed: { data: '{ url, type? }', example: { url: CATALOG_EMBED, title: 'Embedded preview' } },
 
   // ── Structured ──
   invoice: {
