@@ -116,6 +116,28 @@ function layoutNode(
 function createFixtures(): Fixture[] {
   const c = FORMAT_CATALOG;
   const sample = (format: string) => safeExample(format, c[format]?.example);
+  const formSchema = {
+    properties: {
+      name: { type: 'string', title: 'Full name', description: 'How should we address you?' },
+      email: { type: 'string', format: 'email', title: 'Email address' },
+      date: { type: 'string', format: 'date', title: 'Preferred date' },
+      duration: {
+        type: 'number',
+        minimum: 20,
+        maximum: 60,
+        multipleOf: 20,
+        default: 20,
+        title: 'Duration (minutes)',
+      },
+      topic: {
+        type: 'string',
+        enum: ['Product strategy', 'MCP development', 'Other'],
+        title: 'Topic',
+      },
+      notes: { type: 'string', format: 'textarea', title: 'What would you like to solve?' },
+    },
+    required: ['name', 'email', 'date'],
+  };
 
   return [
     {
@@ -238,6 +260,36 @@ function createFixtures(): Fixture[] {
       ),
     },
     {
+      id: 'form-controls',
+      title: 'Form controls in a responsive surface',
+      description:
+        'The canonical Photon form bundle with date, numeric stepper, select and textarea controls.',
+      root: layoutNode(
+        'split',
+        'form-root',
+        [
+          formatNode('form-main', 'form', formSchema),
+          layoutNode(
+            'stack',
+            'form-preview',
+            [
+              formatNode('form-help', 'card', {
+                experience: '20-minute consultation',
+                timezone: 'Asia/Singapore',
+                payment: 'Secure Stripe checkout',
+              }),
+              formatNode('form-status', 'banner', {
+                title: 'Only the details you still need to provide are shown.',
+                variant: 'info',
+              }),
+            ],
+            { gap: 12 }
+          ),
+        ],
+        { gap: 16, columns: 2 }
+      ),
+    },
+    {
       id: 'catalog-combinations',
       title: 'Format catalog combinations',
       description: 'Every registered format rendered inside a constrained responsive grid.',
@@ -253,13 +305,22 @@ function createFixtures(): Fixture[] {
   ];
 }
 
+function containsFormat(node: Node, format: string): boolean {
+  if (node.type === 'format') return node.format === format;
+  return node.children.some((child) => containsFormat(child, format));
+}
+
 function escapeAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 function nodeMarkup(node: Node, parentId = 'root'): string {
   if (node.type === 'format') {
-    return `<article class="photon-lab-format" data-photon-lab-node="${escapeAttribute(node.id)}" data-photon-lab-parent="${escapeAttribute(parentId)}" data-photon-lab-kind="format" data-photon-format="${escapeAttribute(node.format)}"><div data-photon-format-target></div></article>`;
+    const target =
+      node.format === 'form'
+        ? '<invoke-form></invoke-form>'
+        : '<div data-photon-format-target></div>';
+    return `<article class="photon-lab-format" data-photon-lab-node="${escapeAttribute(node.id)}" data-photon-lab-parent="${escapeAttribute(parentId)}" data-photon-lab-kind="format" data-photon-format="${escapeAttribute(node.format)}"><div data-photon-format-target>${target}</div></article>`;
   }
   const children = node.children.map((child) => nodeMarkup(child, node.id)).join('');
   const columns =
@@ -275,7 +336,19 @@ function fixturePage(fixture: Fixture, theme: Theme): string {
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; min-width: 0; }
     body { background: var(--photon-color-background); color: var(--photon-color-text); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
-    #photon-lab { width: 100%; max-width: 100%; min-width: 0; padding: 16px; overflow: visible; }
+    #photon-lab {
+      width: 100%; max-width: 100%; min-width: 0; padding: 16px; overflow: visible;
+      --t-primary: var(--photon-color-text);
+      --t-muted: var(--photon-color-text-muted);
+      --bg-glass: var(--photon-color-surface);
+      --bg-glass-strong: var(--photon-color-surface);
+      --border-glass: var(--photon-color-border);
+      --accent-primary: var(--photon-color-accent);
+      --accent-secondary: var(--photon-color-accent);
+      --glow-primary: color-mix(in srgb, var(--photon-color-accent) 35%, transparent);
+      --color-error: #ef6b73;
+      --color-error-glow: color-mix(in srgb, var(--color-error) 35%, transparent);
+    }
     .photon-lab-layout { min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: var(--lab-gap); }
     .photon-lab-grid, .photon-lab-split { display: grid; grid-template-columns: repeat(var(--lab-columns), minmax(0, 1fr)); align-items: stretch; }
     .photon-lab-surface { padding: 16px; border: 1px solid var(--photon-color-border); border-radius: 16px; background: var(--photon-color-surface); }
@@ -320,6 +393,13 @@ async function renderAndMeasure(
   await page.setViewportSize({ width: viewport, height: 900 });
   await page.setContent(fixturePage(fixture, theme));
   await page.addScriptTag({ content: generateRenderersScript() });
+  if (containsFormat(fixture.root, 'form')) {
+    await page.addScriptTag({
+      path: path.join(process.cwd(), 'dist', 'photon-form.bundle.js'),
+      type: 'module',
+    });
+    await page.waitForFunction(() => Boolean(customElements.get('invoke-form')));
+  }
   // Data is passed after markup is installed, which keeps the fixture schema
   // out of the HTML and makes the generated page safe to inspect/share.
   const dataById: Record<string, unknown> = {};
@@ -335,9 +415,16 @@ async function renderAndMeasure(
       document.querySelectorAll<HTMLElement>('[data-photon-lab-kind="format"]')
     )) {
       const target = node.querySelector('[data-photon-format-target]');
-      renderers.render(target, data[node.dataset.photonLabNode || ''], node.dataset.photonFormat, {
-        expandable: false,
-      });
+      const format = node.dataset.photonFormat;
+      const value = data[node.dataset.photonLabNode || ''];
+      if (format === 'form') {
+        const form = node.querySelector('invoke-form') as any;
+        form.params = value;
+        form.photonName = 'layout-lab';
+        form.methodName = node.dataset.photonLabNode || 'form';
+      } else {
+        renderers.render(target, value, format, { expandable: false });
+      }
     }
   }, dataById);
   await page.waitForTimeout(30);
