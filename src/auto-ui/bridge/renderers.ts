@@ -12,17 +12,29 @@
  */
 
 import { getBundledQrRuntime } from './renderer-assets.js';
+import { generatePhotonStyleContractCSS } from '../style-contract.js';
 
 export function generateRenderersScript(): string {
   // This is generated as a self-contained JS module that registers
   // window._photonRenderers with all format renderer functions
   var qrRuntime = getBundledQrRuntime();
+  var styleContractCss = generatePhotonStyleContractCSS();
   return `(function() {
   'use strict';
 
   // QR support is embedded in this response; no secondary script request is
   // needed. Charts, maps, and graphs below are rendered with inline SVG.
   ${qrRuntime}
+
+  var PHOTON_STYLE_CONTRACT_CSS = ${JSON.stringify(styleContractCss)};
+  function installPhotonStyleContract() {
+    if (document.querySelector('style[data-photon-style-contract]')) return;
+    var style = document.createElement('style');
+    style.setAttribute('data-photon-style-contract', '');
+    style.textContent = PHOTON_STYLE_CONTRACT_CSS;
+    document.head.appendChild(style);
+  }
+  installPhotonStyleContract();
 
   // ── Theme helpers ──
 
@@ -2334,6 +2346,7 @@ export function generateRenderersScript(): string {
       format = format || 'json';
       var key = format.toLowerCase();
       var baseKey = key.split(':')[0];
+      installPhotonStyleContract();
       container.classList.add('photon-render-surface');
       container.setAttribute('data-photon-format', key);
       if (opts && opts.host) container.setAttribute('data-photon-host', String(opts.host));

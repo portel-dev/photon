@@ -1,4 +1,5 @@
-import { css } from 'lit';
+import { css, unsafeCSS } from 'lit';
+import { generatePhotonStyleContractCSS } from '../../style-contract.js';
 
 export type Theme = 'dark' | 'light';
 
@@ -7,6 +8,8 @@ export type Theme = 'dark' | 'light';
  * Color variables are inherited from beam-app root
  */
 export const theme = css`
+  ${unsafeCSS(generatePhotonStyleContractCSS())}
+
   :host {
     /* Spacing - same for all themes */
     --space-xs: 4px;

@@ -141,6 +141,32 @@ async function main() {
     await page.setContent('<!doctype html><html><body></body></html>');
     await page.addScriptTag({ content: generateRenderersScript() });
 
+    const styleContract = await page.evaluate(() => {
+      const style = document.querySelector('style[data-photon-style-contract]');
+      const container = document.createElement('div');
+      container.className = 'photon-render-surface photon-grid';
+      document.body.appendChild(container);
+      const computed = getComputedStyle(container);
+      return {
+        installed: Boolean(style),
+        spacing: computed.getPropertyValue('--photon-space-4').trim(),
+        radius: computed.getPropertyValue('--photon-radius-4').trim(),
+        display: computed.display,
+        maxWidth: computed.maxWidth,
+        boxSizing: computed.boxSizing,
+      };
+    });
+    check(
+      'renderer installs the shared Photon token and layout contract',
+      styleContract.installed &&
+        styleContract.spacing === '16px' &&
+        styleContract.radius === '12px' &&
+        styleContract.display === 'grid' &&
+        styleContract.maxWidth === '100%' &&
+        styleContract.boxSizing === 'border-box',
+      JSON.stringify(styleContract)
+    );
+
     const scopedTheme = await page.evaluate(() => {
       const container = document.createElement('div');
       container.style.setProperty('--photon-color-text', 'rgb(12, 34, 56)');

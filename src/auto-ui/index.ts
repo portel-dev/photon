@@ -81,6 +81,13 @@ export {
   type ThemeMode,
 } from './design-system/tokens';
 
+// Shared style contract for generated Photon UI surfaces
+export {
+  PHOTON_LAYOUT_CSS,
+  PHOTON_TOKEN_CSS,
+  generatePhotonStyleContractCSS,
+} from './style-contract';
+
 // Optional Photon-owned stylesheet assets
 export {
   resolvePhotonStylesheetAssets,

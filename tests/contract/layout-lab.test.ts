@@ -22,6 +22,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { chromium, type Browser, type Page } from 'playwright';
 import { FORMAT_CATALOG, generateRenderersScript } from '../../dist/auto-ui/bridge/renderers.js';
+import { generatePhotonStyleContractCSS } from '../../dist/auto-ui/style-contract.js';
 
 type Theme = 'light' | 'dark';
 type LayoutKind = 'stack' | 'grid' | 'split' | 'surface';
@@ -334,11 +335,29 @@ function nodeMarkup(node: Node, parentId = 'root'): string {
     node.type === 'grid' || node.type === 'split'
       ? ` data-photon-lab-columns="${node.columns ?? 2}"`
       : '';
-  return `<section class="photon-lab-layout photon-lab-${node.type}" style="--lab-gap:${node.gap ?? 12}px;--lab-columns:${node.columns ?? 1}" data-photon-lab-node="${escapeAttribute(node.id)}" data-photon-lab-parent="${escapeAttribute(parentId)}" data-photon-lab-kind="${node.type}" data-photon-lab-gap="${node.gap ?? 12}"${columns}>${children}</section>`;
+  const contractClass =
+    node.type === 'stack'
+      ? 'photon-stack'
+      : node.type === 'grid'
+        ? 'photon-grid'
+        : node.type === 'split'
+          ? 'photon-split'
+          : 'photon-surface photon-stack';
+  const style = [
+    `--lab-gap:${node.gap ?? 12}px`,
+    `--lab-columns:${node.columns ?? 1}`,
+    `--photon-layout-gap:${node.gap ?? 12}px`,
+    node.type === 'grid' ? '--photon-grid-min:12rem' : '',
+    node.type === 'split' ? `--photon-split-columns:${node.columns ?? 2}` : '',
+  ]
+    .filter(Boolean)
+    .join(';');
+  return `<section class="photon-lab-layout photon-lab-${node.type} ${contractClass}" style="${style}" data-photon-lab-node="${escapeAttribute(node.id)}" data-photon-lab-parent="${escapeAttribute(parentId)}" data-photon-lab-kind="${node.type}" data-photon-lab-gap="${node.gap ?? 12}"${columns}>${children}</section>`;
 }
 
 function fixturePage(fixture: Fixture, theme: Theme): string {
   return `<!doctype html><html data-theme="${theme}"><head><meta charset="utf-8"><style>
+    ${generatePhotonStyleContractCSS()}
     :root { color-scheme: ${theme}; }
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; min-width: 0; }
@@ -356,16 +375,13 @@ function fixturePage(fixture: Fixture, theme: Theme): string {
       --color-error: #ef6b73;
       --color-error-glow: color-mix(in srgb, var(--color-error) 35%, transparent);
     }
-    .photon-lab-layout { min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: var(--lab-gap); }
-    .photon-lab-grid, .photon-lab-split { display: grid; grid-template-columns: repeat(var(--lab-columns), minmax(0, 1fr)); align-items: stretch; }
-    .photon-lab-surface { padding: 16px; border: 1px solid var(--photon-color-border); border-radius: 16px; background: var(--photon-color-surface); }
+    .photon-lab-grid { grid-template-columns: repeat(var(--lab-columns), minmax(0, 1fr)); }
     .photon-lab-format { min-width: 0; max-width: 100%; width: 100%; overflow-wrap: break-word; }
     .photon-lab-format > [data-photon-format-target] { min-width: 0; max-width: 100%; width: 100%; }
-    .photon-lab-format img, .photon-lab-format svg, .photon-lab-format canvas, .photon-lab-format iframe, .photon-lab-format table, .photon-lab-format pre { max-width: 100%; }
-    .photon-lab-format pre, .photon-lab-format code { overflow-wrap: anywhere; white-space: pre-wrap; }
+    .photon-lab-format pre, .photon-lab-format code { white-space: pre-wrap; }
     @media (max-width: 560px) {
       #photon-lab { padding: 12px; }
-      .photon-lab-grid, .photon-lab-split { grid-template-columns: minmax(0, 1fr); }
+      .photon-lab-grid { grid-template-columns: minmax(0, 1fr); }
     }
   </style></head><body>
     <main id="photon-lab" data-photon-lab-fixture="${escapeAttribute(fixture.id)}" data-photon-lab-title="${escapeAttribute(fixture.title)}" style="--photon-color-text:${theme === 'dark' ? '#e7e9ee' : '#1f2937'};--photon-color-text-muted:${theme === 'dark' ? '#a8afbd' : '#667085'};--photon-color-background:${theme === 'dark' ? '#15171c' : '#f8fafc'};--photon-color-surface:${theme === 'dark' ? '#20232b' : '#ffffff'};--photon-color-border:${theme === 'dark' ? '#3a3f4b' : '#dbe2ea'};--photon-color-accent:${theme === 'dark' ? '#9b8cff' : '#6257e8'};">
@@ -481,6 +497,10 @@ async function renderAndMeasure(
   const evaluation = await page.evaluate(`(() => {
     const errors = [];
     const root = document.getElementById('photon-lab');
+    const contractStyle = document.querySelector('style[data-photon-style-contract]') || Array.from(document.querySelectorAll('style')).find((style) => style.textContent.includes('--photon-space-4'));
+    if (!contractStyle) errors.push('missing Photon style contract');
+    var rootStyles = getComputedStyle(root);
+    if (rootStyles.getPropertyValue('--photon-space-4').trim() !== '16px') errors.push('missing Photon spacing token');
     const nodes = Array.from(document.querySelectorAll('[data-photon-lab-node]'));
     function rect(element) {
       const r = element.getBoundingClientRect();

@@ -29,6 +29,13 @@ network access, or Cloudflare deployment is required.
 
 ## What is checked
 
+The fixtures use the shared Photon style contract from
+`src/auto-ui/style-contract.ts`: `--photon-*` tokens plus the layout primitives
+`photon-stack`, `photon-grid`, `photon-split`, `photon-cluster`, and
+`photon-surface`. The standalone renderer installs the same contract in custom
+UI and MCP App iframes, and Beam imports it into its Lit theme. That keeps the
+lab aligned with the real runtime instead of testing a separate CSS island.
+
 The machine gate checks every generated composition for:
 
 - non-zero visible nodes;
@@ -70,3 +77,8 @@ next to the components it is likely to interact with. This catches the class
 of bugs that isolated renderer tests miss: flex direction changes, grid items
 touching, content escaping a card, and controls whose native affordance is
 misaligned.
+
+If a layout issue points to a missing primitive, fix it in the style contract
+first and then consume that primitive from the renderer or Beam component. Avoid
+adding one-off layout CSS inside a single format unless the behavior is truly
+specific to that format.
