@@ -225,6 +225,22 @@ async function run(): Promise<void> {
     );
   });
 
+  await test('MCP select schemas retain Photon rich option metadata for Beam', () => {
+    const transportSource = source('src/auto-ui/streamable-http-transport.ts');
+    const serverSource = source('src/server.ts');
+
+    assert.match(
+      transportSource,
+      /'x-photon-option':\s*\{[\s\S]*?option\.image[\s\S]*?option\.price/,
+      'modern MCP select options must retain image and pricing metadata'
+    );
+    assert.match(
+      serverSource,
+      /'x-photon-options':\s*photonOptions/,
+      'legacy MCP select options must retain Photon rich option metadata'
+    );
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }

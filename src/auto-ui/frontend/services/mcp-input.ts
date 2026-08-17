@@ -31,15 +31,36 @@ function asRecord(value: unknown): Record<string, any> | undefined {
 
 function optionFromSchema(value: unknown): ElicitationOption | undefined {
   const record = asRecord(value);
-  if (!record || typeof record.const !== 'string') return undefined;
-  return {
-    value: record.const,
-    label: typeof record.title === 'string' ? record.title : record.const,
+  if (!record) return undefined;
+  const metadata = asRecord(record['x-photon-option']) || {};
+  const optionValue = record.const ?? metadata.value;
+  if (typeof optionValue !== 'string') return undefined;
+  const option: ElicitationOption = {
+    value: optionValue,
+    label: typeof record.title === 'string' ? record.title : optionValue,
     description: typeof record.description === 'string' ? record.description : undefined,
   };
+  if (typeof metadata.image === 'string') option.image = metadata.image;
+  return option;
 }
 
 function schemaOptions(schema: Record<string, any>): ElicitationOption[] {
+  const photonOptions = Array.isArray(schema['x-photon-options'])
+    ? schema['x-photon-options']
+        .map((option: unknown) => {
+          const record = asRecord(option);
+          if (!record || typeof record.value !== 'string') return undefined;
+          return {
+            value: record.value,
+            label: typeof record.label === 'string' ? record.label : record.value,
+            description: typeof record.description === 'string' ? record.description : undefined,
+            image: typeof record.image === 'string' ? record.image : undefined,
+          };
+        })
+        .filter(Boolean)
+    : [];
+  if (photonOptions.length > 0) return photonOptions as ElicitationOption[];
+
   const direct = Array.isArray(schema.enum)
     ? schema.enum
         .filter((value: unknown): value is string => typeof value === 'string')

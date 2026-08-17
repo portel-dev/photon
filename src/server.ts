@@ -1561,8 +1561,23 @@ export class PhotonServer {
 
       case 'select':
         // For select, we use enum in the schema
-        const options = (ask.options || []).map((o: any) => (typeof o === 'string' ? o : o.value));
-        const labels = (ask.options || []).map((o: any) => (typeof o === 'string' ? o : o.label));
+        const selectOptions = ask.options || [];
+        const options = selectOptions.map((o: any) => (typeof o === 'string' ? o : o.value));
+        const labels = selectOptions.map((o: any) => (typeof o === 'string' ? o : o.label));
+        const photonOptions = selectOptions
+          .filter((o: any) => typeof o === 'object' && o !== null)
+          .map((o: any) => ({
+            value: o.value,
+            ...(o.label ? { label: o.label } : {}),
+            ...(o.description ? { description: o.description } : {}),
+            ...(o.image ? { image: o.image } : {}),
+            ...(o.price != null ? { price: o.price } : {}),
+            ...(o.badge ? { badge: o.badge } : {}),
+            ...(o.badgeType ? { badgeType: o.badgeType } : {}),
+            ...(o.category ? { category: o.category } : {}),
+          }));
+        const photonOptionMetadata =
+          photonOptions.length > 0 ? { 'x-photon-options': photonOptions } : {};
         return {
           mode: 'form',
           message: baseMessage + (ask.multi ? ' (select multiple)' : ''),
@@ -1572,7 +1587,7 @@ export class PhotonServer {
               selection: ask.multi
                 ? {
                     type: 'array',
-                    items: { type: 'string', enum: options },
+                    items: { type: 'string', enum: options, ...photonOptionMetadata },
                     title: ask.label || 'Selection',
                     description: `Options: ${labels.join(', ')}`,
                   }
@@ -1581,6 +1596,7 @@ export class PhotonServer {
                     enum: options,
                     title: ask.label || 'Selection',
                     description: `Options: ${labels.join(', ')}`,
+                    ...photonOptionMetadata,
                   },
             },
             required: ask.required !== false ? ['selection'] : [],

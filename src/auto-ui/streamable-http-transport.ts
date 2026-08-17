@@ -1590,6 +1590,17 @@ function buildMcpElicitParamsFromAsk(ask: any): Record<string, unknown> {
               const: option.value,
               title: option.label || String(option.value),
               ...(option.description ? { description: option.description } : {}),
+              ...(option.image || option.price != null || option.badge || option.category
+                ? {
+                    'x-photon-option': {
+                      ...(option.image ? { image: option.image } : {}),
+                      ...(option.price != null ? { price: option.price } : {}),
+                      ...(option.badge ? { badge: option.badge } : {}),
+                      ...(option.badgeType ? { badgeType: option.badgeType } : {}),
+                      ...(option.category ? { category: option.category } : {}),
+                    },
+                  }
+                : {}),
             }
       );
       return {

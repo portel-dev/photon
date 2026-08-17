@@ -46,7 +46,13 @@ await test('maps a pizza-style array elicitation to Beam multi-select cards', ()
             items: {
               anyOf: [
                 { const: 'margherita', title: 'Margherita', description: 'Classic' },
-                { const: 'pepperoni', title: 'Pepperoni' },
+                {
+                  const: 'pepperoni',
+                  title: 'Pepperoni',
+                  'x-photon-option': {
+                    image: 'https://example.com/pepperoni.jpg',
+                  },
+                },
               ],
             },
           },
@@ -61,8 +67,71 @@ await test('maps a pizza-style array elicitation to Beam multi-select cards', ()
   assert.equal(presentation.responseProperty, 'selection');
   assert.deepEqual(presentation.data.options, [
     { value: 'margherita', label: 'Margherita', description: 'Classic' },
-    { value: 'pepperoni', label: 'Pepperoni', description: undefined },
+    {
+      value: 'pepperoni',
+      label: 'Pepperoni',
+      description: undefined,
+      image: 'https://example.com/pepperoni.jpg',
+    },
   ]);
+});
+
+await test('preserves rich option images from Photon select metadata', () => {
+  const presentation = presentMCPInputRequest('input_1', {
+    method: 'elicitation/create',
+    params: {
+      mode: 'form',
+      message: 'Choose a pizza',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          selection: {
+            type: 'array',
+            items: {
+              type: 'string',
+              enum: ['margherita', 'pepperoni'],
+              'x-photon-options': [
+                {
+                  value: 'margherita',
+                  label: 'Margherita',
+                  description: 'Classic tomato and basil',
+                  image: 'https://example.com/margherita.jpg',
+                },
+                {
+                  value: 'pepperoni',
+                  label: 'Pepperoni',
+                  image: 'https://example.com/pepperoni.jpg',
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(
+    presentation.data.options?.map(({ value, label, description, image }) => ({
+      value,
+      label,
+      description,
+      image,
+    })),
+    [
+      {
+        value: 'margherita',
+        label: 'Margherita',
+        description: 'Classic tomato and basil',
+        image: 'https://example.com/margherita.jpg',
+      },
+      {
+        value: 'pepperoni',
+        label: 'Pepperoni',
+        description: undefined,
+        image: 'https://example.com/pepperoni.jpg',
+      },
+    ]
+  );
 });
 
 await test('keeps multi-field MCP forms intact', () => {

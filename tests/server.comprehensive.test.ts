@@ -551,7 +551,7 @@ async function runTests() {
       console.log('  ✅ Format not found error');
     }
 
-    // Test 31: Format error in dev mode includes args
+    // Test 31: Format error never exposes private diagnostics
     {
       const testFile = await createTestPhoton('error-devmode', basicPhotonContent);
       const server = new PhotonServer({ filePath: testFile, devMode: true });
@@ -562,9 +562,9 @@ async function runTests() {
       error.stack = 'Error: Test error\n    at testFunction';
       const args = { param1: 'value1' };
       const result = formatError(error, 'testTool', args);
-      assert.ok(result.content[0].text.includes('param1'), 'Should include args in dev mode');
-      assert.ok(result.content[0].text.includes('Stack trace'), 'Should include stack in dev mode');
-      console.log('  ✅ Format error in dev mode includes details');
+      assert.equal(result.content[0].text.includes('param1'), false, 'Should redact args');
+      assert.equal(result.content[0].text.includes('Stack trace'), false, 'Should redact stack');
+      console.log('  ✅ Format error redacts private diagnostics');
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -783,7 +783,13 @@ async function runTests() {
         ask: 'select',
         message: 'Choose option',
         options: [
-          { value: 'a', label: 'Option A' },
+          {
+            value: 'a',
+            label: 'Option A',
+            description: 'The first option',
+            image: 'https://example.com/option-a.jpg',
+            price: 12.5,
+          },
           { value: 'b', label: 'Option B' },
         ],
       });
@@ -792,6 +798,19 @@ async function runTests() {
         params.requestedSchema.properties.selection.enum,
         ['a', 'b'],
         'Should extract values'
+      );
+      assert.deepEqual(
+        params.requestedSchema.properties.selection['x-photon-options'],
+        [
+          {
+            value: 'a',
+            label: 'Option A',
+            description: 'The first option',
+            image: 'https://example.com/option-a.jpg',
+            price: 12.5,
+          },
+        ],
+        'Should preserve Photon-only rich option metadata for Beam'
       );
       console.log('  ✅ Build elicit params for select');
     }
