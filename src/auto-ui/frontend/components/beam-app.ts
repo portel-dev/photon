@@ -42,7 +42,7 @@ import {
   type MCPToolCallContinuation,
 } from '../services/mcp-client.js';
 import {
-  formatMCPInputResponse,
+  buildMCPInputContinuation,
   isMCPInputRequired,
   presentMCPInputRequest,
   type BeamInputRequestPresentation,
@@ -7817,10 +7817,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._log('info', `Input required: ${presentation.data.message || 'Input required'}`);
   }
 
-  private _formatMCPInputResponse(pending: PendingMCPInputRound, value: unknown): unknown {
-    return formatMCPInputResponse(value, pending.responseProperty, pending.responseMode);
-  }
-
   private async _resumeMCPInputRound(value: unknown): Promise<void> {
     const pending = this._pendingMCPInput;
     if (!pending) return;
@@ -7829,12 +7825,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._progress = null;
 
     try {
-      const continuation: MCPToolCallContinuation = {
-        requestState: pending.requestState,
-        inputResponses: {
-          [pending.inputKey]: this._formatMCPInputResponse(pending, value),
-        },
-      };
+      const continuation: MCPToolCallContinuation = buildMCPInputContinuation(pending, value);
       const execStart = Date.now();
       const result = await mcpClient.callTool(
         pending.toolName,

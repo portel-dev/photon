@@ -75,7 +75,7 @@
     "test:mcp-schema": "node tests/mcp-json-schema-2020-12.test.ts",
     "test:mcp-errors": "node tests/mcp-error-semantics.test.ts",
     "test:mcp-routing-headers": "node tests/mcp-routing-headers.test.ts",
-    "test:mcp-multi-round": "node tests/mcp-request-state.test.ts && node tests/mcp-multi-round-http.test.ts",
+    "test:mcp-multi-round": "node tests/mcp-request-state.test.ts && tsx tests/mcp-multi-round-http.test.ts",
     "test:mcp-tasks-extension": "tsx tests/mcp-tasks-extension.test.ts",
     "test:mcp-observability-2026": "tsx tests/mcp-observability-2026.test.ts",
     "test:mcp-stateless-resilience-2026": "tsx tests/mcp-stateless-resilience-2026.test.ts",

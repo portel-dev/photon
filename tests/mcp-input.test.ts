@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import {
+  buildMCPInputContinuation,
   formatMCPInputResponse,
   inputResponseValue,
   isMCPInputRequired,
@@ -176,6 +177,52 @@ await test('accepts URL elicitation without incorrectly putting the URL in form 
   assert.deepEqual(formatMCPInputResponse('https://example.com', undefined, 'elicitation'), {
     action: 'accept',
   });
+});
+
+await test('builds one canonical continuation envelope for native controls', () => {
+  assert.deepEqual(
+    buildMCPInputContinuation(
+      {
+        requestState: 'state-1',
+        inputKey: 'selection',
+        responseProperty: 'selection',
+      },
+      ['margherita']
+    ),
+    {
+      requestState: 'state-1',
+      inputResponses: {
+        selection: { action: 'accept', content: { selection: ['margherita'] } },
+      },
+    }
+  );
+});
+
+await test('uses MCP response envelopes for sampling and roots rounds', () => {
+  assert.deepEqual(
+    buildMCPInputContinuation(
+      { requestState: 'state-2', inputKey: 'sample', responseMode: 'sampling' },
+      'Hello'
+    ),
+    {
+      requestState: 'state-2',
+      inputResponses: {
+        sample: {
+          role: 'assistant',
+          content: { type: 'text', text: 'Hello' },
+          model: 'human@beam',
+          stopReason: 'endTurn',
+        },
+      },
+    }
+  );
+  assert.deepEqual(
+    buildMCPInputContinuation(
+      { requestState: 'state-3', inputKey: 'roots', responseMode: 'roots' },
+      undefined
+    ),
+    { requestState: 'state-3', inputResponses: { roots: { roots: [] } } }
+  );
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

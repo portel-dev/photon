@@ -8,7 +8,7 @@
  */
 
 import type { ElicitationData, ElicitationOption } from '../components/elicitation-modal.js';
-import type { MCPInputRequiredResult } from './mcp-client.js';
+import type { MCPInputRequiredResult, MCPToolCallContinuation } from './mcp-client.js';
 
 export interface MCPInputRequest {
   method: 'elicitation/create' | 'sampling/createMessage' | 'roots/list';
@@ -22,6 +22,31 @@ export interface BeamInputRequestPresentation {
   responseProperty?: string;
   responseMode?: 'elicitation' | 'sampling' | 'roots';
 }
+
+export interface MCPInputContinuationContext {
+  requestState: string;
+  inputKey: string;
+  responseProperty?: string;
+  responseMode?: BeamInputRequestPresentation['responseMode'];
+}
+
+/**
+ * The three response families Beam can return for a server-initiated request.
+ * Keeping these shapes here prevents UI controls from inventing their own
+ * continuation wire format.
+ */
+export type MCPInputResponse =
+  | {
+      action: 'accept' | 'decline' | 'cancel';
+      content?: Record<string, unknown>;
+    }
+  | {
+      role: 'assistant';
+      content: { type: 'text'; text: string };
+      model: string;
+      stopReason: string;
+    }
+  | { roots: [] };
 
 function asRecord(value: unknown): Record<string, any> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -200,7 +225,7 @@ export function formatMCPInputResponse(
   value: unknown,
   responseProperty?: string,
   responseMode: BeamInputRequestPresentation['responseMode'] = 'elicitation'
-): Record<string, unknown> {
+): MCPInputResponse {
   if (responseMode === 'sampling') {
     const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
     return {
@@ -219,6 +244,29 @@ export function formatMCPInputResponse(
       ? inputResponseValue(value, responseProperty)
       : undefined;
   return { action: 'accept', ...(content ? { content } : {}) };
+}
+
+/**
+ * Build the complete continuation sent back to the MCP server.
+ *
+ * This is the only supported path from a Beam control value to a durable
+ * MCP 2026 continuation. The request state and input response must remain
+ * outside the original tool arguments.
+ */
+export function buildMCPInputContinuation(
+  pending: MCPInputContinuationContext,
+  value: unknown
+): MCPToolCallContinuation {
+  return {
+    requestState: pending.requestState,
+    inputResponses: {
+      [pending.inputKey]: formatMCPInputResponse(
+        value,
+        pending.responseProperty,
+        pending.responseMode
+      ),
+    },
+  };
 }
 
 export function isMCPInputRequired(value: unknown): value is MCPInputRequiredResult {

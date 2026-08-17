@@ -210,8 +210,13 @@ async function run(): Promise<void> {
     );
     assert.match(
       beamSource,
-      /requestState: pending\.requestState[\s\S]*?inputResponses:/,
-      'Beam must replay the paused call with the durable continuation fields'
+      /buildMCPInputContinuation\(pending, value\)/,
+      'Beam must use the canonical continuation builder instead of assembling a wire response inline'
+    );
+    assert.doesNotMatch(
+      beamSource,
+      /inputResponses:\s*\{\s*\[pending\.inputKey\]/,
+      'Beam must not have a second ad hoc input response encoder'
     );
     assert.match(
       clientSource,

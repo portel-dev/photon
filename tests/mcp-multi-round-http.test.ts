@@ -4,6 +4,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleStreamableHTTP } from '../dist/auto-ui/streamable-http-transport.js';
+import {
+  buildMCPInputContinuation,
+  presentMCPInputRequest,
+} from '../src/auto-ui/frontend/services/mcp-input.js';
 
 const MCP_VERSION = '2026-07-28';
 let passed = 0;
@@ -305,7 +309,7 @@ async function withServer(fn: (port: number) => Promise<void>): Promise<void> {
 console.log('MCP 2026 multi-round HTTP:');
 
 await withServer(async (port) => {
-  await test('yield-style elicitation returns canonical input_required and completes', async () => {
+  await test('Beam adapter continuation completes a real MCP HTTP round trip', async () => {
     const first = await postJSON(port, call(1, 'mrtr.ask', {}), headers('mrtr.ask'));
     assert.equal(first.status, 200);
     assert.equal(first.body.result.resultType, 'input_required');
@@ -327,19 +331,30 @@ await withServer(async (port) => {
         },
       },
     });
+    const [inputKey, inputRequest] = Object.entries(first.body.result.inputRequests)[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    const presentation = presentMCPInputRequest(inputKey, inputRequest as any);
+    assert.equal(presentation.data.ask, 'form');
+    const continuation = buildMCPInputContinuation(
+      {
+        requestState: first.body.result.requestState,
+        inputKey: presentation.key,
+        responseProperty: presentation.responseProperty,
+        responseMode: presentation.responseMode,
+      },
+      { value: 'Ada' }
+    );
+    assert.deepEqual(continuation, {
+      requestState: first.body.result.requestState,
+      inputResponses: {
+        profile: { action: 'accept', content: { value: 'Ada' } },
+      },
+    });
     const completed = await postJSON(
       port,
-      call(
-        2,
-        'mrtr.ask',
-        {},
-        {
-          requestState: first.body.result.requestState,
-          inputResponses: {
-            profile: { action: 'accept', content: { value: 'Ada' } },
-          },
-        }
-      ),
+      call(2, 'mrtr.ask', {}, continuation),
       headers('mrtr.ask')
     );
     assert.equal(completed.status, 200);
