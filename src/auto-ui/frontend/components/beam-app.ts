@@ -36,7 +36,18 @@ import {
 import type { ElicitationData } from './elicitation-modal.js';
 import type { ApprovalItem } from './pending-approvals.js';
 import './pending-approvals.js';
-import { mcpClient } from '../services/mcp-client.js';
+import {
+  mcpClient,
+  type MCPInputRequiredResult,
+  type MCPToolCallContinuation,
+} from '../services/mcp-client.js';
+import {
+  inputResponseValue,
+  isMCPInputRequired,
+  presentMCPInputRequest,
+  type BeamInputRequestPresentation,
+  type MCPInputRequest,
+} from '../services/mcp-input.js';
 import {
   initializeGlobalPhotonSession,
   getGlobalSessionManager,
@@ -78,6 +89,16 @@ const FETCH_TIMEOUT_MS = 10_000;
 const MCP_RECONNECT_DELAY_MS = 3_000;
 const MCP_MAX_CONNECT_RETRIES = 5;
 const SCROLL_RENDER_DELAY_MS = 100;
+
+interface PendingMCPInputRound {
+  toolName: string;
+  args: Record<string, any>;
+  progressToken: string;
+  requestState: string;
+  inputKey: string;
+  responseProperty?: string;
+  responseMode?: BeamInputRequestPresentation['responseMode'];
+}
 
 @customElement('beam-app')
 export class BeamApp extends LitElement {
@@ -2300,6 +2321,7 @@ export class BeamApp extends LitElement {
   @state() private _photonHelpLoading = false;
   @state() private _elicitationData: ElicitationData | null = null;
   @state() private _showElicitation = false;
+  @state() private _pendingMCPInput: PendingMCPInputRound | null = null;
   // A tool call remains in-flight while the server waits for the user's
   // elicitation response. Keep that state distinct from ordinary work
   // progress so the UI does not make a paused call look busy forever.
@@ -7658,59 +7680,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
         const execStart = Date.now();
         const result = await mcpClient.callTool(toolName, args, progressToken);
         const execDuration = Date.now() - execStart;
-
-        if (result.isError) {
-          const errorText = result.content.find((c) => c.type === 'text')?.text || 'Unknown error';
-          // Elicitation cancellation is already handled by the cancel event handler
-          if (errorText !== 'Elicitation cancelled by user') {
-            this._log('error', errorText);
-            showToast(errorText, 'error', 5000);
-            // Show error in result panel (persists, not just a toast)
-            this._lastResult = { _error: true, message: errorText };
-          }
-        } else {
-          this._applyRenderMetaFromResult(result);
-          this._lastResult = mcpClient.parseToolResult(result);
-
-          // Auto-wrap array results with pagination metadata if needed
-          if (
-            this._selectedPhoton?.stateful &&
-            Array.isArray(this._lastResult) &&
-            this._selectedMethod
-          ) {
-            this._lastResult = this._autoWrapPaginationIfNeeded(
-              this._lastResult,
-              this._selectedPhoton.name,
-              this._selectedMethod
-            );
-          }
-
-          this._log('success', 'Execution completed', false, execDuration);
-
-          // Initialize global photon instance for @stateful photons
-          if (
-            this._selectedPhoton?.stateful &&
-            this._lastResult != null &&
-            typeof this._lastResult === 'object'
-          ) {
-            this._initializeGlobalInstance(this._selectedPhoton.name, this._lastResult);
-          }
-
-          // Scroll result into view on mobile
-          void this.updateComplete.then(() => {
-            const rv = this.shadowRoot?.querySelector('result-viewer');
-            if (rv && window.innerWidth <= 768) {
-              rv.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-          });
-
-          // Auto-subscribe to collection events for live updates
-          // Convention: method name is the collection name (e.g., tasks() -> tasks:added)
-          // Works for arrays (added/removed/updated) AND objects (changed) like gauges/metrics
-          if (this._lastResult != null) {
-            this._setupCollectionSubscriptions(this._selectedMethod.name);
-          }
-        }
+        await this._handleToolCallResult(result, {
+          toolName,
+          args,
+          progressToken,
+          execDuration,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         this._log('error', message);
@@ -7728,6 +7703,171 @@ ${photon.errorMessage || 'Unknown error'}</pre
       this._isExecuting = false;
       this._progress = null;
       if (this._activeProgressToken === progressToken) {
+        this._activeProgressToken = null;
+      }
+    }
+  }
+
+  /**
+   * Consume a normal tools/call result or one round of MCP 2026 durable input.
+   * A 2026 input_required response is not an error: it is the protocol's
+   * pause point while the client asks the human for the requested value.
+   */
+  private async _handleToolCallResult(
+    result: any,
+    context: {
+      toolName: string;
+      args: Record<string, any>;
+      progressToken: string;
+      execDuration: number;
+    }
+  ): Promise<void> {
+    if (isMCPInputRequired(result)) {
+      this._presentMCPInputRound(result, context);
+      return;
+    }
+
+    if (result.isError) {
+      const errorText =
+        result.content?.find((c: any) => c.type === 'text')?.text || 'Unknown error';
+      // Elicitation cancellation is already handled by the cancel event handler
+      if (errorText !== 'Elicitation cancelled by user') {
+        this._log('error', errorText);
+        showToast(errorText, 'error', 5000);
+        // Show error in result panel (persists, not just a toast)
+        this._lastResult = { _error: true, message: errorText };
+      }
+      return;
+    }
+
+    this._applyRenderMetaFromResult(result);
+    this._lastResult = mcpClient.parseToolResult(result);
+
+    // Auto-wrap array results with pagination metadata if needed
+    if (this._selectedPhoton?.stateful && Array.isArray(this._lastResult) && this._selectedMethod) {
+      this._lastResult = this._autoWrapPaginationIfNeeded(
+        this._lastResult,
+        this._selectedPhoton.name,
+        this._selectedMethod
+      );
+    }
+
+    this._log('success', 'Execution completed', false, context.execDuration);
+
+    // Initialize global photon instance for @stateful photons
+    if (
+      this._selectedPhoton?.stateful &&
+      this._lastResult != null &&
+      typeof this._lastResult === 'object'
+    ) {
+      this._initializeGlobalInstance(this._selectedPhoton.name, this._lastResult);
+    }
+
+    // Scroll result into view on mobile
+    void this.updateComplete.then(() => {
+      const rv = this.shadowRoot?.querySelector('result-viewer');
+      if (rv && window.innerWidth <= 768) {
+        rv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+
+    // Auto-subscribe to collection events for live updates
+    if (this._lastResult != null && this._selectedMethod) {
+      this._setupCollectionSubscriptions(this._selectedMethod.name);
+    }
+  }
+
+  private _presentMCPInputRound(
+    result: MCPInputRequiredResult,
+    context: {
+      toolName: string;
+      args: Record<string, any>;
+      progressToken: string;
+      execDuration: number;
+    }
+  ): void {
+    const [inputKey, request] = Object.entries(result.inputRequests)[0] as
+      | [string, MCPInputRequest]
+      | undefined;
+    if (!inputKey || !request) {
+      this._log('error', 'MCP returned an empty input request');
+      showToast('The Photon requested input but did not describe it.', 'error', 5000);
+      return;
+    }
+
+    const presentation = presentMCPInputRequest(inputKey, request, {
+      photonName: this._selectedPhoton?.name,
+      methodName: this._selectedMethod?.name,
+      methodTitle: this._selectedMethod?.title,
+    });
+
+    this._pendingMCPInput = {
+      toolName: context.toolName,
+      args: context.args,
+      progressToken: context.progressToken,
+      requestState: result.requestState,
+      inputKey: presentation.key,
+      responseProperty: presentation.responseProperty,
+      responseMode: presentation.responseMode,
+    };
+    this._elicitationData = presentation.data;
+    this._showElicitation = true;
+    this._elicitationWait = 'input';
+    this._progress = null;
+    this._log('info', `Input required: ${presentation.data.message || 'Input required'}`);
+  }
+
+  private _formatMCPInputResponse(pending: PendingMCPInputRound, value: unknown): unknown {
+    if (pending.responseMode === 'sampling') {
+      const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
+      return {
+        role: 'assistant',
+        content: { type: 'text', text },
+        model: 'human@beam',
+        stopReason: 'endTurn',
+      };
+    }
+    if (pending.responseMode === 'roots') {
+      return { roots: [] };
+    }
+    return inputResponseValue(value, pending.responseProperty);
+  }
+
+  private async _resumeMCPInputRound(value: unknown): Promise<void> {
+    const pending = this._pendingMCPInput;
+    if (!pending) return;
+    this._pendingMCPInput = null;
+    this._isExecuting = true;
+    this._progress = null;
+
+    try {
+      const continuation: MCPToolCallContinuation = {
+        requestState: pending.requestState,
+        inputResponses: {
+          [pending.inputKey]: this._formatMCPInputResponse(pending, value),
+        },
+      };
+      const execStart = Date.now();
+      const result = await mcpClient.callTool(
+        pending.toolName,
+        pending.args,
+        pending.progressToken,
+        continuation
+      );
+      await this._handleToolCallResult(result, {
+        toolName: pending.toolName,
+        args: pending.args,
+        progressToken: pending.progressToken,
+        execDuration: Date.now() - execStart,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this._log('error', message);
+      showToast(message, 'error', 5000);
+    } finally {
+      this._isExecuting = false;
+      this._progress = null;
+      if (this._activeProgressToken === pending.progressToken) {
         this._activeProgressToken = null;
       }
     }
@@ -8504,6 +8644,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const { value } = e.detail;
     const elicitationId = this._elicitationData?.elicitationId;
 
+    // MCP 2026 durable input: submit the modal value as a continuation of
+    // the paused tools/call instead of sending the legacy Beam response RPC.
+    if (this._pendingMCPInput) {
+      this._showElicitation = false;
+      this._elicitationData = null;
+      this._elicitationWait = null;
+      await this._resumeMCPInputRound(value);
+      return;
+    }
+
     this._showElicitation = false;
     this._elicitationData = null;
     this._elicitationWait = null;
@@ -8541,6 +8691,19 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   private _handleElicitationCancel = async () => {
     const elicitationId = this._elicitationData?.elicitationId;
+
+    // A stateless MCP 2026 request state has no legacy elicitation ID. Stop
+    // presenting it locally; the durable state will expire server-side.
+    if (this._pendingMCPInput) {
+      this._pendingMCPInput = null;
+      this._showElicitation = false;
+      this._elicitationData = null;
+      this._elicitationWait = null;
+      this._isExecuting = false;
+      this._log('info', 'Input cancelled');
+      showToast('Input cancelled', 'info');
+      return;
+    }
 
     this._showElicitation = false;
     this._elicitationData = null;

@@ -108,6 +108,10 @@ export interface CallOptions {
   progressToken?: string | number;
   onProgress?: (params: Record<string, unknown>) => void;
   signal?: AbortSignal;
+  /** MCP 2026 durable input continuation token. */
+  requestState?: string;
+  /** Answers keyed by the input request keys returned with requestState. */
+  inputResponses?: Record<string, unknown>;
   /** Idle timeout; reset on each progress notification. Default 2 min. */
   idleTimeoutMs?: number;
   /** Hard ceiling regardless of progress. Default 30 min. */
@@ -422,9 +426,13 @@ export class MCPClientSDK {
         ? (p: Record<string, unknown>) =>
             this.emit('progress', { progressToken: options.progressToken, ...p })
         : undefined);
+    const continuation = {
+      ...(options.requestState ? { requestState: options.requestState } : {}),
+      ...(options.inputResponses ? { inputResponses: options.inputResponses } : {}),
+    };
     return this.request(
       'tools/call',
-      { name, arguments: args },
+      { name, arguments: args, ...continuation },
       {
         ...options,
         onProgress: effectiveOnProgress,

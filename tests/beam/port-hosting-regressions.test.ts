@@ -198,6 +198,33 @@ async function run(): Promise<void> {
     );
   });
 
+  await test('Beam resumes MCP 2026 durable input rounds instead of treating them as errors', () => {
+    const beamSource = source('src/auto-ui/frontend/components/beam-app.ts');
+    const clientSource = source('src/auto-ui/frontend/services/mcp-client.ts');
+    const sdkSource = source('src/auto-ui/frontend/services/mcp-client-sdk.ts');
+
+    assert.match(
+      beamSource,
+      /isMCPInputRequired\(result\)[\s\S]*?_presentMCPInputRound/,
+      'Beam must detect input_required before normal error/result handling'
+    );
+    assert.match(
+      beamSource,
+      /requestState: pending\.requestState[\s\S]*?inputResponses:/,
+      'Beam must replay the paused call with the durable continuation fields'
+    );
+    assert.match(
+      clientSource,
+      /requestState: string;[\s\S]*?inputResponses: Record<string, unknown>/,
+      'the MCP client must preserve the 2026 continuation shape'
+    );
+    assert.match(
+      sdkSource,
+      /requestState: options\.requestState[\s\S]*?inputResponses: options\.inputResponses/,
+      'the SDK must send continuation state outside tool arguments'
+    );
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }

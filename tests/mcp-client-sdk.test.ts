@@ -200,7 +200,7 @@ async function run(): Promise<void> {
     state.silentMethods.add('tools/call');
     const { url, close } = await startMcpServer(state);
     try {
-      const sdk = new MCPClientSDK(url);
+      const sdk = new MCPClientSDK(url, { protocolVersion: '2025-11-25' });
       await sdk.connect();
       // Kick the GET SSE stream open by sending notifications/initialized.
       await sdk.notify('notifications/initialized');
@@ -240,7 +240,7 @@ async function run(): Promise<void> {
     state.silentMethods.add('tools/call');
     const { url, close } = await startMcpServer(state);
     try {
-      const sdk = new MCPClientSDK(url);
+      const sdk = new MCPClientSDK(url, { protocolVersion: '2025-11-25' });
       await sdk.connect();
       await sdk.notify('notifications/initialized');
 
@@ -277,7 +277,7 @@ async function run(): Promise<void> {
     state.silentMethods.add('tools/call');
     const { url, close } = await startMcpServer(state);
     try {
-      const sdk = new MCPClientSDK(url);
+      const sdk = new MCPClientSDK(url, { protocolVersion: '2025-11-25' });
       await sdk.connect();
       await sdk.notify('notifications/initialized');
 
@@ -318,6 +318,36 @@ async function run(): Promise<void> {
         !(result instanceof Error),
         `call should NOT time out while progress is streaming (got: ${(result as Error)?.message})`
       );
+    } finally {
+      await close();
+    }
+  });
+
+  await test('MCP 2026 tool continuations send requestState and inputResponses outside arguments', async () => {
+    const state = newServerState();
+    const { url, close } = await startMcpServer(state);
+    try {
+      const sdk = new MCPClientSDK(url);
+      await sdk.connect();
+
+      await sdk.callTool(
+        'pizza-shop/menu',
+        {},
+        {
+          requestState: 'state-token',
+          inputResponses: { input_1: { selection: ['margherita'] } },
+        }
+      );
+
+      const call = state.receivedMessages.find((message) => message.method === 'tools/call');
+      assert.ok(call, 'tools/call should reach the server');
+      assert.equal(call.params.name, 'pizza-shop/menu');
+      assert.deepEqual(call.params.arguments, {});
+      assert.equal(call.params.requestState, 'state-token');
+      assert.deepEqual(call.params.inputResponses, {
+        input_1: { selection: ['margherita'] },
+      });
+      assert.equal(call.params.arguments.requestState, undefined);
     } finally {
       await close();
     }

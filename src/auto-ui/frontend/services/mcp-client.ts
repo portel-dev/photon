@@ -119,6 +119,23 @@ interface MCPToolResult {
   };
 }
 
+export interface MCPInputRequiredResult {
+  resultType: 'input_required';
+  inputRequests: Record<
+    string,
+    {
+      method: 'elicitation/create' | 'sampling/createMessage' | 'roots/list';
+      params?: Record<string, unknown>;
+    }
+  >;
+  requestState: string;
+}
+
+export interface MCPToolCallContinuation {
+  requestState: string;
+  inputResponses: Record<string, unknown>;
+}
+
 export interface PhotonAppContext {
   navigation?: { photon?: string; method?: string; instance?: string; view?: string };
   selection?: unknown;
@@ -208,6 +225,7 @@ interface PendingOperation {
   name: string;
   args: Record<string, unknown>;
   progressToken?: string | number;
+  continuation?: MCPToolCallContinuation;
   resolve: (value: any) => void;
   reject: (error: Error) => void;
   timestamp: number;
@@ -500,16 +518,18 @@ class MCPClientService {
   async callTool(
     name: string,
     args: Record<string, unknown>,
-    progressToken?: string | number
+    progressToken?: string | number,
+    continuation?: MCPToolCallContinuation
   ): Promise<MCPToolResult> {
     const sdk = this.requireSdk();
     try {
       return (await sdk.callTool(name, args, {
         progressToken,
+        ...continuation,
       })) as MCPToolResult;
     } catch (error) {
       if (this.isConnectionError(error)) {
-        return this.queueOperation(name, args, progressToken);
+        return this.queueOperation(name, args, progressToken, continuation);
       }
       throw error;
     }
@@ -1051,7 +1071,8 @@ class MCPClientService {
   private queueOperation(
     name: string,
     args: Record<string, unknown>,
-    progressToken?: string | number
+    progressToken?: string | number,
+    continuation?: MCPToolCallContinuation
   ): Promise<MCPToolResult> {
     return new Promise((resolve, reject) => {
       const op: PendingOperation = {
@@ -1059,6 +1080,7 @@ class MCPClientService {
         name,
         args,
         progressToken,
+        continuation,
         resolve,
         reject,
         timestamp: Date.now(),
@@ -1103,6 +1125,7 @@ class MCPClientService {
       try {
         const result = await this.sdk.callTool(op.name, op.args, {
           progressToken: op.progressToken,
+          ...op.continuation,
         });
         this.pendingOperations.shift();
         op.resolve(result);
