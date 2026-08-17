@@ -85,6 +85,21 @@ async function run(): Promise<void> {
     );
   });
 
+  await test('custom UI iframes fall back from blank blob documents to srcdoc', () => {
+    const rendererSource = source('src/auto-ui/frontend/components/custom-ui-renderer.ts');
+
+    assert.match(
+      rendererSource,
+      /dataset\.srcdocFallback[\s\S]*iframe\.srcdoc = this\._srcDoc/,
+      'custom UIs must recover when a browser leaves the blob iframe at about:blank'
+    );
+    assert.match(
+      rendererSource,
+      /setTimeout\(\(\) => \{[\s\S]*dataset\.srcdocFallback[\s\S]*\}, 1500\)/,
+      'the fallback must also cover hosts that never dispatch blob iframe load'
+    );
+  });
+
   await test('destructive MCP confirmations include actionable tool context without extending elicitation params', () => {
     const transportSource = source('src/auto-ui/streamable-http-transport.ts');
     const destructiveBlockMatch = transportSource.match(
