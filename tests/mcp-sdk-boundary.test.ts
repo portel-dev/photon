@@ -39,6 +39,11 @@ const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const pins = JSON.parse(readFileSync(join(root, 'tests', 'conformance', 'pins.json'), 'utf8'));
 assert.equal(packageJson.dependencies['@modelcontextprotocol/sdk'], pins.typescriptSdkV1.version);
 assert.equal(
+  packageJson.dependencies[pins.typescriptSdkV2.package],
+  pins.typescriptSdkV2.version,
+  'Beam must pin the official MCP v2 client package used by its adapter'
+);
+assert.equal(
   packageJson.devDependencies['@modelcontextprotocol/conformance'],
   pins.officialConformance.version
 );
@@ -47,4 +52,13 @@ assert.equal(
   pins.appsExtension.version
 );
 
-console.log('MCP SDK v1 imports are isolated and dependency pins match conformance metadata.');
+const beamClient = readFileSync(
+  join(root, 'src', 'auto-ui', 'frontend', 'services', 'mcp-client-sdk.ts'),
+  'utf8'
+);
+assert.match(beamClient, /@modelcontextprotocol\/client/);
+assert.doesNotMatch(beamClient, /pending\s*=\s*new Map/);
+assert.doesNotMatch(beamClient, /JSON\.stringify\(message\)/);
+assert.doesNotMatch(beamClient, /readResponse\(/);
+
+console.log('MCP SDK boundaries and official Beam client dependency pins are valid.');

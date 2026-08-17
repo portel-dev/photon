@@ -20,8 +20,9 @@
     "gitHead": "e12cbd7078db388152f6e839abdbe09ba01f3f32"
   },
   "typescriptSdkV2": {
-    "status": "not-adopted-beta",
-    "observedVersion": "2.0.0-beta.5"
+    "status": "adopted",
+    "package": "@modelcontextprotocol/client",
+    "version": "2.0.0"
   },
   "officialConformance": {
     "package": "@modelcontextprotocol/conformance",

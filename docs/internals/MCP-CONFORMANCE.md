@@ -1,8 +1,9 @@
 # MCP conformance and SDK policy
 
-Photon keeps its protocol model independent of the official TypeScript SDK.
-The SDK is an interoperability dependency at the edge, not the source of
-Photon's canonical 2026 types.
+Photon keeps its canonical server/runtime types independent of SDK classes,
+but Beam delegates MCP client wire behavior to the official TypeScript client.
+Photon's adapter remains responsible only for Beam UI, auth, routing headers,
+and Photon extension methods.
 
 ## Tested versions
 
@@ -16,19 +17,23 @@ The machine-readable pins live in
 | Tasks extension | `modelcontextprotocol/ext-tasks@2c1425d9` |
 | MCP Apps | `@modelcontextprotocol/ext-apps@1.7.5` |
 | TypeScript SDK v1 | `@modelcontextprotocol/sdk@1.29.0` |
+| Official Beam client | `@modelcontextprotocol/client@2.0.0` |
 | Official conformance | `@modelcontextprotocol/conformance@0.2.0-alpha.10` |
 
-The TypeScript SDK v2 line is still prerelease (`2.0.0-beta.5` at the pinned
-review). Photon will not replace a stable compatibility adapter with a beta
-runtime dependency. Adoption requires a stable v2 release, coverage for every
-advertised Photon feature, and a clean golden-wire diff.
+The v2 client is used by Beam with automatic modern/legacy negotiation. The v1
+package remains pinned for Photon’s 2025 server/conformance compatibility
+surface and is still isolated behind `src/mcp/sdk-v1-2025/`.
 
-## Adapter boundary
+## Adapter boundaries
 
 All v1 SDK imports in production source are confined to
 `src/mcp/sdk-v1-2025/`. Modules under `src/mcp/protocol/` must not import that
 boundary. This prevents v1-only result types or SDK classes from becoming
 canonical 2026 runtime types.
+
+Beam’s official-client adapter is
+`src/auto-ui/frontend/services/mcp-client-sdk.ts`. It must not grow a second
+JSON-RPC correlation, pagination, timeout, or protocol negotiation engine.
 
 Run the boundary check with:
 

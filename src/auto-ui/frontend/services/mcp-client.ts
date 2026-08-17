@@ -1,11 +1,11 @@
 /**
  * MCP Client Service for Beam UI
  *
- * Delegates all wire-protocol work to MCPClientSDK (built on
- * `@modelcontextprotocol/sdk`'s StreamableHTTPClientTransport). This
+ * Delegates all wire-protocol work to MCPClientSDK (backed by the official
+ * `@modelcontextprotocol/client` package). This
  * class owns only app-level glue: auth state, queue-for-retry on
  * connection drop, Beam-specific notification fan-out, and
- * configurationSchema introspection from the initialize response.
+ * configurationSchema introspection from the discovery response.
  */
 
 import { MCPClientSDK } from './mcp-client-sdk.js';
@@ -453,27 +453,17 @@ class MCPClientService {
 
   private async initialize(): Promise<void> {
     const sdk = this.sdk!;
-    // Beam speaks the current stateless MCP revision. Photon authors do not
-    // select a revision; this is entirely a client/runtime concern.
-    const result = await sdk.request('server/discover', {
-      _meta: {
-        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
-        'io.modelcontextprotocol/clientInfo': { name: 'beam', version: '1.0.0' },
-        'io.modelcontextprotocol/clientCapabilities': {
-          tools: {},
-          resources: {},
-          extensions: {
-            'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
-            'dev.portel.photon': { version: '1.0.0' },
-          },
-        },
-      },
-    });
-
-    if (result.serverInfo?.version) {
-      this._serverVersion = result.serverInfo.version;
+    // The official client performs server/discover negotiation during
+    // connect() and stores the result. Photon only consumes its application
+    // metadata; it does not duplicate the handshake.
+    const result = sdk.getDiscoverResult() as
+      | { serverInfo?: { version?: string }; configurationSchema?: ConfigurationSchema }
+      | undefined;
+    const serverVersion = sdk.getServerVersion()?.version ?? result?.serverInfo?.version;
+    if (serverVersion) {
+      this._serverVersion = serverVersion;
     }
-    if (result.configurationSchema) {
+    if (result?.configurationSchema) {
       this._configurationSchema = result.configurationSchema;
       this.emit('configuration-available', this._configurationSchema);
     }
@@ -483,14 +473,7 @@ class MCPClientService {
 
   async listTools(): Promise<MCPTool[]> {
     const sdk = this.requireSdk();
-    const tools: MCPTool[] = [];
-    let cursor: string | undefined;
-    do {
-      const result = await sdk.request('tools/list', cursor ? { cursor } : {});
-      tools.push(...((result.tools || []) as MCPTool[]));
-      cursor = typeof result.nextCursor === 'string' ? result.nextCursor : undefined;
-    } while (cursor);
-    return tools;
+    return (await sdk.listTools()) as MCPTool[];
   }
 
   /**
@@ -559,19 +542,12 @@ class MCPClientService {
 
   async listResources(): Promise<MCPResource[]> {
     const sdk = this.requireSdk();
-    const resources: MCPResource[] = [];
-    let cursor: string | undefined;
-    do {
-      const result = await sdk.request('resources/list', cursor ? { cursor } : {});
-      resources.push(...((result.resources || []) as MCPResource[]));
-      cursor = typeof result.nextCursor === 'string' ? result.nextCursor : undefined;
-    } while (cursor);
-    return resources;
+    return (await sdk.listResources()) as MCPResource[];
   }
 
   async readResource(uri: string): Promise<MCPResourceContent | null> {
     const sdk = this.requireSdk();
-    const result = await sdk.request('resources/read', { uri });
+    const result = (await sdk.readResource(uri)) as { contents?: MCPResourceContent[] };
     return result.contents?.[0] || null;
   }
 

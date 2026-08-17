@@ -1,63 +1,42 @@
 /**
- * MCP Client Service (transport-only SDK variant).
+ * Photon adapter around the official MCP TypeScript client.
  *
- * Drop-in replacement for mcp-client.ts's protocol layer, built on
- * `@modelcontextprotocol/sdk`'s `StreamableHTTPClientTransport` — the
- * SDK's wire-level transport only, without its `Client` class (which
- * pulls Zod and ~60 KB extra gzipped).
+ * Beam used to implement a second JSON-RPC/Streamable HTTP client here. That
+ * made every protocol revision, pagination rule, timeout, and multi-round
+ * continuation another piece of Photon code to keep in sync. The official
+ * `@modelcontextprotocol/client` package now owns that protocol surface.
  *
- * What this file owns:
- *   - JSON-RPC request/response correlation (pending-request map)
- *   - Progress event routing by progressToken
- *   - Idle-reset timeout per in-flight request (resets on any
- *     notifications/progress whose token matches a pending request)
- *   - Cancellation: abort signal → notifications/cancelled emission
- *   - EventEmitter fan-out for beam/* and other custom notifications
- *
- * What the SDK transport handles:
- *   - HTTP POST sends + SSE stream receives (Streamable HTTP spec)
- *   - Mcp-Session-Id header threading
- *   - SSE reconnection with exponential backoff + resumption tokens
- *   - DELETE on close for server-side session cleanup
- *   - 401 handling via optional authProvider
- *
- * Not yet migrated from mcp-client.ts (intentional scope limit):
- *   - Auth popup / localStorage / window message glue
- *   - ConfigurationSchema introspection (beam-specific, non-MCP)
- *   - Queue-for-retry on connection drop
- *   - ResourceServer plumbing
- * Those live in the outer MCPClientService wrapper; this file is the
- * protocol engine they'd sit on top of.
+ * This adapter intentionally contains only Beam/Photon concerns:
+ *   - routing headers for Photon’s multiplexed endpoint
+ *   - the browser fetch/auth seam
+ *   - Beam’s event-emitter compatibility API
+ *   - manual input-required continuation support for Beam’s UI
+ *   - request-handler adaptation for Photon’s existing callbacks
  */
 
-import { StreamableHTTPClientTransport } from '../../../mcp/sdk-v1-2025/client-streamable-http.js';
+import {
+  Client,
+  StreamableHTTPClientTransport,
+  fromJsonSchema,
+  type CallToolRequestParams,
+  type DiscoverResult,
+  type Implementation,
+  type RequestOptions,
+} from '@modelcontextprotocol/client';
 import { getMCPRequestRoutingHeaders } from '../../../mcp/protocol/routing-headers.js';
 
-type JSONValue = string | number | boolean | null | JSONValue[] | { [k: string]: JSONValue };
-
-interface JSONRPCMessage {
-  jsonrpc: '2.0';
-  id?: string | number;
-  method?: string;
-  params?: Record<string, unknown>;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
-}
-
 type Listener = (data?: unknown) => void;
+type JSONRecord = Record<string, unknown>;
 
 const MCP_2026_PROTOCOL_VERSION = '2026-07-28';
+const DEFAULT_IDLE_TIMEOUT_MS = 120_000;
+const DEFAULT_MAX_TIMEOUT_MS = 30 * 60_000;
 
-/**
- * Add Photon’s MCP 2026 routing headers to SDK transport requests.
- *
- * The SDK owns the HTTP transport, so the older hand-written request path
- * cannot add these headers for it. Beam serves several MCP servers behind one
- * endpoint and therefore needs the declared method name on every named call.
- */
+/** Add Photon’s routing headers to official Streamable HTTP requests. */
 export function createMCPClientRoutingFetch(fetchImpl: typeof fetch = fetch): typeof fetch {
   return async (input, init) => {
     if (typeof init?.body !== 'string') return fetchImpl(input, init);
+
     let message: unknown;
     try {
       message = JSON.parse(init.body);
@@ -76,145 +55,128 @@ export function createMCPClientRoutingFetch(fetchImpl: typeof fetch = fetch): ty
   };
 }
 
-/**
- * Default idle timeout for any tool call: if no progress notification
- * arrives for this long, the request is aborted. Each matching progress
- * event resets the clock. 2 minutes is long enough for any reasonable
- * network/LLM pause, short enough to kill a truly hung method.
- */
-const DEFAULT_IDLE_TIMEOUT_MS = 120_000;
-
-/**
- * Hard ceiling for a single request regardless of progress activity.
- * A method that somehow emits progress forever still gets killed here.
- */
-const DEFAULT_MAX_TIMEOUT_MS = 30 * 60_000;
-
-interface PendingRequest {
-  resolve: (value: unknown) => void;
-  reject: (err: Error) => void;
-  progressToken?: string | number;
-  onProgress?: (params: Record<string, unknown>) => void;
-  /** Idle timer — resets on matching progress. Kills the request on fire. */
-  idleTimer?: ReturnType<typeof setTimeout>;
-  /** Absolute ceiling — fires regardless of progress activity. */
-  maxTimer?: ReturnType<typeof setTimeout>;
-  idleTimeoutMs: number;
-  /** AbortSignal listener to clean up on request completion. */
-  abortCleanup?: () => void;
-}
-
 export interface CallOptions {
   progressToken?: string | number;
-  onProgress?: (params: Record<string, unknown>) => void;
+  onProgress?: (params: JSONRecord) => void;
   signal?: AbortSignal;
-  /** MCP 2026 durable input continuation token. */
   requestState?: string;
-  /** Answers keyed by the input request keys returned with requestState. */
   inputResponses?: Record<string, unknown>;
-  /** Idle timeout; reset on each progress notification. Default 2 min. */
   idleTimeoutMs?: number;
-  /** Hard ceiling regardless of progress. Default 30 min. */
   maxTimeoutMs?: number;
 }
 
 export interface MCPClientSDKOptions {
   authToken?: string;
-  /** Protocol selected by the host. Beam uses the current stateless revision. */
+  /** Optional explicit legacy selection, retained for compatibility tests. */
   protocolVersion?: string;
   clientInfo?: { name: string; version: string };
-  clientCapabilities?: Record<string, unknown>;
-  /**
-   * Optional fetch override. The outer MCPClientService wraps window.fetch
-   * here to intercept 401s and harvest WWW-Authenticate → resource_metadata_url
-   * before the SDK throws, without needing the SDK's built-in OAuth provider.
-   */
+  clientCapabilities?: JSONRecord;
   fetch?: typeof fetch;
 }
 
-/**
- * Handler for a server→client request. Return value is sent back as
- * the JSON-RPC result; throw to send an error response.
- *
- * Used for primitives like `sampling/createMessage` and
- * `elicitation/create` that the server initiates. Without a handler,
- * the SDK responds with a JSON-RPC error so the server's promise
- * rejects cleanly instead of hanging.
- */
-type RequestHandler = (params: Record<string, unknown>) => unknown;
+type RequestHandler = (params: JSONRecord) => unknown;
+
+/** The official SDK's custom-method schema boundary. */
+const ANY_JSON_SCHEMA = fromJsonSchema<unknown>({});
+
+const DEFAULT_CAPABILITIES: JSONRecord = {
+  tools: { listChanged: true },
+  resources: { subscribe: true, listChanged: true },
+  elicitation: { form: true, url: true },
+  sampling: {},
+  roots: { listChanged: true },
+  extensions: {
+    'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+    'dev.portel.photon': { version: '1.0.0' },
+  },
+};
+
+function mergeCapabilities(input?: JSONRecord): JSONRecord {
+  const value = input ?? {};
+  return {
+    ...DEFAULT_CAPABILITIES,
+    ...value,
+    extensions: {
+      ...DEFAULT_CAPABILITIES.extensions,
+      ...((value.extensions as JSONRecord | undefined) ?? {}),
+    },
+  };
+}
+
+function sdkRequestOptions(options: CallOptions = {}): RequestOptions & JSONRecord {
+  const request: RequestOptions & JSONRecord = {
+    signal: options.signal,
+    progressToken: options.progressToken,
+    onprogress: options.onProgress,
+    timeout: options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
+    resetTimeoutOnProgress: true,
+    maxTotalTimeout: options.maxTimeoutMs ?? DEFAULT_MAX_TIMEOUT_MS,
+  };
+  return Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined));
+}
 
 export class MCPClientSDK {
-  private transport: StreamableHTTPClientTransport | undefined;
   private readonly baseUrl: URL;
-  private readonly fetchImpl: typeof fetch;
-  private readonly authToken?: string;
-  private readonly protocolVersion: string;
-  private readonly clientInfo: { name: string; version: string };
-  private readonly clientCapabilities: Record<string, unknown>;
-  private listeners = new Map<string, Set<Listener>>();
-  private pending = new Map<string | number, PendingRequest>();
-  private requestHandlers = new Map<string, RequestHandler>();
-  private nextId = 1;
+  private readonly client: Client;
+  private readonly transport: StreamableHTTPClientTransport;
+  private readonly listeners = new Map<string, Set<Listener>>();
+  private readonly requestHandlers = new Map<string, RequestHandler>();
   private connected = false;
+  private hadDisconnect = false;
 
   constructor(baseUrl: string, opts: MCPClientSDKOptions = {}) {
     this.baseUrl = new URL(baseUrl);
-    this.fetchImpl = createMCPClientRoutingFetch(opts.fetch ?? fetch);
-    this.authToken = opts.authToken;
-    this.protocolVersion = opts.protocolVersion ?? MCP_2026_PROTOCOL_VERSION;
-    this.clientInfo = opts.clientInfo ?? { name: 'beam', version: '1.0.0' };
-    this.clientCapabilities = opts.clientCapabilities ?? {
-      tools: {},
-      resources: {},
-      extensions: {
-        'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
-        'dev.portel.photon': { version: '1.0.0' },
+    const fetchImpl = createMCPClientRoutingFetch(opts.fetch ?? fetch);
+    const protocolVersion = opts.protocolVersion ?? MCP_2026_PROTOCOL_VERSION;
+    const modern = protocolVersion === MCP_2026_PROTOCOL_VERSION;
+
+    this.client = new Client(opts.clientInfo ?? { name: 'beam', version: '1.0.0' }, {
+      capabilities: mergeCapabilities(opts.clientCapabilities),
+      // Negotiate the current era automatically and fall back to the 2025
+      // initialize sequence for older MCP servers.
+      versionNegotiation: modern ? { mode: 'auto' } : { mode: 'legacy' },
+      // Beam renders input_required UI itself. The official SDK validates
+      // and normalizes the result, but does not own the dialog.
+      inputRequired: { autoFulfill: false },
+    });
+
+    this.transport = new StreamableHTTPClientTransport(this.baseUrl, {
+      requestInit: opts.authToken
+        ? { headers: { Authorization: `Bearer ${opts.authToken}` } }
+        : undefined,
+      fetch: fetchImpl,
+      reconnectionOptions: {
+        initialReconnectionDelay: 1_000,
+        maxReconnectionDelay: 30_000,
+        reconnectionDelayGrowFactor: 1.5,
+        maxRetries: Number.MAX_SAFE_INTEGER,
       },
+    });
+
+    this.transport.onclose = () => {
+      this.connected = false;
+      this.hadDisconnect = true;
+      this.emit('disconnected');
     };
+    this.transport.onerror = (error) => this.emit('error', error);
 
-    if (this.protocolVersion !== MCP_2026_PROTOCOL_VERSION) {
-      this.transport = new StreamableHTTPClientTransport(this.baseUrl, {
-        requestInit: opts.authToken
-          ? { headers: { Authorization: `Bearer ${opts.authToken}` } }
-          : undefined,
-        fetch: this.fetchImpl,
-        // SDK's default maxRetries is 2. We match the old client's
-        // never-give-up behavior so the user doesn't need to refresh
-        // after a daemon restart or transient network blip.
-        reconnectionOptions: {
-          initialReconnectionDelay: 1_000,
-          maxReconnectionDelay: 30_000,
-          reconnectionDelayGrowFactor: 1.5,
-          maxRetries: Number.MAX_SAFE_INTEGER,
-        },
-      });
-
-      this.transport.onmessage = (msg) => this.handleMessage(msg as JSONRPCMessage);
-      this.transport.onclose = () => {
-        this.connected = false;
-        this.emit('disconnected');
-      };
-      this.transport.onerror = (err) => this.emit('error', err);
+    this.installNotificationBridge();
+    for (const [method, handler] of this.requestHandlers) {
+      this.installRequestHandler(method, handler);
     }
   }
 
   async connect(): Promise<void> {
-    if (this.transport) await this.transport.start();
+    await this.client.connect(this.transport);
+    const wasDisconnected = this.hadDisconnect;
     this.connected = true;
-    this.emit('connected');
+    this.hadDisconnect = false;
+    this.emit(wasDisconnected ? 'reconnected' : 'connected');
   }
 
   async disconnect(): Promise<void> {
-    if (!this.transport) {
-      this.connected = false;
-      return;
-    }
-    try {
-      await this.transport.terminateSession();
-    } catch {
-      // Server may not support DELETE; fall through to close.
-    }
-    await this.transport.close();
+    this.connected = false;
+    await this.client.close();
   }
 
   get isConnected(): boolean {
@@ -222,358 +184,95 @@ export class MCPClientSDK {
   }
 
   get sessionId(): string | undefined {
-    return this.transport?.sessionId;
+    return this.transport.sessionId;
   }
 
-  // ── Request/response correlation ─────────────────────────────────
+  getServerVersion(): Implementation | undefined {
+    return this.client.getServerVersion();
+  }
 
-  /**
-   * Send a JSON-RPC request and await the response. Per-request timeout
-   * is idle-reset: each `notifications/progress` whose progressToken
-   * matches this request's resets the clock.
-   */
+  getDiscoverResult(): DiscoverResult | undefined {
+    return this.client.getDiscoverResult();
+  }
+
+  get negotiatedProtocolVersion(): string | undefined {
+    return this.client.getNegotiatedProtocolVersion();
+  }
+
+  /** Call a standard or Photon extension request through the official client. */
   async request<T = unknown>(
     method: string,
-    params: Record<string, unknown> = {},
+    params: JSONRecord = {},
     options: CallOptions = {}
   ): Promise<T> {
-    const id = this.nextId++;
-    const {
-      progressToken,
-      onProgress,
-      signal,
-      idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
-      maxTimeoutMs = DEFAULT_MAX_TIMEOUT_MS,
-    } = options;
-
-    const messageParams: Record<string, unknown> = { ...params };
-    if (progressToken != null) {
-      messageParams._meta = {
-        ...(messageParams._meta as Record<string, unknown> | undefined),
-        progressToken,
-      };
-    }
-
-    return new Promise<T>((resolve, reject) => {
-      const pending: PendingRequest = {
-        resolve: (v) => resolve(v as T),
-        reject,
-        progressToken,
-        onProgress,
-        idleTimeoutMs,
-      };
-
-      const clearAndFail = (err: Error) => {
-        this.finalize(id);
-        reject(err);
-      };
-
-      // Idle timer (reset on matching progress).
-      pending.idleTimer = setTimeout(() => {
-        this.sendCancel(id, 'idle-timeout');
-        clearAndFail(
-          new Error(`Request ${method} timed out after ${idleTimeoutMs}ms of no progress`)
-        );
-      }, idleTimeoutMs);
-
-      // Hard ceiling regardless of progress.
-      pending.maxTimer = setTimeout(() => {
-        this.sendCancel(id, 'max-timeout');
-        clearAndFail(new Error(`Request ${method} exceeded max total timeout ${maxTimeoutMs}ms`));
-      }, maxTimeoutMs);
-
-      // AbortSignal → cancel notification + reject.
-      if (signal) {
-        if (signal.aborted) {
-          clearAndFail(new Error('Request aborted before send'));
-          return;
-        }
-        const onAbort = () => {
-          this.sendCancel(id, 'client-abort');
-          clearAndFail(new Error(signal.reason?.toString() || 'Request aborted'));
-        };
-        signal.addEventListener('abort', onAbort, { once: true });
-        pending.abortCleanup = () => signal.removeEventListener('abort', onAbort);
-      }
-
-      this.pending.set(id, pending);
-
-      this.send({ jsonrpc: '2.0', id, method, params: messageParams }).catch((err) =>
-        clearAndFail(err instanceof Error ? err : new Error(String(err)))
-      );
-    });
+    this.markActive();
+    const request = { method, params } as any;
+    const result = await (this.isCustomMethod(method)
+      ? this.client.request(request, ANY_JSON_SCHEMA, sdkRequestOptions(options))
+      : this.client.request(request, sdkRequestOptions(options)));
+    return result as T;
   }
 
-  /**
-   * Send a JSON-RPC notification (fire-and-forget, no id). Used for
-   * `notifications/initialized`, `beam/viewing`, etc.
-   */
-  async notify(method: string, params: Record<string, unknown> = {}): Promise<void> {
-    await this.send({ jsonrpc: '2.0', method, params });
+  async notify(method: string, params: JSONRecord = {}): Promise<void> {
+    await (this.isCustomMethod(method)
+      ? (this.client.notification as any)({ method, params }, ANY_JSON_SCHEMA)
+      : this.client.notification({ method, params } as any));
   }
 
-  private async send(message: JSONRPCMessage): Promise<void> {
-    if (this.transport) {
-      await this.transport.send(message);
-      return;
-    }
-
-    const meta = {
-      ...((message.params?._meta as Record<string, unknown> | undefined) ?? {}),
-      'io.modelcontextprotocol/protocolVersion': this.protocolVersion,
-      'io.modelcontextprotocol/clientInfo': this.clientInfo,
-      'io.modelcontextprotocol/clientCapabilities': this.clientCapabilities,
-    };
-    const params = { ...(message.params ?? {}), _meta: meta };
-    const headers: Record<string, string> = {
-      // MCP Streamable HTTP requires clients to advertise both response
-      // forms, even when this stateless request expects JSON.
-      Accept: 'application/json, text/event-stream',
-      'Content-Type': 'application/json',
-      'Mcp-Protocol-Version': this.protocolVersion,
-      ...(message.method ? { 'Mcp-Method': message.method } : {}),
-      ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
-    };
-    const response = await this.fetchImpl(this.baseUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ...message, params }),
-    });
-    if (!response.ok) {
-      throw new Error(`MCP request failed (${response.status}): ${await response.text()}`);
-    }
-    if (message.id === undefined) return;
-    const payload = (await this.readResponse(response)) as JSONRPCMessage;
-    this.handleMessage(payload);
-  }
-
-  private async readResponse(response: Response): Promise<unknown> {
-    const body = await response.text();
-    if (!body.trimStart().startsWith('data:')) return JSON.parse(body);
-
-    // Streamable HTTP may choose an SSE response when the client advertises
-    // both JSON and event-stream media types. A single request response is
-    // the last JSON data event in that stream.
-    const events = body
-      .split(/\r?\n\r?\n/)
-      .flatMap((event) =>
-        event
-          .split(/\r?\n/)
-          .filter((line) => line.startsWith('data:'))
-          .map((line) => line.slice(5).trim())
-      )
-      .filter(Boolean);
-    if (events.length === 0) throw new Error('MCP SSE response did not contain a data event');
-    return JSON.parse(events[events.length - 1]);
-  }
-
-  /**
-   * Register a handler for a server→client request method. The
-   * handler's return value becomes the JSON-RPC result; throwing
-   * surfaces as a JSON-RPC error response. One handler per method —
-   * calling again replaces the previous handler.
-   *
-   * This is how Beam answers `sampling/createMessage`: the human at
-   * the browser is the LLM. When a photon runs `this.sample(...)`,
-   * the server's `server.createMessage(...)` forwards to Beam, Beam's
-   * registered handler shows a modal, the user types a response, and
-   * that text flows back to the photon — all inside the same request.
-   */
   setRequestHandler(method: string, handler: RequestHandler): void {
     this.requestHandlers.set(method, handler);
+    if (this.connected) this.installRequestHandler(method, handler);
   }
 
-  /** Remove a previously-registered request handler. */
   removeRequestHandler(method: string): void {
     this.requestHandlers.delete(method);
-  }
-
-  private finalize(id: string | number): void {
-    const pending = this.pending.get(id);
-    if (!pending) return;
-    if (pending.idleTimer) clearTimeout(pending.idleTimer);
-    if (pending.maxTimer) clearTimeout(pending.maxTimer);
-    pending.abortCleanup?.();
-    this.pending.delete(id);
-  }
-
-  private sendCancel(id: string | number, reason: string): void {
-    void this.send({
-      jsonrpc: '2.0',
-      method: 'notifications/cancelled',
-      params: { requestId: id, reason },
-    }).catch(() => {
-      // Cancellation is best-effort. If it fails, we've already rejected
-      // the caller's promise; further retries add nothing.
+    // The official client intentionally has no remove method. Replacing the
+    // handler with an explicit protocol error avoids leaving stale UI state.
+    this.installRequestHandler(method, async () => {
+      throw new Error(`No handler registered for ${method}`);
     });
   }
 
-  /**
-   * Convenience for callTool that wires progressToken + idle-reset +
-   * optional cancellation in one call.
-   */
-  async callTool(
-    name: string,
-    args: Record<string, unknown>,
-    options: CallOptions = {}
-  ): Promise<unknown> {
-    // If the caller hands us a progressToken and onProgress callback, use
-    // them. If only progressToken, emit 'progress' events on our bus so
-    // existing BeamUI listeners keep working unchanged.
-    const effectiveOnProgress =
+  async callTool(name: string, args: JSONRecord, options: CallOptions = {}): Promise<unknown> {
+    this.markActive();
+    const onProgress =
       options.onProgress ??
       (options.progressToken != null
-        ? (p: Record<string, unknown>) =>
-            this.emit('progress', { progressToken: options.progressToken, ...p })
+        ? (params: JSONRecord) =>
+            this.emit('progress', { progressToken: options.progressToken, ...params })
         : undefined);
-    const continuation = {
+    const params: CallToolRequestParams & JSONRecord = {
+      name,
+      arguments: args,
       ...(options.requestState ? { requestState: options.requestState } : {}),
       ...(options.inputResponses ? { inputResponses: options.inputResponses } : {}),
-    };
-    return this.request(
-      'tools/call',
-      { name, arguments: args, ...continuation },
+    } as CallToolRequestParams & JSONRecord;
+    return this.client.callTool(
+      params as any,
       {
-        ...options,
-        onProgress: effectiveOnProgress,
-      }
+        ...sdkRequestOptions({ ...options, onProgress }),
+        // Required for Beam’s manual input_required dialog path.
+        allowInputRequired: true,
+      } as any
     );
   }
 
   async listTools(): Promise<unknown[]> {
-    const tools: unknown[] = [];
-    let cursor: string | undefined;
-    do {
-      const res = await this.request<{ tools?: unknown[]; nextCursor?: unknown }>(
-        'tools/list',
-        cursor ? { cursor } : {}
-      );
-      tools.push(...(res?.tools ?? []));
-      cursor = typeof res?.nextCursor === 'string' ? res.nextCursor : undefined;
-    } while (cursor);
-    return tools;
+    this.markActive();
+    const result = await this.client.listTools();
+    return result.tools as unknown[];
   }
 
   async listResources(): Promise<unknown[]> {
-    const resources: unknown[] = [];
-    let cursor: string | undefined;
-    do {
-      const res = await this.request<{ resources?: unknown[]; nextCursor?: unknown }>(
-        'resources/list',
-        cursor ? { cursor } : {}
-      );
-      resources.push(...(res?.resources ?? []));
-      cursor = typeof res?.nextCursor === 'string' ? res.nextCursor : undefined;
-    } while (cursor);
-    return resources;
+    this.markActive();
+    const result = await this.client.listResources();
+    return result.resources as unknown[];
   }
 
   async readResource(uri: string): Promise<unknown> {
-    return this.request('resources/read', { uri });
+    this.markActive();
+    return this.client.readResource({ uri });
   }
-
-  // ── Incoming message routing ─────────────────────────────────────
-
-  private handleMessage(msg: JSONRPCMessage): void {
-    // Detect recovery. If messages start flowing again after the
-    // transport fired `onclose` (which flipped `connected` to false),
-    // the SDK's internal reconnection logic has re-established the
-    // SSE stream. Surface that as a `reconnected` event so callers
-    // (beam-app restores the active stateful instance, refreshes the
-    // tool list, etc.) can recover their own state — silently flipping
-    // the flag would leave them frozen with stale data.
-    if (!this.connected) {
-      this.connected = true;
-      this.emit('reconnected');
-    }
-
-    // Response (has id, no method).
-    if (msg.id != null && !msg.method) {
-      const pending = this.pending.get(msg.id);
-      if (!pending) return;
-      this.finalize(msg.id);
-      if (msg.error) {
-        pending.reject(new Error(msg.error.message));
-      } else {
-        pending.resolve(msg.result);
-      }
-      return;
-    }
-
-    // Server→client REQUEST (has both id and method). These are the
-    // primitives the server calls on us: `sampling/createMessage`,
-    // `elicitation/create`, `roots/list`, etc. Look up a registered
-    // handler; if none, respond with a JSON-RPC error so the server's
-    // promise rejects instead of hanging forever. Errors thrown from
-    // the handler surface as error responses so the server's
-    // corresponding photon call (`this.sample()`, etc.) can catch them
-    // and fall through to defaults.
-    if (msg.id != null && msg.method) {
-      const handler = this.requestHandlers.get(msg.method);
-      const requestId = msg.id;
-      if (!handler) {
-        void this.send({
-          jsonrpc: '2.0',
-          id: requestId,
-          error: {
-            code: -32601,
-            message: `Method not found: ${msg.method}`,
-          },
-        }).catch(() => {});
-        return;
-      }
-      void Promise.resolve()
-        .then(() => handler(msg.params ?? {}))
-        .then(
-          (result) => this.send({ jsonrpc: '2.0', id: requestId, result }).catch(() => {}),
-          (err: unknown) => {
-            const message = err instanceof Error ? err.message : String(err);
-            return this.send({
-              jsonrpc: '2.0',
-              id: requestId,
-              error: { code: -32603, message },
-            }).catch(() => {});
-          }
-        );
-      return;
-    }
-
-    // Notification — progress first (idle-timer reset + per-request
-    // callback), then fan out to listeners.
-    if (msg.method === 'notifications/progress' && msg.params) {
-      const { progressToken } = msg.params as { progressToken?: string | number };
-      if (progressToken != null) {
-        for (const [requestId, pending] of this.pending) {
-          if (pending.progressToken === progressToken) {
-            // Reset idle timer — progress proves the server is alive.
-            if (pending.idleTimer) clearTimeout(pending.idleTimer);
-            pending.idleTimer = setTimeout(() => {
-              // MCP `notifications/cancelled` matches the original
-              // JSON-RPC request id, NOT the progressToken. Passing
-              // progressToken here lets the browser reject the local
-              // promise but leaves the server-side tool running
-              // orphaned — the idle-timeout fired, the client gave up,
-              // and the photon keeps consuming resources. Cancel by
-              // requestId so the server actually tears down the call.
-              this.sendCancel(requestId, 'idle-timeout');
-              pending.reject(
-                new Error(`Request timed out after ${pending.idleTimeoutMs}ms of no progress`)
-              );
-              this.finalize(requestId);
-            }, pending.idleTimeoutMs);
-            pending.onProgress?.(msg.params);
-            break;
-          }
-        }
-      }
-    }
-
-    if (msg.method) {
-      this.emit(msg.method, msg.params);
-    }
-  }
-
-  // ── EventEmitter shim (same shape as mcp-client.ts) ──────────────
 
   on(event: string, fn: Listener): void {
     let set = this.listeners.get(event);
@@ -588,13 +287,94 @@ export class MCPClientSDK {
     this.listeners.get(event)?.delete(fn);
   }
 
+  private markActive(): void {
+    if (!this.connected) {
+      this.connected = true;
+      this.emit(this.hadDisconnect ? 'reconnected' : 'connected');
+      this.hadDisconnect = false;
+    }
+  }
+
+  private isCustomMethod(method: string): boolean {
+    return (
+      !method.startsWith('notifications/') &&
+      ![
+        'initialize',
+        'ping',
+        'server/discover',
+        'tools/list',
+        'tools/call',
+        'resources/list',
+        'resources/read',
+        'resources/templates/list',
+        'resources/subscribe',
+        'resources/unsubscribe',
+        'prompts/list',
+        'prompts/get',
+        'completion/complete',
+        'logging/setLevel',
+        'sampling/createMessage',
+        'elicitation/create',
+        'roots/list',
+      ].includes(method)
+    );
+  }
+
+  private installRequestHandler(method: string, handler: RequestHandler): void {
+    const callback = async (request: { params?: JSONRecord }) => handler(request?.params ?? {});
+    if (this.isCustomMethod(method)) {
+      (this.client.setRequestHandler as any)(method, ANY_JSON_SCHEMA, callback);
+    } else {
+      (this.client.setRequestHandler as any)(method, callback);
+    }
+  }
+
+  private installNotificationBridge(): void {
+    // Standard notifications have a typed request object. Photon’s existing
+    // event API exposes only params, so keep that surface stable.
+    for (const method of ['notifications/progress', 'notifications/tools/list_changed']) {
+      (this.client.setNotificationHandler as any)(method, (notification: { params?: unknown }) => {
+        this.emit(method, notification?.params);
+      });
+    }
+
+    // Photon/Beam notifications are extension methods and require the
+    // official SDK’s explicit custom-schema overload.
+    for (const method of [
+      'beam/photons',
+      'beam/hot-reload',
+      'beam/elicitation',
+      'beam/elicitation-deferred',
+      'beam/approval-resolved',
+      'beam/result',
+      'beam/configured',
+      'beam/error',
+      'beam/toast',
+      'beam/thinking',
+      'beam/log',
+      'beam/render',
+      'beam/canvas',
+      'photon/board-update',
+      'photon/channel-event',
+      'photon/refresh-needed',
+      'state-changed',
+      'photon/notification',
+      'ui/notifications/tool-result',
+      'ui/notifications/tool-input',
+      'ui/notifications/tool-input-partial',
+    ]) {
+      (this.client.setNotificationHandler as any)(method, ANY_JSON_SCHEMA, (params: unknown) => {
+        this.emit(method, params);
+      });
+    }
+  }
+
   private emit(event: string, data?: unknown): void {
-    this.listeners.get(event)?.forEach((fn) => {
+    this.listeners.get(event)?.forEach((listener) => {
       try {
-        fn(data);
+        listener(data);
       } catch {
-        // Listener errors are contained — a buggy consumer never takes
-        // down the transport.
+        // Event listeners are isolated from the protocol engine.
       }
     });
   }

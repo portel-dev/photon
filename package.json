@@ -159,6 +159,7 @@
   "license": "MIT",
   "dependencies": {
     "@chenglou/pretext": "^0.0.7",
+    "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@portel/cli": "^1.1.0",

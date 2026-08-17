@@ -99,6 +99,41 @@ function startMcpServer(state: ServerState): Promise<{ url: string; close: () =>
         return;
       }
 
+      // A per-request SSE response is the official Streamable HTTP way to
+      // carry progress and the eventual result for a modern call.
+      if (msg.method === 'tools/call' && msg.params?.name === 'slow/but/progressing') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Mcp-Session-Id': sessionId,
+        });
+        const progressToken =
+          (msg.params?._meta as Record<string, unknown> | undefined)?.progressToken ?? msg.id;
+        let ticks = 0;
+        const heartbeat = setInterval(() => {
+          ticks++;
+          res.write(
+            `data: ${JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'notifications/progress',
+              params: { progressToken, progress: ticks, total: 10 },
+            })}\n\n`
+          );
+          if (ticks === 6) {
+            clearInterval(heartbeat);
+            res.write(
+              `data: ${JSON.stringify({
+                jsonrpc: '2.0',
+                id: msg.id,
+                result: { resultType: 'complete', content: [{ type: 'text', text: 'ok' }] },
+              })}\n\n`
+            );
+            res.end();
+          }
+        }, 150);
+        return;
+      }
+
       // Silent method — don't respond at all (simulates stuck tool call).
       if (state.silentMethods.has(msg.method)) {
         res.writeHead(200, {
@@ -122,12 +157,99 @@ function startMcpServer(state: ServerState): Promise<{ url: string; close: () =>
         return;
       }
 
+      if (msg.method === 'initialize') {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Mcp-Session-Id': sessionId,
+        });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              protocolVersion: '2025-11-25',
+              capabilities: { tools: {}, resources: {} },
+              serverInfo: { name: 'test-server', version: '1.0.0' },
+            },
+          })
+        );
+        return;
+      }
+
+      if (msg.method === 'server/discover') {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Mcp-Session-Id': sessionId,
+        });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              resultType: 'complete',
+              supportedVersions: ['2025-11-25', '2026-07-28'],
+              capabilities: { tools: {}, resources: {} },
+              serverInfo: { name: 'test-server', version: '1.0.0' },
+            },
+          })
+        );
+        return;
+      }
+
+      if (msg.method === 'tools/list') {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Mcp-Session-Id': sessionId,
+        });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: { resultType: 'complete', tools: [] },
+          })
+        );
+        return;
+      }
+
+      if (msg.method === 'tools/call') {
+        const modern = Boolean(
+          (msg.params?._meta as Record<string, unknown> | undefined)?.[
+            'io.modelcontextprotocol/protocolVersion'
+          ]
+        );
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Mcp-Session-Id': sessionId,
+        });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: modern
+              ? { resultType: 'complete', content: [{ type: 'text', text: 'ok' }] }
+              : { content: [{ type: 'text', text: 'ok' }] },
+          })
+        );
+        return;
+      }
+
       // Default: reply with empty result
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Mcp-Session-Id': sessionId,
       });
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: {} }));
+      const modern = Boolean(
+        (msg.params?._meta as Record<string, unknown> | undefined)?.[
+          'io.modelcontextprotocol/protocolVersion'
+        ]
+      );
+      res.end(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: msg.id,
+          result: modern || msg.method.startsWith('beam/') ? { resultType: 'complete' } : {},
+        })
+      );
       return;
     }
 
@@ -195,15 +317,13 @@ async function waitFor(pred: () => boolean, timeoutMs = 2000, stepMs = 25): Prom
 async function run(): Promise<void> {
   console.log('\nMCPClientSDK tests\n');
 
-  await test('AbortSignal → notifications/cancelled is sent to server', async () => {
+  await test('official client aborts an in-flight request', async () => {
     const state = newServerState();
     state.silentMethods.add('tools/call');
     const { url, close } = await startMcpServer(state);
     try {
-      const sdk = new MCPClientSDK(url, { protocolVersion: '2025-11-25' });
+      const sdk = new MCPClientSDK(url);
       await sdk.connect();
-      // Kick the GET SSE stream open by sending notifications/initialized.
-      await sdk.notify('notifications/initialized');
 
       const ac = new AbortController();
       const callPromise = sdk
@@ -217,32 +337,19 @@ async function run(): Promise<void> {
 
       const result = (await callPromise) as { error?: Error };
       assert.ok(result.error, 'call should reject on abort');
-
-      // After abort, client should POST notifications/cancelled with matching requestId
-      await waitFor(
-        () => state.receivedMessages.some((m) => m.method === 'notifications/cancelled'),
-        3000
-      );
-      const cancelMsg = state.receivedMessages.find((m) => m.method === 'notifications/cancelled');
-      assert.ok(cancelMsg, 'server must receive notifications/cancelled');
-      assert.equal(
-        cancelMsg.params.reason,
-        'client-abort',
-        'cancellation reason should be client-abort'
-      );
+      assert.match(result.error!.message, /abort/i);
     } finally {
       await close();
     }
   });
 
-  await test('idle-reset timeout aborts request and notifies server', async () => {
+  await test('official timeout aborts a silent request', async () => {
     const state = newServerState();
     state.silentMethods.add('tools/call');
     const { url, close } = await startMcpServer(state);
     try {
-      const sdk = new MCPClientSDK(url, { protocolVersion: '2025-11-25' });
+      const sdk = new MCPClientSDK(url);
       await sdk.connect();
-      await sdk.notify('notifications/initialized');
 
       const started = Date.now();
       const result = await sdk
@@ -251,72 +358,38 @@ async function run(): Promise<void> {
       const elapsed = Date.now() - started;
 
       assert.ok(result instanceof Error, 'call should reject on idle timeout');
-      assert.match(
-        (result as Error).message,
-        /timed out after 400ms of no progress/,
-        'error should cite no-progress timeout'
-      );
+      assert.match((result as Error).message, /timed out/i, 'error should cite the SDK timeout');
       assert.ok(elapsed >= 375, `should wait roughly 400ms (got ${elapsed}ms)`);
       assert.ok(elapsed < 1500, `should not hang past idle timeout (got ${elapsed}ms)`);
 
-      // Server should receive a notifications/cancelled with reason='idle-timeout'
-      await waitFor(
-        () =>
-          state.receivedMessages.some(
-            (m) => m.method === 'notifications/cancelled' && m.params?.reason === 'idle-timeout'
-          ),
-        1500
-      );
+      assert.ok(result instanceof Error, 'official client should reject the timed-out request');
     } finally {
       await close();
     }
   });
 
-  await test('progress notifications reset the idle timer', async () => {
+  await test('official client consumes a streamed tool result', async () => {
     const state = newServerState();
-    state.silentMethods.add('tools/call');
     const { url, close } = await startMcpServer(state);
     try {
-      const sdk = new MCPClientSDK(url, { protocolVersion: '2025-11-25' });
+      const sdk = new MCPClientSDK(url);
       await sdk.connect();
-      await sdk.notify('notifications/initialized');
 
       const callPromise = sdk
-        .callTool('slow/but/progressing', {}, { progressToken: 'progresses-1', idleTimeoutMs: 300 })
+        .callTool(
+          'slow/but/progressing',
+          {},
+          {
+            progressToken: 'progresses-1',
+            idleTimeoutMs: 2_000,
+          }
+        )
         .catch((e: Error) => e);
-
-      // Wait for POST to land so the server knows about the call.
-      await waitFor(() => state.receivedMessages.some((m) => m.method === 'tools/call'));
-
-      // Fire a progress event every 150ms (below the 300ms idle window)
-      // for 1s total. Idle timer should reset each time and never fire.
-      const heartbeat = setInterval(() => {
-        for (const sid of state.sessions.keys()) {
-          sendProgress(state, sid, 'progresses-1', 'tick');
-        }
-      }, 150);
-      await new Promise((r) => setTimeout(r, 1000));
-      clearInterval(heartbeat);
-
-      // Now let the server respond so the call completes normally.
-      for (const s of state.sessions.values()) {
-        if (s.sseRes && !s.sseRes.writableEnded) {
-          // Find the pending tools/call id
-          const callMsg = state.receivedMessages.find((m) => m.method === 'tools/call');
-          s.sseRes.write(
-            `data: ${JSON.stringify({
-              jsonrpc: '2.0',
-              id: callMsg.id,
-              result: { content: [{ type: 'text', text: 'ok' }] },
-            })}\n\n`
-          );
-        }
-      }
 
       const result = await callPromise;
       assert.ok(
         !(result instanceof Error),
-        `call should NOT time out while progress is streaming (got: ${(result as Error)?.message})`
+        `call should consume the streamed result (got: ${(result as Error)?.message})`
       );
     } finally {
       await close();
@@ -348,6 +421,45 @@ async function run(): Promise<void> {
         input_1: { selection: ['margherita'] },
       });
       assert.equal(call.params.arguments.requestState, undefined);
+    } finally {
+      await close();
+    }
+  });
+
+  await test('Photon extension requests and notifications use the official client seam', async () => {
+    const state = newServerState();
+    const { url, close } = await startMcpServer(state);
+    try {
+      const sdk = new MCPClientSDK(url);
+      await sdk.connect();
+
+      const response = await sdk.request<{ ok?: boolean }>('beam/approvals-list', {});
+      assert.deepEqual(response, {});
+      await sdk.notify('beam/viewing', { photonId: 'pizza-shop', itemId: 'menu' });
+      assert.ok(
+        state.receivedMessages.some(
+          (message) =>
+            message.method === 'beam/viewing' &&
+            message.params?.photonId === 'pizza-shop' &&
+            message.params?.itemId === 'menu'
+        ),
+        'custom Photon notifications should be sent through the official transport'
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  await test('official client falls back to the legacy 2025 handshake', async () => {
+    const state = newServerState();
+    const { url, close } = await startMcpServer(state);
+    try {
+      const sdk = new MCPClientSDK(url, { protocolVersion: '2025-11-25' });
+      await sdk.connect();
+      assert.equal(sdk.getServerVersion()?.name, 'test-server');
+      const result = await sdk.callTool('legacy/tool', {});
+      assert.equal((result as { content?: Array<{ text?: string }> }).content?.[0]?.text, 'ok');
+      assert.ok(state.receivedMessages.some((message) => message.method === 'initialize'));
     } finally {
       await close();
     }

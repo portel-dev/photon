@@ -1118,15 +1118,15 @@ MCP Apps contract gates passing locally on 2026-07-28.
 
 ### Goal
 
-Use official SDK behavior where stable without coupling Photon’s runtime to one
-SDK generation.
+Use official SDK behavior for Beam’s client protocol without coupling
+Photon’s canonical server/runtime model to SDK classes.
 
 ### Implementation steps
 
 1. Confine `@modelcontextprotocol/sdk` v1 usage to the 2025 adapter.
 2. Avoid casting new 2026 result shapes through v1 types.
-3. Adopt the official TypeScript SDK v2 adapter when its stable release and
-   supported feature tier meet Photon’s requirements.
+3. Keep Beam on the official TypeScript SDK v2 client and validate its Photon
+   adapter seam against the official client’s modern and legacy behavior.
 4. Keep Photon’s canonical runtime types independent of SDK classes.
 5. Vendor no unofficial protocol changes.
 6. Run the official conformance suite against:
@@ -1150,9 +1150,8 @@ SDK generation.
 - `tests/mcp-sdk-boundary.test.ts` proves that production v1 SDK imports are
   confined to `src/mcp/sdk-v1-2025/` and that canonical protocol modules do not
   depend on that adapter.
-- `tests/conformance/pins.json` records the exact spec, Tasks, Apps, SDK, and
-  conformance revisions. The stable SDK v1 dependency is exact-pinned; SDK v2
-  adoption is explicitly deferred while the available line is beta.
+- `tests/conformance/pins.json` records the exact spec, Tasks, Apps, official
+  Beam client, legacy server SDK, and conformance revisions.
 - `.github/workflows/ci.yml` runs and archives official conformance plus
   Photon stdio parity and MCP Apps contracts.
   `.github/workflows/mcp-sdk-compat.yml` tests the newest allowed SDK v1 patch
