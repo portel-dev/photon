@@ -221,10 +221,14 @@ async function main() {
         closeLabel: overlay
           ?.querySelector('button[aria-label="Close preview"]')
           ?.getAttribute('aria-label'),
+        closeSvg: Boolean(overlay?.querySelector('button[aria-label="Close preview"] svg')),
         actionLabel: overlay?.querySelector('a')?.textContent,
         imageAlt: overlay?.querySelector('img')?.getAttribute('alt'),
         navigationCount: overlay?.querySelectorAll(
           'button[aria-label="Previous image"], button[aria-label="Next image"]'
+        ).length,
+        navigationSvgCount: overlay?.querySelectorAll(
+          'button[aria-label="Previous image"] svg, button[aria-label="Next image"] svg'
         ).length,
       };
       overlay
@@ -237,9 +241,11 @@ async function main() {
       galleryBehavior.tileCount === 2 &&
         galleryBehavior.overlay &&
         galleryBehavior.closeLabel === 'Close preview' &&
+        galleryBehavior.closeSvg &&
         galleryBehavior.actionLabel === 'Open example' &&
         galleryBehavior.imageAlt === 'First' &&
         galleryBehavior.navigationCount === 2 &&
+        galleryBehavior.navigationSvgCount === 2 &&
         galleryBehavior.closed,
       JSON.stringify(galleryBehavior)
     );
@@ -258,19 +264,29 @@ async function main() {
       const close = dialog?.querySelector(
         'button[aria-label="Close expanded view"]'
       ) as HTMLButtonElement | null;
+      const expandText = expand?.textContent || '';
+      const closeText = close?.textContent || '';
       close?.click();
       return {
         hasExpand: Boolean(expand),
+        expandSvg: Boolean(expand?.querySelector('svg')),
+        expandHasRawGlyph: expandText.includes('⤢'),
         hasDialog: Boolean(dialog),
         hasClose: Boolean(close),
+        closeSvg: Boolean(close?.querySelector('svg')),
+        closeHasRawGlyph: closeText.includes('×'),
         closed: !document.querySelector('[role="dialog"][aria-label="Card"]'),
       };
     });
     check(
       'large card results get a reusable fullscreen surface with close control',
       expandableCard.hasExpand &&
+        expandableCard.expandSvg &&
+        !expandableCard.expandHasRawGlyph &&
         expandableCard.hasDialog &&
         expandableCard.hasClose &&
+        expandableCard.closeSvg &&
+        !expandableCard.closeHasRawGlyph &&
         expandableCard.closed,
       JSON.stringify(expandableCard)
     );

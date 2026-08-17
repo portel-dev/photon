@@ -872,6 +872,31 @@ export function generateRenderersScript(): string {
     catch(e) { return v; }
   }
 
+  function _icon(paths) {
+    return '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" style="display:block;pointer-events:none">' + paths + '</svg>';
+  }
+
+  var ICON_EXPAND = _icon('<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="M9 21H3v-6"/><path d="m3 21 7-7"/>');
+  var ICON_CLOSE = _icon('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
+  var ICON_PREVIOUS = _icon('<path d="m15 18-6-6 6-6"/>');
+  var ICON_NEXT = _icon('<path d="m9 18 6-6-6-6"/>');
+
+  function _setIconButton(button, icon, label, style) {
+    button.type = 'button';
+    button.innerHTML = icon;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.style.cssText = style;
+  }
+
+  function _inlineIconButtonStyle(size) {
+    return 'width:' + size + 'px;height:' + size + 'px;padding:0;border:1px solid ' + colors.border + ';border-radius:999px;background:' + colors.bgAlt + ';color:' + colors.text + ';cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.12)';
+  }
+
+  function _overlayIconButtonStyle(size) {
+    return 'width:' + size + 'px;height:' + size + 'px;padding:0;border:1px solid rgba(255,255,255,.22);border-radius:999px;background:rgba(255,255,255,.10);color:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 8px 24px rgba(0,0,0,.28);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)';
+  }
+
   // ─── Expandable surfaces ───
   // Large result formats share one presentation contract. The host may grant
   // fullscreen, while this overlay remains a useful fallback for hosts that
@@ -899,11 +924,7 @@ export function generateRenderersScript(): string {
     heading.textContent = title || 'View';
     heading.style.cssText = 'font-size:12px;font-weight:600;color:' + colors.textMuted + ';letter-spacing:.02em';
     var expand = document.createElement('button');
-    expand.type = 'button';
-    expand.textContent = '\u2922';
-    expand.setAttribute('aria-label', 'Expand ' + (title || 'view'));
-    expand.title = 'Expand';
-    expand.style.cssText = 'padding:4px 8px;border:1px solid ' + colors.border + ';border-radius:6px;background:' + colors.bgAlt + ';color:' + colors.text + ';cursor:pointer;font-size:15px;line-height:1';
+    _setIconButton(expand, ICON_EXPAND, 'Expand ' + (title || 'view'), _inlineIconButtonStyle(30));
     header.appendChild(heading);
     header.appendChild(expand);
     shell.appendChild(header);
@@ -933,11 +954,7 @@ export function generateRenderersScript(): string {
       overlayTitle.textContent = title || 'Expanded view';
       overlayTitle.style.cssText = 'font-size:14px';
       var closeButton = document.createElement('button');
-      closeButton.type = 'button';
-      closeButton.textContent = '\u00d7';
-      closeButton.setAttribute('aria-label', 'Close expanded view');
-      closeButton.title = 'Close';
-      closeButton.style.cssText = 'width:34px;height:34px;border:1px solid ' + colors.border + ';border-radius:50%;background:' + colors.bgAlt + ';color:' + colors.text + ';cursor:pointer;font-size:22px;line-height:1';
+      _setIconButton(closeButton, ICON_CLOSE, 'Close expanded view', _inlineIconButtonStyle(36));
       closeButton.onclick = close;
       toolbar.appendChild(overlayTitle);
       toolbar.appendChild(closeButton);
@@ -1300,11 +1317,7 @@ export function generateRenderersScript(): string {
       openButton.target = '_blank';
       openButton.rel = 'noreferrer';
       var closeButton = document.createElement('button');
-      closeButton.type = 'button';
-      closeButton.setAttribute('aria-label', 'Close preview');
-      closeButton.title = 'Close preview';
-      closeButton.textContent = '×';
-      closeButton.style.cssText = 'width:36px;height:36px;border:0;border-radius:50%;background:rgba(255,255,255,.12);color:#fff;font-size:26px;line-height:1;cursor:pointer';
+      _setIconButton(closeButton, ICON_CLOSE, 'Close preview', _overlayIconButtonStyle(36));
       closeButton.onclick = close;
       actions.appendChild(openButton);
       actions.appendChild(closeButton);
@@ -1317,15 +1330,19 @@ export function generateRenderersScript(): string {
       var image = document.createElement('img');
       image.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;border-radius:8px';
       var previous = document.createElement('button');
-      previous.type = 'button';
-      previous.textContent = '‹';
-      previous.setAttribute('aria-label', 'Previous image');
-      previous.style.cssText = 'position:absolute;left:4px;top:50%;transform:translateY(-50%);width:38px;height:38px;border:0;border-radius:50%;background:rgba(255,255,255,.14);color:#fff;font-size:28px;cursor:pointer';
+      _setIconButton(
+        previous,
+        ICON_PREVIOUS,
+        'Previous image',
+        'position:absolute;left:4px;top:50%;transform:translateY(-50%);' + _overlayIconButtonStyle(38)
+      );
       var next = document.createElement('button');
-      next.type = 'button';
-      next.textContent = '›';
-      next.setAttribute('aria-label', 'Next image');
-      next.style.cssText = 'position:absolute;right:4px;top:50%;transform:translateY(-50%);width:38px;height:38px;border:0;border-radius:50%;background:rgba(255,255,255,.14);color:#fff;font-size:28px;cursor:pointer';
+      _setIconButton(
+        next,
+        ICON_NEXT,
+        'Next image',
+        'position:absolute;right:4px;top:50%;transform:translateY(-50%);' + _overlayIconButtonStyle(38)
+      );
       previous.onclick = function(e) { e.stopPropagation(); open(activeIndex - 1); };
       next.onclick = function(e) { e.stopPropagation(); open(activeIndex + 1); };
       viewport.appendChild(image);
