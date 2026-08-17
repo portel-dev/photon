@@ -172,7 +172,16 @@ async function startBeam(): Promise<number> {
   return new Promise((resolve, reject) => {
     beamProcess = spawn('node', [CLI_PATH, 'beam', '--port', String(beamPort)], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: 'test' },
+      // The release suite runs after daemon lifecycle tests. Those tests can
+      // leave the global daemon pointing at an older build, which makes Beam
+      // restart it before the HTTP listener is announced. Do not eagerly
+      // load the user's installed photons in this promise smoke test: it is
+      // testing Beam health, not global marketplace startup.
+      env: {
+        ...process.env,
+        NODE_ENV: 'test',
+        PHOTON_DAEMON_DISABLE_EAGER_LOAD: '1',
+      },
     });
 
     let started = false;

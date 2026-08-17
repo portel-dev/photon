@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { deployToCloudflare } from '../dist/deploy/cloudflare.js';
-import { ResourceServer } from '../dist/resource-server.js';
+import { injectIntoHead, ResourceServer } from '../dist/resource-server.js';
 
 describe('Cloudflare MCP App bridge code generation', () => {
   it('injects the Photon bridge into embedded HTML UI resources', async () => {
@@ -34,7 +34,7 @@ describe('Cloudflare MCP App bridge code generation', () => {
     });
     const styles = `<style data-photon-style="photon">\n${photonCss}\n</style>`;
     expect(worker).toContain(
-      Buffer.from(html.replace('<head>', `<head>\n${styles}\n${appRuntime}`)).toString('base64')
+      Buffer.from(injectIntoHead(html, `${styles}\n${appRuntime}`)).toString('base64')
     );
     expect(worker).toContain("'openai/widgetDescription'");
     expect(worker).toContain('prefersBorder: true');
@@ -67,8 +67,6 @@ describe('Cloudflare MCP App bridge code generation', () => {
       name: 'probe',
       injectedPhotons: [],
     });
-    expect(worker).toContain(
-      Buffer.from(html.replace('<head>', `<head>\n${appRuntime}`)).toString('base64')
-    );
+    expect(worker).toContain(Buffer.from(injectIntoHead(html, appRuntime)).toString('base64'));
   });
 });

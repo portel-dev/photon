@@ -317,6 +317,15 @@ describe('cf deploy code-gen', () => {
     const routes = extractSubclassRoutes(workerCode, 'ProbePhotonDO');
     expect(routes.length).toBe(EXPECTED_ROUTES.length);
   });
+
+  it('generates the modern server/discover dispatcher and negotiated metadata', () => {
+    expect(workerCode).toContain("case 'server/discover':");
+    expect(workerCode).toContain('supportedVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS]');
+    expect(workerCode).toContain(
+      "'io.modelcontextprotocol/ui': { mimeTypes: [MCP_APP_MIME_TYPE] }"
+    );
+    expect(workerCode).toContain("cacheScope: 'private'");
+  });
 });
 
 describe('cf deploy code-gen — route-only photon', () => {

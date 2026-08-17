@@ -25,17 +25,69 @@ const MCP_JWT_ISSUER = __MCP_JWT_ISSUER__;
 const MCP_JWT_AUDIENCE = __MCP_JWT_AUDIENCE__;
 const MCP_JWT_JWKS = __MCP_JWT_JWKS__;
 const DEPLOY_INSTANCE_ALIASES: Record<string, string> = __INSTANCE_ALIASES__;
+const PHOTON_RUNTIME_VERSION = __PHOTON_VERSION__;
 
 // Keep the generated Cloudflare adapter on the same negotiated protocol
 // surface as the local runtime and Beam. Photon authors should not need to
 // target a protocol version themselves; the adapter selects the newest
 // version understood by both sides.
 const SUPPORTED_MCP_PROTOCOL_VERSIONS = ['2025-03-26', '2025-11-25', '2026-07-28'];
+const MCP_APP_MIME_TYPE = 'text/html;profile=mcp-app';
+const MCP_LIST_CACHE_TTL_MS = 30_000;
 
 function negotiateMCPProtocolVersion(requested: unknown): string {
   return typeof requested === 'string' && SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(requested)
     ? requested
     : '2025-11-25';
+}
+
+function modernDiscoveryResult() {
+  return {
+    supportedVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
+    capabilities: {
+      tools: { listChanged: true },
+      prompts: { listChanged: true },
+      resources: { listChanged: true, subscribe: true },
+      extensions: {
+        'io.modelcontextprotocol/ui': { mimeTypes: [MCP_APP_MIME_TYPE] },
+        'io.modelcontextprotocol/tasks': {},
+        'dev.portel.photon': {
+          version: PHOTON_RUNTIME_VERSION,
+          requestContext: true,
+          appSession: {
+            issueOn: 'server/discover',
+            metadataKey: 'dev.portel.photon/appSessionId',
+            revokeMethod: 'dev.portel.photon/app-sessions/revoke',
+            opaque: true,
+            scoped: true,
+          },
+        },
+      },
+    },
+    ttlMs: MCP_LIST_CACHE_TTL_MS,
+    // The result is capability-dependent. Keep it private until a request
+    // scoped app-session is issued by the Worker runtime.
+    cacheScope: 'private',
+  };
+}
+
+function legacyDiscoveryResult() {
+  return {
+    protocolVersion: '2025-11-25',
+    supportedProtocolVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
+    serverInfo: { name: HOST_PHOTON_NAME, version: PHOTON_RUNTIME_VERSION },
+    capabilities: {
+      tools: { listChanged: true },
+      prompts: { listChanged: true },
+      resources: { listChanged: true, subscribe: true },
+    },
+    extensions: {
+      'mcp-apps': { version: '1.0.0' },
+      tasks: { version: 'legacy' },
+      photon: { version: PHOTON_RUNTIME_VERSION, requestContext: true },
+    },
+    _meta: {},
+  };
 }
 
 /**
@@ -1463,7 +1515,8 @@ async function handleMCPRequest(
   request: any,
   photon: any,
   photonName: string,
-  toolDefinitions: any[]
+  toolDefinitions: any[],
+  requestProtocolVersion?: string
 ): Promise<any> {
   const { method, params, id } = request;
 
@@ -1485,6 +1538,16 @@ async function handleMCPRequest(
           },
           serverInfo: { name: photonName, version: '1.0.0' },
         },
+      };
+
+    case 'server/discover':
+      return {
+        jsonrpc: '2.0',
+        id,
+        result:
+          requestProtocolVersion === '2026-07-28'
+            ? modernDiscoveryResult()
+            : legacyDiscoveryResult(),
       };
 
     case 'tools/list':
@@ -1601,7 +1664,13 @@ async function handleStreamableMCP(
       { status: 400, headers: CORS_HEADERS }
     );
   }
-  const result = await handleMCPRequest(body, photon, photonName, toolDefinitions);
+  const result = await handleMCPRequest(
+    body,
+    photon,
+    photonName,
+    toolDefinitions,
+    negotiateMCPProtocolVersion(body?.params?.protocolVersion)
+  );
   return Response.json(result, { headers: CORS_HEADERS });
 }
 
@@ -1999,7 +2068,13 @@ abstract class BasePhotonDO extends DurableObject<Env> {
         sessionId,
       },
       () => mcpAuthContext.run(authContext, () =>
-        handleMCPRequest(body, this.photon, this.photonName, this.toolDefinitions)
+        handleMCPRequest(
+          body,
+          this.photon,
+          this.photonName,
+          this.toolDefinitions,
+          negotiateMCPProtocolVersion(request.headers.get('MCP-Protocol-Version') ?? body?.params?.protocolVersion)
+        )
       )
     );
     return Response.json(result, { headers: CORS_HEADERS });
@@ -2042,7 +2117,8 @@ abstract class BasePhotonDO extends DurableObject<Env> {
             rpcRequest,
             this.photon,
             this.photonName,
-            this.toolDefinitions
+            this.toolDefinitions,
+            negotiateMCPProtocolVersion(rpcRequest?.params?.protocolVersion)
           );
           await send(result);
         } catch (err: any) {

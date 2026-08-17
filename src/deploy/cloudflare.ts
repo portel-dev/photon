@@ -1423,7 +1423,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .replace(/__MCP_AUTH_MODE__/g, JSON.stringify(jwtConfig?.mode ?? effectiveMcpAuth ?? 'legacy'))
     .replace(/__MCP_JWT_ISSUER__/g, JSON.stringify(jwtConfig?.issuer ?? ''))
     .replace(/__MCP_JWT_AUDIENCE__/g, JSON.stringify(jwtConfig?.audience ?? ''))
-    .replace(/__MCP_JWT_JWKS__/g, JSON.stringify(jwtConfig?.jwks ?? null));
+    .replace(/__MCP_JWT_JWKS__/g, JSON.stringify(jwtConfig?.jwks ?? null))
+    .replace(/__PHOTON_VERSION__/g, JSON.stringify(PHOTON_VERSION));
 
   if (effectiveMcpAuth === 'oauth') {
     const oauthScopes = Array.from(
