@@ -872,29 +872,39 @@ export function generateRenderersScript(): string {
     catch(e) { return v; }
   }
 
-  function _icon(paths) {
-    return '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" style="display:block;pointer-events:none">' + paths + '</svg>';
+  function _icon(paths, size) {
+    var iconSize = size || 18;
+    return '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="' + iconSize + '" height="' + iconSize + '" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" style="display:block;flex:0 0 ' + iconSize + 'px;width:' + iconSize + 'px;height:' + iconSize + 'px;pointer-events:none">' + paths + '</svg>';
   }
 
-  var ICON_EXPAND = _icon('<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="M9 21H3v-6"/><path d="m3 21 7-7"/>');
-  var ICON_CLOSE = _icon('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
-  var ICON_PREVIOUS = _icon('<path d="m15 18-6-6 6-6"/>');
-  var ICON_NEXT = _icon('<path d="m9 18 6-6-6-6"/>');
+  var ICON_EXPAND = _icon('<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="M9 21H3v-6"/><path d="m3 21 7-7"/>', 16);
+  var ICON_CLOSE = _icon('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', 18);
+  var ICON_PREVIOUS = _icon('<path d="m15 18-6-6 6-6"/>', 18);
+  var ICON_NEXT = _icon('<path d="m9 18 6-6-6-6"/>', 18);
 
   function _setIconButton(button, icon, label, style) {
     button.type = 'button';
     button.innerHTML = icon;
+    button.setAttribute('data-photon-icon-button', 'true');
     button.setAttribute('aria-label', label);
     button.title = label;
     button.style.cssText = style;
   }
 
+  function _iconButtonFrame(size) {
+    return 'box-sizing:border-box;width:' + size + 'px;height:' + size + 'px;min-width:' + size + 'px;max-width:' + size + 'px;min-height:' + size + 'px;max-height:' + size + 'px;aspect-ratio:1 / 1;flex:0 0 ' + size + 'px;margin:0;padding:0;border-radius:50%;display:inline-grid;place-items:center;vertical-align:middle;line-height:0;appearance:none;-webkit-appearance:none;cursor:pointer;';
+  }
+
   function _inlineIconButtonStyle(size) {
-    return 'width:' + size + 'px;height:' + size + 'px;padding:0;border:1px solid ' + colors.border + ';border-radius:999px;background:' + colors.bgAlt + ';color:' + colors.text + ';cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.12)';
+    return _iconButtonFrame(size) + 'border:1px solid ' + colors.border + ';background:' + colors.bgAlt + ';color:' + colors.text + ';box-shadow:0 1px 2px rgba(0,0,0,.12)';
   }
 
   function _overlayIconButtonStyle(size) {
-    return 'width:' + size + 'px;height:' + size + 'px;padding:0;border:1px solid rgba(255,255,255,.22);border-radius:999px;background:rgba(255,255,255,.10);color:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 8px 24px rgba(0,0,0,.28);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)';
+    return _iconButtonFrame(size) + 'border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.10);color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.28);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)';
+  }
+
+  function _carouselIconButtonStyle(size) {
+    return _iconButtonFrame(size) + 'border:1px solid rgba(255,255,255,.24);background:rgba(0,0,0,.52);color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.24)';
   }
 
   // ─── Expandable surfaces ───
@@ -1264,8 +1274,8 @@ export function generateRenderersScript(): string {
     h += '</div>';
     // Nav arrows
     if (items.length > 1) {
-      h += '<button onclick="(function(el){var s=el.closest(&quot;[id]&quot;).querySelector(&quot;.slides&quot;);var idx=+(s.dataset.idx||0);idx=idx>0?idx-1:' + (items.length - 1) + ';s.style.transform=&quot;translateX(-&quot;+idx*100+&quot;%)&quot;;s.dataset.idx=idx})(this)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px">\\u2039</button>';
-      h += '<button onclick="(function(el){var s=el.closest(&quot;[id]&quot;).querySelector(&quot;.slides&quot;);var idx=+(s.dataset.idx||0);idx=idx<' + (items.length - 1) + '?idx+1:0;s.style.transform=&quot;translateX(-&quot;+idx*100+&quot;%)&quot;;s.dataset.idx=idx})(this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px">\\u203A</button>';
+      h += '<button type="button" data-photon-icon-button="true" aria-label="Previous slide" title="Previous slide" onclick="(function(el){var s=el.closest(&quot;[id]&quot;).querySelector(&quot;.slides&quot;);var idx=+(s.dataset.idx||0);idx=idx>0?idx-1:' + (items.length - 1) + ';s.style.transform=&quot;translateX(-&quot;+idx*100+&quot;%)&quot;;s.dataset.idx=idx})(this)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);' + _carouselIconButtonStyle(32) + '">' + ICON_PREVIOUS + '</button>';
+      h += '<button type="button" data-photon-icon-button="true" aria-label="Next slide" title="Next slide" onclick="(function(el){var s=el.closest(&quot;[id]&quot;).querySelector(&quot;.slides&quot;);var idx=+(s.dataset.idx||0);idx=idx<' + (items.length - 1) + '?idx+1:0;s.style.transform=&quot;translateX(-&quot;+idx*100+&quot;%)&quot;;s.dataset.idx=idx})(this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);' + _carouselIconButtonStyle(32) + '">' + ICON_NEXT + '</button>';
       // Dots
       h += '<div style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:6px">';
       for (var j = 0; j < items.length; j++) {

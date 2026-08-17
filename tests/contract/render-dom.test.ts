@@ -230,6 +230,21 @@ async function main() {
         navigationSvgCount: overlay?.querySelectorAll(
           'button[aria-label="Previous image"] svg, button[aria-label="Next image"] svg'
         ).length,
+        closeGeometry: (() => {
+          const button = overlay?.querySelector(
+            'button[aria-label="Close preview"]'
+          ) as HTMLButtonElement | null;
+          if (!button) return null;
+          const style = getComputedStyle(button);
+          const svg = button.querySelector('svg');
+          return {
+            width: style.width,
+            height: style.height,
+            borderRadius: style.borderRadius,
+            display: style.display,
+            iconDisplay: svg ? getComputedStyle(svg).display : '',
+          };
+        })(),
       };
       overlay
         ?.querySelector('button[aria-label="Close preview"]')
@@ -246,8 +261,68 @@ async function main() {
         galleryBehavior.imageAlt === 'First' &&
         galleryBehavior.navigationCount === 2 &&
         galleryBehavior.navigationSvgCount === 2 &&
+        galleryBehavior.closeGeometry?.width === '36px' &&
+        galleryBehavior.closeGeometry?.height === '36px' &&
+        galleryBehavior.closeGeometry?.borderRadius === '50%' &&
+        galleryBehavior.closeGeometry?.display === 'grid' &&
+        galleryBehavior.closeGeometry?.iconDisplay === 'block' &&
         galleryBehavior.closed,
       JSON.stringify(galleryBehavior)
+    );
+
+    const carouselBehavior = await page.evaluate(() => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      (window as any)._photonRenderers.render(
+        container,
+        [
+          { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>', caption: 'First' },
+          {
+            src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
+            caption: 'Second',
+          },
+        ],
+        'carousel',
+        { expandable: false }
+      );
+      const previous = container.querySelector(
+        'button[aria-label="Previous slide"]'
+      ) as HTMLButtonElement | null;
+      const next = container.querySelector(
+        'button[aria-label="Next slide"]'
+      ) as HTMLButtonElement | null;
+      const slides = container.querySelector('.slides') as HTMLElement | null;
+      const before = slides?.dataset.idx || '0';
+      next?.click();
+      const after = slides?.dataset.idx || '0';
+      const style = next ? getComputedStyle(next) : null;
+      return {
+        previousSvg: Boolean(previous?.querySelector('svg')),
+        nextSvg: Boolean(next?.querySelector('svg')),
+        previousRawGlyph:
+          previous?.textContent.includes('‹') || previous?.textContent.includes('\\u2039'),
+        nextRawGlyph: next?.textContent.includes('›') || next?.textContent.includes('\\u203A'),
+        width: style?.width,
+        height: style?.height,
+        borderRadius: style?.borderRadius,
+        display: style?.display,
+        before,
+        after,
+      };
+    });
+    check(
+      'carousel navigation uses the shared circular icon-button contract',
+      carouselBehavior.previousSvg &&
+        carouselBehavior.nextSvg &&
+        !carouselBehavior.previousRawGlyph &&
+        !carouselBehavior.nextRawGlyph &&
+        carouselBehavior.width === '32px' &&
+        carouselBehavior.height === '32px' &&
+        carouselBehavior.borderRadius === '50%' &&
+        carouselBehavior.display === 'grid' &&
+        carouselBehavior.before === '0' &&
+        carouselBehavior.after === '1',
+      JSON.stringify(carouselBehavior)
     );
 
     const expandableCard = await page.evaluate(() => {
@@ -266,6 +341,20 @@ async function main() {
       ) as HTMLButtonElement | null;
       const expandText = expand?.textContent || '';
       const closeText = close?.textContent || '';
+      const expandGeometry = expand
+        ? {
+            width: getComputedStyle(expand).width,
+            height: getComputedStyle(expand).height,
+            borderRadius: getComputedStyle(expand).borderRadius,
+          }
+        : null;
+      const closeGeometry = close
+        ? {
+            width: getComputedStyle(close).width,
+            height: getComputedStyle(close).height,
+            borderRadius: getComputedStyle(close).borderRadius,
+          }
+        : null;
       close?.click();
       return {
         hasExpand: Boolean(expand),
@@ -275,6 +364,8 @@ async function main() {
         hasClose: Boolean(close),
         closeSvg: Boolean(close?.querySelector('svg')),
         closeHasRawGlyph: closeText.includes('×'),
+        expandGeometry,
+        closeGeometry,
         closed: !document.querySelector('[role="dialog"][aria-label="Card"]'),
       };
     });
@@ -287,6 +378,12 @@ async function main() {
         expandableCard.hasClose &&
         expandableCard.closeSvg &&
         !expandableCard.closeHasRawGlyph &&
+        expandableCard.expandGeometry?.width === '30px' &&
+        expandableCard.expandGeometry?.height === '30px' &&
+        expandableCard.expandGeometry?.borderRadius === '50%' &&
+        expandableCard.closeGeometry?.width === '36px' &&
+        expandableCard.closeGeometry?.height === '36px' &&
+        expandableCard.closeGeometry?.borderRadius === '50%' &&
         expandableCard.closed,
       JSON.stringify(expandableCard)
     );

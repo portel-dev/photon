@@ -146,6 +146,15 @@ export const PHOTON_LAYOUT_CSS = `
   min-height: var(--photon-control-height);
 }
 
+/* Icon controls own their square touch target. The general form-control rule
+ * must not stretch a circular close, expand, or navigation button vertically. */
+.photon-render-surface :where(button[data-photon-icon-button]) {
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+  max-height: none;
+}
+
 @container (max-width: 36rem) {
   .photon-split {
     grid-template-columns: minmax(0, 1fr);
