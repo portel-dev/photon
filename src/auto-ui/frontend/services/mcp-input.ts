@@ -189,6 +189,38 @@ export function inputResponseValue(
   return responseProperty ? { [responseProperty]: value } : (value as Record<string, unknown>);
 }
 
+/**
+ * Encode a Beam answer using the response shape required by MCP 2026.
+ *
+ * `inputResponses` contains the result for the corresponding server-initiated
+ * request. Elicitation requests therefore need the standard action/content
+ * envelope; the native Beam controls only produce the content value.
+ */
+export function formatMCPInputResponse(
+  value: unknown,
+  responseProperty?: string,
+  responseMode: BeamInputRequestPresentation['responseMode'] = 'elicitation'
+): Record<string, unknown> {
+  if (responseMode === 'sampling') {
+    const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
+    return {
+      role: 'assistant',
+      content: { type: 'text', text },
+      model: 'human@beam',
+      stopReason: 'endTurn',
+    };
+  }
+  if (responseMode === 'roots') return { roots: [] };
+
+  // URL-mode elicitation accepts completion without form content. A normal
+  // form, including the generic multi-field form, always has object content.
+  const content =
+    responseProperty || (value && typeof value === 'object' && !Array.isArray(value))
+      ? inputResponseValue(value, responseProperty)
+      : undefined;
+  return { action: 'accept', ...(content ? { content } : {}) };
+}
+
 export function isMCPInputRequired(value: unknown): value is MCPInputRequiredResult {
   if (!value || typeof value !== 'object') return false;
   const result = value as Record<string, unknown>;

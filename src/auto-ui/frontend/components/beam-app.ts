@@ -42,7 +42,7 @@ import {
   type MCPToolCallContinuation,
 } from '../services/mcp-client.js';
 import {
-  inputResponseValue,
+  formatMCPInputResponse,
   isMCPInputRequired,
   presentMCPInputRequest,
   type BeamInputRequestPresentation,
@@ -7818,19 +7818,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   }
 
   private _formatMCPInputResponse(pending: PendingMCPInputRound, value: unknown): unknown {
-    if (pending.responseMode === 'sampling') {
-      const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
-      return {
-        role: 'assistant',
-        content: { type: 'text', text },
-        model: 'human@beam',
-        stopReason: 'endTurn',
-      };
-    }
-    if (pending.responseMode === 'roots') {
-      return { roots: [] };
-    }
-    return inputResponseValue(value, pending.responseProperty);
+    return formatMCPInputResponse(value, pending.responseProperty, pending.responseMode);
   }
 
   private async _resumeMCPInputRound(value: unknown): Promise<void> {

@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import {
+  formatMCPInputResponse,
   inputResponseValue,
   isMCPInputRequired,
   presentMCPInputRequest,
@@ -158,6 +159,23 @@ await test('wraps native control values in MCP form content', () => {
     selection: ['margherita'],
   });
   assert.deepEqual(inputResponseValue({ name: 'Arul' }), { name: 'Arul' });
+});
+
+await test('encodes native control values as MCP 2026 elicitation results', () => {
+  assert.deepEqual(formatMCPInputResponse(['margherita'], 'selection'), {
+    action: 'accept',
+    content: { selection: ['margherita'] },
+  });
+  assert.deepEqual(formatMCPInputResponse({ name: 'Arul' }), {
+    action: 'accept',
+    content: { name: 'Arul' },
+  });
+});
+
+await test('accepts URL elicitation without incorrectly putting the URL in form content', () => {
+  assert.deepEqual(formatMCPInputResponse('https://example.com', undefined, 'elicitation'), {
+    action: 'accept',
+  });
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
