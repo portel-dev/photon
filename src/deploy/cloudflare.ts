@@ -659,7 +659,8 @@ interface CloudflareVersionSummary {
  * use). Promotion is therefore an explicit second step in the deploy flow.
  */
 export function selectLatestCloudflareVersion(output: string): string {
-  let versions: unknown;
+  let versions: CloudflareVersionSummary[] | undefined;
+  let sawJsonArray = false;
   const end = output.lastIndexOf(']');
   if (end < 0) {
     throw new Error('Could not parse Wrangler version list output as JSON.');
@@ -672,37 +673,38 @@ export function selectLatestCloudflareVersion(output: string): string {
     try {
       const candidate = JSON.parse(output.slice(start, end + 1));
       if (Array.isArray(candidate)) {
-        versions = candidate;
-        break;
+        sawJsonArray = true;
+        const validCandidate = candidate.filter(
+          (version): version is CloudflareVersionSummary =>
+            !!version &&
+            typeof version === 'object' &&
+            typeof (version as { id?: unknown }).id === 'string' &&
+            (version as { id: string }).id.length > 0
+        );
+        // Bun may prefix `bunx` output with a progress array such as `[2]`.
+        // Keep scanning until we find the actual Wrangler version payload.
+        if (validCandidate.length > 0) {
+          versions = validCandidate;
+          break;
+        }
       }
     } catch {
       // Wrangler may prefix JSON with notices or ANSI-formatted log lines.
     }
   }
-  if (!Array.isArray(versions)) {
+  if (!sawJsonArray) {
     throw new Error('Could not parse Wrangler version list output as JSON.');
   }
-  if (!Array.isArray(versions)) {
-    throw new Error('Wrangler version list did not return an array.');
-  }
-
-  const valid = versions.filter(
-    (version): version is CloudflareVersionSummary =>
-      !!version &&
-      typeof version === 'object' &&
-      typeof (version as { id?: unknown }).id === 'string' &&
-      (version as { id: string }).id.length > 0
-  );
-  if (valid.length === 0) {
+  if (!versions || versions.length === 0) {
     throw new Error('Wrangler returned no deployable Worker versions.');
   }
 
-  valid.sort((a, b) => {
+  versions.sort((a, b) => {
     const aTime = Date.parse(a.metadata?.created_on || '');
     const bTime = Date.parse(b.metadata?.created_on || '');
     return (Number.isNaN(aTime) ? 0 : aTime) - (Number.isNaN(bTime) ? 0 : bTime);
   });
-  return valid[valid.length - 1].id;
+  return versions[versions.length - 1].id;
 }
 
 interface DeployJwtConfig {

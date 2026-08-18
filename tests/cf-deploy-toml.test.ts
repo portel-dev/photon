@@ -194,6 +194,16 @@ describe('CF deploy version promotion', () => {
     expect(latest).toBe('newer');
   });
 
+  it('ignores bunx progress arrays before the Wrangler payload', () => {
+    const latest = selectLatestCloudflareVersion(
+      `Resolving dependencies\nResolved, downloaded and extracted [2]\n${JSON.stringify([
+        { id: 'older', metadata: { created_on: '2026-08-11T16:00:00.000Z' } },
+        { id: 'newer', metadata: { created_on: '2026-08-11T16:21:35.740Z' } },
+      ])}`
+    );
+    expect(latest).toBe('newer');
+  });
+
   it('rejects malformed or empty version lists', () => {
     expect(() => selectLatestCloudflareVersion('not json')).toThrow(/parse Wrangler version list/);
     expect(() => selectLatestCloudflareVersion('[]')).toThrow(/no deployable Worker versions/);
