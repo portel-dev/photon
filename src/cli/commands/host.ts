@@ -84,6 +84,10 @@ export function registerHostCommand(program: Command): void {
       '--route <pattern>',
       'Cloudflare route pattern for this deployment, for example example.com/*; disables workers.dev'
     )
+    .option(
+      '--worker-name <name>',
+      'Cloudflare Worker script name; defaults to the Photon filename'
+    )
     .option('--mcp-auth <mode>', 'MCP auth mode: oauth, jwt, bearer, or open')
     .option(
       '--mcp-audience <url>',
@@ -128,6 +132,7 @@ export function registerHostCommand(program: Command): void {
             publicUrl: options.url,
             customDomain: options.domain,
             routePattern: options.route,
+            workerName: options.workerName,
             mcpAuth: options.mcpAuth,
             mcpAudience: options.mcpAudience,
           });

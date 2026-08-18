@@ -606,6 +606,8 @@ function wranglerEnv(): NodeJS.ProcessEnv {
 
 export interface CloudflareDeployOptions {
   photonPath: string;
+  /** Cloudflare Worker script name; defaults to the Photon filename. */
+  workerName?: string;
   outputDir?: string;
   devMode?: boolean;
   dryRun?: boolean;
@@ -996,6 +998,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // Extract photon name from filename
   const filename = path.basename(absolutePath);
   const photonName = filename.replace(/\.photon\.ts$/, '').replace(/[^a-z0-9-]/gi, '-');
+  const workerName = (options.workerName?.trim() || photonName).replace(/[^a-z0-9-]/gi, '-');
+  if (!workerName) throw new Error('Cloudflare Worker name must not be empty');
   // Durable Object class name derived from the photon name. Wrangler binds DOs
   // to a JS class identifier, so e.g. `web-lite` → `WebLitePhotonDO`.
   const photonDoClassName =
@@ -1005,7 +1009,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join('') + 'PhotonDO';
 
-  logger.info(`Preparing ${photonName} for Cloudflare Workers...`);
+  logger.info(`Preparing ${photonName} for Cloudflare Workers as Worker ${workerName}...`);
 
   // Create output directory. When the user passes --output we treat the path
   // as theirs to keep; otherwise the project goes into a per-process scratch
@@ -1659,6 +1663,9 @@ class_name = "${p.doClass}"`
     .replace(/__OBSERVABILITY__\n?/g, observabilityReplacement)
     .replace(/__ASSETS_BLOCK__\n?/g, assetsBlock)
     .replace(/__CF_BINDINGS__\n?/g, cfBindingsToml);
+  if (workerName !== photonName) {
+    wranglerConfig = wranglerConfig.replace(/^name = .*$/m, `name = ${JSON.stringify(workerName)}`);
+  }
   if (effectiveMcpAuth === 'oauth') {
     wranglerConfig += `\n\n${renderCloudflareMcpOAuthBindings(process.env.PHOTON_MCP_OAUTH_KV_ID)}\n`;
   }
@@ -1675,7 +1682,7 @@ class_name = "${p.doClass}"`
     runtimeDeps[dep.name] = dep.version;
   }
   const packageJson = {
-    name: photonName,
+    name: workerName,
     version: PHOTON_VERSION,
     private: true,
     scripts: {
@@ -1778,16 +1785,16 @@ class_name = "${p.doClass}"`
   await new Promise<void>((resolve, reject) => {
     deploy.on('close', (code) => {
       if (code === 0) {
-        void promoteLatestCloudflareVersion(outputDir, photonName, envForWrangler)
+        void promoteLatestCloudflareVersion(outputDir, workerName, envForWrangler)
           .then(() => {
             logger.info('Deployment complete and latest version is serving 100% of traffic!');
             logger.info(`\nYour MCP server is live at:`);
             logger.info(
-              routeConfig.publicUrl || `https://${photonName}.<your-subdomain>.workers.dev`
+              routeConfig.publicUrl || `https://${workerName}.<your-subdomain>.workers.dev`
             );
             if (devMode) {
               logger.info(
-                `\nPlayground: ${routeConfig.publicUrl || `https://${photonName}.<your-subdomain>.workers.dev`}/playground`
+                `\nPlayground: ${routeConfig.publicUrl || `https://${workerName}.<your-subdomain>.workers.dev`}/playground`
               );
             }
             // Clean up the scratch project dir on success, but only if the user
@@ -1809,9 +1816,9 @@ class_name = "${p.doClass}"`
             logger.error(`The uploaded Worker is not considered live until promotion succeeds.`);
             logger.error(`\nTo retry promotion:`);
             logger.error(`  cd ${outputDir}`);
-            logger.error(`  ${detectRunner()} wrangler versions list --name ${photonName} --json`);
+            logger.error(`  ${detectRunner()} wrangler versions list --name ${workerName} --json`);
             logger.error(
-              `  ${detectRunner()} wrangler versions deploy --name ${photonName} --version-id <version-id> --percentage 100 --yes`
+              `  ${detectRunner()} wrangler versions deploy --name ${workerName} --version-id <version-id> --percentage 100 --yes`
             );
             reject(error instanceof Error ? error : new Error(String(error)));
           });
@@ -1825,7 +1832,7 @@ class_name = "${p.doClass}"`
         logger.error(`  ${runner} wrangler deploy --verbose    # more detail on what failed`);
         logger.error(`  ${runner} wrangler whoami              # confirm auth + account_id`);
         logger.error(
-          `  ${runner} wrangler tail ${photonName}  # runtime errors (if a prior deploy exists)`
+          `  ${runner} wrangler tail ${workerName}  # runtime errors (if a prior deploy exists)`
         );
         logger.error(`\nCommon causes:`);
         logger.error(`  - Auth: run \`${runner} wrangler login\` (or set CLOUDFLARE_API_TOKEN)`);
@@ -1833,7 +1840,7 @@ class_name = "${p.doClass}"`
           `  - Bundling: an imported package isn't in @dependencies (see warnings above)`
         );
         logger.error(
-          `  - Worker name conflict: \`${photonName}\` already taken by another account`
+          `  - Worker name conflict: \`${workerName}\` already taken by another account`
         );
         reject(new Error('Deployment failed'));
       }

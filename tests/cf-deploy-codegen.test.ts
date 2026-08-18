@@ -238,6 +238,7 @@ function extractSubclassToolDefs(workerCode: string, doClass: string): Array<{ n
 
 describe('cf deploy code-gen', () => {
   let workerCode: string;
+  let wranglerConfig: string;
   let outputDir: string;
 
   beforeAll(async () => {
@@ -248,10 +249,16 @@ describe('cf deploy code-gen', () => {
     await deployToCloudflare({
       photonPath,
       outputDir: path.join(outputDir, 'out'),
+      workerName: 'probe-worker',
       dryRun: true,
     });
 
     workerCode = await fsp.readFile(path.join(outputDir, 'out', 'src', 'worker.ts'), 'utf-8');
+    wranglerConfig = await fsp.readFile(path.join(outputDir, 'out', 'wrangler.toml'), 'utf-8');
+  });
+
+  it('supports a Worker name independent from the Photon filename', () => {
+    expect(wranglerConfig).toMatch(/^name = "probe-worker"/m);
   });
 
   it('subclass httpRoutes literal contains every declared @get/@post', () => {
