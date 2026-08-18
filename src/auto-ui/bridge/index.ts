@@ -535,6 +535,10 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       return request;
     },
     get locale() { return ctx.locale || 'en-US'; },
+    get timeZone() {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+      catch (_) { return 'UTC'; }
+    },
     get photon() { return ctx.photon; },
     get method() { return ctx.method; },
     get hostContext() { return hostContext; },
@@ -849,6 +853,10 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     get theme() { return ctx.theme; },
     get displayMode() { return ctx.displayMode || 'inline'; },
     get locale() { return ctx.locale || 'en-US'; },
+    get timeZone() {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+      catch (_) { return 'UTC'; }
+    },
     get maxHeight() { return 800; },
     get toolInput() { return toolInput; },
     get toolOutput() { return toolOutput; },

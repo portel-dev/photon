@@ -128,6 +128,8 @@ export interface PhotonAPI {
   readonly theme: 'light' | 'dark';
   readonly displayMode: 'inline' | 'fullscreen' | 'pip';
   readonly locale: string;
+  /** IANA time zone detected from the host browser, e.g. Asia/Kolkata. */
+  readonly timeZone: string;
   /** Base URL of this photon including any proxy prefix. Use for all fetch() calls. */
   readonly url: string;
 }
@@ -140,6 +142,8 @@ export interface OpenAIAPI {
   readonly theme: 'light' | 'dark';
   readonly displayMode: 'inline' | 'fullscreen' | 'pip';
   readonly locale: string;
+  /** IANA time zone detected from the host browser, e.g. Asia/Kolkata. */
+  readonly timeZone: string;
   readonly maxHeight: number;
   readonly toolInput: Record<string, unknown>;
   readonly toolOutput: unknown;

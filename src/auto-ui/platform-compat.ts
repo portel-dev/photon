@@ -37,6 +37,7 @@ export interface OpenAiContext {
   theme: 'light' | 'dark';
   displayMode: 'inline' | 'fullscreen' | 'pip';
   locale: string;
+  timeZone: string;
   maxHeight: number;
   safeArea: { top: number; bottom: number; left: number; right: number };
   view: 'widget' | 'modal';
@@ -51,6 +52,7 @@ export interface OpenAiApi {
   theme: 'light' | 'dark';
   displayMode: 'inline' | 'fullscreen' | 'pip';
   locale: string;
+  timeZone: string;
   maxHeight: number;
   toolInput: Record<string, unknown>;
   toolOutput: unknown;
@@ -570,6 +572,10 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
       return request;
     },
     get locale() { return ctx.locale; },
+    get timeZone() {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+      catch (_) { return 'UTC'; }
+    },
     get photon() { return ctx.photon; },
     get method() { return ctx.method; },
     get appManifest() { return ctx.appManifest; },
@@ -585,6 +591,10 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     get theme() { return ctx.theme; },
     get displayMode() { return ctx.displayMode === 'fullscreen' ? 'fullscreen' : 'inline'; },
     get locale() { return ctx.locale; },
+    get timeZone() {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+      catch (_) { return 'UTC'; }
+    },
     get maxHeight() { return 600; },
     get toolInput() { return toolInput; },
     get toolOutput() { return toolOutput; },

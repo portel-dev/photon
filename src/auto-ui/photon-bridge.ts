@@ -170,6 +170,9 @@ export interface PhotonBridge {
   /** User locale */
   locale: string;
 
+  /** IANA time zone detected from the host browser. */
+  timeZone: string;
+
   /** Current photon name */
   photon: string;
 
@@ -456,6 +459,13 @@ export function createPhotonBridge(): PhotonBridge {
     },
     get locale() {
       return _context.locale;
+    },
+    get timeZone() {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      } catch {
+        return 'UTC';
+      }
     },
     get photon() {
       return _context.photon;

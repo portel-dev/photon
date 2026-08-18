@@ -76,6 +76,12 @@ test('window.photon has toolOutput getter', () => {
   assert(script.includes('get toolOutput()'), 'Should have toolOutput getter');
 });
 
+test('window.photon exposes the browser IANA time zone', () => {
+  const script = generatePlatformBridgeScript(TEST_CONTEXT as any);
+  assert(script.includes('get timeZone()'), 'Should expose a timeZone getter');
+  assert(script.includes('resolvedOptions().timeZone'), 'Should detect the browser time zone');
+});
+
 test('window.photon has invoke function', () => {
   const script = generateBridgeScript(TEST_CONTEXT);
   assert(script.includes('invoke: callTool'), 'Should have invoke function');
