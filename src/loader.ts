@@ -1442,6 +1442,7 @@ export class PhotonLoader {
       let sourceHash: string | undefined;
       let mcpName = '';
       let cacheKey: string | null = null;
+      let lastCompiledJsPath: string | undefined;
 
       if (absolutePath.endsWith('.ts')) {
         tsContent = await readText(absolutePath);
@@ -1493,6 +1494,7 @@ export class PhotonLoader {
         if (tsContent) {
           this.onProgress?.('compiling typescript');
           const cachedJsPath = await this.compileTypeScript(absolutePath, cacheKey!, tsContent);
+          lastCompiledJsPath = cachedJsPath;
           const cachedJsUrl = pathToFileURL(cachedJsPath).href;
           return await import(`${cachedJsUrl}?t=${Date.now()}`);
         }
@@ -1503,7 +1505,27 @@ export class PhotonLoader {
       try {
         module = await runWithPhotonDir(this.baseDir, importModule);
       } catch (error) {
-        if (this.shouldRetryInstall(error) && tsContent && sourceHash && mcpName && cacheKey) {
+        // A watcher reload and a worker respawn can compile the same source
+        // concurrently. If the content-addressed artifact disappears between
+        // compilation and import, retry the import path once. Do not clear the
+        // dependency cache here: this is a transient artifact race, not a
+        // missing package, and clearing the cache would widen the race window.
+        const missingCompiledArtifact =
+          !!lastCompiledJsPath &&
+          (String(error).includes(lastCompiledJsPath) ||
+            (String(error).includes('.build/') && String(error).includes('.mjs')) ||
+            String(error).includes('ERR_MODULE_NOT_FOUND'));
+
+        if (missingCompiledArtifact && tsContent && cacheKey) {
+          this.log(`⚠️  Compiled artifact disappeared during load; retrying ${mcpName}`);
+          module = await runWithPhotonDir(this.baseDir, importModule);
+        } else if (
+          this.shouldRetryInstall(error) &&
+          tsContent &&
+          sourceHash &&
+          mcpName &&
+          cacheKey
+        ) {
           this.log(`⚠️  Missing dependency detected, reinstalling dependencies for ${mcpName}`);
           await this.clearAllCaches(cacheKey);
           await this.ensureDependenciesWithHash(
@@ -2999,33 +3021,13 @@ export class PhotonLoader {
     );
 
     if (absolutePath.endsWith('.ts')) {
-      // Clear the compiled cache
-      const tsContent = await readText(absolutePath);
-      const hash = crypto.createHash('sha256').update(tsContent).digest('hex').slice(0, 16);
-      const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
-      const cacheKey = this.getCacheKey(mcpName, absolutePath);
-      const buildDir = this.getBuildCacheDir(cacheKey);
-      const fileName = path.basename(absolutePath, '.ts');
-      const cachedJsPath = path.join(buildDir, `${fileName}.${hash}.mjs`);
-
-      try {
-        await fs.unlink(cachedJsPath);
-      } catch {
-        // Ignore if file doesn't exist
-      }
-
-      // Clean stale cache files (old content hashes)
-      const files = await fs.readdir(buildDir).catch(() => [] as string[]);
-      for (const f of files) {
-        if (f.startsWith(fileName) && f.endsWith('.mjs')) {
-          await fs.unlink(path.join(buildDir, f)).catch((err) =>
-            this.logger.debug('Failed to remove stale cache file', {
-              file: f,
-              error: String(err),
-            })
-          );
-        }
-      }
+      // Compiled files are content-addressed by source and photon-core
+      // version. Do not delete them while a reload is in flight: a daemon
+      // worker can be respawning concurrently and may already be importing
+      // the new artifact. Deleting every same-name artifact here creates a
+      // race where the importer receives a path that has just disappeared.
+      // Stale hashed artifacts are safe to leave in place; the cache loader
+      // will select only the hash for the current source.
     }
 
     return this.loadFile(filePath, options);

@@ -1,5 +1,10 @@
 import { modernServerExtensions } from './extensions.js';
 
+// Keep the core 2026 Tasks capability explicit in the discovery shape. The
+// extension registry supplies its negotiated settings; this marker makes the
+// wire contract visible to clients and contract tooling.
+const MODERN_TASKS_CAPABILITY = { 'io.modelcontextprotocol/tasks': {} } as const;
+
 export interface MCPServerInfo {
   name: string;
   version: string;
@@ -58,7 +63,10 @@ export function buildModernMCPServerCapabilities(
     tools: { listChanged: true },
     prompts: { listChanged: true },
     resources: { listChanged: true, subscribe: true },
-    extensions: modernServerExtensions({ photonVersion: options.photonVersion }),
+    extensions: {
+      ...MODERN_TASKS_CAPABILITY,
+      ...modernServerExtensions({ photonVersion: options.photonVersion }),
+    },
   };
 }
 

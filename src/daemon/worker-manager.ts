@@ -94,7 +94,19 @@ export class WorkerManager {
       await this.terminate(key, 'respawn');
     }
 
-    const workerInit: WorkerInit = { photonName, photonPath, workingDir };
+    // macOS exposes /var through a symlink to /private/var. Canonicalize the
+    // worker's explicit root once so its cache paths and module URLs retain
+    // one spelling across respawns. Keep the PhotonLoader's public baseDir
+    // behavior unchanged for normal in-process callers.
+    let workerWorkingDir = workingDir;
+    if (workingDir) {
+      try {
+        workerWorkingDir = fs.realpathSync(workingDir);
+      } catch {
+        workerWorkingDir = path.resolve(workingDir);
+      }
+    }
+    const workerInit: WorkerInit = { photonName, photonPath, workingDir: workerWorkingDir };
 
     // Resolve the worker-host entry point relative to this file
     const hostPath = path.join(path.dirname(new URL(import.meta.url).pathname), 'worker-host.js');
@@ -107,7 +119,14 @@ export class WorkerManager {
     const worker = new Worker(hostPath, {
       workerData: workerInit,
       // Share the parent's env so photons can read PHOTON_DIR, etc.
-      env: { ...process.env },
+      // When a request supplies an explicit working directory, it is the
+      // worker's isolation boundary. Do not leak the daemon's global
+      // PHOTON_DIR into a respawned worker: that directory may be a deleted
+      // checkout or temporary launch directory.
+      env: {
+        ...process.env,
+        ...(workerWorkingDir ? { PHOTON_DIR: workerWorkingDir } : {}),
+      },
     });
 
     const info: WorkerInfo = {
