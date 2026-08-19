@@ -211,6 +211,25 @@ describe('CF deploy version inspection', () => {
     ).toEqual({ PHOTON: 'AppointmentsPhotonDO_v3' });
   });
 
+  it('reads Durable Object classes from the Cloudflare API binding shape', () => {
+    expect(
+      parseCloudflareDurableObjectVersion(
+        JSON.stringify({
+          resources: {
+            script: { bindings: [] },
+            bindings: [
+              {
+                name: 'PHOTON',
+                type: 'durable_object_namespace',
+                class_name: 'AppointmentsPhotonDO_v3',
+              },
+            ],
+          },
+        })
+      )
+    ).toEqual({ PHOTON: 'AppointmentsPhotonDO_v3' });
+  });
+
   it('keeps a text-output fallback for older Wrangler versions', () => {
     expect(
       parseCloudflareDurableObjectVersion(

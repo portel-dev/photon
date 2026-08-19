@@ -714,6 +714,13 @@ interface CloudflareVersionSummary {
   metadata?: { created_on?: string };
 }
 
+interface CloudflareWorkerVersionDetails extends CloudflareVersionSummary {
+  resources?: {
+    script?: { bindings?: Array<Record<string, unknown>> };
+    bindings?: Array<Record<string, unknown>>;
+  };
+}
+
 /**
  * Select the newest uploaded Worker version from Wrangler's JSON output.
  *
@@ -851,7 +858,7 @@ export function parseCloudflareDurableObjectVersion(output: string): Record<stri
   if (firstObject >= 0 && lastObject > firstObject) {
     try {
       const parsed = JSON.parse(output.slice(firstObject, lastObject + 1));
-      const bindings = parsed?.resources?.script?.bindings ?? parsed?.resources?.bindings;
+      const bindings = parsed?.resources?.bindings ?? parsed?.resources?.script?.bindings;
       if (Array.isArray(bindings)) {
         const classes: Record<string, string> = {};
         for (const binding of bindings) {
@@ -875,22 +882,126 @@ export function parseCloudflareDurableObjectVersion(output: string): Record<stri
   return classes;
 }
 
-function discoverCloudflareDurableObjectClasses(
+function extractCloudflareAccountId(output: string): string | undefined {
+  const firstObject = output.indexOf('{');
+  const lastObject = output.lastIndexOf('}');
+  if (firstObject < 0 || lastObject <= firstObject) return undefined;
+  try {
+    const parsed = JSON.parse(output.slice(firstObject, lastObject + 1));
+    const account = parsed?.accounts?.[0];
+    return typeof account?.id === 'string' && account.id.length > 0 ? account.id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function cloudflareAccountId(outputDir: string, env: NodeJS.ProcessEnv): string | undefined {
+  const configured = env.CLOUDFLARE_ACCOUNT_ID || env.CF_ACCOUNT_ID;
+  if (configured) return configured;
+  const whoami = spawnSync(detectRunner(), ['wrangler', 'whoami', '--json'], {
+    cwd: outputDir,
+    encoding: 'utf-8',
+    env,
+  });
+  return extractCloudflareAccountId(`${whoami.stdout || ''}\n${whoami.stderr || ''}`);
+}
+
+async function fetchCloudflareWorkerVersionIds(
   outputDir: string,
   workerName: string,
   env: NodeJS.ProcessEnv
+): Promise<string[]> {
+  const resolved = resolveCloudflareApiToken();
+  const accountId = cloudflareAccountId(outputDir, env);
+  if (!resolved || !accountId) return [];
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}/versions`,
+      { headers: { Authorization: `Bearer ${resolved.token}` } }
+    );
+    if (!response.ok) return [];
+    const payload = (await response.json()) as {
+      result?: {
+        items?: Array<{
+          id?: unknown;
+          metadata?: { created_on?: string };
+        }>;
+      };
+    };
+    return (payload.result?.items ?? [])
+      .filter((version) => typeof version.id === 'string' && version.id.length > 0)
+      .sort((a, b) => {
+        const aTime = Date.parse(a.metadata?.created_on || '');
+        const bTime = Date.parse(b.metadata?.created_on || '');
+        return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+      })
+      .map((version) => version.id as string);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchCloudflareWorkerVersion(
+  outputDir: string,
+  workerName: string,
+  versionId: string,
+  env: NodeJS.ProcessEnv
+): Promise<CloudflareWorkerVersionDetails | undefined> {
+  const resolved = resolveCloudflareApiToken();
+  const accountId = cloudflareAccountId(outputDir, env);
+  if (!resolved || !accountId) return undefined;
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}/versions/${encodeURIComponent(versionId)}`,
+      { headers: { Authorization: `Bearer ${resolved.token}` } }
+    );
+    if (!response.ok) return undefined;
+    const payload = (await response.json()) as { result?: CloudflareWorkerVersionDetails };
+    return payload.result;
+  } catch {
+    return undefined;
+  }
+}
+
+function durableObjectClassesFromVersion(
+  version: CloudflareWorkerVersionDetails | undefined
 ): Record<string, string> {
+  const bindings = version?.resources?.bindings ?? version?.resources?.script?.bindings;
+  if (!Array.isArray(bindings)) return {};
+  const classes: Record<string, string> = {};
+  for (const binding of bindings) {
+    if (
+      binding?.type === 'durable_object_namespace' &&
+      typeof binding.name === 'string' &&
+      typeof binding.class_name === 'string'
+    ) {
+      classes[binding.name] = binding.class_name;
+    }
+  }
+  return classes;
+}
+
+async function discoverCloudflareDurableObjectClasses(
+  outputDir: string,
+  workerName: string,
+  env: NodeJS.ProcessEnv
+): Promise<Record<string, string>> {
   const list = spawnSync(
     detectRunner(),
     ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
     { cwd: outputDir, encoding: 'utf-8', env }
   );
   const versionOutput = `${list.stdout || ''}\n${list.stderr || ''}`;
-  const versionIds = Array.from(versionOutput.matchAll(/"id"\s*:\s*"([^"]+)"/g))
+  let versionIds = Array.from(versionOutput.matchAll(/"id"\s*:\s*"([^"]+)"/g))
     .map((match) => match[1])
     .filter((id, index, all) => all.indexOf(id) === index)
     .reverse();
-  if (versionIds.length === 0) return {};
+  if (versionIds.length === 0) {
+    versionIds = await fetchCloudflareWorkerVersionIds(outputDir, workerName, env);
+  }
+  logger.info(
+    `Cloudflare version discovery found ${versionIds.length} version(s) for ${workerName}.`
+  );
 
   // Secret-only versions can occasionally omit the binding summary while the
   // version is still propagating. Walk recent versions until one exposes the
@@ -902,19 +1013,27 @@ function discoverCloudflareDurableObjectClasses(
       ['wrangler', 'versions', 'view', versionId, '--name', workerName, '--json'],
       { cwd: outputDir, encoding: 'utf-8', env }
     );
-    if (view.status !== 0) continue;
-    const output = `${view.stdout || ''}\n${view.stderr || ''}`;
-    const classes = parseCloudflareDurableObjectVersion(output);
-    if (Object.keys(classes).length > 0) return classes;
+    if (view.status === 0) {
+      const output = `${view.stdout || ''}\n${view.stderr || ''}`;
+      const classes = parseCloudflareDurableObjectVersion(output);
+      if (Object.keys(classes).length > 0) return classes;
+    }
+
+    const details = await fetchCloudflareWorkerVersion(outputDir, workerName, versionId, env);
+    const apiClasses = durableObjectClassesFromVersion(details);
+    if (Object.keys(apiClasses).length > 0) {
+      logger.info(`Cloudflare version ${versionId} exposes Durable Object bindings.`);
+      return apiClasses;
+    }
   }
   return {};
 }
 
-function readLatestCloudflareVersionId(
+async function readLatestCloudflareVersionId(
   outputDir: string,
   workerName: string,
   env: NodeJS.ProcessEnv
-): string | undefined {
+): Promise<string | undefined> {
   const list = spawnSync(
     detectRunner(),
     ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
@@ -924,7 +1043,7 @@ function readLatestCloudflareVersionId(
   try {
     return selectLatestCloudflareVersion(`${list.stdout || ''}\n${list.stderr || ''}`);
   } catch {
-    return undefined;
+    return (await fetchCloudflareWorkerVersionIds(outputDir, workerName, env))[0];
   }
 }
 
@@ -2015,7 +2134,7 @@ class_name = "${p.doClass}"`
   // Existing Workers can carry Durable Object class-renaming migrations from
   // an earlier Photon release. Reconcile the scratch artifacts before
   // Wrangler validates the upload so a normal redeploy remains safe.
-  const currentDoClasses = discoverCloudflareDurableObjectClasses(
+  const currentDoClasses = await discoverCloudflareDurableObjectClasses(
     outputDir,
     workerName,
     envForWrangler
@@ -2039,7 +2158,11 @@ class_name = "${p.doClass}"`
   // Cloudflare may expose the newly uploaded version a few seconds after
   // `wrangler deploy` exits. Remember the version that existed before the
   // upload so promotion cannot accidentally re-select an older deployment.
-  const previousVersionId = readLatestCloudflareVersionId(outputDir, workerName, envForWrangler);
+  const previousVersionId = await readLatestCloudflareVersionId(
+    outputDir,
+    workerName,
+    envForWrangler
+  );
 
   // Deploy
   logger.info('Deploying to Cloudflare Workers...');
@@ -2128,6 +2251,7 @@ async function promoteLatestCloudflareVersion(
   logger.info('Confirming the uploaded Cloudflare version is serving traffic...');
   let versionList = '';
   let lastListError: unknown;
+  let lastObservedVersionId: string | undefined;
   const attempts = previousVersionId ? 10 : 3;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const result = spawnSync(
@@ -2140,10 +2264,18 @@ async function promoteLatestCloudflareVersion(
     // just-uploaded version becomes visible in the API.
     versionList = `${result.stdout || ''}\n${result.stderr || ''}`;
     try {
-      const versionId = ensureNewCloudflareVersion(
-        selectLatestCloudflareVersion(versionList),
-        previousVersionId
-      );
+      let latestVersionId: string;
+      try {
+        latestVersionId = selectLatestCloudflareVersion(versionList);
+      } catch {
+        latestVersionId =
+          (await fetchCloudflareWorkerVersionIds(outputDir, photonName, env))[0] || '';
+      }
+      if (!latestVersionId) {
+        throw new Error('Cloudflare has not exposed a deployable Worker version yet.');
+      }
+      lastObservedVersionId = latestVersionId;
+      const versionId = ensureNewCloudflareVersion(latestVersionId, previousVersionId);
       logger.info(`Promoting Worker version ${versionId} to 100%...`);
       await new Promise<void>((resolve, reject) => {
         const promotion = spawn(
@@ -2173,6 +2305,15 @@ async function promoteLatestCloudflareVersion(
       lastListError = error;
       if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000));
     }
+  }
+
+  // Wrangler can complete an idempotent deploy without creating a second
+  // version. That is a successful deployment: the existing version remains
+  // live, and there is nothing to promote. Only fail when there was no prior
+  // deployable version to keep serving.
+  if (previousVersionId && lastObservedVersionId === previousVersionId) {
+    logger.info('Cloudflare kept the existing Worker version; no promotion was needed.');
+    return;
   }
 
   throw new Error(
