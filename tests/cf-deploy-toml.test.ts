@@ -21,6 +21,7 @@ import * as os from 'os';
 import {
   renderCfBindingsToml,
   renderCloudflareRouteConfig,
+  reconcileCloudflareDurableObjectMigrationArtifacts,
   selectLatestCloudflareVersion,
 } from '../src/deploy/cloudflare.js';
 
@@ -184,6 +185,46 @@ describe('CF deploy autogen — auto-naming', () => {
     );
     expect(out).toContain('binding = "gallery_kv"');
     expect(out).toContain('binding = "notes_r2"');
+  });
+});
+
+describe('CF deploy — Durable Object migration compatibility', () => {
+  it('preserves an existing v3 class migration chain during redeploy', () => {
+    const result = reconcileCloudflareDurableObjectMigrationArtifacts(
+      `[[durable_objects.bindings]]\nname = "PHOTON"\nclass_name = "AppointmentsPhotonDO"\n\n[[migrations]]\ntag = "v1"\nnew_sqlite_classes = ["AppointmentsPhotonDO"]\n`,
+      'export class AppointmentsPhotonDO extends BasePhotonDO {}',
+      [{ binding: 'PHOTON', doClass: 'AppointmentsPhotonDO' }],
+      { PHOTON: 'AppointmentsPhotonDO_v3' }
+    );
+
+    expect(result.changed).toBe(true);
+    expect(result.wranglerConfig).toContain('class_name = "AppointmentsPhotonDO_v3"');
+    expect(result.wranglerConfig).toContain('tag = "v2"');
+    expect(result.wranglerConfig).toContain('tag = "v3"');
+    expect(result.workerCode).toContain(
+      'export class AppointmentsPhotonDO_v3 extends BasePhotonDO'
+    );
+  });
+
+  it('leaves first-time and already-canonical deployments unchanged', () => {
+    const config = 'class_name = "GalleryPhotonDO"';
+    const code = 'export class GalleryPhotonDO extends BasePhotonDO {}';
+    expect(
+      reconcileCloudflareDurableObjectMigrationArtifacts(
+        config,
+        code,
+        [{ binding: 'PHOTON', doClass: 'GalleryPhotonDO' }],
+        {}
+      )
+    ).toEqual({ wranglerConfig: config, workerCode: code, changed: false });
+    expect(
+      reconcileCloudflareDurableObjectMigrationArtifacts(
+        config,
+        code,
+        [{ binding: 'PHOTON', doClass: 'GalleryPhotonDO' }],
+        { PHOTON: 'GalleryPhotonDO' }
+      )
+    ).toEqual({ wranglerConfig: config, workerCode: code, changed: false });
   });
 });
 

@@ -727,6 +727,111 @@ export function selectLatestCloudflareVersion(output: string): string {
   return versions[versions.length - 1].id;
 }
 
+export interface CloudflareDurableObjectSpec {
+  binding: string;
+  doClass: string;
+}
+
+/**
+ * Keep generated Durable Object bindings compatible with a Worker that was
+ * deployed with Wrangler class-renaming migrations in an earlier Photon
+ * release. Wrangler validates the complete migration history on every upload;
+ * dropping that history makes an otherwise valid deploy fail with code 10064.
+ */
+export function reconcileCloudflareDurableObjectMigrationArtifacts(
+  wranglerConfig: string,
+  workerCode: string,
+  specs: CloudflareDurableObjectSpec[],
+  currentClasses: Record<string, string>
+): { wranglerConfig: string; workerCode: string; changed: boolean } {
+  const renames = new Map<number, string[]>();
+  let nextConfig = wranglerConfig;
+  let nextWorker = workerCode;
+  let changed = false;
+
+  for (const spec of specs) {
+    const current = currentClasses[spec.binding];
+    if (!current || current === spec.doClass) continue;
+    const suffix = current.match(new RegExp(`^${escapeRegExp(spec.doClass)}_v(\\d+)$`));
+    if (!suffix) continue;
+    const version = Number(suffix[1]);
+    if (!Number.isInteger(version) || version < 2) continue;
+
+    const bindingRe = new RegExp(
+      `(name\\s*=\\s*"${escapeRegExp(spec.binding)}"\\s*\\n\\s*class_name\\s*=\\s*)"${escapeRegExp(spec.doClass)}"`
+    );
+    if (!bindingRe.test(nextConfig)) continue;
+    nextConfig = nextConfig.replace(bindingRe, `$1"${current}"`);
+    nextWorker = nextWorker.replace(
+      new RegExp(`export class ${escapeRegExp(spec.doClass)} extends BasePhotonDO`),
+      `export class ${current} extends BasePhotonDO`
+    );
+
+    for (let migration = 2; migration <= version; migration += 1) {
+      const from = migration === 2 ? spec.doClass : `${spec.doClass}_v${migration - 1}`;
+      const to = `${spec.doClass}_v${migration}`;
+      const entries = renames.get(migration) ?? [];
+      entries.push(`{ from = "${from}", to = "${to}" }`);
+      renames.set(migration, entries);
+    }
+    changed = true;
+  }
+
+  if (changed && renames.size > 0) {
+    const history = Array.from(renames.entries())
+      .sort(([a], [b]) => a - b)
+      .map(
+        ([version, entries]) =>
+          `\n[[migrations]]\ntag = "v${version}"\nrenamed_classes = [${entries.join(', ')}]\n`
+      )
+      .join('');
+    nextConfig += history;
+  }
+
+  return { wranglerConfig: nextConfig, workerCode: nextWorker, changed };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+}
+
+function discoverCloudflareDurableObjectClasses(
+  outputDir: string,
+  workerName: string,
+  env: NodeJS.ProcessEnv
+): Record<string, string> {
+  const list = spawnSync(
+    detectRunner(),
+    ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
+    { cwd: outputDir, encoding: 'utf-8', env }
+  );
+  const versionOutput = `${list.stdout || ''}\n${list.stderr || ''}`;
+  const versionIds = Array.from(versionOutput.matchAll(/"id"\s*:\s*"([^"]+)"/g))
+    .map((match) => match[1])
+    .filter((id, index, all) => all.indexOf(id) === index)
+    .reverse();
+  if (versionIds.length === 0) return {};
+
+  // Secret-only versions can occasionally omit the binding summary while the
+  // version is still propagating. Walk recent versions until one exposes the
+  // Durable Object bindings instead of treating that transient state as a
+  // first deployment.
+  const bindingRe = /env\.([A-Z0-9_]+)\s+\(([^)]+)\)\s+Durable Object/g;
+  for (const versionId of versionIds.slice(0, 10)) {
+    const view = spawnSync(
+      detectRunner(),
+      ['wrangler', 'versions', 'view', versionId, '--name', workerName],
+      { cwd: outputDir, encoding: 'utf-8', env }
+    );
+    if (view.status !== 0) continue;
+    const classes: Record<string, string> = {};
+    const output = `${view.stdout || ''}\n${view.stderr || ''}`;
+    for (const match of output.matchAll(bindingRe)) classes[match[1]] = match[2];
+    if (Object.keys(classes).length > 0) return classes;
+  }
+  return {};
+}
+
 interface DeployJwtConfig {
   mode: 'jwt';
   issuer: string;
@@ -1807,6 +1912,30 @@ class_name = "${p.doClass}"`
         else reject(new Error('Login failed'));
       });
     });
+  }
+
+  // Existing Workers can carry Durable Object class-renaming migrations from
+  // an earlier Photon release. Reconcile the scratch artifacts before
+  // Wrangler validates the upload so a normal redeploy remains safe.
+  const currentDoClasses = discoverCloudflareDurableObjectClasses(
+    outputDir,
+    workerName,
+    envForWrangler
+  );
+  if (Object.keys(currentDoClasses).length > 0) {
+    const configPath = path.join(outputDir, 'wrangler.toml');
+    const workerPath = path.join(outputDir, 'src', 'worker.ts');
+    const artifacts = reconcileCloudflareDurableObjectMigrationArtifacts(
+      await fs.readFile(configPath, 'utf8'),
+      await fs.readFile(workerPath, 'utf8'),
+      photons.map((photon) => ({ binding: photon.binding, doClass: photon.doClass })),
+      currentDoClasses
+    );
+    if (artifacts.changed) {
+      await fs.writeFile(configPath, artifacts.wranglerConfig);
+      await fs.writeFile(workerPath, artifacts.workerCode);
+      logger.info('Preserved the existing Durable Object migration history for this Worker.');
+    }
   }
 
   // Deploy
