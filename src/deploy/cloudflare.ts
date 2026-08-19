@@ -644,6 +644,15 @@ function parseCloudflareOAuthAuthMode(source: string): CloudflareOAuthAuthMode |
 interface CloudflareRouteConfig {
   toml: string;
   publicUrl?: string;
+  /**
+   * A legacy zone route can override a custom-domain binding. Keep the exact
+   * route target alongside the generated TOML so deploy can reconcile that
+   * stale route after upload.
+   */
+  reconcile?: {
+    pattern: string;
+    zoneName: string;
+  };
 }
 
 interface CloudflareVersionSummary {
@@ -729,7 +738,9 @@ async function loadDeployJwtConfig(photonName: string, audience: string): Promis
   return { mode: 'jwt', issuer: issuer.issuer, audience, jwks };
 }
 
-function renderCloudflareRouteConfig(options: CloudflareDeployOptions): CloudflareRouteConfig {
+export function renderCloudflareRouteConfig(
+  options: CloudflareDeployOptions
+): CloudflareRouteConfig {
   const targets = [options.publicUrl, options.customDomain, options.routePattern].filter(Boolean);
   if (targets.length > 1) {
     throw new Error('Choose only one Cloudflare deploy target: --url, --domain, or --route.');
@@ -740,6 +751,10 @@ function renderCloudflareRouteConfig(options: CloudflareDeployOptions): Cloudfla
     return {
       publicUrl: `https://${domain}`,
       toml: renderRoutesToml([{ pattern: domain, customDomain: true }]),
+      reconcile: {
+        pattern: `${domain}/*`,
+        zoneName: zoneNameForRoutePattern(domain),
+      },
     };
   }
 
@@ -750,6 +765,10 @@ function renderCloudflareRouteConfig(options: CloudflareDeployOptions): Cloudfla
       toml: renderRoutesToml([
         { pattern, customDomain: false, zoneName: zoneNameForRoutePattern(pattern) },
       ]),
+      reconcile: {
+        pattern,
+        zoneName: zoneNameForRoutePattern(pattern),
+      },
     };
   }
 
@@ -764,6 +783,10 @@ function renderCloudflareRouteConfig(options: CloudflareDeployOptions): Cloudfla
     return {
       publicUrl: parsed.origin,
       toml: renderRoutesToml([{ pattern: parsed.hostname, customDomain: true }]),
+      reconcile: {
+        pattern: `${parsed.hostname}/*`,
+        zoneName: zoneNameForRoutePattern(parsed.hostname),
+      },
     };
   }
 
@@ -1787,7 +1810,8 @@ class_name = "${p.doClass}"`
   await new Promise<void>((resolve, reject) => {
     deploy.on('close', (code) => {
       if (code === 0) {
-        void promoteLatestCloudflareVersion(outputDir, workerName, envForWrangler)
+        void reconcileCloudflareRoute(routeConfig, workerName)
+          .then(() => promoteLatestCloudflareVersion(outputDir, workerName, envForWrangler))
           .then(() => {
             logger.info('Deployment complete and latest version is serving 100% of traffic!');
             logger.info(`\nYour MCP server is live at:`);
@@ -1904,6 +1928,81 @@ async function promoteLatestCloudflareVersion(
   throw new Error(
     `could not list Worker versions: ${lastListError instanceof Error ? lastListError.message : String(lastListError)}`
   );
+}
+
+/**
+ * Reconcile a legacy zone route after a Worker upload.
+ *
+ * Cloudflare permits a zone route and a custom-domain binding to coexist. If
+ * the zone route still points at an older Worker, the new deployment appears
+ * healthy in Wrangler while the public hostname serves stale code. Updating
+ * the exact route to the Worker just deployed makes the deploy operation
+ * converge instead of requiring a dashboard cleanup.
+ */
+async function reconcileCloudflareRoute(
+  routeConfig: CloudflareRouteConfig,
+  workerName: string
+): Promise<void> {
+  const target = routeConfig.reconcile;
+  if (!target) return;
+
+  const resolved = resolveCloudflareApiToken();
+  if (!resolved) {
+    logger.warn(
+      `Could not reconcile Cloudflare route ${target.pattern}: no API token was available. ` +
+        'The Worker was uploaded, but verify the hostname does not have a stale zone route.'
+    );
+    return;
+  }
+
+  const headers = {
+    Authorization: `Bearer ${resolved.token}`,
+    'Content-Type': 'application/json',
+  };
+  const zoneResponse = await fetch(
+    `https://api.cloudflare.com/client/v4/zones?name=${encodeURIComponent(target.zoneName)}&status=active`,
+    { headers }
+  );
+  if (!zoneResponse.ok) {
+    throw new Error(`Cloudflare zone lookup failed with HTTP ${zoneResponse.status}`);
+  }
+  const zonePayload = (await zoneResponse.json()) as {
+    success?: boolean;
+    result?: Array<{ id?: string }>;
+    errors?: unknown;
+  };
+  const zoneId = zonePayload.result?.[0]?.id;
+  if (!zoneId) {
+    throw new Error(
+      `Cloudflare zone '${target.zoneName}' was not found while reconciling the route`
+    );
+  }
+
+  const routesResponse = await fetch(
+    `https://api.cloudflare.com/client/v4/zones/${zoneId}/workers/routes`,
+    { headers }
+  );
+  if (!routesResponse.ok) {
+    throw new Error(`Cloudflare route lookup failed with HTTP ${routesResponse.status}`);
+  }
+  const routesPayload = (await routesResponse.json()) as {
+    result?: Array<{ id?: string; pattern?: string; script?: string | null }>;
+  };
+  const existing = routesPayload.result?.find((route) => route.pattern === target.pattern);
+  if (!existing?.id || existing.script === workerName) return;
+
+  const updateResponse = await fetch(
+    `https://api.cloudflare.com/client/v4/zones/${zoneId}/workers/routes/${existing.id}`,
+    {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ pattern: target.pattern, script: workerName }),
+    }
+  );
+  if (!updateResponse.ok) {
+    throw new Error(`Cloudflare route reconciliation failed with HTTP ${updateResponse.status}`);
+  }
+  logger.info(`Reconciled Cloudflare route ${target.pattern} → Worker ${workerName}`);
 }
 
 export async function devCloudflare(options: CloudflareDeployOptions): Promise<void> {

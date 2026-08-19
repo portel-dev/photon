@@ -18,7 +18,11 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { renderCfBindingsToml, selectLatestCloudflareVersion } from '../src/deploy/cloudflare.js';
+import {
+  renderCfBindingsToml,
+  renderCloudflareRouteConfig,
+  selectLatestCloudflareVersion,
+} from '../src/deploy/cloudflare.js';
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cf-deploy-toml-'));
@@ -207,5 +211,29 @@ describe('CF deploy version promotion', () => {
   it('rejects malformed or empty version lists', () => {
     expect(() => selectLatestCloudflareVersion('not json')).toThrow(/parse Wrangler version list/);
     expect(() => selectLatestCloudflareVersion('[]')).toThrow(/no deployable Worker versions/);
+  });
+});
+
+describe('CF deploy route reconciliation', () => {
+  it('records the exact zone route behind a custom domain', () => {
+    const route = renderCloudflareRouteConfig({
+      photonPath: '/tmp/consult.photon.ts',
+      customDomain: 'consult.arul.sg',
+    });
+    expect(route.reconcile).toEqual({
+      pattern: 'consult.arul.sg/*',
+      zoneName: 'arul.sg',
+    });
+  });
+
+  it('records an explicit route pattern without changing its wildcard', () => {
+    const route = renderCloudflareRouteConfig({
+      photonPath: '/tmp/consult.photon.ts',
+      routePattern: 'consult.arul.sg/*',
+    });
+    expect(route.reconcile).toEqual({
+      pattern: 'consult.arul.sg/*',
+      zoneName: 'arul.sg',
+    });
   });
 });
