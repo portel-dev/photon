@@ -770,6 +770,13 @@ export function selectLatestCloudflareVersion(output: string): string {
   return versions[versions.length - 1].id;
 }
 
+export function ensureNewCloudflareVersion(versionId: string, previousVersionId?: string): string {
+  if (previousVersionId && versionId === previousVersionId) {
+    throw new Error('Cloudflare has not exposed the newly uploaded Worker version yet.');
+  }
+  return versionId;
+}
+
 export interface CloudflareDurableObjectSpec {
   binding: string;
   doClass: string;
@@ -901,6 +908,24 @@ function discoverCloudflareDurableObjectClasses(
     if (Object.keys(classes).length > 0) return classes;
   }
   return {};
+}
+
+function readLatestCloudflareVersionId(
+  outputDir: string,
+  workerName: string,
+  env: NodeJS.ProcessEnv
+): string | undefined {
+  const list = spawnSync(
+    detectRunner(),
+    ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
+    { cwd: outputDir, encoding: 'utf-8', env }
+  );
+  if (list.status !== 0) return undefined;
+  try {
+    return selectLatestCloudflareVersion(`${list.stdout || ''}\n${list.stderr || ''}`);
+  } catch {
+    return undefined;
+  }
 }
 
 interface DeployJwtConfig {
@@ -2011,6 +2036,11 @@ class_name = "${p.doClass}"`
     }
   }
 
+  // Cloudflare may expose the newly uploaded version a few seconds after
+  // `wrangler deploy` exits. Remember the version that existed before the
+  // upload so promotion cannot accidentally re-select an older deployment.
+  const previousVersionId = readLatestCloudflareVersionId(outputDir, workerName, envForWrangler);
+
   // Deploy
   logger.info('Deploying to Cloudflare Workers...');
 
@@ -2024,7 +2054,9 @@ class_name = "${p.doClass}"`
     deploy.on('close', (code) => {
       if (code === 0) {
         void reconcileCloudflareRoute(routeConfig, workerName)
-          .then(() => promoteLatestCloudflareVersion(outputDir, workerName, envForWrangler))
+          .then(() =>
+            promoteLatestCloudflareVersion(outputDir, workerName, envForWrangler, previousVersionId)
+          )
           .then(() => {
             logger.info('Deployment complete and latest version is serving 100% of traffic!');
             logger.info(`\nYour MCP server is live at:`);
@@ -2090,12 +2122,14 @@ class_name = "${p.doClass}"`
 async function promoteLatestCloudflareVersion(
   outputDir: string,
   photonName: string,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  previousVersionId?: string
 ): Promise<void> {
   logger.info('Confirming the uploaded Cloudflare version is serving traffic...');
   let versionList = '';
   let lastListError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const attempts = previousVersionId ? 10 : 3;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const result = spawnSync(
       detectRunner(),
       ['wrangler', 'versions', 'list', '--name', photonName, '--json'],
@@ -2106,7 +2140,10 @@ async function promoteLatestCloudflareVersion(
     // just-uploaded version becomes visible in the API.
     versionList = `${result.stdout || ''}\n${result.stderr || ''}`;
     try {
-      const versionId = selectLatestCloudflareVersion(versionList);
+      const versionId = ensureNewCloudflareVersion(
+        selectLatestCloudflareVersion(versionList),
+        previousVersionId
+      );
       logger.info(`Promoting Worker version ${versionId} to 100%...`);
       await new Promise<void>((resolve, reject) => {
         const promotion = spawn(

@@ -24,6 +24,7 @@ import {
   reconcileCloudflareDurableObjectMigrationArtifacts,
   parseCloudflareDurableObjectVersion,
   selectLatestCloudflareVersion,
+  ensureNewCloudflareVersion,
 } from '../src/deploy/cloudflare.js';
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -283,6 +284,11 @@ describe('CF deploy version promotion', () => {
   it('rejects malformed or empty version lists', () => {
     expect(() => selectLatestCloudflareVersion('not json')).toThrow(/parse Wrangler version list/);
     expect(() => selectLatestCloudflareVersion('[]')).toThrow(/no deployable Worker versions/);
+  });
+
+  it('never re-promotes the version that existed before upload', () => {
+    expect(ensureNewCloudflareVersion('newer', 'older')).toBe('newer');
+    expect(() => ensureNewCloudflareVersion('older', 'older')).toThrow(/not exposed/);
   });
 });
 
