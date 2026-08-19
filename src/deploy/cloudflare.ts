@@ -9,7 +9,7 @@ import { execSync, spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { homedir, tmpdir } from 'node:os';
 import { detectPM, detectRunner } from '../shared-utils.js';
-import { SchemaExtractor, bindingNameFor } from '@portel/photon-core';
+import { SchemaExtractor, bindingNameFor, toEnvVarName } from '@portel/photon-core';
 import { parseCfBindings } from '../cf-bindings-parser.js';
 import { mergeBindings, type CfBindingsConfig } from '../runtime/cf-local.js';
 import { scanCfUsage } from '../cf-usage-scanner.js';
@@ -165,7 +165,8 @@ function parseToolScopesFromSource(source: string): Record<string, string[]> {
 function renderConstructorArgs(
   source: string,
   photonName: string,
-  extractor: SchemaExtractor
+  extractor: SchemaExtractor,
+  envPrefix = photonName
 ): string {
   if (typeof extractor.resolveInjections !== 'function') {
     return '';
@@ -174,7 +175,17 @@ function renderConstructorArgs(
   return injections
     .map((injection) => {
       if (injection.injectionType !== 'env') return 'undefined';
-      return `readConstructorEnv(env, ${JSON.stringify(injection.envVarName)}, ${JSON.stringify(injection.param?.type ?? 'string')})`;
+      const legacyEnvVar = injection.envVarName!;
+      const preferredEnvVar = injection.param?.name
+        ? toEnvVarName(envPrefix, injection.param.name)
+        : legacyEnvVar;
+      const type = JSON.stringify(injection.param?.type ?? 'string');
+      if (preferredEnvVar === legacyEnvVar) {
+        return `readConstructorEnv(env, ${JSON.stringify(legacyEnvVar)}, ${type})`;
+      }
+      // Prefer the public Worker namespace while retaining the source-file
+      // namespace as a migration fallback for existing deployments.
+      return `(readConstructorEnv(env, ${JSON.stringify(preferredEnvVar)}, ${type}) ?? readConstructorEnv(env, ${JSON.stringify(legacyEnvVar)}, ${type}))`;
     })
     .join(', ');
 }
@@ -1311,7 +1322,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       routeDefs,
       exposeDefs,
       source: exposedHostSource,
-      constructorArgs: renderConstructorArgs(sourceCode, photonName, extractor),
+      constructorArgs: renderConstructorArgs(sourceCode, photonName, extractor, workerName),
       sourceFileBase: 'photon.ts',
       isHost: true,
       accessClassImports: extractAccessClassNames(sourceCode).filter((name) =>
@@ -1376,7 +1387,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       routeDefs: sibRoutes,
       exposeDefs: sibExposes,
       source: transformPhotonSource(sibSource),
-      constructorArgs: renderConstructorArgs(sibSource, sibName, extractor),
+      constructorArgs: renderConstructorArgs(sibSource, sibName, extractor, sibName),
       sourceFileBase: `dep-${sibName}.ts`,
       isHost: false,
       accessClassImports: [],

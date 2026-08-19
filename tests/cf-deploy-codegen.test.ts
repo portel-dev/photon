@@ -408,6 +408,33 @@ export default class MailRoom {
       'const photon = new MailRoomPhoton(readConstructorEnv(env, "MAIL_ROOM_API_KEY", "string"), readConstructorEnv(env, "MAIL_ROOM_FROM_EMAIL", "string"), readConstructorEnv(env, "MAIL_ROOM_RETRY_COUNT", "number"), readConstructorEnv(env, "MAIL_ROOM_ENABLED", "boolean"));'
     );
   });
+
+  it('prefers the custom Worker namespace and falls back to the source namespace', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-cf-custom-env-prefix-'));
+    const photonPath = path.join(dir, 'appointments.photon.ts');
+    await fsp.writeFile(
+      photonPath,
+      `
+export default class Appointments {
+  constructor(private stripeKey: string = '') {}
+  /** @get / */
+  async home() { return { ok: true }; }
+}
+`
+    );
+
+    await deployToCloudflare({
+      photonPath,
+      workerName: 'consult',
+      outputDir: path.join(dir, 'out'),
+      dryRun: true,
+    });
+
+    const worker = await fsp.readFile(path.join(dir, 'out', 'src', 'worker.ts'), 'utf-8');
+    expect(worker).toContain(
+      'readConstructorEnv(env, "CONSULT_STRIPE_KEY", "string") ?? readConstructorEnv(env, "APPOINTMENTS_STRIPE_KEY", "string")'
+    );
+  });
 });
 
 describe('cf deploy code-gen — @expose dispatch', () => {
