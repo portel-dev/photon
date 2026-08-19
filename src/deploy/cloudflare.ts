@@ -46,6 +46,49 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
+ * The extractor can represent a named object parameter as `{ params: {...} }`
+ * while also marking the method as `simpleParams`. That combination is
+ * ambiguous on the wire: simple-parameter spreading would pass
+ * `arguments.params` as the method's only argument, while the public schema
+ * suggests that `params` itself is a field. MCP callers should see the
+ * object's fields directly and the Worker should pass that object unchanged.
+ */
+export function normalizeCloudflareMcpToolDefinition(tool: any): any {
+  const properties = tool?.inputSchema?.properties;
+  if (
+    !tool?.simpleParams ||
+    !properties ||
+    typeof properties !== 'object' ||
+    Object.keys(properties).length !== 1 ||
+    !Object.prototype.hasOwnProperty.call(properties, 'params')
+  ) {
+    return tool;
+  }
+  const nested = properties.params;
+  if (
+    !nested ||
+    nested.type !== 'object' ||
+    !nested.properties ||
+    typeof nested.properties !== 'object'
+  ) {
+    return tool;
+  }
+  const { simpleParams: _simpleParams, ...rest } = tool;
+  return {
+    ...rest,
+    inputSchema: {
+      type: 'object',
+      properties: nested.properties,
+      ...(Array.isArray(nested.required) ? { required: nested.required } : {}),
+      ...(nested.additionalProperties !== undefined
+        ? { additionalProperties: nested.additionalProperties }
+        : {}),
+      ...(nested.description ? { description: nested.description } : {}),
+    },
+  };
+}
+
+/**
  * NPM packages known to be incompatible with the Cloudflare Workers runtime.
  * Most break because they depend on Node-only built-ins (fs, vm, native
  * bindings) or full DOM polyfills. The deploy aborts with a clear message
@@ -1220,7 +1263,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       if (Object.keys(annotations).length > 0) toolDef.annotations = annotations;
       const renderMeta = buildPhotonRenderMeta(tool);
       if (renderMeta) toolDef._meta = { 'photon/render': renderMeta };
-      return toolDef;
+      return normalizeCloudflareMcpToolDefinition(toolDef);
     });
 
   // The generated web shell is deliberately a composition hint, not a
@@ -1460,13 +1503,15 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     const sibScopes = parseToolScopesFromSource(sibSource);
     const sibTools = sibMeta.tools
       .filter((tool: { name: string }) => !sibRouteHandlers.has(tool.name))
-      .map((tool: any) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-        ...(tool.simpleParams ? { simpleParams: true } : {}),
-        scopes: inferToolScopes(tool, sibScopes[tool.name]),
-      }));
+      .map((tool: any) =>
+        normalizeCloudflareMcpToolDefinition({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          ...(tool.simpleParams ? { simpleParams: true } : {}),
+          scopes: inferToolScopes(tool, sibScopes[tool.name]),
+        })
+      );
     // Sibling-level @photons are not recursively bundled in v1 — flag so the
     // user knows their indirect dependency isn't carried along.
     const sibSiblings = parsePhotonPhotons(sibSource);

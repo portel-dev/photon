@@ -459,6 +459,42 @@ function localMcpAuthMode(): string {
   return process.env.PHOTON_MCP_AUTH_MODE || (process.env.PHOTON_MCP_BEARER ? 'bearer' : 'legacy');
 }
 
+/**
+ * Expose named object parameters as the object's fields on the MCP wire.
+ * Schema extraction can leave a single named object parameter as
+ * `{ params: {...} }`; that is an implementation detail, not a useful MCP
+ * contract, and it must match the Cloudflare code-generation path.
+ */
+function normalizeMcpInputSchema(inputSchema: Record<string, any>): Record<string, any> {
+  const properties = inputSchema?.properties;
+  if (
+    !properties ||
+    typeof properties !== 'object' ||
+    Object.keys(properties).length !== 1 ||
+    !Object.prototype.hasOwnProperty.call(properties, 'params')
+  ) {
+    return inputSchema;
+  }
+  const nested = properties.params;
+  if (
+    !nested ||
+    nested.type !== 'object' ||
+    !nested.properties ||
+    typeof nested.properties !== 'object'
+  ) {
+    return inputSchema;
+  }
+  return {
+    type: 'object',
+    properties: nested.properties,
+    ...(Array.isArray(nested.required) ? { required: nested.required } : {}),
+    ...(nested.additionalProperties !== undefined
+      ? { additionalProperties: nested.additionalProperties }
+      : {}),
+    ...(nested.description ? { description: nested.description } : {}),
+  };
+}
+
 function authHeaderToken(req: IncomingMessage): string | null {
   const header = req.headers.authorization ?? '';
   const match = Array.isArray(header)
@@ -1809,7 +1845,7 @@ export class PhotonServer {
         const toolDef: MCPToolDefinition = {
           name: toolName,
           description,
-          inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)),
+          inputSchema: normalizeMcpInputSchema(JSON.parse(JSON.stringify(tool.inputSchema))),
         };
 
         // MCP standard annotations (2025-11-25 spec)

@@ -1379,6 +1379,20 @@ async function cfConfirm(question: string): Promise<boolean> {
  * behaves identically whether it runs on the daemon or as a Cloudflare Worker.
  */
 function spreadArgs(toolDef: any, args: Record<string, unknown>): unknown[] {
+  // Named object parameters are normalized before code generation. Keep this
+  // compatibility branch for older generated Workers and hand-written test
+  // fixtures: never spread a `{ params: {...} }` schema as a positional value.
+  const properties = toolDef?.inputSchema?.properties;
+  if (
+    toolDef?.simpleParams &&
+    properties &&
+    typeof properties === 'object' &&
+    Object.keys(properties).length === 1 &&
+    Object.prototype.hasOwnProperty.call(properties, 'params') &&
+    properties.params?.type === 'object'
+  ) {
+    return [args && typeof args.params === 'object' ? args.params : args];
+  }
   if (toolDef?.simpleParams && args && typeof args === 'object') {
     const paramNames = Object.keys(toolDef.inputSchema?.properties || {});
     return paramNames.map((name) => args[name]);
