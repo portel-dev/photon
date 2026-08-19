@@ -22,6 +22,7 @@ import {
   renderCfBindingsToml,
   renderCloudflareRouteConfig,
   reconcileCloudflareDurableObjectMigrationArtifacts,
+  parseCloudflareDurableObjectVersion,
   selectLatestCloudflareVersion,
 } from '../src/deploy/cloudflare.js';
 
@@ -185,6 +186,36 @@ describe('CF deploy autogen — auto-naming', () => {
     );
     expect(out).toContain('binding = "gallery_kv"');
     expect(out).toContain('binding = "notes_r2"');
+  });
+});
+
+describe('CF deploy version inspection', () => {
+  it('reads Durable Object classes from Wrangler JSON metadata', () => {
+    expect(
+      parseCloudflareDurableObjectVersion(
+        JSON.stringify({
+          resources: {
+            script: {
+              bindings: [
+                {
+                  name: 'PHOTON',
+                  type: 'durable_object_namespace',
+                  class_name: 'AppointmentsPhotonDO_v3',
+                },
+              ],
+            },
+          },
+        })
+      )
+    ).toEqual({ PHOTON: 'AppointmentsPhotonDO_v3' });
+  });
+
+  it('keeps a text-output fallback for older Wrangler versions', () => {
+    expect(
+      parseCloudflareDurableObjectVersion(
+        'env.PHOTON (AppointmentsPhotonDO_v3)      Durable Object'
+      )
+    ).toEqual({ PHOTON: 'AppointmentsPhotonDO_v3' });
   });
 });
 

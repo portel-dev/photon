@@ -838,6 +838,36 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
 }
 
+export function parseCloudflareDurableObjectVersion(output: string): Record<string, string> {
+  const firstObject = output.indexOf('{');
+  const lastObject = output.lastIndexOf('}');
+  if (firstObject >= 0 && lastObject > firstObject) {
+    try {
+      const parsed = JSON.parse(output.slice(firstObject, lastObject + 1));
+      const bindings = parsed?.resources?.script?.bindings ?? parsed?.resources?.bindings;
+      if (Array.isArray(bindings)) {
+        const classes: Record<string, string> = {};
+        for (const binding of bindings) {
+          if (
+            binding?.type === 'durable_object_namespace' &&
+            typeof binding.name === 'string' &&
+            typeof binding.class_name === 'string'
+          ) {
+            classes[binding.name] = binding.class_name;
+          }
+        }
+        if (Object.keys(classes).length > 0) return classes;
+      }
+    } catch {
+      // Fall back to the human-readable view below for older Wrangler versions.
+    }
+  }
+  const classes: Record<string, string> = {};
+  const bindingRe = /env\.([A-Z0-9_]+)\s+\(([^)]+)\)\s+Durable Object/g;
+  for (const match of output.matchAll(bindingRe)) classes[match[1]] = match[2];
+  return classes;
+}
+
 function discoverCloudflareDurableObjectClasses(
   outputDir: string,
   workerName: string,
@@ -859,17 +889,15 @@ function discoverCloudflareDurableObjectClasses(
   // version is still propagating. Walk recent versions until one exposes the
   // Durable Object bindings instead of treating that transient state as a
   // first deployment.
-  const bindingRe = /env\.([A-Z0-9_]+)\s+\(([^)]+)\)\s+Durable Object/g;
-  for (const versionId of versionIds.slice(0, 10)) {
+  for (const versionId of versionIds.slice(0, 5)) {
     const view = spawnSync(
       detectRunner(),
-      ['wrangler', 'versions', 'view', versionId, '--name', workerName],
+      ['wrangler', 'versions', 'view', versionId, '--name', workerName, '--json'],
       { cwd: outputDir, encoding: 'utf-8', env }
     );
     if (view.status !== 0) continue;
-    const classes: Record<string, string> = {};
     const output = `${view.stdout || ''}\n${view.stderr || ''}`;
-    for (const match of output.matchAll(bindingRe)) classes[match[1]] = match[2];
+    const classes = parseCloudflareDurableObjectVersion(output);
     if (Object.keys(classes).length > 0) return classes;
   }
   return {};
