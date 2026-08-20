@@ -220,6 +220,10 @@ export class ResourceServer {
     const uri = this.buildUIResourceUri(photonName, uiId);
     return {
       ui: { resourceUri: uri },
+      // MCP Apps standardizes the nested form, but Claude Web's remote
+      // connector still discovers app resources through the deprecated flat
+      // alias. Emit both until that host compatibility gap is retired.
+      'ui/resourceUri': uri,
       outputTemplate: uri,
       'openai/outputTemplate': uri,
       'openai/widgetAccessible': true,

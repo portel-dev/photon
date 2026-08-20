@@ -548,6 +548,11 @@ async function runTests() {
         'structuredContent should contain actual result'
       );
       assert.ok(response._meta?.ui, 'UI client should get _meta.ui');
+      assert.equal(
+        response._meta?.['ui/resourceUri'],
+        response._meta?.ui?.resourceUri,
+        'UI client should get the Claude-compatible flat resource URI alias'
+      );
 
       console.log('✅ UI client tool response includes structuredContent + _meta.ui');
     }
