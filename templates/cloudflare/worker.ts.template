@@ -1431,7 +1431,12 @@ function uiResource(photonName: string, asset: { id: string; file?: string }): a
   return {
     uri: `ui://${photonName}/${asset.id}`,
     mimeType: 'text/html;profile=mcp-app',
-    text: atob(encoded),
+    // `encoded` is UTF-8 bytes serialized as base64. Returning `atob()`
+    // directly decodes those bytes as Latin-1, corrupting every non-ASCII
+    // character in the MCP App resource (for example, an em dash becomes
+    // mojibake). Decode the bytes with TextDecoder just as the local ResourceServer
+    // does, so Cloudflare and the full SDK expose identical HTML.
+    text: new TextDecoder('utf-8').decode(base64ToBytes(encoded)),
     _meta: {
       ui: { prefersBorder: true },
       'openai/widgetDescription': `Interactive ${photonName} UI rendered from Photon.`,

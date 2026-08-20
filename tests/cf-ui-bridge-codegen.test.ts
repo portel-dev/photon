@@ -39,6 +39,8 @@ describe('Cloudflare MCP App bridge code generation', () => {
     expect(worker).toContain("'openai/widgetDescription'");
     expect(worker).toContain('prefersBorder: true');
     expect(worker).toContain("'ui/resourceUri': resourceUri");
+    expect(worker).toContain("text: new TextDecoder('utf-8').decode(base64ToBytes(encoded))");
+    expect(worker).not.toContain('text: atob(encoded)');
     expect(bridge).toContain("settleTransport('postmessage')");
     expect(bridge).toContain("setTimeout(function() { settleTransport('fetch'); }, 1000)");
     expect(bridge).toContain("window.parent !== window ? 'postmessage' : 'pending'");
