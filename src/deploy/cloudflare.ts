@@ -810,6 +810,39 @@ export function reconcileCloudflareDurableObjectMigrationArtifacts(
     const current = currentClasses[spec.binding];
     if (!current || current === spec.doClass) continue;
     const suffix = current.match(new RegExp(`^${escapeRegExp(spec.doClass)}_v(\\d+)$`));
+
+    // A Photon filename is its default runtime identity. When that identity
+    // changes, the generated DO class changes too. Preserve the old class's
+    // migration history and add one final rename rather than asking Wrangler
+    // to replace a class that existing DO instances still reference.
+    const currentVersionMatch = current.match(/^(.+)_v(\d+)$/);
+    const currentBase = currentVersionMatch?.[1] || current;
+    const currentVersion = Number(currentVersionMatch?.[2] || 1);
+    const isPhotonIdentityRename = !suffix && spec.binding === 'PHOTON';
+
+    if (isPhotonIdentityRename && Number.isInteger(currentVersion) && currentVersion >= 1) {
+      const sqliteClassRe = new RegExp(
+        `(new_sqlite_classes\\s*=\\s*\\[)"${escapeRegExp(spec.doClass)}"(\\])`
+      );
+      if (!sqliteClassRe.test(nextConfig)) continue;
+      nextConfig = nextConfig.replace(sqliteClassRe, `$1"${currentBase}"$2`);
+
+      for (let migration = 2; migration <= currentVersion; migration += 1) {
+        const from = migration === 2 ? currentBase : `${currentBase}_v${migration - 1}`;
+        const to = `${currentBase}_v${migration}`;
+        const entries = renames.get(migration) ?? [];
+        entries.push(`{ from = "${from}", to = "${to}" }`);
+        renames.set(migration, entries);
+      }
+
+      const renameMigration = currentVersion + 1;
+      const entries = renames.get(renameMigration) ?? [];
+      entries.push(`{ from = "${current}", to = "${spec.doClass}" }`);
+      renames.set(renameMigration, entries);
+      changed = true;
+      continue;
+    }
+
     if (!suffix) continue;
     const version = Number(suffix[1]);
     if (!Number.isInteger(version) || version < 2) continue;

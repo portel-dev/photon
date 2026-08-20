@@ -45,9 +45,39 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { deployToCloudflare } from '../dist/deploy/cloudflare.js';
+import {
+  deployToCloudflare,
+  reconcileCloudflareDurableObjectMigrationArtifacts,
+} from '../dist/deploy/cloudflare.js';
 
 type Route = { method: string; path: string; handler: string };
+
+describe('cf deploy Durable Object identity migration', () => {
+  it('renames an existing host Photon class when the Photon filename changes', () => {
+    const result = reconcileCloudflareDurableObjectMigrationArtifacts(
+      `[[durable_objects.bindings]]
+name = "PHOTON"
+class_name = "ConsultPhotonDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ConsultPhotonDO"]
+`,
+      'export class ConsultPhotonDO extends BasePhotonDO {}',
+      [{ binding: 'PHOTON', doClass: 'ConsultPhotonDO' }],
+      { PHOTON: 'AppointmentsPhotonDO_v3' }
+    );
+
+    expect(result.changed).toBe(true);
+    expect(result.workerCode).toContain('export class ConsultPhotonDO');
+    expect(result.wranglerConfig).toContain('new_sqlite_classes = ["AppointmentsPhotonDO"]');
+    expect(result.wranglerConfig).toContain('tag = "v2"');
+    expect(result.wranglerConfig).toContain('from = "AppointmentsPhotonDO_v2"');
+    expect(result.wranglerConfig).toContain('tag = "v3"');
+    expect(result.wranglerConfig).toContain('from = "AppointmentsPhotonDO_v3"');
+    expect(result.wranglerConfig).toContain('to = "ConsultPhotonDO"');
+  });
+});
 
 const PROBE_SOURCE = `
 /**
