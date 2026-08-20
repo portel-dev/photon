@@ -1408,6 +1408,10 @@ function toolWithUI(tool: any, photonName: string): any {
     _meta: {
       ...(tool._meta ?? {}),
       ui: { resourceUri },
+      // MCP Apps prefers the nested URI. Keep the deprecated flat alias in
+      // generated Workers for hosts such as Claude Web that still discover
+      // remote app resources through it.
+      'ui/resourceUri': resourceUri,
       'openai/outputTemplate': resourceUri,
       'openai/widgetAccessible': true,
     },
