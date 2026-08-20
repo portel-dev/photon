@@ -886,6 +886,36 @@ export function reconcileCloudflareDurableObjectMigrationArtifacts(
   return { wranglerConfig: nextConfig, workerCode: nextWorker, changed };
 }
 
+/**
+ * Keep Wrangler's migration tag monotonic when the currently deployed DO
+ * class is already the generated class. A generated Photon config starts at
+ * v1, but Cloudflare requires every previously published tag to remain in the
+ * config even when this upload does not rename a class. The class is already
+ * SQLite-backed in that situation, so the generated v1 declaration is
+ * removed and the intervening tags are carried forward as no-op migrations.
+ */
+export function preserveCloudflareDurableObjectMigrationVersion(
+  wranglerConfig: string,
+  currentMigrationVersion: number
+): { wranglerConfig: string; changed: boolean } {
+  if (!Number.isInteger(currentMigrationVersion) || currentMigrationVersion <= 1) {
+    return { wranglerConfig, changed: false };
+  }
+  const existingTags = Array.from(wranglerConfig.matchAll(/tag\s*=\s*"v(\d+)"/g)).map((match) =>
+    Number(match[1])
+  );
+  const generatedVersion = existingTags.length ? Math.max(...existingTags) : 0;
+  if (generatedVersion <= 0 || generatedVersion >= currentMigrationVersion) {
+    return { wranglerConfig, changed: false };
+  }
+
+  let nextConfig = wranglerConfig.replace(/\nnew_sqlite_classes\s*=\s*\[[^\]]*\]/, '');
+  for (let version = generatedVersion + 1; version <= currentMigrationVersion; version += 1) {
+    nextConfig += `\n[[migrations]]\ntag = "v${version}"\nrenamed_classes = []\n`;
+  }
+  return { wranglerConfig: nextConfig, changed: true };
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
 }
@@ -918,6 +948,20 @@ export function parseCloudflareDurableObjectVersion(output: string): Record<stri
   const bindingRe = /env\.([A-Z0-9_]+)\s+\(([^)]+)\)\s+Durable Object/g;
   for (const match of output.matchAll(bindingRe)) classes[match[1]] = match[2];
   return classes;
+}
+
+export function parseCloudflareDurableObjectMigrationVersion(output: string): number {
+  const firstObject = output.indexOf('{');
+  const lastObject = output.lastIndexOf('}');
+  if (firstObject < 0 || lastObject <= firstObject) return 1;
+  try {
+    const parsed = JSON.parse(output.slice(firstObject, lastObject + 1));
+    const tag = parsed?.resources?.script_runtime?.migration_tag;
+    const version = typeof tag === 'string' ? Number(tag.match(/^v(\d+)$/)?.[1]) : NaN;
+    return Number.isInteger(version) && version > 0 ? version : 1;
+  } catch {
+    return 1;
+  }
 }
 
 function extractCloudflareAccountId(output: string): string | undefined {
@@ -1023,7 +1067,7 @@ async function discoverCloudflareDurableObjectClasses(
   outputDir: string,
   workerName: string,
   env: NodeJS.ProcessEnv
-): Promise<Record<string, string>> {
+): Promise<{ classes: Record<string, string>; migrationVersion: number }> {
   const list = spawnSync(
     detectRunner(),
     ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
@@ -1054,17 +1098,18 @@ async function discoverCloudflareDurableObjectClasses(
     if (view.status === 0) {
       const output = `${view.stdout || ''}\n${view.stderr || ''}`;
       const classes = parseCloudflareDurableObjectVersion(output);
-      if (Object.keys(classes).length > 0) return classes;
+      const migrationVersion = parseCloudflareDurableObjectMigrationVersion(output);
+      if (Object.keys(classes).length > 0) return { classes, migrationVersion };
     }
 
     const details = await fetchCloudflareWorkerVersion(outputDir, workerName, versionId, env);
     const apiClasses = durableObjectClassesFromVersion(details);
     if (Object.keys(apiClasses).length > 0) {
       logger.info(`Cloudflare version ${versionId} exposes Durable Object bindings.`);
-      return apiClasses;
+      return { classes: apiClasses, migrationVersion: 1 };
     }
   }
-  return {};
+  return { classes: {}, migrationVersion: 1 };
 }
 
 async function readLatestCloudflareVersionId(
@@ -2172,20 +2217,30 @@ class_name = "${p.doClass}"`
   // Existing Workers can carry Durable Object class-renaming migrations from
   // an earlier Photon release. Reconcile the scratch artifacts before
   // Wrangler validates the upload so a normal redeploy remains safe.
-  const currentDoClasses = await discoverCloudflareDurableObjectClasses(
+  const currentDoDeployment = await discoverCloudflareDurableObjectClasses(
     outputDir,
     workerName,
     envForWrangler
   );
-  if (Object.keys(currentDoClasses).length > 0) {
+  if (Object.keys(currentDoDeployment.classes).length > 0) {
     const configPath = path.join(outputDir, 'wrangler.toml');
     const workerPath = path.join(outputDir, 'src', 'worker.ts');
-    const artifacts = reconcileCloudflareDurableObjectMigrationArtifacts(
-      await fs.readFile(configPath, 'utf8'),
-      await fs.readFile(workerPath, 'utf8'),
+    let wranglerConfig = await fs.readFile(configPath, 'utf8');
+    const workerCode = await fs.readFile(workerPath, 'utf8');
+    let artifacts = reconcileCloudflareDurableObjectMigrationArtifacts(
+      wranglerConfig,
+      workerCode,
       photons.map((photon) => ({ binding: photon.binding, doClass: photon.doClass })),
-      currentDoClasses
+      currentDoDeployment.classes
     );
+    if (!artifacts.changed) {
+      const preserved = preserveCloudflareDurableObjectMigrationVersion(
+        artifacts.wranglerConfig,
+        currentDoDeployment.migrationVersion
+      );
+      if (preserved.changed)
+        artifacts = { ...artifacts, wranglerConfig: preserved.wranglerConfig, changed: true };
+    }
     if (artifacts.changed) {
       await fs.writeFile(configPath, artifacts.wranglerConfig);
       await fs.writeFile(workerPath, artifacts.workerCode);

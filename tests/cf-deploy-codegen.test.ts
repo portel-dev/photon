@@ -48,6 +48,8 @@ import * as path from 'node:path';
 import {
   deployToCloudflare,
   reconcileCloudflareDurableObjectMigrationArtifacts,
+  preserveCloudflareDurableObjectMigrationVersion,
+  parseCloudflareDurableObjectMigrationVersion,
   resolveCloudflareWorkerName,
 } from '../dist/deploy/cloudflare.js';
 
@@ -85,6 +87,29 @@ new_sqlite_classes = ["ConsultPhotonDO"]
     expect(result.wranglerConfig).toContain('tag = "v3"');
     expect(result.wranglerConfig).toContain('from = "AppointmentsPhotonDO_v3"');
     expect(result.wranglerConfig).toContain('to = "ConsultPhotonDO"');
+  });
+
+  it('preserves migration tags when the deployed class is already canonical', () => {
+    const result = preserveCloudflareDurableObjectMigrationVersion(
+      `[[migrations]]\ntag = "v1"\nnew_sqlite_classes = ["ConsultPhotonDO"]\n`,
+      4
+    );
+
+    expect(result.changed).toBe(true);
+    expect(result.wranglerConfig).not.toContain('new_sqlite_classes');
+    expect(result.wranglerConfig).toContain('tag = "v2"');
+    expect(result.wranglerConfig).toContain('tag = "v3"');
+    expect(result.wranglerConfig).toContain('tag = "v4"');
+    expect(result.wranglerConfig.match(/renamed_classes = \[\]/g)).toHaveLength(3);
+  });
+
+  it('reads the live migration version from Wrangler JSON', () => {
+    expect(
+      parseCloudflareDurableObjectMigrationVersion(
+        JSON.stringify({ resources: { script_runtime: { migration_tag: 'v4' } } })
+      )
+    ).toBe(4);
+    expect(parseCloudflareDurableObjectMigrationVersion('{}')).toBe(1);
   });
 });
 
