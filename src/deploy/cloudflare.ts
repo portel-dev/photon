@@ -789,6 +789,11 @@ export interface CloudflareDurableObjectSpec {
   doClass: string;
 }
 
+/** Resolve the Cloudflare script name without requiring deployment metadata in the Photon source. */
+export function resolveCloudflareWorkerName(photonName: string, workerName?: string): string {
+  return (workerName?.trim() || photonName).replace(/[^a-z0-9-]/gi, '-');
+}
+
 /**
  * Keep generated Durable Object bindings compatible with a Worker that was
  * deployed with Wrangler class-renaming migrations in an earlier Photon
@@ -1387,7 +1392,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // Extract photon name from filename
   const filename = path.basename(absolutePath);
   const photonName = filename.replace(/\.photon\.ts$/, '').replace(/[^a-z0-9-]/gi, '-');
-  const workerName = (options.workerName?.trim() || photonName).replace(/[^a-z0-9-]/gi, '-');
+  const workerName = resolveCloudflareWorkerName(photonName, options.workerName);
   if (!workerName) throw new Error('Cloudflare Worker name must not be empty');
   // Durable Object class name derived from the photon name. Wrangler binds DOs
   // to a JS class identifier, so e.g. `web-lite` → `WebLitePhotonDO`.

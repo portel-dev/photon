@@ -48,9 +48,18 @@ import * as path from 'node:path';
 import {
   deployToCloudflare,
   reconcileCloudflareDurableObjectMigrationArtifacts,
+  resolveCloudflareWorkerName,
 } from '../dist/deploy/cloudflare.js';
 
 type Route = { method: string; path: string; handler: string };
+
+describe('cf deploy Worker naming', () => {
+  it('defaults the Worker script name to the Photon name', () => {
+    expect(resolveCloudflareWorkerName('consult')).toBe('consult');
+    expect(resolveCloudflareWorkerName('consult', '')).toBe('consult');
+    expect(resolveCloudflareWorkerName('consult', 'my-consult-worker')).toBe('my-consult-worker');
+  });
+});
 
 describe('cf deploy Durable Object identity migration', () => {
   it('renames an existing host Photon class when the Photon filename changes', () => {
