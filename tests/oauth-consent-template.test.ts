@@ -29,6 +29,9 @@ describe('shared OAuth consent presentation', () => {
     const html = renderOAuthConsentPage(model);
 
     expect(html).toContain('oauth-card');
+    expect(html).toContain('.oauth-shell{width:min(100%,720px);max-height:calc(100vh - 48px)}');
+    expect(html).toContain('.oauth-card{display:flex;flex-direction:column;max-height:inherit');
+    expect(html).toContain('.oauth-content{min-height:0;overflow:auto');
     expect(html).toContain('&lt;Assistant&gt;');
     expect(html).toContain('&lt;Consult Arul&gt;');
     expect(html).toContain('aria-label="&lt;Consult Arul&gt;"');
