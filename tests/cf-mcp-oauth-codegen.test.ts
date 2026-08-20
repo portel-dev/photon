@@ -123,8 +123,11 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('name=\\"{{scopeField}}\\"');
     expect(generated.worker).toContain('.oauth-card');
     expect(generated.worker).toContain(
-      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'"
+      "default-src 'none'; img-src 'self' https: data:; style-src 'unsafe-inline'; form-action "
     );
+    expect(generated.worker).toContain('+ allowedFormActions + "; base-uri \'none\'"');
+    expect(generated.worker).toContain('oauth-mark-image');
+    expect(generated.worker).toContain('function photonOAuthRenderConsentResourceIcon(icon)');
     expect(generated.worker).toContain('Allow access');
     expect(generated.worker).toContain('const grantedScope = selectedScopes.join');
   });

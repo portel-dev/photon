@@ -70,6 +70,40 @@ describe('shared OAuth consent presentation', () => {
     expect(html).toContain('name="action" value="approve"');
   });
 
+  it('renders URL icons as images without allowing unsafe markup', () => {
+    const imageModel = createOAuthConsentViewModel({
+      clientName: 'ChatGPT',
+      resourceName: 'Consult Arul',
+      resourceIcon: 'https://consult.arul.sg/consult-icon.svg',
+      scopeValues: [],
+      formAction: '/consent',
+      transactionField: 'tx',
+      transactionValue: 'tx-1',
+      decisionField: 'action',
+      approveValue: 'approve',
+      denyValue: 'deny',
+    });
+    const imageHtml = renderOAuthConsentPage(imageModel);
+    expect(imageHtml).toContain('class="oauth-mark-image"');
+    expect(imageHtml).toContain('src="https://consult.arul.sg/consult-icon.svg"');
+    expect(imageHtml).not.toContain('>https://consult.arul.sg/consult-icon.svg<');
+
+    const unsafeModel = createOAuthConsentViewModel({
+      clientName: 'ChatGPT',
+      resourceIcon: 'javascript:alert(1)',
+      scopeValues: [],
+      formAction: '/consent',
+      transactionField: 'tx',
+      transactionValue: 'tx-1',
+      decisionField: 'action',
+      approveValue: 'approve',
+      denyValue: 'deny',
+    });
+    const unsafeHtml = renderOAuthConsentPage(unsafeModel);
+    expect(unsafeHtml).not.toContain('src="javascript:alert(1)"');
+    expect(unsafeHtml).toContain('javascript:alert(1)');
+  });
+
   it('embeds the exact shared CSS and markup source for generated Workers', () => {
     const runtime = renderOAuthConsentRuntimeSource();
 
@@ -78,5 +112,7 @@ describe('shared OAuth consent presentation', () => {
     expect(runtime).toContain('photonOAuthConsentDocument');
     expect(runtime).toContain('photonOAuthConsentScopeRow');
     expect(runtime).toContain('function photonOAuthRenderConsent(model)');
+    expect(runtime).toContain('function photonOAuthRenderConsentResourceIcon(icon)');
+    expect(runtime).toContain('oauth-mark-image');
   });
 });

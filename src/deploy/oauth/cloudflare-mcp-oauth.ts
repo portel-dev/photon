@@ -161,14 +161,19 @@ function photonOAuthJson(status: number, value: unknown, extra: Record<string, s
   });
 }
 
-function photonOAuthHtml(status: number, html: string): Response {
+function photonOAuthHtml(status: number, html: string, formActionOrigins: string[] = []): Response {
+  const allowedFormActions = ["'self'", ...formActionOrigins
+    .map((value) => { try { return new URL(value).origin; } catch { return ''; } })
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)]
+    .join(' ');
   return new Response(html, {
     status,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'X-Frame-Options': 'DENY',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'",
+      'Content-Security-Policy': "default-src 'none'; img-src 'self' https: data:; style-src 'unsafe-inline'; form-action " + allowedFormActions + "; base-uri 'none'",
       ...CORS_HEADERS,
     },
   });
@@ -537,7 +542,7 @@ async function photonOAuthConsentPage(tx: any): Promise<Response> {
     hiddenFields: [],
     allowScopeSelection: true,
     customCss: MCP_OAUTH_CUSTOM_CSS,
-  }));
+  }), [String(tx.redirectUri)]);
 }
 
 async function handlePhotonMcpOAuth(

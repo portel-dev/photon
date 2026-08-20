@@ -72,6 +72,7 @@ body{margin:0;min-height:100vh;background:var(--oauth-bg);font:15px/1.45 Inter,u
 .oauth-top{padding:28px 30px 24px}
 .oauth-app{display:flex;align-items:center;gap:12px;margin-bottom:24px}
 .oauth-mark{width:42px;height:42px;border-radius:12px;background:var(--oauth-accent);color:#fff;display:grid;place-items:center;font-size:20px;font-weight:750}
+.oauth-mark-image{display:block;width:100%;height:100%;padding:6px;object-fit:contain;border-radius:inherit;background:#fff}
 .oauth-app strong{display:block;font-size:15px}.oauth-app small{display:block;color:var(--oauth-muted);font-size:12px;margin-top:2px}
 .oauth-resource-description{color:var(--oauth-muted);font-size:13px;margin:-12px 0 24px;line-height:1.45}
 .oauth-hero h1{font-size:25px;letter-spacing:-.035em;line-height:1.15;margin:0 0 8px}.oauth-hero p{color:var(--oauth-muted);margin:0}
@@ -117,6 +118,18 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function renderResourceIcon(icon: string): string {
+  const value = String(icon || '').trim();
+  const isImageUrl =
+    (value.startsWith('/') && !value.startsWith('//')) ||
+    /^https:\/\//i.test(value) ||
+    /^data:image\/(?:png|jpeg|gif|webp|avif);/i.test(value);
+  if (isImageUrl) {
+    return `<img class="oauth-mark-image" src="${escapeHtml(value)}" alt="" aria-hidden="true">`;
+  }
+  return escapeHtml(value || '⚡');
 }
 
 function escapeCss(value: string): string {
@@ -233,7 +246,7 @@ function renderDocument(model: OAuthConsentViewModel, css: string): string {
     clientName: escapeHtml(model.clientName),
     clientSubtitle: escapeHtml(model.clientSubtitle),
     resourceName: escapeHtml(model.resourceName),
-    resourceIcon: escapeHtml(model.resourceIcon),
+    resourceIcon: renderResourceIcon(model.resourceIcon),
     resourceDescription: model.resourceDescription
       ? `<p class="oauth-resource-description">${escapeHtml(model.resourceDescription)}</p>`
       : '',
@@ -273,6 +286,13 @@ const photonOAuthConsentCss = ${JSON.stringify(OAUTH_CONSENT_CSS)};
 const photonOAuthConsentDocument = ${JSON.stringify(OAUTH_CONSENT_DOCUMENT_TEMPLATE)};
 const photonOAuthConsentScopeRow = ${JSON.stringify(OAUTH_CONSENT_SCOPE_ROW_TEMPLATE)};
 function ${functionName}Escape(value) { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function ${functionName}ResourceIcon(icon) {
+  const value = String(icon || '').trim();
+  const lower = value.toLowerCase();
+  const isDataImage = ['data:image/png;', 'data:image/jpeg;', 'data:image/gif;', 'data:image/webp;', 'data:image/avif;'].some((prefix) => lower.startsWith(prefix));
+  const isImageUrl = (value.startsWith('/') && !value.startsWith('//')) || lower.startsWith('https://') || isDataImage;
+  return isImageUrl ? '<img class="oauth-mark-image" src="' + ${functionName}Escape(value) + '" alt="" aria-hidden="true">' : ${functionName}Escape(value || '⚡');
+}
 function ${functionName}Css(value) { return String(value || '').replace(/<\\/?style/gi, (match) => match.replace('<', '<\\\\/')); }
 function ${functionName}Scope(value) {
   const parts = String(value).split(':');
@@ -296,7 +316,7 @@ function ${functionName}(model) {
   const editControl = '';
   let html = photonOAuthConsentDocument;
   const values = {
-    pageTitle: ${functionName}Escape(model.pageTitle), clientName: ${functionName}Escape(model.clientName), clientSubtitle: ${functionName}Escape(model.clientSubtitle || 'wants to connect'), resourceName: ${functionName}Escape(model.resourceName || 'Photon'), resourceIcon: ${functionName}Escape(model.resourceIcon || '⚡'), resourceDescription: model.resourceDescription ? '<p class="oauth-resource-description">' + ${functionName}Escape(model.resourceDescription) + '</p>' : '', description: ${functionName}Escape(model.description), subject: ${functionName}Escape(model.subject), subjectSubtitle: ${functionName}Escape(model.subjectSubtitle), avatar: ${functionName}Escape((String(model.subject || '').charAt(0).toUpperCase() || 'A')), cimdBadge: model.cimd ? '<span class="oauth-cimd">Hosted metadata: ' + ${functionName}Escape(model.cimd) + '</span>' : '', formAction: ${functionName}Escape(model.formAction), editControl, scopeSummary: scopes.length ? scopes.length + ' permission' + (scopes.length === 1 ? '' : 's') + ' requested' : 'No permissions requested', scopeContent, hiddenFields, decisionField: ${functionName}Escape(model.decisionField), approveValue: ${functionName}Escape(model.approveValue), denyValue: ${functionName}Escape(model.denyValue), css: ${functionName}Css(photonOAuthConsentCss + '\\n' + (model.customCss || ''))
+    pageTitle: ${functionName}Escape(model.pageTitle), clientName: ${functionName}Escape(model.clientName), clientSubtitle: ${functionName}Escape(model.clientSubtitle || 'wants to connect'), resourceName: ${functionName}Escape(model.resourceName || 'Photon'), resourceIcon: ${functionName}ResourceIcon(model.resourceIcon || '⚡'), resourceDescription: model.resourceDescription ? '<p class="oauth-resource-description">' + ${functionName}Escape(model.resourceDescription) + '</p>' : '', description: ${functionName}Escape(model.description), subject: ${functionName}Escape(model.subject), subjectSubtitle: ${functionName}Escape(model.subjectSubtitle), avatar: ${functionName}Escape((String(model.subject || '').charAt(0).toUpperCase() || 'A')), cimdBadge: model.cimd ? '<span class="oauth-cimd">Hosted metadata: ' + ${functionName}Escape(model.cimd) + '</span>' : '', formAction: ${functionName}Escape(model.formAction), editControl, scopeSummary: scopes.length ? scopes.length + ' permission' + (scopes.length === 1 ? '' : 's') + ' requested' : 'No permissions requested', scopeContent, hiddenFields, decisionField: ${functionName}Escape(model.decisionField), approveValue: ${functionName}Escape(model.approveValue), denyValue: ${functionName}Escape(model.denyValue), css: ${functionName}Css(photonOAuthConsentCss + '\\n' + (model.customCss || ''))
   };
   for (const key of Object.keys(values)) html = ${functionName}Replace(html, key, values[key]);
   return html;
