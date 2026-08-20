@@ -718,6 +718,7 @@ interface CloudflareWorkerVersionDetails extends CloudflareVersionSummary {
   resources?: {
     script?: { bindings?: Array<Record<string, unknown>> };
     bindings?: Array<Record<string, unknown>>;
+    script_runtime?: { migration_tag?: unknown };
   };
 }
 
@@ -1063,6 +1064,12 @@ function durableObjectClassesFromVersion(
   return classes;
 }
 
+function migrationVersionFromVersion(version: CloudflareWorkerVersionDetails | undefined): number {
+  const tag = version?.resources?.script_runtime?.migration_tag;
+  const parsed = typeof tag === 'string' ? Number(tag.match(/^v(\d+)$/)?.[1]) : NaN;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
 async function discoverCloudflareDurableObjectClasses(
   outputDir: string,
   workerName: string,
@@ -1073,11 +1080,33 @@ async function discoverCloudflareDurableObjectClasses(
     ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
     { cwd: outputDir, encoding: 'utf-8', env }
   );
-  const versionOutput = `${list.stdout || ''}\n${list.stderr || ''}`;
+  let versionOutput = `${list.stdout || ''}\n${list.stderr || ''}`;
+  // A first `bunx wrangler` invocation can return only its trailing newline
+  // while the package runner is warming up. Retry the read once before
+  // deciding that the Worker has no versions (which would drop migration
+  // history on an otherwise normal redeploy).
+  if (versionOutput.trim().length === 0) {
+    const retry = spawnSync(
+      detectRunner(),
+      ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
+      { cwd: outputDir, encoding: 'utf-8', env }
+    );
+    versionOutput = `${retry.stdout || ''}\n${retry.stderr || ''}`;
+  }
   let versionIds = Array.from(versionOutput.matchAll(/"id"\s*:\s*"([^"]+)"/g))
     .map((match) => match[1])
     .filter((id, index, all) => all.indexOf(id) === index)
     .reverse();
+  // Keep discovery resilient to Wrangler/Bun output wrappers. The normal
+  // regex handles plain JSON, while the shared parser also understands a
+  // JSON array preceded by notices or ANSI output.
+  if (versionIds.length === 0) {
+    try {
+      versionIds = [selectLatestCloudflareVersion(versionOutput)];
+    } catch {
+      // Fall through to the Cloudflare API path below.
+    }
+  }
   if (versionIds.length === 0) {
     versionIds = await fetchCloudflareWorkerVersionIds(outputDir, workerName, env);
   }
@@ -1098,15 +1127,24 @@ async function discoverCloudflareDurableObjectClasses(
     if (view.status === 0) {
       const output = `${view.stdout || ''}\n${view.stderr || ''}`;
       const classes = parseCloudflareDurableObjectVersion(output);
-      const migrationVersion = parseCloudflareDurableObjectMigrationVersion(output);
-      if (Object.keys(classes).length > 0) return { classes, migrationVersion };
+      let migrationVersion = parseCloudflareDurableObjectMigrationVersion(output);
+      if (Object.keys(classes).length > 0) {
+        // Some Wrangler versions return the binding summary but omit the
+        // runtime migration tag from `versions view`. Fill that gap from the
+        // Cloudflare API so redeploys retain the complete migration chain.
+        if (migrationVersion <= 1) {
+          const details = await fetchCloudflareWorkerVersion(outputDir, workerName, versionId, env);
+          migrationVersion = Math.max(migrationVersion, migrationVersionFromVersion(details));
+        }
+        return { classes, migrationVersion };
+      }
     }
 
     const details = await fetchCloudflareWorkerVersion(outputDir, workerName, versionId, env);
     const apiClasses = durableObjectClassesFromVersion(details);
     if (Object.keys(apiClasses).length > 0) {
       logger.info(`Cloudflare version ${versionId} exposes Durable Object bindings.`);
-      return { classes: apiClasses, migrationVersion: 1 };
+      return { classes: apiClasses, migrationVersion: migrationVersionFromVersion(details) };
     }
   }
   return { classes: {}, migrationVersion: 1 };
