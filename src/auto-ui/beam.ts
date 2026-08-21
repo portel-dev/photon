@@ -2083,27 +2083,76 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // OAuth callback handler — receives token from OAuth popup and passes to opener
       if (url.pathname === '/auth/callback') {
         res.writeHead(200, {
-          'Content-Type': 'text/html',
+          'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store, no-cache, must-revalidate',
         });
         res.end(`<!DOCTYPE html>
-<html><head><title>Auth Complete</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authorization complete</title>
+<style>
+  :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f6fb; color: #252a3d; }
+  * { box-sizing: border-box; }
+  body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 10%, #e3e6ff 0, transparent 42%), #f5f6fb; }
+  .shell { width: min(100%, 560px); }
+  .brand { display: flex; align-items: center; gap: 10px; margin: 0 0 18px 8px; color: #5b56d9; font-size: 15px; font-weight: 750; letter-spacing: .01em; }
+  .mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(135deg, #766eff, #5149d8); box-shadow: 0 8px 18px #6259dd38; }
+  .card { padding: clamp(28px, 6vw, 48px); border: 1px solid #dfe2f0; border-radius: 28px; background: #fff; box-shadow: 0 24px 70px #3034521c; text-align: center; }
+  .status { width: 64px; height: 64px; display: grid; place-items: center; margin: 0 auto 22px; border-radius: 50%; color: #fff; background: #5d57da; font-size: 32px; font-weight: 800; box-shadow: 0 10px 26px #5d57da40; }
+  .status.error { background: #d14d69; box-shadow: 0 10px 26px #d14d6940; }
+  .eyebrow { margin: 0 0 10px; color: #6966aa; font-size: 12px; font-weight: 800; letter-spacing: .14em; }
+  h1 { margin: 0; color: #252a3d; font-size: clamp(28px, 6vw, 40px); line-height: 1.1; letter-spacing: -.035em; }
+  p { max-width: 38ch; margin: 16px auto 0; color: #686e83; font-size: 17px; line-height: 1.55; }
+  button { margin-top: 28px; padding: 12px 20px; border: 0; border-radius: 13px; color: #fff; background: #5d57da; font: inherit; font-weight: 750; cursor: pointer; box-shadow: 0 8px 18px #5d57da38; }
+  button:hover { background: #4f49c7; }
+  button:focus-visible { outline: 3px solid #aaa6ff; outline-offset: 3px; }
+  @media (prefers-color-scheme: dark) {
+    :root { background: #151722; color: #f5f6ff; }
+    body { background: radial-gradient(circle at 15% 10%, #292652 0, transparent 42%), #151722; }
+    .brand { color: #aaa6ff; }
+    .card { border-color: #34374a; background: #202331; box-shadow: 0 24px 70px #00000045; }
+    h1 { color: #f5f6ff; }
+    p { color: #b3b7c8; }
+  }
+</style></head>
 <body>
+<main class="shell" aria-live="polite">
+  <div class="brand"><span class="mark" aria-hidden="true">✦</span><span>Photon secure connection</span></div>
+  <section class="card">
+    <div class="status" id="status" aria-hidden="true">✓</div>
+    <p class="eyebrow" id="eyebrow">AUTHORIZATION COMPLETE</p>
+    <h1 id="title">Authorization captured</h1>
+    <p id="message">Your connection was approved. You can return to the app.</p>
+    <button id="close" type="button">Close window</button>
+  </section>
+</main>
 <script>
   // Extract token from URL hash (implicit flow) or exchange code
   const params = new URLSearchParams(window.location.hash.slice(1) || window.location.search);
   const token = params.get('access_token') || params.get('token');
   const error = params.get('error');
+  const status = document.getElementById('status');
+  const eyebrow = document.getElementById('eyebrow');
+  const title = document.getElementById('title');
+  const message = document.getElementById('message');
+  const close = document.getElementById('close');
+
+  function showError(detail) {
+    status.textContent = '!';
+    status.classList.add('error');
+    eyebrow.textContent = 'AUTHORIZATION NEEDS ATTENTION';
+    title.textContent = 'Connection could not be completed';
+    message.textContent = detail ? 'The identity provider returned: ' + detail : 'Please close this window and try again.';
+  }
 
   if (token && window.opener) {
     // Send token back to the Beam window that opened this popup
     window.opener.postMessage({ type: 'photon-auth-token', token }, window.location.origin);
-    window.close();
+    close.textContent = 'Return to the app';
+    window.setTimeout(() => window.close(), 250);
   } else if (error) {
-    document.body.textContent = 'Auth error: ' + error;
-  } else {
-    document.body.textContent = 'Waiting for auth...';
+    showError(error);
   }
+
+  close.addEventListener('click', () => window.close());
 </script>
 </body></html>`);
         return;
