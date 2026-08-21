@@ -615,10 +615,9 @@ function getPackageRoot(): string {
  * token is discoverable; callers fall through to the interactive
  * `wrangler login` flow.
  *
- * The `cf` CLI's OAuth access token is accepted by the Cloudflare API as a
- * Bearer credential, so wrangler recognizes it as a valid API token. This
- * lets users who have authenticated once via `cf auth login` skip the
- * separate `wrangler login` browser prompt.
+ * The `cf` CLI's OAuth session is consumed by Wrangler directly. It must not
+ * be copied into CLOUDFLARE_API_TOKEN, which is reserved for explicit API
+ * tokens supplied by the caller.
  */
 function resolveCloudflareApiToken(): { token: string; source: 'env' | 'cf-cli' } | null {
   if (process.env.CLOUDFLARE_API_TOKEN) {
@@ -648,14 +647,25 @@ function resolveCloudflareApiToken(): { token: string; source: 'env' | 'cf-cli' 
 }
 
 /**
- * Build a subprocess env that includes the bridged Cloudflare API token
- * when one is available. Callers use this when spawning wrangler so the
- * token flows through without touching the parent process env.
+ * Build the environment for Wrangler subprocesses. In a normal terminal
+ * Wrangler reads the `cf` OAuth session from its own config, but a piped
+ * `bunx wrangler ... --json` invocation can otherwise return an empty stream.
+ * Supplying the refreshed token here keeps version discovery deterministic.
+ * This environment is only for Wrangler; direct Cloudflare REST calls must
+ * not assume the `cf` OAuth token is an API token.
  */
 function wranglerEnv(): NodeJS.ProcessEnv {
   const resolved = resolveCloudflareApiToken();
   if (!resolved) return process.env;
   return { ...process.env, CLOUDFLARE_API_TOKEN: resolved.token };
+}
+
+/** Use Wrangler's native OAuth session for uploads and version promotion. */
+function wranglerDeployEnv(): NodeJS.ProcessEnv {
+  const resolved = resolveCloudflareApiToken();
+  if (resolved?.source !== 'cf-cli') return process.env;
+  const { CLOUDFLARE_API_TOKEN: _ignored, ...nativeEnv } = process.env;
+  return nativeEnv;
 }
 
 export interface CloudflareDeployOptions {
@@ -2295,6 +2305,7 @@ class_name = "${p.doClass}"`
     workerName,
     envForWrangler
   );
+  const envForWranglerDeploy = wranglerDeployEnv();
 
   // Deploy
   logger.info('Deploying to Cloudflare Workers...');
@@ -2302,7 +2313,7 @@ class_name = "${p.doClass}"`
   const deploy = spawn(detectRunner(), ['wrangler', 'deploy'], {
     cwd: outputDir,
     stdio: 'inherit',
-    env: envForWrangler,
+    env: envForWranglerDeploy,
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -2310,7 +2321,13 @@ class_name = "${p.doClass}"`
       if (code === 0) {
         void reconcileCloudflareRoute(routeConfig, workerName)
           .then(() =>
-            promoteLatestCloudflareVersion(outputDir, workerName, envForWrangler, previousVersionId)
+            promoteLatestCloudflareVersion(
+              outputDir,
+              workerName,
+              envForWrangler,
+              previousVersionId,
+              envForWranglerDeploy
+            )
           )
           .then(() => {
             logger.info('Deployment complete and latest version is serving 100% of traffic!');
@@ -2378,7 +2395,8 @@ async function promoteLatestCloudflareVersion(
   outputDir: string,
   photonName: string,
   env: NodeJS.ProcessEnv,
-  previousVersionId?: string
+  previousVersionId?: string,
+  deployEnv: NodeJS.ProcessEnv = env
 ): Promise<void> {
   logger.info('Confirming the uploaded Cloudflare version is serving traffic...');
   let versionList = '';
@@ -2424,7 +2442,7 @@ async function promoteLatestCloudflareVersion(
             '100',
             '--yes',
           ],
-          { cwd: outputDir, stdio: 'inherit', env }
+          { cwd: outputDir, stdio: 'inherit', env: deployEnv }
         );
         promotion.on('error', reject);
         promotion.on('close', (code) => {
