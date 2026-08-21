@@ -2156,6 +2156,7 @@ class_name = "${p.doClass}"`
   // for `this.schedule`) get merged in here too — pure-JS, work on Workers.
   const runtimeDeps: Record<string, string> = {
     'cron-parser': '^5.0.0',
+    '@modelcontextprotocol/server': '2.0.0',
   };
   for (const dep of photonDeps) {
     runtimeDeps[dep.name] = dep.version;

@@ -84,11 +84,22 @@ export function injectCloudflareMcpOAuth(
     `): Promise<McpAuthResult> {\n  const requestedTool = body?.method === 'tools/call'`,
     `): Promise<McpAuthResult> {\n  if (MCP_AUTH_MODE === 'oauth') {\n    return checkMcpOAuth(request, env, method, toolDefinitions, body, storage);\n  }\n  const requestedTool = body?.method === 'tools/call'`
   );
-  const callSite = `      body\n    );`;
-  if (!output.includes(callSite)) {
-    throw new Error('Cloudflare OAuth injection seam missing: checkMcpAuth call site');
+  // The official MCP v2 handler is the only /mcp entry point now. Pass the
+  // DO storage through that call so OAuth state remains durable without
+  // reviving a protocol-specific adapter seam.
+  const callSite = `    const authResult = await checkMcpAuth(request, this.env, method, this.toolDefinitions, body);`;
+  if (output.includes(callSite)) {
+    output = output.replace(
+      callSite,
+      `    const authResult = await checkMcpAuth(request, this.env, method, this.toolDefinitions, body, this.ctx.storage);`
+    );
+  } else {
+    const legacyCallSite = `      body\n    );`;
+    if (!output.includes(legacyCallSite)) {
+      throw new Error('Cloudflare OAuth injection seam missing: checkMcpAuth call site');
+    }
+    output = output.replace(legacyCallSite, `      body,\n      this.ctx.storage\n    );`);
   }
-  output = output.replace(callSite, `      body,\n      this.ctx.storage\n    );`);
 
   const fetchMarker = `  async fetch(request: Request): Promise<Response> {\n    this.getPhoton();\n    const url = new URL(request.url);`;
   if (!output.includes(fetchMarker)) {

@@ -9,7 +9,7 @@
  * Dependency direction: PhotonServer → TaskExecutor (never the reverse).
  */
 
-import type { Server } from './mcp/sdk-v1-2025/server.js';
+import type { Server } from './mcp/sdk-v2-2026/server.js';
 import {
   createTask,
   getTask,

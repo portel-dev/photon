@@ -44,6 +44,16 @@ assert.equal(
   'Beam must pin the official MCP v2 client package used by its adapter'
 );
 assert.equal(
+  packageJson.dependencies[pins.typescriptSdkV2.serverPackage],
+  pins.typescriptSdkV2.version,
+  'Photon servers must pin the official MCP v2 server package used by the runtime'
+);
+assert.equal(
+  packageJson.dependencies[pins.typescriptSdkV2.nodePackage],
+  pins.typescriptSdkV2.version,
+  'Photon Node adapters must pin the official MCP v2 Node package'
+);
+assert.equal(
   packageJson.devDependencies['@modelcontextprotocol/conformance'],
   pins.officialConformance.version
 );
@@ -60,5 +70,10 @@ assert.match(beamClient, /@modelcontextprotocol\/client/);
 assert.doesNotMatch(beamClient, /pending\s*=\s*new Map/);
 assert.doesNotMatch(beamClient, /JSON\.stringify\(message\)/);
 assert.doesNotMatch(beamClient, /readResponse\(/);
+
+const v2ServerBoundary = readFileSync(join(root, 'src', 'mcp', 'sdk-v2-2026', 'server.ts'), 'utf8');
+assert.match(v2ServerBoundary, /@modelcontextprotocol\/server/);
+assert.match(v2ServerBoundary, /createMcpHandler/);
+assert.match(v2ServerBoundary, /serveStdio/);
 
 console.log('MCP SDK boundaries and official Beam client dependency pins are valid.');

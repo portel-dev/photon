@@ -11,6 +11,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { CronExpressionParser } from 'cron-parser';
+import { Server, createMcpHandler } from '@modelcontextprotocol/server';
 __PHOTON_IMPORTS__
 
 interface Env {
@@ -19,76 +20,14 @@ interface Env {
 }
 
 const DEV_MODE = __DEV_MODE__;
-const HOST_PHOTON_NAME = '__HOST_PHOTON_NAME__';
-const MCP_AUTH_MODE = __MCP_AUTH_MODE__;
+const MCP_AUTH_MODE: string = __MCP_AUTH_MODE__;
 const MCP_JWT_ISSUER = __MCP_JWT_ISSUER__;
 const MCP_JWT_AUDIENCE = __MCP_JWT_AUDIENCE__;
-const MCP_JWT_JWKS = __MCP_JWT_JWKS__;
+const MCP_JWT_JWKS: any = __MCP_JWT_JWKS__;
 const DEPLOY_INSTANCE_ALIASES: Record<string, string> = __INSTANCE_ALIASES__;
 const PHOTON_RUNTIME_VERSION = __PHOTON_VERSION__;
 
-// Keep the generated Cloudflare adapter on the same negotiated protocol
-// surface as the local runtime and Beam. Photon authors should not need to
-// target a protocol version themselves; the adapter selects the newest
-// version understood by both sides.
-const SUPPORTED_MCP_PROTOCOL_VERSIONS = ['2025-03-26', '2025-11-25', '2026-07-28'];
 const MCP_APP_MIME_TYPE = 'text/html;profile=mcp-app';
-const MCP_LIST_CACHE_TTL_MS = 30_000;
-
-function negotiateMCPProtocolVersion(requested: unknown): string {
-  return typeof requested === 'string' && SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(requested)
-    ? requested
-    : '2025-11-25';
-}
-
-function modernDiscoveryResult() {
-  return {
-    supportedVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
-    capabilities: {
-      tools: { listChanged: true },
-      prompts: { listChanged: true },
-      resources: { listChanged: true, subscribe: true },
-      extensions: {
-        'io.modelcontextprotocol/ui': { mimeTypes: [MCP_APP_MIME_TYPE] },
-        'io.modelcontextprotocol/tasks': {},
-        'dev.portel.photon': {
-          version: PHOTON_RUNTIME_VERSION,
-          requestContext: true,
-          appSession: {
-            issueOn: 'server/discover',
-            metadataKey: 'dev.portel.photon/appSessionId',
-            revokeMethod: 'dev.portel.photon/app-sessions/revoke',
-            opaque: true,
-            scoped: true,
-          },
-        },
-      },
-    },
-    ttlMs: MCP_LIST_CACHE_TTL_MS,
-    // The result is capability-dependent. Keep it private until a request
-    // scoped app-session is issued by the Worker runtime.
-    cacheScope: 'private',
-  };
-}
-
-function legacyDiscoveryResult() {
-  return {
-    protocolVersion: '2025-11-25',
-    supportedProtocolVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS],
-    serverInfo: { name: HOST_PHOTON_NAME, version: PHOTON_RUNTIME_VERSION },
-    capabilities: {
-      tools: { listChanged: true },
-      prompts: { listChanged: true },
-      resources: { listChanged: true, subscribe: true },
-    },
-    extensions: {
-      'mcp-apps': { version: '1.0.0' },
-      tasks: { version: 'legacy' },
-      photon: { version: PHOTON_RUNTIME_VERSION, requestContext: true },
-    },
-    _meta: {},
-  };
-}
 
 /**
  * Photon name → Worker env binding name. Generated at deploy time from the
@@ -976,16 +915,9 @@ function base64ToBytes(value: string): Uint8Array {
 // Server-initiated MCP requests — sample / confirm / elicit
 // ════════════════════════════════════════════════════════════════════════════
 
-interface PendingRequest {
-  resolve: (value: any) => void;
-  reject: (error: Error) => void;
-}
-
 interface RequestContext {
-  /** Push one JSON-RPC message to the client over the active SSE response. */
-  send: (msg: unknown) => Promise<void>;
-  /** Shared pending map; the DO's POST /mcp handler resolves entries here. */
-  pendingRequests: Map<string, PendingRequest>;
+  /** Send a server request or notification through the official MCP SDK. */
+  send: (msg: unknown) => Promise<unknown>;
   /**
    * Client-supplied progress token from the originating request's
    * `_meta.progressToken`. Echoed back in every `notifications/progress`
@@ -999,11 +931,8 @@ interface RequestContext {
 }
 
 /**
- * Per-tool-call context. Set when the DO begins streaming a tool call
- * response and read by `this.sample` / `this.confirm` / `this.elicit` to
- * find the right SSE writer + pending map. AsyncLocalStorage propagates
- * the context across awaits so a tool that calls `await this.sample()`
- * deep in its async tree still hits the right context.
+ * Per-tool-call context. The official MCP SDK owns the transport and
+ * negotiation; this context only bridges Photon capabilities to it.
  */
 const requestContext = new AsyncLocalStorage<RequestContext>();
 
@@ -1283,19 +1212,13 @@ function requireRequestContext(which: string): RequestContext {
 }
 
 /**
- * Send a server-initiated JSON-RPC request to the client over the active
- * SSE stream and await the matching response. The DO's POST /mcp handler
- * resolves the pending Promise when the client posts back a response with
- * the same id.
+ * Send a server-initiated JSON-RPC request through the official SDK and
+ * await its response. The SDK owns request ids, framing, and response
+ * correlation for both modern and legacy transports.
  */
 async function sendServerRequest(method: string, params: unknown, which: string): Promise<unknown> {
   const ctx = requireRequestContext(which);
-  const id = crypto.randomUUID();
-  const promise = new Promise<unknown>((resolve, reject) => {
-    ctx.pendingRequests.set(id, { resolve, reject });
-  });
-  await ctx.send({ jsonrpc: '2.0', id, method, params });
-  return promise;
+  return ctx.send({ method, params });
 }
 
 async function cfSample(params: {
@@ -1534,169 +1457,6 @@ function matchPathPattern(
   return params;
 }
 
-async function handleMCPRequest(
-  request: any,
-  photon: any,
-  photonName: string,
-  toolDefinitions: any[],
-  requestProtocolVersion?: string
-): Promise<any> {
-  const { method, params, id } = request;
-
-  switch (method) {
-    case 'initialize':
-      const negotiatedProtocolVersion = negotiateMCPProtocolVersion(params?.protocolVersion);
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          protocolVersion: negotiatedProtocolVersion,
-          supportedProtocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
-          capabilities: {
-            tools: {},
-            resources: {},
-            ...(negotiatedProtocolVersion === '2026-07-28'
-              ? { extensions: { 'io.modelcontextprotocol/ui': {} } }
-              : {}),
-          },
-          serverInfo: { name: photonName, version: '1.0.0' },
-        },
-      };
-
-    case 'server/discover':
-      return {
-        jsonrpc: '2.0',
-        id,
-        result:
-          requestProtocolVersion === '2026-07-28'
-            ? modernDiscoveryResult()
-            : legacyDiscoveryResult(),
-      };
-
-    case 'tools/list':
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: { tools: toolDefinitions.filter((tool: any) => toolAccessAllows(tool, photon)).map((tool: any) => toolWithUI(tool, photonName)) },
-      };
-
-    case 'resources/list':
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          resources: (PHOTON_UI_ASSETS[photonName] ?? []).map((asset) => ({
-            uri: `ui://${photonName}/${asset.id}`,
-            name: `ui:${asset.id}`,
-            description: `UI template: ${asset.id}`,
-            mimeType: 'text/html;profile=mcp-app',
-          })),
-        },
-      };
-
-    case 'resources/read': {
-      const uri = String(params?.uri ?? '');
-      const asset = uiAssetForUri(uri, photonName);
-      if (!asset) return { jsonrpc: '2.0', id, error: { code: -32002, message: `Resource not found: ${uri}` } };
-      try {
-        return { jsonrpc: '2.0', id, result: { contents: [uiResource(photonName, asset)] } };
-      } catch (error: any) {
-        return { jsonrpc: '2.0', id, error: { code: -32002, message: error?.message ?? String(error) } };
-      }
-    }
-
-    case 'tools/call': {
-      const { name, arguments: args } = params;
-      try {
-        const toolDef = toolDefinitions.find((t: any) => t.name === name);
-        if (!toolDef || !toolAccessAllows(toolDef, photon)) {
-          throw new Error(`Tool '${name}' is not available for this caller`);
-        }
-        const fn = (photon as any)[name];
-        if (typeof fn !== 'function') {
-          throw new Error(`Unknown tool: ${name}`);
-        }
-        const callArgs = spreadArgs(toolDef, args || {});
-        let result = await fn.call(photon, ...callArgs);
-        // Async-generator photons use the final generator return value as the
-        // MCP result. Cloudflare's JSON/SSE adapter cannot expose the local
-        // task stream directly, but it must still drain the generator instead
-        // of serializing the iterator object as `{}`. Clients can use the
-        // companion status tool while a long-running payment is pending.
-        if (result && typeof result[Symbol.asyncIterator] === 'function') {
-          const iterator = result[Symbol.asyncIterator]();
-          let step: IteratorResult<unknown>;
-          do {
-            step = await iterator.next();
-          } while (!step.done);
-          result = step.value;
-        }
-        const isString = typeof result === 'string';
-        const text = isString ? result : JSON.stringify(result, null, 2);
-        const isObject = result !== null && typeof result === 'object';
-        return {
-          jsonrpc: '2.0',
-          id,
-          result: {
-            content: [{ type: 'text', text }],
-            ...(isObject && { structuredContent: result }),
-            ...(toolDef.linkedUi && { _meta: toolWithUI(toolDef, photonName)._meta }),
-          },
-        };
-      } catch (error: any) {
-        return {
-          jsonrpc: '2.0',
-          id,
-          result: {
-            content: [{ type: 'text', text: `Error: ${error.message}` }],
-            isError: true,
-          },
-        };
-      }
-    }
-
-    case 'notifications/initialized':
-    case 'ping':
-      return { jsonrpc: '2.0', id, result: {} };
-
-    default:
-      return {
-        jsonrpc: '2.0',
-        id,
-        error: { code: -32601, message: `Method not found: ${method}` },
-      };
-  }
-}
-
-async function handleStreamableMCP(
-  request: Request,
-  photon: any,
-  photonName: string,
-  toolDefinitions: any[]
-): Promise<Response> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch (error: any) {
-    return Response.json(
-      {
-        jsonrpc: '2.0',
-        id: null,
-        error: { code: -32700, message: `Parse error: ${error?.message ?? String(error)}` },
-      },
-      { status: 400, headers: CORS_HEADERS }
-    );
-  }
-  const result = await handleMCPRequest(
-    body,
-    photon,
-    photonName,
-    toolDefinitions,
-    negotiateMCPProtocolVersion(body?.params?.protocolVersion)
-  );
-  return Response.json(result, { headers: CORS_HEADERS });
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // BasePhotonDO — shared logic for every per-photon DO class
 // ════════════════════════════════════════════════════════════════════════════
@@ -1718,15 +1478,6 @@ abstract class BasePhotonDO extends DurableObject<Env> {
   protected photon: any;
   protected instanceName: string;
 
-  /**
-   * In-flight server-initiated MCP requests, keyed by request id. The active
-   * tool call's `this.sample` / `this.confirm` / `this.elicit` add entries
-   * here; the POST /mcp handler resolves them when the client sends the
-   * response. Lives on the DO instance so it persists across the multiple
-   * fetch handlers (one for the original tool call, one per client response).
-   */
-  protected pendingRequests = new Map<string, PendingRequest>();
-
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.instanceName = ctx.id.name ?? 'default';
@@ -1737,6 +1488,157 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       this.photon = withCfCapabilities(this.createPhoton(this.env), this.ctx, this.env, this.photonName);
     }
     return this.photon;
+  }
+
+  /**
+   * Build the protocol server through the official MCP v2 SDK.  Everything
+   * below this seam is Photon-specific (metadata, access policy, Durable
+   * Object capabilities, and the positional method bridge); framing,
+   * negotiation, validation, legacy compatibility, SSE/JSON response mode,
+   * and multi-round protocol behavior belong to the SDK.
+   */
+  private createOfficialMcpServer(context: any): any {
+    const server = new Server(
+      { name: this.photonName, version: PHOTON_RUNTIME_VERSION },
+      {
+        capabilities: {
+          tools: { listChanged: true },
+          resources: { listChanged: true, subscribe: true },
+          extensions: {
+            'io.modelcontextprotocol/ui': { mimeTypes: [MCP_APP_MIME_TYPE] },
+            'io.modelcontextprotocol/tasks': {},
+            'dev.portel.photon': { version: PHOTON_RUNTIME_VERSION, requestContext: true },
+          },
+        },
+        inputRequired: { legacyShim: true, roundTimeoutMs: 600_000 },
+      } as any
+    );
+
+    const authContext = {
+      authed: Boolean(context?.authInfo?.extra?.authed),
+      caller: context?.authInfo?.extra?.caller,
+    };
+
+    server.setRequestHandler('tools/list', async () => ({
+      tools: this.toolDefinitions
+        .filter((tool: any) => toolAccessAllows(tool, this.photon))
+        .map((tool: any) => toolWithUI(tool, this.photonName)),
+    }));
+
+    server.setRequestHandler('tools/call', async (request: any, ctx: any) => {
+      const requestInfo = ctx?.http?.req ?? context?.requestInfo;
+      const sessionId = requestInfo?.headers?.get('Mcp-Session-Id') ?? undefined;
+      const progressToken = ctx?.mcpReq?._meta?.progressToken;
+      const photonRequestContext: RequestContext = {
+        progressToken,
+        sessionId,
+        send: async (message: any) => {
+          if (message?.method) {
+            return ctx.mcpReq.send({ method: message.method, params: message.params } as any);
+          }
+          return ctx.mcpReq.notify(message as any);
+        },
+      };
+
+      return requestContext.run(photonRequestContext, () =>
+        mcpAuthContext.run(authContext, async () => {
+          try {
+            const toolDef = this.toolDefinitions.find((tool: any) => tool.name === request.params?.name);
+            if (!toolDef || !toolAccessAllows(toolDef, this.photon)) {
+              throw new Error(`Tool '${request.params?.name}' is not available for this caller`);
+            }
+            const fn = this.photon?.[request.params.name];
+            if (typeof fn !== 'function') throw new Error(`Unknown tool: ${request.params?.name}`);
+            const callArgs = spreadArgs(toolDef, request.params?.arguments || {});
+            let result = await fn.call(this.photon, ...callArgs);
+            if (result && typeof result[Symbol.asyncIterator] === 'function') {
+              const iterator = result[Symbol.asyncIterator]();
+              let step: IteratorResult<unknown>;
+              do step = await iterator.next(); while (!step.done);
+              result = step.value;
+            }
+            const isObject = result !== null && typeof result === 'object';
+            const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+            return {
+              content: [{ type: 'text', text }],
+              ...(isObject ? { structuredContent: result } : {}),
+              ...(toolDef.linkedUi ? { _meta: toolWithUI(toolDef, this.photonName)._meta } : {}),
+            };
+          } catch (error: any) {
+            return {
+              content: [{ type: 'text', text: `Error: ${error?.message ?? String(error)}` }],
+              isError: true,
+            };
+          }
+        })
+      );
+    });
+
+    server.setRequestHandler('resources/list', async () => ({
+      resources: (PHOTON_UI_ASSETS[this.photonName] ?? []).map((asset) => ({
+        uri: `ui://${this.photonName}/${asset.id}`,
+        name: `ui:${asset.id}`,
+        description: `UI template: ${asset.id}`,
+        mimeType: MCP_APP_MIME_TYPE,
+      })),
+    }));
+
+    server.setRequestHandler('resources/read', async (request: any) => {
+      const uri = String(request.params?.uri ?? '');
+      const asset = uiAssetForUri(uri, this.photonName);
+      if (!asset) throw new Error(`Resource not found: ${uri}`);
+      return { contents: [uiResource(this.photonName, asset)] };
+    });
+
+    return server;
+  }
+
+  private async handleOfficialMcpRequest(request: Request): Promise<Response> {
+    let body: any;
+    try {
+      body = request.method === 'POST' ? await request.clone().json() : undefined;
+    } catch (error: any) {
+      return Response.json(
+        { jsonrpc: '2.0', id: null, error: { code: -32700, message: `Parse error: ${error?.message ?? String(error)}` } },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    const method = typeof body?.method === 'string' ? body.method : '';
+    const authResult = await checkMcpAuth(request, this.env, method, this.toolDefinitions, body);
+    if (authResult.enforced && !authResult.ok) {
+      return new Response(JSON.stringify({
+        jsonrpc: '2.0',
+        id: body?.id ?? null,
+        error: { code: authResult.code, message: authResult.message, data: { reason: authResult.reason } },
+      }), {
+        status: authResult.status,
+        headers: {
+          'Content-Type': 'application/json',
+          'WWW-Authenticate': authResult.wwwAuthenticate,
+          ...CORS_HEADERS,
+        },
+      });
+    }
+
+    const token = bearerTokenFromRequest(request) ?? '';
+    const caller = (authResult as { caller?: any }).caller;
+    const authInfo = authResult.authed
+      ? {
+          token,
+          clientId: 'photon-client',
+          scopes: caller?.scope ? String(caller.scope).split(/\s+/).filter(Boolean) : [],
+          extra: { authed: true, caller },
+        }
+      : undefined;
+    const handler = createMcpHandler(
+      (context: any) => this.createOfficialMcpServer(context),
+      { legacy: 'stateless', responseMode: 'auto', keepAliveMs: 15_000 }
+    );
+    const response = await handler.fetch(request, authInfo ? { authInfo } : undefined);
+    const headers = new Headers(response.headers);
+    for (const [key, value] of Object.entries(CORS_HEADERS)) headers.set(key, value);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -1793,29 +1695,10 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       return new Response(null, { status: 101, webSocket: client });
     }
 
-    // MCP Streamable HTTP. Three flavors of POST /mcp body:
-    //  - JSON-RPC request (has `method`): tools/call, initialize, etc.
-    //    Tool calls may produce server-initiated requests during execution
-    //    (sample/confirm/elicit), so when the client signals SSE support
-    //    (`Accept: text/event-stream`) we stream the response. Plain JSON
-    //    is the default for clients that don't.
-    //  - JSON-RPC response (has `result` or `error`, no `method`): the
-    //    client answering a server-initiated request. We resolve the
-    //    matching pending entry and ack with 204.
-    if (url.pathname === '/mcp' && request.method === 'POST') {
-      return this._handleMcpPost(request);
-    }
-    if (url.pathname === '/mcp' && request.method === 'GET') {
-      return new Response(': streamable-http\n\n', {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          ...CORS_HEADERS,
-        },
-      });
-    }
-    if (url.pathname === '/mcp' && request.method === 'DELETE') {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    // MCP Streamable HTTP. The official v2 handler owns JSON-RPC framing,
+    // version negotiation, response mode, sessions, and legacy compatibility.
+    if (url.pathname === '/mcp' && ['POST', 'GET', 'DELETE'].includes(request.method)) {
+      return this.handleOfficialMcpRequest(request);
     }
 
     // Info endpoint with content negotiation. A photon may declare
@@ -1998,173 +1881,6 @@ abstract class BasePhotonDO extends DurableObject<Env> {
     }
 
     return new Response('Not Found', { status: 404, headers: CORS_HEADERS });
-  }
-
-  /**
-   * Handle a single POST /mcp body. Distinguishes JSON-RPC requests from
-   * JSON-RPC responses to server-initiated requests, and chooses between a
-   * plain JSON or SSE-streamed reply for tool calls based on the client's
-   * Accept header.
-   */
-  private async _handleMcpPost(request: Request): Promise<Response> {
-    let body: any;
-    try {
-      body = await request.json();
-    } catch (err: any) {
-      return Response.json(
-        {
-          jsonrpc: '2.0',
-          id: null,
-          error: { code: -32700, message: `Parse error: ${err?.message ?? String(err)}` },
-        },
-        { status: 400, headers: CORS_HEADERS }
-      );
-    }
-
-    // JSON-RPC RESPONSE coming back to a server-initiated request: route to
-    // the pending Promise, ack with 204. Distinguished by the absence of
-    // `method` plus a known id in the pending map.
-    if (
-      body &&
-      typeof body === 'object' &&
-      body.method === undefined &&
-      body.id !== undefined &&
-      typeof body.id === 'string' &&
-      this.pendingRequests.has(body.id)
-    ) {
-      const pending = this.pendingRequests.get(body.id)!;
-      this.pendingRequests.delete(body.id);
-      if (body.error) {
-        pending.reject(new Error(body.error.message ?? 'Server-initiated request rejected'));
-      } else {
-        pending.resolve(body.result);
-      }
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
-
-    const method = typeof body?.method === 'string' ? body.method : '';
-    const authResult = await checkMcpAuth(
-      request,
-      (this as any).env,
-      method,
-      this.toolDefinitions,
-      body
-    );
-    if (authResult.enforced && !authResult.ok) {
-      return new Response(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: body?.id ?? null,
-          error: {
-            code: authResult.code,
-            message: authResult.message,
-            data: { reason: authResult.reason },
-          },
-        }),
-        {
-          status: authResult.status,
-          headers: {
-            'Content-Type': 'application/json',
-            'WWW-Authenticate': authResult.wwwAuthenticate,
-            ...CORS_HEADERS,
-          },
-        }
-      );
-    }
-    const authContext = { authed: authResult.authed === true, caller: authResult.caller };
-
-    // Tool calls from clients that signal SSE support get a streamed
-    // response so this.sample / this.confirm / this.elicit can push
-    // server-initiated requests inline. All other JSON-RPC methods (and
-    // tool calls from JSON-only clients) use the plain JSON path.
-    const accept = request.headers.get('Accept') ?? '';
-    const wantsSse = accept.includes('text/event-stream');
-    const sessionId = request.headers.get('Mcp-Session-Id') ?? undefined;
-    if (body?.method === 'tools/call' && wantsSse) {
-      return mcpAuthContext.run(authContext, () => this._streamToolCall(body, sessionId));
-    }
-
-    const result = await requestContext.run(
-      {
-        send: async () => {},
-        pendingRequests: this.pendingRequests,
-        sessionId,
-      },
-      () => mcpAuthContext.run(authContext, () =>
-        handleMCPRequest(
-          body,
-          this.photon,
-          this.photonName,
-          this.toolDefinitions,
-          negotiateMCPProtocolVersion(request.headers.get('MCP-Protocol-Version') ?? body?.params?.protocolVersion)
-        )
-      )
-    );
-    return Response.json(result, { headers: CORS_HEADERS });
-  }
-
-  /**
-   * SSE-stream a tool call response. Sets up the per-request context so
-   * `this.sample` / `this.confirm` / `this.elicit` can push server-initiated
-   * MCP requests over the same stream and await the client's responses
-   * (which arrive as separate POST /mcp requests routed by `_handleMcpPost`).
-   */
-  private _streamToolCall(rpcRequest: any, sessionId?: string): Response {
-    this.getPhoton();
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
-    const encoder = new TextEncoder();
-    const send = async (msg: unknown): Promise<void> => {
-      await writer.write(encoder.encode(`data: ${JSON.stringify(msg)}\n\n`));
-    };
-
-    // Per MCP spec, echo the client-supplied progressToken so any
-    // streamed progress notifications correlate with this request.
-    const clientProgressToken = (rpcRequest?.params as { _meta?: { progressToken?: string | number } })
-      ?._meta?.progressToken;
-    const toolName = (rpcRequest?.params as { name?: string })?.name ?? 'tool';
-    const ctx: RequestContext = {
-      send,
-      pendingRequests: this.pendingRequests,
-      progressToken: clientProgressToken ?? `progress_${toolName}`,
-      sessionId,
-    };
-
-    // Fire-and-forget: the response stream stays open as long as the writer
-    // is open, which keeps the DO active until the tool finishes and we
-    // close the writer in `finally`.
-    requestContext
-      .run(ctx, async () => {
-        try {
-          const result = await handleMCPRequest(
-            rpcRequest,
-            this.photon,
-            this.photonName,
-            this.toolDefinitions,
-            negotiateMCPProtocolVersion(rpcRequest?.params?.protocolVersion)
-          );
-          await send(result);
-        } catch (err: any) {
-          await send({
-            jsonrpc: '2.0',
-            id: rpcRequest?.id ?? null,
-            error: { code: -32603, message: err?.message ?? String(err) },
-          });
-        }
-      })
-      .finally(() => {
-        writer.close().catch(() => {
-          // Stream already torn down on the client side; nothing to do.
-        });
-      });
-
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        ...CORS_HEADERS,
-      },
-    });
   }
 
   async webSocketMessage(_ws: WebSocket, _msg: string | ArrayBuffer): Promise<void> {

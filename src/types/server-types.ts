@@ -6,7 +6,7 @@
  */
 
 import type { PhotonClassExtended } from '@portel/photon-core';
-import type { ServerCapabilities } from '../mcp/sdk-v1-2025/types.js';
+import type { ServerCapabilities } from '../mcp/sdk-v2-2026/types.js';
 import type { HttpRouteDef } from '../shared/http-route-extractor.js';
 import type { ExposeDef } from '../shared/expose-route-extractor.js';
 import type { FiniteJSONValue, JSONSchema202012 } from '../mcp/protocol/json-schema.js';

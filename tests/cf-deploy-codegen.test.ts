@@ -389,13 +389,14 @@ describe('cf deploy code-gen', () => {
     expect(routes.length).toBe(EXPECTED_ROUTES.length);
   });
 
-  it('generates the modern server/discover dispatcher and negotiated metadata', () => {
-    expect(workerCode).toContain("case 'server/discover':");
-    expect(workerCode).toContain('supportedVersions: [...SUPPORTED_MCP_PROTOCOL_VERSIONS]');
+  it('uses the official MCP v2 server boundary for negotiation and metadata', () => {
+    expect(workerCode).toContain("from '@modelcontextprotocol/server'");
+    expect(workerCode).toContain('new Server(');
+    expect(workerCode).toContain('createMcpHandler');
+    expect(workerCode).toContain("legacy: 'stateless'");
     expect(workerCode).toContain(
       "'io.modelcontextprotocol/ui': { mimeTypes: [MCP_APP_MIME_TYPE] }"
     );
-    expect(workerCode).toContain("cacheScope: 'private'");
   });
 });
 

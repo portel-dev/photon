@@ -7,10 +7,16 @@
 
 import {
   Server,
+  createMcpHandler,
+  isLegacyRequest,
+  WebStandardStreamableHTTPServerTransport,
   StdioServerTransport,
-  SSEServerTransport,
+  serveStdio,
+  type AuthInfo,
+  type McpHttpHandler,
   type Transport,
-} from './mcp/sdk-v1-2025/server.js';
+} from './mcp/sdk-v2-2026/server.js';
+import { SSEServerTransport } from './mcp/sdk-v1-2025/server.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -27,7 +33,7 @@ import {
   CancelTaskRequestSchema,
   GetTaskPayloadRequestSchema,
   type ServerNotification,
-} from './mcp/sdk-v1-2025/types.js';
+} from './mcp/sdk-v2-2026/types.js';
 import { readText } from './shared/io.js';
 import { cleanMcpToolDescription } from './shared/mcp-tool-metadata.js';
 import { detectIsolationMode } from './shared/cross-origin-headers.js';
@@ -495,6 +501,23 @@ function normalizeMcpInputSchema(inputSchema: Record<string, any>): Record<strin
   };
 }
 
+/**
+ * Return claims from either the legacy SDK callback metadata or the official
+ * v2 ServerContext. v2 deliberately moves HTTP authentication under
+ * `context.http.authInfo`; this seam keeps Photon authorization independent of
+ * the protocol-era callback shape.
+ */
+type HandlerAuthContext = {
+  authInfo?: { extra?: Record<string, unknown> };
+  http?: { authInfo?: { extra?: Record<string, unknown> } };
+};
+
+function authClaimsFromHandlerContext(
+  context: HandlerAuthContext | undefined
+): Record<string, unknown> | undefined {
+  return context?.authInfo?.extra ?? context?.http?.authInfo?.extra;
+}
+
 function authHeaderToken(req: IncomingMessage): string | null {
   const header = req.headers.authorization ?? '';
   const match = Array.isArray(header)
@@ -588,6 +611,52 @@ function mcpTokenMatches(actual: string | null, expected: string | undefined): b
     actualBytes.length === expectedBytes.length &&
     crypto.timingSafeEqual(actualBytes, expectedBytes)
   );
+}
+
+/**
+ * A transport decorator used only to observe the raw stdio initialize
+ * message. The v2 `serveStdio` entry intentionally owns `onmessage`, so the
+ * old mutation-based interceptor cannot see the message anymore. This proxy
+ * preserves the official transport lifecycle while retaining Photon's
+ * capability metadata compatibility for clients that put MCP Apps under the
+ * untyped `extensions` field.
+ */
+class CapabilityCaptureTransport implements Transport {
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  private messageHandler?: (message: any, extra?: any) => void;
+
+  constructor(
+    private readonly inner: Transport,
+    private readonly onMessage: (message: any) => void
+  ) {
+    inner.onclose = () => this.onclose?.();
+    inner.onerror = (error) => this.onerror?.(error);
+  }
+
+  get onmessage(): ((message: any, extra?: any) => void) | undefined {
+    return this.messageHandler;
+  }
+
+  set onmessage(handler: ((message: any, extra?: any) => void) | undefined) {
+    this.messageHandler = handler;
+    this.inner.onmessage = (message: any, extra?: any) => {
+      this.onMessage(message);
+      handler?.(message, extra);
+    };
+  }
+
+  start(): Promise<void> {
+    return this.inner.start();
+  }
+
+  close(): Promise<void> {
+    return this.inner.close();
+  }
+
+  send(message: any): Promise<void> {
+    return this.inner.send(message);
+  }
 }
 
 class BeamCompatTransport implements Transport {
@@ -1143,6 +1212,18 @@ export class PhotonServer {
   private mcpClientFactory: SDKMCPClientFactory | null = null;
   private httpServer: ReturnType<typeof createServer> | null = null;
   private oauthRuntime: PhotonOAuthRuntime | null = null;
+  /** Official v2 web-standard handler. It owns HTTP negotiation and transports. */
+  private mcpHttpHandler: McpHttpHandler | null = null;
+  /** Official SDK v2 stateful transports for legacy HTTP clients. */
+  private legacyHttpSessions = new Map<
+    string,
+    {
+      server: Server;
+      transport: WebStandardStreamableHTTPServerTransport;
+    }
+  >();
+  /** Official v2 stdio serving handle. */
+  private stdioHandle: ReturnType<typeof serveStdio> | null = null;
   private webSocketServer = new WebSocketServer({ noServer: true });
   private sseSessions: Map<string, SSESession> = new Map();
   private devMode: boolean;
@@ -1327,39 +1408,10 @@ export class PhotonServer {
       log: (level, message, data) => this.log(level as LogLevel, message, data),
     });
 
-    // Create MCP server instance
-    this.server = new Server(
-      {
-        name: this.channelManager.getServerName(),
-        version: PHOTON_VERSION,
-      },
-      {
-        capabilities: {
-          tools: {
-            listChanged: true, // We support hot reload notifications
-          },
-          prompts: {
-            listChanged: true, // We support hot reload notifications
-          },
-          resources: {
-            listChanged: true, // We support hot reload notifications
-            subscribe: true, // resources/subscribe + notifications/resources/updated
-          },
-          logging: {}, // Required for notifications/message (used by render, log, etc.)
-          tasks: {
-            list: {},
-            cancel: {},
-            requests: {
-              tools: { call: {} },
-            },
-          },
-          // Channel capabilities (experimental) — delegated to ChannelManager
-          ...this.channelManager.getExtraCapabilities(),
-        },
-        // Channel instructions
-        ...this.channelManager.getExtraServerOptions(),
-      }
-    );
+    // Create the initial MCP server instance. The official v2 stdio/HTTP
+    // serving entries may create additional per-era/per-request instances
+    // through createMcpProtocolServer().
+    this.server = this.createMcpProtocolServer();
 
     // Task executor — handles MCP Tasks protocol (spec v2025-11-25)
     this.taskExecutor = new TaskExecutor(
@@ -1391,6 +1443,40 @@ export class PhotonServer {
 
   public createScopedLogger(scope: string): Logger {
     return this.logger.child({ scope });
+  }
+
+  /**
+   * Construct a protocol server with Photon's declared capabilities.
+   *
+   * This is deliberately limited to protocol metadata. The official SDK v2
+   * serving entries own the transport, framing, and protocol-era negotiation;
+   * Photon only registers its application handlers onto the server instance.
+   */
+  private createMcpProtocolServer(): Server {
+    return new Server(
+      {
+        name: this.channelManager.getServerName(),
+        version: PHOTON_VERSION,
+      },
+      {
+        capabilities: {
+          tools: { listChanged: true },
+          prompts: { listChanged: true },
+          resources: { listChanged: true, subscribe: true },
+          logging: {},
+          // Tasks are retained as a Photon extension for legacy clients. The
+          // SDK v2 negotiation layer simply omits methods unsupported by the
+          // selected protocol era.
+          tasks: {
+            list: {},
+            cancel: {},
+            requests: { tools: { call: {} } },
+          },
+          ...this.channelManager.getExtraCapabilities(),
+        },
+        ...this.channelManager.getExtraServerOptions(),
+      }
+    );
   }
 
   public getLogger(): Logger {
@@ -1814,13 +1900,18 @@ export class PhotonServer {
 
   private async handleListTools(
     ctx: HandlerContext,
-    extra?: { authInfo?: { extra?: Record<string, unknown> } }
+    extra?: HandlerAuthContext
   ): Promise<{ tools: any[] }> {
     if (!this.mcp) {
       return { tools: [] };
     }
     const mcpName = this.mcp.name;
-    const claims = extra?.authInfo?.extra;
+    const standaloneManifest = this.standaloneApplicationManifest();
+    const photonWebUrl = selectServerWebAppUrl({
+      ...this.mcp,
+      appManifest: standaloneManifest,
+    });
+    const claims = authClaimsFromHandlerContext(extra);
     const caller = callerFromVerifiedClaims(claims);
     const tools = this.mcp.tools
       .filter((tool) => {
@@ -1847,6 +1938,18 @@ export class PhotonServer {
           description,
           inputSchema: normalizeMcpInputSchema(JSON.parse(JSON.stringify(tool.inputSchema))),
         };
+        // Photon catalog metadata is part of the public MCP surface. Keep it
+        // on the official SDK path as well as the legacy Beam-compatible path
+        // so hosts can label each tool with the Photon that owns it.
+        toolDef['x-photon-id'] = mcpName;
+        toolDef['x-photon-description'] = this.mcp?.description || '';
+        toolDef['x-photon-icon'] = this.mcp?.icon || '⚡';
+        toolDef['x-photon-stateful'] = !!this.mcp?.stateful;
+        toolDef['x-photon-has-settings'] = !!this.mcp?.hasSettings;
+        if (photonWebUrl) {
+          toolDef['x-web-url'] = photonWebUrl;
+          toolDef['x-web-description'] = this.mcp?.description || `${mcpName} MCP`;
+        }
 
         // MCP standard annotations (2025-11-25 spec)
         const schema = tool as ExtractedSchema;
@@ -2006,10 +2109,10 @@ export class PhotonServer {
    * instance — same as a v1.28 photon would.
    */
   private async resolveInstanceMcp(
-    extra: { authInfo?: { extra?: Record<string, unknown> } } | undefined
+    extra: HandlerAuthContext | undefined
   ): Promise<PhotonClassExtended> {
     if (!this.requiresInstanceRouting || !this.mcp) return this.mcp!;
-    const claims = extra?.authInfo?.extra;
+    const claims = authClaimsFromHandlerContext(extra);
     if (!claims) return this.mcp;
     const { resolveInstanceFromClaims, parseAuthDirective } =
       await import('./shared/instance-binding.js');
@@ -2029,7 +2132,7 @@ export class PhotonServer {
   private async handleCallTool(
     ctx: HandlerContext,
     request: any,
-    extra?: { authInfo?: { extra?: Record<string, unknown> } }
+    extra?: HandlerAuthContext
   ): Promise<any> {
     if (!this.mcp) {
       throw new Error('MCP not loaded');
@@ -2037,7 +2140,7 @@ export class PhotonServer {
     const targetMcp = await this.resolveInstanceMcp(extra);
 
     const { name: toolName, arguments: args } = request.params;
-    const claims = extra?.authInfo?.extra;
+    const claims = authClaimsFromHandlerContext(extra);
     const caller = callerFromVerifiedClaims(claims);
     if (!this.loader.isToolAccessible(targetMcp, toolName, caller)) {
       throw new Error(`Tool '${toolName}' is not available for this caller`);
@@ -2648,10 +2751,26 @@ export class PhotonServer {
       sessionId: `stdio-${this.daemonName}`,
     };
 
-    this.server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
+    this.setupHandlersForServer(this.server, ctx);
+  }
+
+  /**
+   * Register Photon application handlers on an official SDK v2 Server.
+   *
+   * The same registration function is used by stdio, modern HTTP, and the
+   * legacy HTTP fallback. Keeping this at the handler layer means Photon does
+   * not need to know which transport or protocol era selected by the SDK is
+   * carrying the request.
+   */
+  private setupHandlersForServer(
+    server: Server,
+    ctx: HandlerContext,
+    resourceSink?: ResourceUpdateSink
+  ) {
+    server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
       if (!this.clientCapabilitiesLogged) {
         this.clientCapabilitiesLogged = true;
-        this.logClientCapabilities(this.server);
+        this.logClientCapabilities(server);
       }
 
       // STDIO-only: deferred conflict resolution
@@ -2662,15 +2781,15 @@ export class PhotonServer {
       return this.handleListTools(ctx, extra);
     });
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       return this.handleCallToolRequest(ctx, request, extra);
     });
 
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    server.setRequestHandler(ListPromptsRequestSchema, async () => {
       return this.handleListPrompts();
     });
 
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    server.setRequestHandler(GetPromptRequestSchema, async (request) => {
       try {
         return await this.handleGetPrompt(request);
       } catch (error) {
@@ -2684,7 +2803,7 @@ export class PhotonServer {
       }
     });
 
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    server.setRequestHandler(ListResourcesRequestSchema, async () => {
       const result = this.resourceServer.handleListResources(this.mcp);
       result.resources.push({
         uri: `photon://${this.mcp?.name || 'photon'}/context/current`,
@@ -2695,11 +2814,11 @@ export class PhotonServer {
       return result;
     });
 
-    this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
       return this.resourceServer.handleListResourceTemplates(this.mcp);
     });
 
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       const contextResource = this.readAppContextResource(request, ctx);
       if (contextResource) return contextResource;
       return this.resourceServer.handleReadResource(request, this.mcp);
@@ -2711,47 +2830,50 @@ export class PhotonServer {
     const ensureStdioSink = (): ResourceUpdateSink => {
       if (!this.stdioSink) {
         this.stdioSink = (uri: string) =>
-          this.server.notification({
+          server.notification({
             method: 'notifications/resources/updated',
             params: { uri },
           });
       }
       return this.stdioSink;
     };
-    this.server.setRequestHandler(SubscribeRequestSchema, async (request) => {
+    server.setRequestHandler(SubscribeRequestSchema, async (request) => {
       const uri = request.params.uri;
-      this.subscriptions.subscribe(ensureStdioSink(), uri);
+      this.subscriptions.subscribe(resourceSink || ensureStdioSink(), uri);
       return {};
     });
-    this.server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
+    server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
       const uri = request.params.uri;
-      if (this.stdioSink) {
-        this.subscriptions.unsubscribe(this.stdioSink, uri);
+      const sink = resourceSink || this.stdioSink;
+      if (sink) {
+        this.subscriptions.unsubscribe(sink, uri);
       }
       return {};
     });
 
     // ── MCP Tasks handlers (2025-11-25 spec) — delegated to TaskExecutor ──
 
-    this.server.setRequestHandler(GetTaskRequestSchema, async (request) => {
-      return this.taskExecutor.handleGetTask(request.params.taskId);
+    // Tasks are a legacy extension removed from the modern protocol era. Keep
+    // Photon's existing task surface available to legacy clients while using
+    // the v2 SDK's runtime negotiation for all other methods.
+    const taskServer = server as any;
+    taskServer.setRequestHandler(GetTaskRequestSchema, async (request: any) => {
+      return this.taskExecutor.handleGetTask(request?.params?.taskId);
     });
 
-    this.server.setRequestHandler(ListTasksRequestSchema, async (request) => {
-      return this.taskExecutor.handleListTasks(
-        (request.params as Record<string, unknown>)?.cursor as string | undefined
-      );
+    taskServer.setRequestHandler(ListTasksRequestSchema, async (request: any) => {
+      return this.taskExecutor.handleListTasks(request?.params?.cursor as string | undefined);
     });
 
-    this.server.setRequestHandler(CancelTaskRequestSchema, async (request) => {
-      return this.taskExecutor.handleCancelTask(request.params.taskId);
+    taskServer.setRequestHandler(CancelTaskRequestSchema, async (request: any) => {
+      return this.taskExecutor.handleCancelTask(request?.params?.taskId);
     });
 
-    this.server.setRequestHandler(GetTaskPayloadRequestSchema, async (request) => {
-      return this.taskExecutor.handleGetTaskPayload(request.params.taskId, this.server);
+    taskServer.setRequestHandler(GetTaskPayloadRequestSchema, async (request: any) => {
+      return this.taskExecutor.handleGetTaskPayload(request?.params?.taskId, server);
     });
 
-    this.setupRootsForServer(this.server);
+    this.setupRootsForServer(server);
   }
 
   /**
@@ -3302,7 +3424,12 @@ export class PhotonServer {
    *                  to serve HTTP route tags for stateful photons.
    */
   private async startStdio(webPort?: number) {
-    const transport = new StdioServerTransport();
+    const transport = new CapabilityCaptureTransport(new StdioServerTransport(), (message) => {
+      if (message?.method === 'initialize' && message.params?.capabilities) {
+        this.capabilityNegotiator.setRawCapabilities(this.server, message.params.capabilities);
+        void this.channelManager.interceptPermissionRequest(message);
+      }
+    });
 
     // Wrap transport.send with a write mutex to prevent concurrent generators
     // from interleaving JSON-RPC messages on stdout
@@ -3316,12 +3443,40 @@ export class PhotonServer {
       return p;
     };
 
-    this.capabilityNegotiator.interceptTransportForRawCapabilities(
-      transport,
-      this.server,
-      (msg: any) => this.channelManager.interceptPermissionRequest(msg)
+    let firstServer = true;
+    this.stdioHandle = serveStdio(
+      () => {
+        // The constructor-installed server is reused for the first opening;
+        // SDK v2 may request a fresh instance for a modern discovery probe or
+        // for a legacy fallback. Every fresh instance receives the same
+        // Photon handler registration and no transport code is duplicated.
+        const reusedInitialServer = firstServer;
+        const server = reusedInitialServer ? this.server : this.createMcpProtocolServer();
+        firstServer = false;
+        this.server = server;
+        if (!reusedInitialServer) {
+          const sessionId = `stdio-${this.daemonName}-${crypto.randomUUID()}`;
+          this.setupHandlersForServer(server, {
+            server,
+            getInstanceName: () => this.daemonInstanceName,
+            setInstanceName: (name) => {
+              this.daemonInstanceName = name;
+            },
+            sessionId,
+          });
+        }
+        return server;
+      },
+      {
+        transport,
+        legacy: 'serve',
+        onerror: (error) => {
+          this.log('warn', 'Official MCP v2 stdio handler error', {
+            error: getErrorMessage(error),
+          });
+        },
+      }
     );
-    await this.server.connect(transport);
     this.log('info', `Server started: ${this.mcp!.name}`);
 
     if (webPort) {
@@ -3687,6 +3842,313 @@ export class PhotonServer {
     }
   }
 
+  /**
+   * Build the official SDK v2 web-standard handler for this Photon.
+   *
+   * `createMcpHandler` performs the protocol-era decision and creates the
+   * correct transport for every request. The factory only creates a Server
+   * and installs Photon handlers; it must not inspect JSON-RPC framing or
+   * implement session/SSE lifecycle itself.
+   */
+  private createMcpHttpHandler(): McpHttpHandler {
+    return createMcpHandler(
+      (requestContext) => {
+        const server = this.createMcpProtocolServer();
+        const sessionId =
+          requestContext.requestInfo?.headers.get('mcp-session-id') ||
+          `http-${crypto.randomUUID()}`;
+        const ctx: HandlerContext = {
+          server,
+          getInstanceName: () => this.sseInstanceNames.get(sessionId),
+          setInstanceName: (name) => {
+            this.sseInstanceNames.set(sessionId, name);
+          },
+          sessionId,
+        };
+        this.setupHandlersForServer(server, ctx);
+        return server;
+      },
+      {
+        // Route legacy HTTP through the official stateful transport below.
+        // The v2 handler owns modern 2026 negotiation; the legacy transport
+        // is kept stateful so Photon can preserve per-client capabilities
+        // between initialize and tools/list/tools/call.
+        legacy: 'reject',
+        responseMode: 'auto',
+        onerror: (error) => {
+          this.log('warn', 'Official MCP v2 handler error', {
+            error: getErrorMessage(error),
+          });
+        },
+      }
+    );
+  }
+
+  /**
+   * Serve a legacy HTTP exchange with the official v2 transport.
+   *
+   * `createMcpHandler({ legacy: 'stateless' })` is intentionally stateless,
+   * which is excellent for simple servers but cannot retain the client's
+   * initialize capabilities for Photon's progressive UI responses. This
+   * wrapper only owns the session map; framing, validation, protocol version
+   * handling, and session mechanics remain entirely in the SDK transport.
+   */
+  private async handleMcpLegacyHttpRequest(
+    request: Request,
+    options: { authInfo?: AuthInfo; parsedBody?: unknown } = {}
+  ): Promise<Response> {
+    const requestedSessionId = request.headers.get('mcp-session-id');
+    let entry = requestedSessionId ? this.legacyHttpSessions.get(requestedSessionId) : undefined;
+
+    if (!entry) {
+      if (request.method !== 'POST') {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32000, message: 'Legacy MCP session not found' },
+          }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const server = this.createMcpProtocolServer();
+      const sessionEntry = {
+        server,
+        transport: undefined as unknown as WebStandardStreamableHTTPServerTransport,
+      };
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        sessionIdGenerator: () => `legacy-${crypto.randomUUID()}`,
+        onsessionclosed: (sessionId) => {
+          if (sessionId) this.legacyHttpSessions.delete(sessionId);
+        },
+      });
+      sessionEntry.transport = transport;
+      entry = sessionEntry;
+      let contextSessionId = `legacy-pending-${crypto.randomUUID()}`;
+      this.setupHandlersForServer(server, {
+        server,
+        getInstanceName: () => contextSessionId,
+        setInstanceName: () => undefined,
+        sessionId: contextSessionId,
+      });
+      const wire = new CapabilityCaptureTransport(transport, (message) => {
+        if (message?.method === 'initialize' && message.params?.capabilities) {
+          this.capabilityNegotiator.setRawCapabilities(server, message.params.capabilities);
+          void this.channelManager.interceptPermissionRequest(message);
+        }
+      });
+      await server.connect(wire);
+      const originalHandleRequest = transport.handleRequest.bind(transport);
+      // The transport assigns its session id during initialize. Keep the
+      // request context aligned without replacing any SDK protocol logic.
+      transport.handleRequest = async (incomingRequest, requestOptions) => {
+        const response = await originalHandleRequest(incomingRequest, requestOptions);
+        if (transport.sessionId) contextSessionId = transport.sessionId;
+        return response;
+      };
+    }
+
+    const response = await entry.transport.handleRequest(request, {
+      ...(options.authInfo ? { authInfo: options.authInfo } : {}),
+      ...(options.parsedBody !== undefined ? { parsedBody: options.parsedBody } : {}),
+    });
+    const sessionId = entry.transport.sessionId;
+    if (sessionId) this.legacyHttpSessions.set(sessionId, entry);
+
+    if (request.method === 'DELETE' && sessionId) {
+      this.legacyHttpSessions.delete(sessionId);
+    }
+    return response;
+  }
+
+  private requiredScopesForMcpTool(toolName: unknown): string[] {
+    if (typeof toolName !== 'string' || !this.mcp) return [];
+    const separator = Math.max(toolName.indexOf('.'), toolName.indexOf('/'));
+    const localName = separator >= 0 ? toolName.slice(separator + 1) : toolName;
+    const tool = this.mcp.tools.find((candidate) => candidate.name === localName);
+    const scopes = (tool as (ExtractedSchema & { scopes?: unknown[] }) | undefined)?.scopes;
+    return Array.isArray(scopes)
+      ? scopes.filter((scope): scope is string => typeof scope === 'string')
+      : [];
+  }
+
+  /**
+   * Verify the request before it reaches the official handler. The SDK owns
+   * protocol negotiation, but deliberately does not verify bearer tokens;
+   * Photon remains the application resource server and supplies AuthInfo to
+   * the SDK as a pass-through value.
+   */
+  private async authorizeMcpHttpRequest(
+    req: IncomingMessage,
+    parsed: any,
+    corsOrigin?: string
+  ): Promise<{ authInfo?: AuthInfo; response?: Response }> {
+    const photon = this.mcp;
+    const authDirective = photon?.authDirective;
+    const authMode = authDirective?.scheme === 'oauth' ? 'oauth' : localMcpAuthMode();
+    const suppliedBearer = authHeaderToken(req);
+    const method = parsed?.method;
+    const optionalPhotonAuth = authDirective?.mode === 'optional' || photon?.auth === 'optional';
+    const requiresAuthentication =
+      authDirective?.mode === 'required' ||
+      photon?.auth === 'required' ||
+      (method === 'tools/call' && !optionalPhotonAuth) ||
+      suppliedBearer !== null;
+    const requiredScopes =
+      method === 'tools/call' ? this.requiredScopesForMcpTool(parsed?.params?.name) : [];
+
+    const reject = (
+      status: number,
+      code: number,
+      message: string,
+      reason: string,
+      challenge: string
+    ) => {
+      const headers = new Headers({
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': challenge,
+      });
+      if (corsOrigin) headers.set('Access-Control-Allow-Origin', corsOrigin);
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: parsed?.id ?? null,
+          error: { code, message, data: { reason } },
+        }),
+        { status, headers }
+      );
+    };
+
+    let claims: Record<string, unknown> | undefined;
+    if (requiresAuthentication && authMode === 'oauth') {
+      const result = this.oauthRuntime?.verifyBearer(suppliedBearer, requiredScopes);
+      if (!result?.ok) {
+        const reason = result?.reason ?? (suppliedBearer ? 'invalid_token' : 'missing_token');
+        const insufficientScope = reason === 'insufficient_scope';
+        return {
+          response: reject(
+            insufficientScope ? 403 : 401,
+            insufficientScope ? -32003 : -32001,
+            insufficientScope ? 'Forbidden' : 'Unauthorized',
+            reason,
+            this.oauthRuntime?.wwwAuthenticate(
+              requiredScopes,
+              insufficientScope ? 'insufficient_scope' : 'invalid_token'
+            ) || 'Bearer realm="photon"'
+          ),
+        };
+      }
+      claims = result.caller;
+    } else if (requiresAuthentication && authMode === 'jwt') {
+      let jwks: { keys: JsonWebKey[] } | null = null;
+      let issuer: string | undefined;
+      const profileName = process.env.PHOTON_MCP_JWT_PROFILE;
+      if (profileName) {
+        const profile = await loadJwtProfile(profileName);
+        if (profile) {
+          issuer = profile.issuer;
+          jwks = profile.jwks;
+        }
+      } else {
+        try {
+          jwks = process.env.PHOTON_MCP_JWT_JWKS
+            ? (JSON.parse(process.env.PHOTON_MCP_JWT_JWKS) as { keys: JsonWebKey[] })
+            : null;
+        } catch {
+          jwks = null;
+        }
+        issuer = process.env.PHOTON_MCP_JWT_ISSUER;
+      }
+      const audience = process.env.PHOTON_MCP_JWT_AUDIENCE;
+      if (!issuer || !audience || !jwks) {
+        return {
+          response: reject(
+            401,
+            -32001,
+            'Unauthorized',
+            'missing_token',
+            localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes, audience)
+          ),
+        };
+      }
+      const result = verifyPhotonAuthToken(suppliedBearer, {
+        issuer,
+        audience,
+        jwks,
+        requiredScopes,
+      });
+      if (!result.ok) {
+        const insufficientScope = result.reason === 'insufficient_scope';
+        return {
+          response: reject(
+            insufficientScope ? 403 : 401,
+            insufficientScope ? -32003 : -32001,
+            insufficientScope ? 'Forbidden' : 'Unauthorized',
+            result.reason,
+            localMcpWwwAuthenticate(
+              req,
+              insufficientScope ? 'insufficient_scope' : 'invalid_token',
+              requiredScopes,
+              audience
+            )
+          ),
+        };
+      }
+      claims = result.claims;
+    } else if (requiresAuthentication && authMode === 'bearer') {
+      const expected = process.env.PHOTON_MCP_BEARER;
+      if (!mcpTokenMatches(suppliedBearer, expected)) {
+        return {
+          response: reject(
+            401,
+            -32001,
+            'Unauthorized',
+            expected ? 'invalid_token' : 'missing_token',
+            localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes)
+          ),
+        };
+      }
+      claims = { sub: 'bearer', name: 'bearer', auth: 'bearer', role: 'host' };
+    }
+
+    const headerClaims = (await import('./shared/extract-claims.js')).extractClaimsFromHeaders(
+      req.headers
+    );
+    claims = claims ?? headerClaims;
+    const caller = callerFromVerifiedClaims(claims);
+
+    // Optional-auth photons intentionally advertise the anonymous catalog.
+    // If an anonymous caller directly targets a hidden tool, return the OAuth
+    // challenge expected by MCP clients instead of leaking a generic tool error.
+    if (method === 'tools/call' && optionalPhotonAuth && !suppliedBearer && this.mcp) {
+      const toolName = parsed?.params?.name;
+      if (!this.loader.isToolAccessible(this.mcp, toolName, caller)) {
+        return {
+          response: reject(
+            401,
+            -32001,
+            'Unauthorized',
+            'missing_token',
+            this.oauthRuntime?.wwwAuthenticate(requiredScopes, 'invalid_token') ||
+              localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes)
+          ),
+        };
+      }
+    }
+
+    if (!claims) return {};
+    const scope = typeof claims.scope === 'string' ? claims.scope : '';
+    return {
+      authInfo: {
+        token: suppliedBearer || '',
+        clientId: typeof claims.client_id === 'string' ? claims.client_id : '',
+        scopes: scope.split(/\s+/).filter(Boolean),
+        extra: claims,
+      },
+    };
+  }
+
   private async startSSE() {
     const port = this.options.port || 3000;
     const ssePath = '/mcp';
@@ -3851,6 +4313,12 @@ export class PhotonServer {
       };
     }
 
+    // From this point on, the official SDK v2 handler is the canonical MCP
+    // endpoint. The old BeamCompatTransport remains only as a source-level
+    // compatibility reference while downstream consumers migrate; no request
+    // is routed through it.
+    this.mcpHttpHandler = this.createMcpHttpHandler();
+
     this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
       void (async () => {
         // Security: set standard security headers on all responses
@@ -3920,9 +4388,56 @@ export class PhotonServer {
           return;
         }
 
-        // Streamable HTTP transport for Beam frontend (compiled binaries)
-        if (beamTransport && url.pathname === ssePath) {
-          await beamTransport.handleHTTP(req, res, url);
+        // Official MCP SDK v2 web-standard handler. It owns protocol-era
+        // negotiation, request envelopes, sessions, SSE, and legacy fallback.
+        if (this.mcpHttpHandler && url.pathname === ssePath) {
+          let body: Buffer | undefined;
+          let parsedBody: unknown;
+          if (req.method !== 'GET' && req.method !== 'HEAD') {
+            const chunks: Buffer[] = [];
+            for await (const chunk of req) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            body = Buffer.concat(chunks);
+            if (body.length > 0) {
+              try {
+                parsedBody = JSON.parse(body.toString('utf8'));
+              } catch {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid JSON' }));
+                return;
+              }
+            }
+          }
+
+          const auth = await this.authorizeMcpHttpRequest(req, parsedBody, corsOrigin);
+          if (auth.response) {
+            await writeFetchResponseToNode(auth.response, res);
+            return;
+          }
+
+          const request = new Request(url.toString(), {
+            method: req.method,
+            headers: req.headers as Record<string, string>,
+            ...(body && body.length > 0 ? { body } : {}),
+          });
+          const requestSessionId = req.headers['mcp-session-id'];
+          const hasLegacySession =
+            typeof requestSessionId === 'string' && this.legacyHttpSessions.has(requestSessionId);
+          const legacyRequest =
+            hasLegacySession ||
+            (req.method === 'POST' && (await isLegacyRequest(request, parsedBody)));
+          const handlerOptions = {
+            ...(auth.authInfo ? { authInfo: auth.authInfo } : {}),
+            ...(parsedBody !== undefined ? { parsedBody } : {}),
+          };
+          const response = legacyRequest
+            ? await this.handleMcpLegacyHttpRequest(request, handlerOptions)
+            : await this.mcpHttpHandler.fetch(request, handlerOptions);
+          const responseHeaders: Record<string, string> = {};
+          if (corsOrigin) responseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
+          responseHeaders['Access-Control-Expose-Headers'] = 'Mcp-Session-Id';
+          await writeFetchResponseToNode(response, res, responseHeaders);
           return;
         }
 
@@ -4687,56 +5202,7 @@ export class PhotonServer {
       },
       sessionId: sseSessionKey,
     };
-
-    sessionServer.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
-      return this.handleListTools(ctx, extra);
-    });
-
-    sessionServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-      return this.handleCallToolRequest(ctx, request, extra);
-    });
-
-    sessionServer.setRequestHandler(ListPromptsRequestSchema, async () => {
-      return this.handleListPrompts();
-    });
-
-    sessionServer.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      return this.handleGetPrompt(request);
-    });
-
-    sessionServer.setRequestHandler(ListResourcesRequestSchema, async () => {
-      const result = this.resourceServer.handleListResources(this.mcp);
-      result.resources.push({
-        uri: `photon://${this.mcp?.name || 'photon'}/context/current`,
-        name: 'Current application context',
-        description: 'Semantic navigation and selection context for this session',
-        mimeType: 'application/json',
-      });
-      return result;
-    });
-
-    sessionServer.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-      return this.resourceServer.handleListResourceTemplates(this.mcp);
-    });
-
-    sessionServer.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      const contextResource = this.readAppContextResource(request, ctx);
-      if (contextResource) return contextResource;
-      return this.resourceServer.handleReadResource(request, this.mcp);
-    });
-
-    if (sessionSink) {
-      sessionServer.setRequestHandler(SubscribeRequestSchema, async (request) => {
-        this.subscriptions.subscribe(sessionSink, request.params.uri);
-        return {};
-      });
-      sessionServer.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
-        this.subscriptions.unsubscribe(sessionSink, request.params.uri);
-        return {};
-      });
-    }
-
-    this.setupRootsForServer(sessionServer);
+    this.setupHandlersForServer(sessionServer, ctx, sessionSink);
   }
 
   /**
@@ -4784,7 +5250,16 @@ export class PhotonServer {
         this.httpServer = null;
       }
 
-      await this.server.close();
+      if (this.stdioHandle) {
+        await this.stdioHandle.close();
+        this.stdioHandle = null;
+      } else {
+        await this.server.close();
+      }
+      if (this.mcpHttpHandler) {
+        await this.mcpHttpHandler.close();
+        this.mcpHttpHandler = null;
+      }
       this.log('info', 'Server stopped');
     } catch (error) {
       this.log('error', 'Error stopping server', { error: getErrorMessage(error) });

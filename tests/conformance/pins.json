@@ -22,6 +22,8 @@
   "typescriptSdkV2": {
     "status": "adopted",
     "package": "@modelcontextprotocol/client",
+    "serverPackage": "@modelcontextprotocol/server",
+    "nodePackage": "@modelcontextprotocol/node",
     "version": "2.0.0"
   },
   "officialConformance": {
