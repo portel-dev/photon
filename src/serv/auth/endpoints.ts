@@ -44,7 +44,11 @@ import {
 import { JwtService, verifyCodeChallenge } from './jwt.js';
 import { resolveClientMetadata, CimdCache } from './well-known.js';
 import { recordAuthEvent, recordCimdFetch } from '../../telemetry/metrics.js';
-import { createOAuthConsentViewModel, renderOAuthConsentPage } from './oauth-consent.js';
+import {
+  createOAuthConsentViewModel,
+  renderOAuthConsentPage,
+  renderOAuthErrorPage,
+} from './oauth-consent.js';
 
 // ============================================================================
 // Request / Response Types
@@ -466,7 +470,39 @@ async function issueCodeAndRedirect(
 export async function handleConsent(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {
   const res = await handleConsentImpl(req, deps);
   observeAuth('consent', res);
+  if (
+    res.status >= 400 &&
+    acceptsHtml(req) &&
+    res.headers['Content-Type']?.includes('application/json')
+  ) {
+    let payload: { error?: string; error_description?: string } = {};
+    try {
+      payload = JSON.parse(res.body) as typeof payload;
+    } catch {
+      // Keep the generic browser message below if an adapter supplied a
+      // non-standard JSON error body.
+    }
+    return htmlResponse(
+      res.status,
+      renderOAuthErrorPage({
+        pageTitle: `${deps.config.resourceName ?? deps.tenant.name} connection`,
+        resourceName: deps.config.resourceName ?? deps.tenant.name,
+        resourceIcon: deps.config.resourceIcon,
+        resourceDescription: deps.config.resourceDescription,
+        error: payload.error ?? 'oauth_error',
+        errorDescription:
+          payload.error_description ?? 'The authorization request could not be completed.',
+        customCss: deps.config.oauthCustomCss,
+      })
+    );
+  }
   return res;
+}
+
+function acceptsHtml(req: AuthRequest): boolean {
+  const value = req.headers.accept;
+  const accept = Array.isArray(value) ? value.join(',') : (value ?? '');
+  return /(?:^|,)\s*text\/html(?:\s*;|\s*,|\s*$)/i.test(accept);
 }
 
 async function handleConsentImpl(req: AuthRequest, deps: EndpointDeps): Promise<AuthResponse> {

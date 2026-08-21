@@ -275,6 +275,33 @@ export function renderOAuthConsentPage(model: OAuthConsentViewModel): string {
   return renderDocument(model, OAUTH_CONSENT_CSS);
 }
 
+export interface OAuthErrorPageInput {
+  pageTitle?: string;
+  resourceName?: string;
+  resourceIcon?: string;
+  resourceDescription?: string;
+  error: string;
+  errorDescription: string;
+  customCss?: string;
+}
+
+/**
+ * Render an OAuth error for a person who reached an authorization endpoint in
+ * a browser. OAuth clients still receive the machine-readable JSON response;
+ * this page is only for human navigation and recovery from expired flows.
+ */
+export function renderOAuthErrorPage(input: OAuthErrorPageInput): string {
+  const resourceName = input.resourceName ?? 'Photon';
+  const resourceIcon = renderResourceIcon(input.resourceIcon ?? '⚡');
+  const description = input.errorDescription.toLowerCase().includes('expired')
+    ? 'This authorization request expired before it was completed. Return to your assistant and start the connection again.'
+    : input.errorDescription;
+  const css = `${OAUTH_CONSENT_CSS}
+.oauth-error{padding:30px}.oauth-error h1{font-size:25px;letter-spacing:-.035em;line-height:1.15;margin:0 0 8px}.oauth-error p{color:var(--oauth-muted);margin:0}.oauth-error-code{display:inline-block;margin-top:20px;padding:5px 8px;border-radius:6px;background:var(--oauth-soft);color:var(--oauth-muted);font:11px ui-monospace,SFMono-Regular,Menlo,monospace}.oauth-error-actions{margin-top:24px}.oauth-error-actions a{display:inline-flex;align-items:center;justify-content:center;border-radius:9px;padding:10px 16px;background:var(--oauth-accent);color:#fff;font-weight:700;text-decoration:none}
+${input.customCss ?? ''}`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(input.pageTitle ?? `${resourceName} connection`)}</title><style>${escapeCss(css)}</style></head><body><main class="oauth-shell"><section class="oauth-card"><header class="oauth-top"><div class="oauth-app"><span class="oauth-mark" aria-label="${escapeHtml(resourceName)}">${resourceIcon}</span><span><strong>${escapeHtml(resourceName)}</strong><small>Secure connection</small></span></div>${input.resourceDescription ? `<p class="oauth-resource-description">${escapeHtml(input.resourceDescription)}</p>` : ''}</header><div class="oauth-error"><h1>Connection could not be completed</h1><p>${escapeHtml(description)}</p><span class="oauth-error-code">${escapeHtml(input.error)}</span><div class="oauth-error-actions"><a href="/">Return to ${escapeHtml(resourceName)}</a></div></div></section></main></body></html>`;
+}
+
 /**
  * Emit the renderer used inside generated Workers. Markup and styles come
  * from the same constants used by renderOAuthConsentPage; only the tiny
@@ -320,6 +347,12 @@ function ${functionName}(model) {
   };
   for (const key of Object.keys(values)) html = ${functionName}Replace(html, key, values[key]);
   return html;
+}
+function ${functionName}Error(model) {
+  const resourceName = model.resourceName || 'Photon';
+  const description = String(model.errorDescription || '').toLowerCase().includes('expired') ? 'This authorization request expired before it was completed. Return to your assistant and start the connection again.' : String(model.errorDescription || 'The authorization request could not be completed.');
+  const css = photonOAuthConsentCss + '\\n.oauth-error{padding:30px}.oauth-error h1{font-size:25px;letter-spacing:-.035em;line-height:1.15;margin:0 0 8px}.oauth-error p{color:var(--oauth-muted);margin:0}.oauth-error-code{display:inline-block;margin-top:20px;padding:5px 8px;border-radius:6px;background:var(--oauth-soft);color:var(--oauth-muted);font:11px ui-monospace,SFMono-Regular,Menlo,monospace}.oauth-error-actions{margin-top:24px}.oauth-error-actions a{display:inline-flex;align-items:center;justify-content:center;border-radius:9px;padding:10px 16px;background:var(--oauth-accent);color:#fff;font-weight:700;text-decoration:none}\\n' + (model.customCss || '');
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + ${functionName}Escape(model.pageTitle || (resourceName + ' connection')) + '</title><style>' + ${functionName}Css(css) + '</style></head><body><main class="oauth-shell"><section class="oauth-card"><header class="oauth-top"><div class="oauth-app"><span class="oauth-mark" aria-label="' + ${functionName}Escape(resourceName) + '">' + ${functionName}ResourceIcon(model.resourceIcon || '⚡') + '</span><span><strong>' + ${functionName}Escape(resourceName) + '</strong><small>Secure connection</small></span></div>' + (model.resourceDescription ? '<p class="oauth-resource-description">' + ${functionName}Escape(model.resourceDescription) + '</p>' : '') + '</header><div class="oauth-error"><h1>Connection could not be completed</h1><p>' + ${functionName}Escape(description) + '</p><span class="oauth-error-code">' + ${functionName}Escape(model.error || 'oauth_error') + '</span><div class="oauth-error-actions"><a href="/">Return to ' + ${functionName}Escape(resourceName) + '</a></div></div></section></main></body></html>';
 }
 `;
 }

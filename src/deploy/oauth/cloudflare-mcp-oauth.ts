@@ -199,6 +199,29 @@ function photonOAuthError(
   return photonOAuthJson(status, { error, error_description: description }, extra);
 }
 
+function photonOAuthAcceptsHtml(request: Request): boolean {
+  return /(?:^|,)\s*text\/html(?:\s*;|\s*,|\s*$)/i.test(request.headers.get('Accept') ?? '');
+}
+
+function photonOAuthErrorForRequest(
+  request: Request,
+  status: number,
+  error: string,
+  description: string,
+  extra: Record<string, string> = {}
+): Response {
+  if (!photonOAuthAcceptsHtml(request)) return photonOAuthError(status, error, description, extra);
+  return photonOAuthHtml(status, photonOAuthRenderConsentError({
+    pageTitle: MCP_OAUTH_PHOTON_DISPLAY_NAME + ' connection',
+    resourceName: MCP_OAUTH_PHOTON_DISPLAY_NAME,
+    resourceIcon: MCP_OAUTH_PHOTON_ICON,
+    resourceDescription: MCP_OAUTH_PHOTON_DESCRIPTION,
+    error,
+    errorDescription: description,
+    customCss: MCP_OAUTH_CUSTOM_CSS,
+  }));
+}
+
 function photonOAuthB64(value: ArrayBuffer | Uint8Array | string): string {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : new Uint8Array(value);
   let binary = '';
@@ -505,12 +528,12 @@ async function photonOAuthVerifyLoginCallback(request: Request, env: Env, tx: an
 async function photonOAuthAccessLogin(request: Request, storage: PhotonOAuthStorage, env: Env, origin: string): Promise<Response> {
   const url = new URL(request.url);
   const txId = url.searchParams.get('oauth_state') ?? url.searchParams.get('tx');
-  if (!txId) return photonOAuthError(400, 'invalid_request', 'oauth_state is required');
+  if (!txId) return photonOAuthErrorForRequest(request, 400, 'invalid_request', 'oauth_state is required');
   const tx = await storage.get<any>('oauth:tx:' + txId);
-  if (!tx || tx.expiresAt < Date.now()) return photonOAuthError(400, 'invalid_request', 'authorization transaction expired');
+  if (!tx || tx.expiresAt < Date.now()) return photonOAuthErrorForRequest(request, 400, 'invalid_request', 'authorization transaction expired');
 
   const subject = request.headers.get('Cf-Access-Authenticated-User-Email')?.trim().toLowerCase();
-  if (!subject || !subject.includes('@')) return photonOAuthError(401, 'login_required', 'Cloudflare Access identity is required');
+  if (!subject || !subject.includes('@')) return photonOAuthErrorForRequest(request, 401, 'login_required', 'Cloudflare Access identity is required');
 
   const hostSubjects = String((env as any).PHOTON_MCP_OAUTH_HOST_SUBJECTS ?? '')
     .split(/[\s,]+/)
@@ -644,14 +667,14 @@ async function handlePhotonMcpOAuth(
 
   if (pathname === '/consent' && request.method === 'GET') {
     const txId = url.searchParams.get('tx');
-    if (!txId) return photonOAuthError(400, 'invalid_request', 'tx is required');
+    if (!txId) return photonOAuthErrorForRequest(request, 400, 'invalid_request', 'tx is required');
     const tx = await storage.get<any>('oauth:tx:' + txId);
-    if (!tx || tx.expiresAt < Date.now()) return photonOAuthError(400, 'invalid_request', 'authorization transaction expired');
+    if (!tx || tx.expiresAt < Date.now()) return photonOAuthErrorForRequest(request, 400, 'invalid_request', 'authorization transaction expired');
     if (!tx.sub) {
       const callbackSubject = await photonOAuthVerifyLoginCallback(request, env, tx);
       if (callbackSubject) { tx.sub = callbackSubject.sub; tx.role = callbackSubject.role; tx.name = callbackSubject.name; await storage.put('oauth:tx:' + tx.id, tx); }
     }
-    if (!tx.sub) return photonOAuthError(401, 'login_required', 'The authorization transaction has no authenticated subject');
+    if (!tx.sub) return photonOAuthErrorForRequest(request, 401, 'login_required', 'The authorization transaction has no authenticated subject');
     return photonOAuthConsentPage(tx);
   }
 
@@ -659,7 +682,7 @@ async function handlePhotonMcpOAuth(
     const form = photonOAuthForm(request, await request.text());
     const txId = form.get('tx');
     const tx = txId ? await storage.get<any>('oauth:tx:' + txId) : null;
-    if (!tx || tx.expiresAt < Date.now() || !tx.sub) return photonOAuthError(400, 'invalid_request', 'authorization transaction expired');
+    if (!tx || tx.expiresAt < Date.now() || !tx.sub) return photonOAuthErrorForRequest(request, 400, 'invalid_request', 'authorization transaction expired');
     if (form.get('action') !== 'approve') return photonOAuthRedirectError(tx.redirectUri, tx.state, 'access_denied', 'The resource owner denied the request');
     const allowedScopes = new Set(String(tx.scope ?? '').split(/\s+/).filter(Boolean));
     const selectedScopes = form.getAll('scope').filter((value) => allowedScopes.has(value));

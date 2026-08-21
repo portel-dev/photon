@@ -38,15 +38,46 @@ type PostResult = {
 const oldEnv = { ...process.env };
 
 async function postMcp(port: number, body: unknown, token?: string): Promise<PostResult> {
+  const request =
+    typeof body === 'object' && body !== null
+      ? {
+          ...(body as Record<string, unknown>),
+          params: {
+            ...(((body as Record<string, unknown>).params as Record<string, unknown> | undefined) ||
+              {}),
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientInfo': {
+                name: 'oauth-role-conformance',
+                version: '1.0.0',
+              },
+              'io.modelcontextprotocol/clientCapabilities': {},
+            },
+          },
+        }
+      : body;
   const headers: Record<string, string> = {
-    Accept: 'application/json',
+    // Streamable HTTP clients must advertise both response formats for POST.
+    // The official MCP v2 handler correctly returns 406 for an incomplete
+    // Accept header, so keep this conformance client spec-compliant.
+    Accept: 'application/json, text/event-stream',
+    'Mcp-Protocol-Version': '2026-07-28',
+    'Mcp-Method':
+      typeof body === 'object' && body !== null && 'method' in body
+        ? String((body as { method?: unknown }).method || '')
+        : '',
     'Content-Type': 'application/json',
   };
   if (token) headers.Authorization = `Bearer ${token}`;
+  const requestParams =
+    typeof request === 'object' && request !== null
+      ? (request as { params?: { name?: unknown } }).params
+      : undefined;
+  if (typeof requestParams?.name === 'string') headers['Mcp-Name'] = requestParams.name;
   const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify(request),
   });
   return {
     status: response.status,

@@ -752,6 +752,37 @@ async function testConsent() {
     );
     assert.equal(res.status, 400);
   });
+
+  await test('GET consent errors render a recovery page for browsers but stay JSON for clients', async () => {
+    const deps = makeDeps();
+    const browser = await handleConsent(
+      {
+        method: 'GET',
+        url: 'https://serv.test/consent?req=expired',
+        headers: { accept: 'text/html,application/xhtml+xml' },
+        userId: 'user-1',
+      },
+      deps
+    );
+    assert.equal(browser.status, 400);
+    assert.match(browser.headers['Content-Type'], /text\/html/);
+    assert.match(browser.body, /Connection could not be completed/);
+    assert.match(browser.body, /Return to Consult Arul/);
+    assert.doesNotMatch(browser.body, /"error":"invalid_request"/);
+
+    const client = await handleConsent(
+      {
+        method: 'GET',
+        url: 'https://serv.test/consent?req=expired',
+        headers: { accept: 'application/json' },
+        userId: 'user-1',
+      },
+      deps
+    );
+    assert.equal(client.status, 400);
+    assert.match(client.headers['Content-Type'], /application\/json/);
+    assert.equal(JSON.parse(client.body).error, 'invalid_request');
+  });
 }
 
 async function depsWithPending(): Promise<{

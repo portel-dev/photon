@@ -19,14 +19,42 @@ function pkce() {
 }
 
 async function mcp(port: number, body: unknown, token?: string) {
+  const request =
+    typeof body === 'object' && body !== null
+      ? {
+          ...(body as Record<string, unknown>),
+          params: {
+            ...(((body as Record<string, unknown>).params as Record<string, unknown> | undefined) ||
+              {}),
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientInfo': {
+                name: 'photon-runtime-oauth-test',
+                version: '1.0.0',
+              },
+              'io.modelcontextprotocol/clientCapabilities': {},
+            },
+          },
+        }
+      : body;
+  const requestParams =
+    typeof request === 'object' && request !== null
+      ? (request as { params?: { name?: unknown } }).params
+      : undefined;
   const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Accept: 'application/json',
+      Accept: 'application/json, text/event-stream',
+      'Mcp-Protocol-Version': '2026-07-28',
+      'Mcp-Method':
+        typeof request === 'object' && request !== null && 'method' in request
+          ? String((request as { method?: unknown }).method || '')
+          : '',
+      ...(typeof requestParams?.name === 'string' ? { 'Mcp-Name': requestParams.name } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(request),
   });
   return {
     status: response.status,

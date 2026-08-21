@@ -1518,9 +1518,9 @@ export class PhotonServer {
    * Send a notification through the STDIO write queue.
    * Serializes writes so concurrent generators don't interleave JSON on stdout.
    */
-  private queueNotification(notification: ServerNotification): void {
+  private queueNotification(notification: ServerNotification, server = this.server): void {
     this._notifyQueue = this._notifyQueue
-      .then(() => this.server?.notification(notification))
+      .then(() => server?.notification(notification))
       .catch((err) =>
         this.logger.debug('Failed to send notification', { error: getErrorMessage(err) })
       );
@@ -2303,56 +2303,71 @@ export class PhotonServer {
         const rawValue = typeof emit.value === 'number' ? emit.value : 0;
         const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
         const payload = emit.value ?? emit.data;
-        this.queueNotification({
-          method: 'notifications/progress',
-          params: {
-            progressToken,
-            progress,
-            total: 100,
-            ...(emit.message ? { message: emit.message } : {}),
-            ...(payload !== undefined && typeof payload !== 'number' ? { data: payload } : {}),
-          },
-        } as ServerNotification);
+        this.queueNotification(
+          {
+            method: 'notifications/progress',
+            params: {
+              progressToken,
+              progress,
+              total: 100,
+              ...(emit.message ? { message: emit.message } : {}),
+              ...(payload !== undefined && typeof payload !== 'number' ? { data: payload } : {}),
+            },
+          } as ServerNotification,
+          ctx.server
+        );
       } else if (emit?.emit === 'status') {
         const payload = emit.value ?? emit.data;
-        this.queueNotification({
-          method: 'notifications/progress',
-          params: {
-            progressToken,
-            progress: 0,
-            total: 100,
-            message: emit.message || '',
-            ...(payload !== undefined ? { data: payload } : {}),
-          },
-        } as ServerNotification);
+        this.queueNotification(
+          {
+            method: 'notifications/progress',
+            params: {
+              progressToken,
+              progress: 0,
+              total: 100,
+              message: emit.message || '',
+              ...(payload !== undefined ? { data: payload } : {}),
+            },
+          } as ServerNotification,
+          ctx.server
+        );
       } else if (emit?.emit === 'log') {
-        this.queueNotification({
-          method: 'notifications/message',
-          params: {
-            level: emit.level || 'info',
-            data: emit.message || '',
-          },
-        } as ServerNotification);
+        this.queueNotification(
+          {
+            method: 'notifications/message',
+            params: {
+              level: emit.level || 'info',
+              data: emit.message || '',
+            },
+          } as ServerNotification,
+          ctx.server
+        );
       } else if (emit?.emit === 'render') {
-        this.queueNotification({
-          method: 'notifications/message',
-          params: {
-            level: 'info',
-            data: JSON.stringify({
-              _render: true,
-              format: emit.format,
-              value: emit.value,
-            }),
-          },
-        } as ServerNotification);
+        this.queueNotification(
+          {
+            method: 'notifications/message',
+            params: {
+              level: 'info',
+              data: JSON.stringify({
+                _render: true,
+                format: emit.format,
+                value: emit.value,
+              }),
+            },
+          } as ServerNotification,
+          ctx.server
+        );
       } else if (emit?.emit === 'render:clear') {
-        this.queueNotification({
-          method: 'notifications/message',
-          params: {
-            level: 'info',
-            data: JSON.stringify({ _render: true, clear: true }),
-          },
-        } as ServerNotification);
+        this.queueNotification(
+          {
+            method: 'notifications/message',
+            params: {
+              level: 'info',
+              data: JSON.stringify({ _render: true, clear: true }),
+            },
+          } as ServerNotification,
+          ctx.server
+        );
       }
     };
 
@@ -3965,8 +3980,11 @@ export class PhotonServer {
   private requiredScopesForMcpTool(toolName: unknown): string[] {
     if (typeof toolName !== 'string' || !this.mcp) return [];
     const separator = Math.max(toolName.indexOf('.'), toolName.indexOf('/'));
+    const targetPhoton = separator >= 0 ? toolName.slice(0, separator) : this.mcp.name;
     const localName = separator >= 0 ? toolName.slice(separator + 1) : toolName;
-    const tool = this.mcp.tools.find((candidate) => candidate.name === localName);
+    const target =
+      targetPhoton === this.mcp.name ? this.mcp : this.loader.getLoadedPhotons().get(targetPhoton);
+    const tool = target?.tools.find((candidate) => candidate.name === localName);
     const scopes = (tool as (ExtractedSchema & { scopes?: unknown[] }) | undefined)?.scopes;
     return Array.isArray(scopes)
       ? scopes.filter((scope): scope is string => typeof scope === 'string')
@@ -4123,7 +4141,15 @@ export class PhotonServer {
     // challenge expected by MCP clients instead of leaking a generic tool error.
     if (method === 'tools/call' && optionalPhotonAuth && !suppliedBearer && this.mcp) {
       const toolName = parsed?.params?.name;
-      if (!this.loader.isToolAccessible(this.mcp, toolName, caller)) {
+      const separator =
+        typeof toolName === 'string' ? Math.max(toolName.indexOf('.'), toolName.indexOf('/')) : -1;
+      const targetPhoton = separator >= 0 ? toolName.slice(0, separator) : this.mcp.name;
+      const localName = separator >= 0 ? toolName.slice(separator + 1) : toolName;
+      const target =
+        targetPhoton === this.mcp.name
+          ? this.mcp
+          : this.loader.getLoadedPhotons().get(targetPhoton);
+      if (!target || !this.loader.isToolAccessible(target, localName, caller)) {
         return {
           response: reject(
             401,

@@ -58,7 +58,7 @@ export default class Appointments {
     }
 
     const worker = await readFile(join(outputDir, 'src', 'worker.ts'), 'utf-8');
-    expect(worker).toContain('const MCP_AUTH_MODE = "jwt"');
+    expect(worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)?\s*=\s*"jwt"/);
     expect(worker).toContain('const MCP_JWT_ISSUER = "photon-local:appointments"');
     expect(worker).toContain('const MCP_JWT_AUDIENCE = "https://appointments.example.com/mcp"');
     expect(worker).toContain('"listSlots:read"');
@@ -120,7 +120,7 @@ export default class Appointments {
 
     await deployToCloudflare({ photonPath, outputDir, dryRun: true });
     const worker = await readFile(join(outputDir, 'src', 'worker.ts'), 'utf-8');
-    expect(worker).toContain('const MCP_AUTH_MODE = "legacy"');
+    expect(worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)?\s*=\s*"legacy"/);
   });
 
   it('treats a custom deploy URL as a move by disabling workers.dev', async () => {

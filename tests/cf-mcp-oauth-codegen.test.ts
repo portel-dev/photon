@@ -72,7 +72,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
   it('accepts oauth mode and emits the complete discovery and authorization route slice', async () => {
     const generated = await generate();
 
-    expect(generated.worker).toContain('const MCP_AUTH_MODE = "oauth"');
+    expect(generated.worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)? = "oauth"/);
     expect(generated.worker).toContain('const MCP_OAUTH_ISSUER = "https://consult.example.test"');
     expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "required"');
     expect(generated.worker).toContain('--consult-brand:coral');
@@ -128,6 +128,9 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('+ allowedFormActions + "; base-uri \'none\'"');
     expect(generated.worker).toContain('oauth-mark-image');
     expect(generated.worker).toContain('function photonOAuthRenderConsentResourceIcon(icon)');
+    expect(generated.worker).toContain('function photonOAuthRenderConsentError(model)');
+    expect(generated.worker).toContain('function photonOAuthErrorForRequest(');
+    expect(generated.worker).toContain('photonOAuthAcceptsHtml');
     expect(generated.worker).toContain('Allow access');
     expect(generated.worker).toContain('const grantedScope = selectedScopes.join');
   });
@@ -143,7 +146,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
   it('infers optional OAuth from the class-level Photon auth contract', async () => {
     const generated = await generate({ authMode: 'optional', inferFromAuth: true });
 
-    expect(generated.worker).toContain('const MCP_AUTH_MODE = "oauth"');
+    expect(generated.worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)? = "oauth"/);
     expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "optional"');
     expect(generated.worker).toContain(
       "supplied || (method !== 'tools/list' && !bypass.has(method) && !publicPropertyTool)"
@@ -153,14 +156,14 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
   it('infers required OAuth and challenges anonymous discovery and calls', async () => {
     const generated = await generate({ authMode: 'required', inferFromAuth: true });
 
-    expect(generated.worker).toContain('const MCP_AUTH_MODE = "oauth"');
+    expect(generated.worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)? = "oauth"/);
     expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "required"');
     expect(generated.worker).toContain("request.method === 'POST'");
   });
 
   it('preserves legacy @auth oauth and fails closed for malformed or duplicate metadata', async () => {
     const legacy = await generate({ authTag: '@auth oauth', inferFromAuth: true });
-    expect(legacy.worker).toContain('const MCP_AUTH_MODE = "legacy"');
+    expect(legacy.worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)? = "legacy"/);
     expect(legacy.worker).not.toContain('Generated inbound MCP OAuth');
     await expect(generate({ authTag: '@auth oauth maybe', inferFromAuth: true })).rejects.toThrow(
       /Invalid class-level @auth metadata/
@@ -183,7 +186,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
 
     await deployToCloudflare({ photonPath, outputDir: output, dryRun: true, mcpAuth: 'open' });
     const worker = await readFile(join(output, 'src', 'worker.ts'), 'utf8');
-    expect(worker).toContain('const MCP_AUTH_MODE = "open"');
+    expect(worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)? = "open"/);
     expect(worker).not.toContain('Generated inbound MCP OAuth');
   });
 
@@ -214,7 +217,12 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
         write: false,
         format: 'esm',
         platform: 'neutral',
-        external: ['cloudflare:workers', 'node:async_hooks', 'cron-parser'],
+        external: [
+          'cloudflare:workers',
+          'node:async_hooks',
+          'cron-parser',
+          '@modelcontextprotocol/server',
+        ],
       })
     ).resolves.toBeDefined();
   });
