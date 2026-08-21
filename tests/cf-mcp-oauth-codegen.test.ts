@@ -131,6 +131,11 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('function photonOAuthRenderConsentError(model)');
     expect(generated.worker).toContain('function photonOAuthErrorForRequest(');
     expect(generated.worker).toContain('photonOAuthAcceptsHtml');
+    expect(generated.worker).toContain("request.headers.get('Sec-Fetch-Dest')?.toLowerCase()");
+    expect(generated.worker).toContain("request.headers.get('Sec-Fetch-Mode')?.toLowerCase()");
+    expect(generated.worker).toContain("fetchDest === 'document' || fetchMode === 'navigate'");
+    expect(generated.worker).toContain("range.type === 'application/xhtml+xml'");
+    expect(generated.worker).toContain("range.type === 'application/json'");
     expect(generated.worker).toContain('Allow access');
     expect(generated.worker).toContain('const grantedScope = selectedScopes.join');
     expect(generated.worker).toMatch(

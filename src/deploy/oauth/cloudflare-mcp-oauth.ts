@@ -200,7 +200,36 @@ function photonOAuthError(
 }
 
 function photonOAuthAcceptsHtml(request: Request): boolean {
-  return /(?:^|,)\s*text\/html(?:\s*;|\s*,|\s*$)/i.test(request.headers.get('Accept') ?? '');
+  // The consent endpoint is human-facing. Some browsers and embedded
+  // browser shells send a broad or JSON-first Accept header while opening a
+  // top-level document. Fetch metadata is a stronger signal in that case,
+  // and prevents an expired transaction from being shown as raw JSON.
+  const fetchDest = request.headers.get('Sec-Fetch-Dest')?.toLowerCase();
+  const fetchMode = request.headers.get('Sec-Fetch-Mode')?.toLowerCase();
+  if (fetchDest === 'document' || fetchMode === 'navigate') return true;
+
+  const accept = request.headers.get('Accept')?.trim().toLowerCase() ?? '';
+  if (!accept || accept === '*/*') return true;
+
+  const ranges = accept.split(',').map((entry) => {
+    const [rawType, ...parameters] = entry.trim().split(';');
+    const type = rawType.trim();
+    const qParameter = parameters.find((parameter) => parameter.trim().startsWith('q='));
+    const q = qParameter ? Number.parseFloat(qParameter.trim().slice(2)) : 1;
+    return { type, q: Number.isFinite(q) ? q : 0 };
+  });
+  const htmlQuality = ranges.reduce(
+    (quality, range) =>
+      range.type === 'text/html' || range.type === 'application/xhtml+xml' || range.type === '*/*'
+        ? Math.max(quality, range.q)
+        : quality,
+    0
+  );
+  const jsonQuality = ranges.reduce(
+    (quality, range) => (range.type === 'application/json' ? Math.max(quality, range.q) : quality),
+    0
+  );
+  return htmlQuality > 0 && htmlQuality >= jsonQuality;
 }
 
 function photonOAuthErrorForRequest(
