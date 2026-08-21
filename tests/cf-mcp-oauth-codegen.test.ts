@@ -133,6 +133,11 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('photonOAuthAcceptsHtml');
     expect(generated.worker).toContain('Allow access');
     expect(generated.worker).toContain('const grantedScope = selectedScopes.join');
+    expect(generated.worker).toMatch(
+      /server\.setRequestHandler\('tools\/list',[\s\S]*?mcpAuthContext\.run\(authContext/
+    );
+    expect(generated.worker).toContain('const structuredContent = Array.isArray(result)');
+    expect(generated.worker).toContain('? { items: result }');
   });
 
   it('emits the optional KV binding contract without changing the authoritative state model', async () => {

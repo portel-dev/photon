@@ -1519,11 +1519,17 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       caller: context?.authInfo?.extra?.caller,
     };
 
-    server.setRequestHandler('tools/list', async () => ({
-      tools: this.toolDefinitions
-        .filter((tool: any) => toolAccessAllows(tool, this.photon))
-        .map((tool: any) => toolWithUI(tool, this.photonName)),
-    }));
+    server.setRequestHandler('tools/list', async () =>
+      // Catalog filtering reads request-scoped Photon properties such as
+      // `this.role`. Keep the same authenticated caller context used by
+      // tools/call; otherwise an authenticated host is evaluated as the
+      // anonymous user and receives the wrong catalog.
+      mcpAuthContext.run(authContext, async () => ({
+        tools: this.toolDefinitions
+          .filter((tool: any) => toolAccessAllows(tool, this.photon))
+          .map((tool: any) => toolWithUI(tool, this.photonName)),
+      }))
+    );
 
     server.setRequestHandler('tools/call', async (request: any, ctx: any) => {
       const requestInfo = ctx?.http?.req ?? context?.requestInfo;
@@ -1558,10 +1564,19 @@ abstract class BasePhotonDO extends DurableObject<Env> {
               result = step.value;
             }
             const isObject = result !== null && typeof result === 'object';
+            // The MCP SDK's CallToolResult schema requires structuredContent
+            // to be an object. Photon methods may naturally return arrays
+            // (for example, listAppointments); keep their JSON shape in an
+            // `items` envelope while preserving the text representation.
+            const structuredContent = Array.isArray(result)
+              ? { items: result }
+              : isObject
+                ? result
+                : undefined;
             const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
             return {
               content: [{ type: 'text', text }],
-              ...(isObject ? { structuredContent: result } : {}),
+              ...(structuredContent !== undefined ? { structuredContent } : {}),
               ...(toolDef.linkedUi ? { _meta: toolWithUI(toolDef, this.photonName)._meta } : {}),
             };
           } catch (error: any) {
