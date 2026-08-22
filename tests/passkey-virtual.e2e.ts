@@ -9,6 +9,7 @@
  *   PHOTON_PASSKEY_E2E=1 \
  *   PHOTON_PASSKEY_E2E_EMAIL=owner@example.com \
  *   PHOTON_PASSKEY_E2E_EXPECT_ROLE=host \
+ *   PHOTON_PASSKEY_E2E_METHOD=passkey \
  *   PHOTON_PASSKEY_E2E_BASE_URL=https://consult.example \
  *   tsx tests/passkey-virtual.e2e.ts
  *
@@ -28,6 +29,7 @@ const enabled = process.env.PHOTON_PASSKEY_E2E === '1';
 const baseUrl = (process.env.PHOTON_PASSKEY_E2E_BASE_URL ?? '').replace(/\/+$/, '');
 const email = (process.env.PHOTON_PASSKEY_E2E_EMAIL ?? '').trim().toLowerCase();
 const expectedRole = process.env.PHOTON_PASSKEY_E2E_EXPECT_ROLE ?? 'host';
+const authMethod = process.env.PHOTON_PASSKEY_E2E_METHOD ?? 'passkey';
 const redirectUri = 'http://127.0.0.1:8765/callback';
 
 if (!enabled) {
@@ -40,6 +42,10 @@ assert.ok(email, 'PHOTON_PASSKEY_E2E_EMAIL is required');
 assert.ok(
   ['host', 'user'].includes(expectedRole),
   'PHOTON_PASSKEY_E2E_EXPECT_ROLE must be host or user'
+);
+assert.ok(
+  ['otp', 'passkey'].includes(authMethod),
+  'PHOTON_PASSKEY_E2E_METHOD must be otp or passkey'
 );
 
 type OAuthMetadata = {
@@ -76,6 +82,7 @@ async function readVerificationCodes(): Promise<string[]> {
     'open',
     'https://mail.google.com/mail/u/0/#search/verification+code+newer_than%3A1h',
   ]);
+  await execFileAsync('agent-browser', ['--auto-connect', 'reload']);
   await execFileAsync('agent-browser', ['--auto-connect', 'wait', '1500']);
   const browserText = await execFileAsync('agent-browser', [
     '--auto-connect',
@@ -235,7 +242,11 @@ async function run(): Promise<void> {
       console.log(
         `passkey-virtual: post-email page ${await page.url()} — ${(await page.locator('body').innerText()).slice(0, 280).replace(/\s+/g, ' ')}`
       );
-      await page.getByRole('button', { name: /add a passkey/i }).click();
+      if (authMethod === 'passkey') {
+        await page.getByRole('button', { name: /add a passkey/i }).click();
+      } else {
+        await page.getByText('Continue without a passkey', { exact: true }).click();
+      }
       await page.waitForURL(/\/consent\?/i, { timeout: 20_000 });
       await allowConsent(page);
       const firstCallback = await firstCallbackPromise;
@@ -250,7 +261,19 @@ async function run(): Promise<void> {
     const secondCallbackPromise = nextCallback();
     await page.goto(second.url, { waitUntil: 'domcontentloaded' });
     await page.locator('input[type="email"]').fill(email);
-    await page.getByRole('button', { name: /use a passkey/i }).click();
+    if (authMethod === 'passkey') {
+      await page.getByRole('button', { name: /use a passkey/i }).click();
+    } else {
+      const previousCodes = new Set(await readVerificationCodes());
+      await page.getByRole('button', { name: /send verification code/i }).click();
+      const secondCode = await readVerificationCode(previousCodes);
+      await page.locator('input[autocomplete="one-time-code"]').fill(secondCode);
+      await page.getByRole('button', { name: /verify and continue/i }).click();
+      const continueWithoutPasskey = page.getByText('Continue without a passkey', { exact: true });
+      if (await continueWithoutPasskey.isVisible({ timeout: 5_000 }).catch(() => false)) {
+        await continueWithoutPasskey.click();
+      }
+    }
     await page.waitForURL(/\/consent\?/i, { timeout: 20_000 });
     await allowConsent(page);
     const secondCallback = await secondCallbackPromise;
@@ -290,7 +313,7 @@ async function run(): Promise<void> {
       );
     }
     console.log(
-      `passkey-virtual: WebAuthn passkey authentication and MCP ${expectedRole} role verification passed`
+      `passkey-virtual: ${authMethod} authentication and MCP ${expectedRole} role verification passed`
     );
   } finally {
     await browser?.close();
