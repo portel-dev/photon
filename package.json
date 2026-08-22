@@ -70,6 +70,7 @@
     "test:version-notify": "tsx tests/version-notify.test.ts",
     "test:streamable-http": "tsx tests/streamable-http-transport.test.ts",
     "test:mcp-oauth-2026": "tsx tests/oauth.test.ts && tsx tests/auth-endpoints.test.ts && tsx tests/serv-http-auth.test.ts && bun tests/sqlite-stores.test.ts && tsx tests/streamable-http-transport.test.ts && tsx tests/integration.test.ts && tsx tests/oauth-auth-tags.extractor.test.ts && tsx tests/oauth-auth-tags.editor.test.ts && tsx tests/oauth-role-conformance-loader.test.ts && tsx tests/oauth-role-conformance-server.test.ts && tsx tests/oauth-role-conformance-gaps.test.ts && vitest run tests/runtime-oauth.test.ts tests/cf-mcp-oauth-codegen.test.ts",
+    "test:passkey-virtual": "tsx tests/passkey-virtual.e2e.ts",
     "test:mcp-wire": "bun tests/mcp-wire-adapter.golden.test.ts",
     "test:mcp-input": "tsx tests/mcp-input.test.ts && tsx tests/mcp-client-sdk.test.ts",
     "test:mcp-schema": "node tests/mcp-json-schema-2020-12.test.ts",
