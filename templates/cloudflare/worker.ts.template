@@ -11,7 +11,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { CronExpressionParser } from 'cron-parser';
-import { Server, createMcpHandler } from '@modelcontextprotocol/server';
+import { McpServer, createMcpHandler, fromJsonSchema } from '@modelcontextprotocol/server';
 __PHOTON_IMPORTS__
 
 interface Env {
@@ -1086,6 +1086,7 @@ async function verifyMcpJwt(
     caller: {
       id: String(claims.sub ?? 'unknown'),
       name: typeof claims.name === 'string' ? claims.name : undefined,
+      role: typeof claims.role === 'string' ? claims.role : undefined,
       anonymous: false,
       scope: typeof claims.scope === 'string' ? claims.scope : undefined,
       claims,
@@ -1341,12 +1342,6 @@ function toolWithUI(tool: any, photonName: string): any {
   };
 }
 
-function uiAssetForUri(uri: string, photonName: string): { id: string; file?: string } | undefined {
-  const match = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
-  if (!match || match[1] !== photonName) return undefined;
-  return (PHOTON_UI_ASSETS[photonName] ?? []).find((asset) => asset.id === match[2]);
-}
-
 function uiResource(photonName: string, asset: { id: string; file?: string }): any {
   const files = PHOTON_ASSET_CONTENTS[photonName] ?? {};
   const encoded = asset.file ? files[asset.file] ?? files[asset.file.replace(/^.*\//, '')] : undefined;
@@ -1477,6 +1472,7 @@ abstract class BasePhotonDO extends DurableObject<Env> {
 
   protected photon: any;
   protected instanceName: string;
+  private mcpHandler: ReturnType<typeof createMcpHandler> | undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -1491,14 +1487,21 @@ abstract class BasePhotonDO extends DurableObject<Env> {
   }
 
   /**
-   * Build the protocol server through the official MCP v2 SDK.  Everything
-   * below this seam is Photon-specific (metadata, access policy, Durable
-   * Object capabilities, and the positional method bridge); framing,
-   * negotiation, validation, legacy compatibility, SSE/JSON response mode,
-   * and multi-round protocol behavior belong to the SDK.
+   * Build the protocol server through the official MCP v2 SDK.
+   *
+   * Photon only supplies the application surface here: tool metadata,
+   * access-policy filtering, the positional-method bridge, and Durable
+   * Object-backed resources. Registration, schema validation, list/call
+   * dispatch, result projection, framing, negotiation, legacy compatibility,
+   * and SSE/JSON response mode are all owned by `McpServer` and
+   * `createMcpHandler`.
    */
   private createOfficialMcpServer(context: any): any {
-    const server = new Server(
+    const authContext = {
+      authed: Boolean(context?.authInfo?.extra?.authed),
+      caller: context?.authInfo?.extra?.caller,
+    };
+    const server = new McpServer(
       { name: this.photonName, version: PHOTON_RUNTIME_VERSION },
       {
         capabilities: {
@@ -1514,96 +1517,91 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       } as any
     );
 
-    const authContext = {
-      authed: Boolean(context?.authInfo?.extra?.authed),
-      caller: context?.authInfo?.extra?.caller,
-    };
-
-    server.setRequestHandler('tools/list', async () =>
-      // Catalog filtering reads request-scoped Photon properties such as
-      // `this.role`. Keep the same authenticated caller context used by
-      // tools/call; otherwise an authenticated host is evaluated as the
-      // anonymous user and receives the wrong catalog.
-      mcpAuthContext.run(authContext, async () => ({
-        tools: this.toolDefinitions
-          .filter((tool: any) => toolAccessAllows(tool, this.photon))
-          .map((tool: any) => toolWithUI(tool, this.photonName)),
-      }))
+    // Register only the tools visible to this request's caller. This makes
+    // the SDK's own tools/list and tools/call enforcement authoritative: an
+    // inaccessible tool is absent from the catalog and cannot be invoked by
+    // guessing its name.
+    // Access properties are request-aware getters. Evaluate the catalog while
+    // the official SDK request's caller context is active, otherwise an
+    // authenticated host would look anonymous during tools/list.
+    const visibleTools = mcpAuthContext.run(authContext, () =>
+      this.toolDefinitions.filter((tool: any) => toolAccessAllows(tool, this.photon))
+    );
+    const visibleUiIds = new Set(
+      visibleTools
+        .map((tool: any) => tool.linkedUi)
+        .filter((id: unknown): id is string => typeof id === 'string')
     );
 
-    server.setRequestHandler('tools/call', async (request: any, ctx: any) => {
-      const requestInfo = ctx?.http?.req ?? context?.requestInfo;
-      const sessionId = requestInfo?.headers?.get('Mcp-Session-Id') ?? undefined;
-      const progressToken = ctx?.mcpReq?._meta?.progressToken;
-      const photonRequestContext: RequestContext = {
-        progressToken,
-        sessionId,
-        send: async (message: any) => {
-          if (message?.method) {
-            return ctx.mcpReq.send({ method: message.method, params: message.params } as any);
-          }
-          return ctx.mcpReq.notify(message as any);
+    for (const toolDef of visibleTools) {
+      const publicTool = toolWithUI(toolDef, this.photonName);
+      server.registerTool(
+        toolDef.name,
+        {
+          title: toolDef.title,
+          description: toolDef.description,
+          inputSchema: fromJsonSchema(
+            toolDef.inputSchema ?? { type: 'object', properties: {} }
+          ) as any,
+          annotations: toolDef.annotations,
+          icons: toolDef.icons,
+          _meta: publicTool._meta,
         },
-      };
+        async (args: any, ctx: any) => {
+          const photonRequestContext: RequestContext = {
+            progressToken: ctx?.mcpReq?._meta?.progressToken,
+            sessionId: ctx?.sessionId,
+            send: async (message: any) => {
+              if (message?.method) return ctx.mcpReq.send(message as any);
+              return ctx.mcpReq.notify(message as any);
+            },
+          };
 
-      return requestContext.run(photonRequestContext, () =>
-        mcpAuthContext.run(authContext, async () => {
-          try {
-            const toolDef = this.toolDefinitions.find((tool: any) => tool.name === request.params?.name);
-            if (!toolDef || !toolAccessAllows(toolDef, this.photon)) {
-              throw new Error(`Tool '${request.params?.name}' is not available for this caller`);
-            }
-            const fn = this.photon?.[request.params.name];
-            if (typeof fn !== 'function') throw new Error(`Unknown tool: ${request.params?.name}`);
-            const callArgs = spreadArgs(toolDef, request.params?.arguments || {});
-            let result = await fn.call(this.photon, ...callArgs);
-            if (result && typeof result[Symbol.asyncIterator] === 'function') {
-              const iterator = result[Symbol.asyncIterator]();
-              let step: IteratorResult<unknown>;
-              do step = await iterator.next(); while (!step.done);
-              result = step.value;
-            }
-            const isObject = result !== null && typeof result === 'object';
-            // The MCP SDK's CallToolResult schema requires structuredContent
-            // to be an object. Photon methods may naturally return arrays
-            // (for example, listAppointments); keep their JSON shape in an
-            // `items` envelope while preserving the text representation.
-            const structuredContent = Array.isArray(result)
-              ? { items: result }
-              : isObject
-                ? result
-                : undefined;
-            const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-            return {
-              content: [{ type: 'text', text }],
-              ...(structuredContent !== undefined ? { structuredContent } : {}),
-              ...(toolDef.linkedUi ? { _meta: toolWithUI(toolDef, this.photonName)._meta } : {}),
-            };
-          } catch (error: any) {
-            return {
-              content: [{ type: 'text', text: `Error: ${error?.message ?? String(error)}` }],
-              isError: true,
-            };
-          }
-        })
+          return requestContext.run(photonRequestContext, () =>
+            mcpAuthContext.run(authContext, async () => {
+              const fn = this.photon?.[toolDef.name];
+              if (typeof fn !== 'function') {
+                throw new Error(`Unknown tool: ${toolDef.name}`);
+              }
+              const callArgs = spreadArgs(toolDef, args || {});
+              let result = await fn.call(this.photon, ...callArgs);
+              if (result && typeof result[Symbol.asyncIterator] === 'function') {
+                const iterator = result[Symbol.asyncIterator]();
+                let step: IteratorResult<unknown>;
+                do step = await iterator.next(); while (!step.done);
+                result = step.value;
+              }
+              const isObject = result !== null && typeof result === 'object';
+              const structuredContent = Array.isArray(result)
+                ? { items: result }
+                : isObject
+                  ? result
+                  : undefined;
+              const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+              return {
+                content: [{ type: 'text' as const, text }],
+                ...(structuredContent !== undefined ? { structuredContent } : {}),
+                ...(publicTool._meta ? { _meta: publicTool._meta } : {}),
+              };
+            })
+          );
+        }
       );
-    });
+    }
 
-    server.setRequestHandler('resources/list', async () => ({
-      resources: (PHOTON_UI_ASSETS[this.photonName] ?? []).map((asset) => ({
-        uri: `ui://${this.photonName}/${asset.id}`,
-        name: `ui:${asset.id}`,
-        description: `UI template: ${asset.id}`,
-        mimeType: MCP_APP_MIME_TYPE,
-      })),
-    }));
-
-    server.setRequestHandler('resources/read', async (request: any) => {
-      const uri = String(request.params?.uri ?? '');
-      const asset = uiAssetForUri(uri, this.photonName);
-      if (!asset) throw new Error(`Resource not found: ${uri}`);
-      return { contents: [uiResource(this.photonName, asset)] };
-    });
+    // MCP App resources are registered with the SDK as well. Only resources
+    // linked by an advertised tool are exposed, keeping tools/list and
+    // resources/list consistent for role-filtered catalogs.
+    for (const asset of PHOTON_UI_ASSETS[this.photonName] ?? []) {
+      if (!visibleUiIds.has(asset.id)) continue;
+      const uri = `ui://${this.photonName}/${asset.id}`;
+      server.registerResource(
+        `ui:${asset.id}`,
+        uri,
+        { description: `UI template: ${asset.id}`, mimeType: MCP_APP_MIME_TYPE },
+        async () => ({ contents: [uiResource(this.photonName, asset)] })
+      );
+    }
 
     return server;
   }
@@ -1646,11 +1644,11 @@ abstract class BasePhotonDO extends DurableObject<Env> {
           extra: { authed: true, caller },
         }
       : undefined;
-    const handler = createMcpHandler(
+    this.mcpHandler ??= createMcpHandler(
       (context: any) => this.createOfficialMcpServer(context),
       { legacy: 'stateless', responseMode: 'auto', keepAliveMs: 15_000 }
     );
-    const response = await handler.fetch(request, authInfo ? { authInfo } : undefined);
+    const response = await this.mcpHandler.fetch(request, authInfo ? { authInfo } : undefined);
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(CORS_HEADERS)) headers.set(key, value);
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });

@@ -2,7 +2,7 @@
  * Regression test: this.status() notifications must flow through the SSE stream,
  * not resolve the pending HTTP response.
  *
- * Prior to the fix, BeamCompatTransport.send() routed ALL outgoing messages
+ * Prior to the fix, the custom Beam transport routed ALL outgoing messages
  * (including progress notifications) to pendingResponse. A this.status() call
  * inside a synchronous tool would cause the HTTP POST to return the notification
  * instead of the tool result, silently dropping the actual return value.
@@ -44,7 +44,7 @@ async function waitForPort(port: number, timeoutMs = 8000): Promise<void> {
   throw new Error(`server did not start on port ${port} within ${timeoutMs}ms`);
 }
 
-describe.skipIf(SKIP)('BeamCompatTransport: status notifications route to SSE', () => {
+describe.skipIf(SKIP)('official MCP transport: status notifications route to SSE', () => {
   let server: ChildProcess;
   let client: Client;
 

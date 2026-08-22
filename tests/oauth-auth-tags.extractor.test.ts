@@ -9,7 +9,11 @@ const cases: Array<{
   name: string;
   source: string;
   expectedAuth?: string;
-  expectedMetadata?: { scheme: string; mode: 'required' | 'optional' };
+  expectedMetadata?: {
+    scheme: string;
+    mode: 'required' | 'optional';
+    methods?: Array<'email' | 'passkey'>;
+  };
 }> = [
   {
     name: 'oauth required',
@@ -41,6 +45,24 @@ const cases: Array<{
     expectedAuth: 'cf-access',
     expectedMetadata: { scheme: 'cf-access', mode: 'required' },
   },
+  {
+    name: 'email and passkey',
+    source: '/** @auth email passkey */\nexport default class Example {}',
+    expectedAuth: 'email passkey',
+    expectedMetadata: { scheme: 'oauth', mode: 'required', methods: ['email', 'passkey'] },
+  },
+  {
+    name: 'email and passkey optional',
+    source: '/** @auth email passkey optional */\nexport default class Example {}',
+    expectedAuth: 'email passkey optional',
+    expectedMetadata: { scheme: 'oauth', mode: 'optional', methods: ['email', 'passkey'] },
+  },
+  {
+    name: 'single passkey method',
+    source: '/** @auth passkey */\nexport default class Example {}',
+    expectedAuth: 'passkey',
+    expectedMetadata: { scheme: 'oauth', mode: 'required', methods: ['passkey'] },
+  },
 ];
 
 for (const testCase of cases) {
@@ -71,6 +93,8 @@ for (const source of [
   '/** @auth oauth optional required */\nexport default class Example {}',
   '/** @auth required oauth */\nexport default class Example {}',
   '/** @auth cf-access optional */\nexport default class Example {}',
+  '/** @auth email email */\nexport default class Example {}',
+  '/** @auth email oauth */\nexport default class Example {}',
 ]) {
   const result = await metadata(source);
   assert.equal(result.auth, undefined, 'malformed auth is not partially normalized');

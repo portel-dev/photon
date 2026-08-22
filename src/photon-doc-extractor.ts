@@ -5,7 +5,11 @@ import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_PACKAGE_VERSION } from './version.js';
 import { extractSkillDeclarations, type PhotonSkillDescriptor } from './skills.js';
 import { parseAccessMetadata, type ToolAccessMetadata } from './access-control.js';
-import { extractPhotonAuthDirective, legacyAuthValue } from './auth/directive.js';
+import {
+  extractPhotonAuthDirective,
+  legacyAuthValue,
+  type PhotonAuthMethod,
+} from './auth/directive.js';
 
 interface ConfigParam {
   name: string;
@@ -67,6 +71,8 @@ export interface PhotonAuthMetadata {
   scheme: string;
   /** Whether the caller must authenticate before using the Photon. */
   mode: PhotonAuthMode;
+  /** Passwordless login methods requested by the Photon, when declared. */
+  methods?: PhotonAuthMethod[];
 }
 
 /** Diagnostic emitted by documentation extraction when metadata is unsafe. */
@@ -303,6 +309,8 @@ export class PhotonDocExtractor {
    *   @auth oauth required
    *   @auth oauth optional
    *   @auth <legacy-scheme>
+   *   @auth email passkey
+   *   @auth email passkey optional
    *
    * Invalid multi-token forms are rejected instead of being partially
    * interpreted, so a malformed directive cannot accidentally open access.
@@ -328,7 +336,11 @@ export class PhotonDocExtractor {
     }
     const directive = result.directive;
     return {
-      metadata: { scheme: directive.scheme, mode: directive.mode },
+      metadata: {
+        scheme: directive.scheme,
+        mode: directive.mode,
+        ...(directive.methods ? { methods: directive.methods } : {}),
+      },
       value: legacyAuthValue(directive),
       diagnostics: [],
     };

@@ -59,6 +59,7 @@ const TEST_CONFIG: EndpointConfig = {
   resourceIcon: '🗓️',
   resourceDescription: 'Book a focused consultation with Arul.',
   oauthCustomCss: '.oauth-mark{--tenant-brand:tomato}',
+  authMethods: ['email', 'passkey'],
 };
 
 function makeDeps(overrides: Partial<EndpointDeps> = {}): EndpointDeps {
@@ -484,6 +485,7 @@ async function testAuthorize() {
     assert.equal(res.status, 302);
     assert.match(res.headers.Location, /^https:\/\/serv\.test\/login/);
     assert.match(res.headers.Location, /return_to=/);
+    assert.match(res.headers.Location, /auth_methods=email\+passkey/);
   });
 
   await test('prompt=none with no session returns login_required redirect', async () => {

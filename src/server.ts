@@ -63,11 +63,7 @@ import {
   hasExtension,
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
-import {
-  PHOTON_RENDER_META_KEY,
-  buildPhotonRenderMeta,
-  buildToolMCPMeta,
-} from './auto-ui/types.js';
+import { PHOTON_RENDER_META_KEY, buildPhotonRenderMeta } from './auto-ui/types.js';
 import { pingDaemon } from './daemon/client.js';
 import { ensureDaemon } from './daemon/manager.js';
 import {
@@ -442,25 +438,6 @@ interface HandlerContext {
   sessionId: string;
 }
 
-/**
- * Minimal Streamable HTTP transport for compiled binaries with Beam UI.
- * Implements the Transport interface so the SDK Server can connect to it,
- * then handles HTTP requests matching the Beam frontend's protocol:
- *   POST /mcp — JSON-RPC request → JSON response with Mcp-Session-Id
- *   GET /mcp?sessionId=X — SSE stream for server notifications
- */
-/** Tool/metadata info for a sub-photon exposed via Beam sidebar. */
-interface SubPhotonInfo {
-  name: string;
-  description: string;
-  icon: string;
-  stateful: boolean;
-  hasSettings: boolean;
-  webUrl?: string;
-  webDescription?: string;
-  tools: any[]; // MCP tool definitions (name, description, inputSchema)
-}
-
 function localMcpAuthMode(): string {
   return process.env.PHOTON_MCP_AUTH_MODE || (process.env.PHOTON_MCP_BEARER ? 'bearer' : 'legacy');
 }
@@ -540,31 +517,6 @@ function callerFromVerifiedClaims(claims?: Record<string, unknown>) {
     scopes: scope ? scope.split(/\s+/).filter(Boolean) : [],
     claims,
   };
-}
-
-function unauthorizedJson(
-  res: ServerResponse,
-  id: unknown,
-  status: number,
-  code: number,
-  message: string,
-  reason: string,
-  wwwAuthenticate: string,
-  corsOrigin?: string
-): void {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'WWW-Authenticate': wwwAuthenticate,
-  };
-  if (corsOrigin) headers['Access-Control-Allow-Origin'] = corsOrigin;
-  res.writeHead(status, headers);
-  res.end(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: id ?? null,
-      error: { code, message, data: { reason } },
-    })
-  );
 }
 
 function localMcpWwwAuthenticate(
@@ -656,550 +608,6 @@ class CapabilityCaptureTransport implements Transport {
 
   send(message: any): Promise<void> {
     return this.inner.send(message);
-  }
-}
-
-class BeamCompatTransport implements Transport {
-  onclose?: () => void;
-  onerror?: (error: Error) => void;
-  onmessage?: (message: any, extra?: any) => void;
-
-  sessionId = crypto.randomUUID();
-  private sseResponse: ServerResponse | null = null;
-  private pendingResponse: ((message: any) => void) | null = null;
-
-  /** Sub-photons whose tools are injected into tools/list alongside the main photon. */
-  subPhotons: SubPhotonInfo[] = [];
-  /** Main photon tools, mirrored so auth can enforce scopes before dispatch. */
-  mainTools: any[] = [];
-  /** OAuth 2.1 authorization/resource server when the Photon declares it. */
-  oauthRuntime?: PhotonOAuthRuntime;
-  /** Callback to execute a tool on a sub-photon by name. */
-  subPhotonExecutor?: (
-    photonName: string,
-    method: string,
-    args: any,
-    caller?: ReturnType<typeof callerFromVerifiedClaims>
-  ) => Promise<any>;
-  /** Applies the same property-based catalog/call policy to aggregated photons. */
-  subPhotonAuthorizer?: (
-    photonName: string,
-    method: string,
-    caller?: ReturnType<typeof callerFromVerifiedClaims>
-  ) => boolean;
-
-  constructor(
-    private photonName: string,
-    private photonMeta: {
-      description?: string;
-      icon?: string;
-      stateful?: boolean;
-      hasSettings?: boolean;
-      webUrl?: string;
-      webDescription?: string;
-      auth?: string;
-      authDirective?: { scheme: string; mode: 'required' | 'optional' };
-    }
-  ) {}
-
-  async start(): Promise<void> {
-    /* no-op — transport is ready immediately */
-  }
-
-  async close(): Promise<void> {
-    if (this.sseResponse) {
-      this.sseResponse.end();
-      this.sseResponse = null;
-    }
-    this.onclose?.();
-  }
-
-  async send(message: any): Promise<void> {
-    // Transform outgoing tools/list responses with Photon metadata. Main photon
-    // tools stay slashless for broad client compatibility; aggregated tools use
-    // dot names (`photon.method`) while tools/call still accepts legacy slashes.
-    if (message?.result?.tools && Array.isArray(message.result.tools)) {
-      // Main photon tools
-      message.result.tools = message.result.tools.map((tool: any) => ({
-        ...tool,
-        name: tool.name,
-        'x-photon-id': this.photonName,
-        'x-photon-description': this.photonMeta.description || '',
-        'x-photon-icon': this.photonMeta.icon || '⚡',
-        'x-photon-stateful': this.photonMeta.stateful || false,
-        'x-photon-has-settings': this.photonMeta.hasSettings || false,
-        ...(this.photonMeta.webUrl
-          ? {
-              'x-web-url': this.photonMeta.webUrl,
-              'x-web-description':
-                this.photonMeta.webDescription || this.photonMeta.description || '',
-            }
-          : {}),
-      }));
-
-      // Append sub-photon tools (each with their own x-photon-* metadata)
-      for (const sub of this.subPhotons) {
-        const subTools = sub.tools.map((tool: any) => {
-          const def: any = {
-            ...tool,
-            name: `${sub.name}.${tool.name}`,
-            'x-photon-id': sub.name,
-            'x-photon-description': sub.description,
-            'x-photon-icon': sub.icon,
-            'x-photon-stateful': sub.stateful,
-            'x-photon-has-settings': sub.hasSettings,
-            ...(sub.webUrl
-              ? {
-                  'x-web-url': sub.webUrl,
-                  'x-web-description': sub.webDescription || sub.description,
-                }
-              : {}),
-          };
-          // Add UI linking metadata if this tool has a linked UI
-          const meta = buildToolMCPMeta(tool, {
-            uiResourceUri: tool.linkedUi ? `ui://${sub.name}/${tool.linkedUi}` : undefined,
-          });
-          if (Object.keys(meta).length > 0) {
-            def._meta = { ...def._meta, ...meta };
-          }
-          return def;
-        });
-        message.result.tools.push(...subTools);
-      }
-    }
-
-    // JSON-RPC notifications have no 'id' — route to SSE only, never to pendingResponse.
-    // Responses have 'id' + 'result'/'error'. Server-initiated requests have 'id' + 'method'.
-    const isResponse = message.id !== undefined && message.id !== null && !message.method;
-
-    if (isResponse && this.pendingResponse) {
-      const resolve = this.pendingResponse;
-      this.pendingResponse = null;
-      resolve(message);
-      return;
-    }
-    // Notifications and server-initiated requests go to the SSE stream
-    if (this.sseResponse && !this.sseResponse.writableEnded) {
-      const id = message.id ?? crypto.randomUUID();
-      this.sseResponse.write(`event: message\nid: ${id}\ndata: ${JSON.stringify(message)}\n\n`);
-    }
-  }
-
-  private requiredScopesForTool(fullToolName: string): string[] {
-    const dotIdx = fullToolName.indexOf('.');
-    const slashIdx = fullToolName.indexOf('/');
-    const separatorIdx = dotIdx !== -1 ? dotIdx : slashIdx;
-    const targetPhoton =
-      separatorIdx === -1 ? this.photonName : fullToolName.slice(0, separatorIdx);
-    const methodName = separatorIdx === -1 ? fullToolName : fullToolName.slice(separatorIdx + 1);
-    const tools =
-      targetPhoton === this.photonName
-        ? this.mainTools
-        : this.subPhotons.find((sub) => sub.name === targetPhoton)?.tools;
-    const scopes = tools?.find((tool) => tool.name === methodName)?.scopes;
-    return Array.isArray(scopes)
-      ? scopes.filter((scope): scope is string => typeof scope === 'string')
-      : [];
-  }
-
-  async handleHTTP(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-    const corsOrigin = getCorsOrigin(req);
-
-    // GET — open SSE stream for server-to-client notifications
-    if (req.method === 'GET') {
-      this.sseResponse = res;
-      const sseHeaders: Record<string, string> = {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'Mcp-Session-Id': this.sessionId,
-      };
-      if (corsOrigin) sseHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-      res.writeHead(200, sseHeaders);
-      // Send initial event so the client knows connection is established
-      res.write(':connected\n\n');
-      // Send keepalive every 15s
-      const keepalive = setInterval(() => {
-        if (!res.writableEnded) {
-          try {
-            res.write(':keepalive\n\n');
-          } catch {
-            /* stream closed */
-          }
-        }
-      }, 15000);
-      req.on('close', () => {
-        clearInterval(keepalive);
-        // Only clear if this response is still the active SSE stream.
-        // A newer GET may have already replaced it — don't overwrite that.
-        if (this.sseResponse === res) {
-          this.sseResponse = null;
-        }
-      });
-      res.on('error', () => {
-        clearInterval(keepalive);
-        if (this.sseResponse === res) {
-          this.sseResponse = null;
-        }
-      });
-      return;
-    }
-
-    // POST — JSON-RPC request/response
-    if (req.method === 'POST') {
-      let body = '';
-      for await (const chunk of req) body += chunk;
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(body);
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-        return;
-      }
-
-      const authMode =
-        this.photonMeta.authDirective?.scheme === 'oauth' ? 'oauth' : localMcpAuthMode();
-      const dispatchesUserCode = parsed?.method === 'tools/call';
-      const suppliedBearer = authHeaderToken(req);
-      const authenticatesDiscovery = parsed?.method === 'tools/list' && suppliedBearer !== null;
-      // Optional-auth photons may expose user-role tools to anonymous callers.
-      // Validate a supplied credential, but do not reject an anonymous call
-      // before the property-based tool evaluator can decide whether it is safe.
-      const optionalPhotonAuth =
-        this.photonMeta.authDirective?.mode === 'optional' || this.photonMeta.auth === 'optional';
-      const requiresAuthenticatedDiscovery =
-        parsed?.method === 'tools/list' &&
-        (this.photonMeta.authDirective?.mode === 'required' || this.photonMeta.auth === 'required');
-      const requiresOAuthOnEveryRequest =
-        authMode === 'oauth' && this.photonMeta.authDirective?.mode === 'required';
-      const requiresCallerAuthentication =
-        requiresOAuthOnEveryRequest ||
-        (dispatchesUserCode && !optionalPhotonAuth) ||
-        requiresAuthenticatedDiscovery ||
-        authenticatesDiscovery ||
-        suppliedBearer !== null;
-      const requiredScopes =
-        dispatchesUserCode && typeof parsed?.params?.name === 'string'
-          ? this.requiredScopesForTool(parsed.params.name)
-          : [];
-      let jwtClaims: Record<string, unknown> | undefined;
-      if (requiresCallerAuthentication && authMode === 'oauth') {
-        const result = this.oauthRuntime?.verifyBearer(suppliedBearer, requiredScopes);
-        if (!result?.ok) {
-          const reason = result?.reason ?? (suppliedBearer ? 'invalid_token' : 'missing_token');
-          const insufficientScope = reason === 'insufficient_scope';
-          unauthorizedJson(
-            res,
-            parsed.id,
-            insufficientScope ? 403 : 401,
-            insufficientScope ? -32003 : -32001,
-            insufficientScope ? 'Forbidden' : 'Unauthorized',
-            reason,
-            this.oauthRuntime?.wwwAuthenticate(
-              requiredScopes,
-              insufficientScope ? 'insufficient_scope' : 'invalid_token'
-            ) ??
-              localMcpWwwAuthenticate(
-                req,
-                insufficientScope ? 'insufficient_scope' : 'invalid_token',
-                requiredScopes
-              ),
-            corsOrigin
-          );
-          return;
-        }
-        jwtClaims = result.caller;
-      } else if (requiresCallerAuthentication && authMode === 'jwt') {
-        let jwks: { keys: JsonWebKey[] } | null = null;
-        let issuer: string | undefined;
-        const profileName = process.env.PHOTON_MCP_JWT_PROFILE;
-        if (profileName) {
-          const profile = await loadJwtProfile(profileName);
-          if (profile) {
-            issuer = profile.issuer;
-            jwks = profile.jwks;
-          }
-        } else {
-          try {
-            jwks = process.env.PHOTON_MCP_JWT_JWKS
-              ? (JSON.parse(process.env.PHOTON_MCP_JWT_JWKS) as { keys: JsonWebKey[] })
-              : null;
-          } catch {
-            jwks = null;
-          }
-          issuer = process.env.PHOTON_MCP_JWT_ISSUER;
-        }
-        const audience = process.env.PHOTON_MCP_JWT_AUDIENCE;
-        if (!issuer || !audience || !jwks) {
-          unauthorizedJson(
-            res,
-            parsed.id,
-            401,
-            -32001,
-            'Unauthorized',
-            'missing_token',
-            localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes, audience),
-            corsOrigin
-          );
-          return;
-        }
-        const result = verifyPhotonAuthToken(authHeaderToken(req), {
-          issuer,
-          audience,
-          jwks,
-          requiredScopes,
-        });
-        if (!result.ok) {
-          const insufficientScope = result.reason === 'insufficient_scope';
-          unauthorizedJson(
-            res,
-            parsed.id,
-            insufficientScope ? 403 : 401,
-            insufficientScope ? -32003 : -32001,
-            insufficientScope ? 'Forbidden' : 'Unauthorized',
-            result.reason,
-            localMcpWwwAuthenticate(
-              req,
-              insufficientScope ? 'insufficient_scope' : 'invalid_token',
-              requiredScopes,
-              audience
-            ),
-            corsOrigin
-          );
-          return;
-        }
-        jwtClaims = result.claims;
-      } else if (requiresCallerAuthentication && authMode === 'bearer') {
-        const expected = process.env.PHOTON_MCP_BEARER;
-        const token = authHeaderToken(req);
-        if (!mcpTokenMatches(token, expected)) {
-          unauthorizedJson(
-            res,
-            parsed.id,
-            401,
-            -32001,
-            'Unauthorized',
-            !expected
-              ? 'Authorization: Bearer <token> header missing'
-              : token
-                ? 'bearer token does not match PHOTON_MCP_BEARER'
-                : 'Authorization: Bearer <token> header missing',
-            localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes),
-            corsOrigin
-          );
-          return;
-        }
-        // A valid shared bearer identifies an authenticated operator even
-        // though it does not carry JWT claims. Keep role-based Photon tools
-        // consistent with Cloudflare's bearer runtime.
-        jwtClaims = { sub: 'bearer', name: 'bearer', auth: 'bearer', role: 'host' };
-      }
-
-      const { extractClaimsFromHeaders } = await import('./shared/extract-claims.js');
-      const claims = jwtClaims ?? extractClaimsFromHeaders(req.headers);
-      const requestCaller = callerFromVerifiedClaims(claims);
-
-      // Transform incoming tools/call: strip photonName.method prefix from tool name
-      // and route sub-photon calls directly
-      if (parsed.method === 'tools/call' && parsed.params?.name) {
-        const dotIdx = parsed.params.name.indexOf('.');
-        const slashIdx = parsed.params.name.indexOf('/');
-        const separatorIdx = dotIdx !== -1 ? dotIdx : slashIdx;
-        if (separatorIdx !== -1) {
-          const targetPhoton = parsed.params.name.slice(0, separatorIdx);
-          const methodName = parsed.params.name.slice(separatorIdx + 1);
-
-          // Check if this is a sub-photon call
-          if (targetPhoton !== this.photonName && this.subPhotonExecutor) {
-            const sub = this.subPhotons.find((s) => s.name === targetPhoton);
-            if (sub) {
-              if (!this.subPhotonAuthorizer?.(targetPhoton, methodName, requestCaller)) {
-                if (authMode === 'oauth' && !suppliedBearer) {
-                  unauthorizedJson(
-                    res,
-                    parsed.id,
-                    401,
-                    -32001,
-                    'Unauthorized',
-                    'missing_token',
-                    this.oauthRuntime?.wwwAuthenticate(requiredScopes, 'invalid_token') ??
-                      localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes),
-                    corsOrigin
-                  );
-                  return;
-                }
-                const denied = {
-                  jsonrpc: '2.0',
-                  id: parsed.id,
-                  result: {
-                    content: [
-                      {
-                        type: 'text',
-                        text: `Tool '${methodName}' is not available for this caller`,
-                      },
-                    ],
-                    isError: true,
-                  },
-                };
-                const deniedHeaders: Record<string, string> = {
-                  'Content-Type': 'application/json',
-                };
-                if (corsOrigin) deniedHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-                res.writeHead(200, deniedHeaders);
-                res.end(JSON.stringify(denied));
-                return;
-              }
-              try {
-                const result = await this.subPhotonExecutor(
-                  targetPhoton,
-                  methodName,
-                  parsed.params.arguments || {},
-                  requestCaller
-                );
-                const response = { jsonrpc: '2.0', id: parsed.id, result };
-                const subHeaders: Record<string, string> = {
-                  'Content-Type': 'application/json',
-                  'Access-Control-Expose-Headers': 'Mcp-Session-Id',
-                  'Mcp-Session-Id': this.sessionId,
-                };
-                if (corsOrigin) subHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-                res.writeHead(200, subHeaders);
-                res.end(JSON.stringify(response));
-                return;
-              } catch (err: any) {
-                const response = {
-                  jsonrpc: '2.0',
-                  id: parsed.id,
-                  result: {
-                    content: [{ type: 'text', text: err.message || String(err) }],
-                    isError: true,
-                  },
-                };
-                const errHeaders: Record<string, string> = {
-                  'Content-Type': 'application/json',
-                };
-                if (corsOrigin) errHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-                res.writeHead(200, errHeaders);
-                res.end(JSON.stringify(response));
-                return;
-              }
-            }
-          }
-
-          // Main photon — strip prefix
-          parsed.params.name = methodName;
-        }
-      }
-
-      // Track C closure: surface CF Access (and equivalent) claims to the
-      // request handlers so the per-claim instance pool can route. The
-      // claims ride on the SDK's MessageExtraInfo.authInfo.extra, which
-      // the protocol layer propagates to setRequestHandler's `extra` arg.
-      const messageExtra = claims
-        ? {
-            sessionId: this.sessionId,
-            authInfo: {
-              token: '',
-              clientId: typeof claims.client_id === 'string' ? claims.client_id : '',
-              scopes: typeof claims.scope === 'string' ? claims.scope.split(/\s+/) : [],
-              extra: claims,
-            },
-          }
-        : { sessionId: this.sessionId };
-
-      // Notifications have no id — fire-and-forget
-      if (parsed.id === undefined) {
-        this.onmessage?.(parsed, messageExtra);
-        const notifHeaders: Record<string, string> = {
-          'Mcp-Session-Id': this.sessionId,
-        };
-        if (corsOrigin) notifHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-        res.writeHead(202, notifHeaders);
-        res.end();
-        return;
-      }
-
-      // Request — wait for the Server to call send() with the response
-      const response = await new Promise<any>((resolve) => {
-        this.pendingResponse = resolve;
-        this.onmessage?.(parsed, messageExtra);
-      });
-
-      if (
-        parsed.method === 'tools/list' &&
-        Array.isArray(response?.result?.tools) &&
-        this.subPhotonAuthorizer
-      ) {
-        response.result.tools = response.result.tools.filter((tool: any) => {
-          if (typeof tool?.name !== 'string') return false;
-          const separator = tool.name.indexOf('.');
-          if (separator < 0) return true;
-          return this.subPhotonAuthorizer!(
-            tool.name.slice(0, separator),
-            tool.name.slice(separator + 1),
-            requestCaller
-          );
-        });
-      }
-
-      // Optional OAuth advertises only the anonymous catalog initially.  If a
-      // caller nevertheless invokes a protected/hidden tool, turn the
-      // transport-level denial into the OAuth challenge MCP clients expect.
-      if (
-        authMode === 'oauth' &&
-        optionalPhotonAuth &&
-        !suppliedBearer &&
-        parsed.method === 'tools/call' &&
-        (response?.error || response?.result?.isError) &&
-        /not available for this caller|authentication required/i.test(
-          String(
-            response.error?.message ??
-              response.error?.data?.message ??
-              response.result?.content?.map((item: any) => item?.text ?? '').join('\n') ??
-              ''
-          )
-        )
-      ) {
-        unauthorizedJson(
-          res,
-          parsed.id,
-          401,
-          -32001,
-          'Unauthorized',
-          'missing_token',
-          this.oauthRuntime?.wwwAuthenticate(requiredScopes, 'invalid_token') ??
-            localMcpWwwAuthenticate(req, 'invalid_token', requiredScopes),
-          corsOrigin
-        );
-        return;
-      }
-
-      const resHeaders: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Access-Control-Expose-Headers': 'Mcp-Session-Id',
-        'Mcp-Session-Id': this.sessionId,
-      };
-      if (corsOrigin) resHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-      res.writeHead(200, resHeaders);
-      res.end(JSON.stringify(response));
-      return;
-    }
-
-    // DELETE — session termination (spec compliance)
-    if (req.method === 'DELETE') {
-      const delHeaders: Record<string, string> = {};
-      if (corsOrigin) delHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-      res.writeHead(200, delHeaders);
-      res.end();
-      return;
-    }
-
-    const methodHeaders: Record<string, string> = {};
-    if (corsOrigin) methodHeaders['Access-Control-Allow-Origin'] = corsOrigin;
-    res.writeHead(405, methodHeaders);
-    res.end('Method not allowed');
   }
 }
 
@@ -2096,7 +1504,7 @@ export class PhotonServer {
   /**
    * Resolve which photon instance handles this call. For `@stateful` +
    * `@auth` photons we pull claims from the request's `authInfo.extra`
-   * (populated by `BeamCompatTransport` from the HTTP headers), look up
+   * (populated by the official SDK handler's auth context), look up
    * the binding rule from the `@auth` directive, and lazy-load a fresh
    * photon instance keyed by that claim value. Subsequent calls from
    * the same caller reuse the cached instance so `this.memory` /
@@ -4186,163 +3594,44 @@ export class PhotonServer {
     // Streamable HTTP uses the standard protocol:
     //   POST /mcp  — JSON-RPC request → JSON response
     //   GET  /mcp  — SSE stream for server-to-client notifications
-    let beamTransport: BeamCompatTransport | null = null;
-    {
-      const photonName = this.mcp?.name || 'photon';
-      const standaloneManifest = this.standaloneApplicationManifest();
-      const photonWebUrl = selectServerWebAppUrl(
-        this.mcp ? { ...this.mcp, appManifest: standaloneManifest } : undefined
+    const photonName = this.mcp?.name || 'photon';
+    if (this.mcp?.authDirective?.scheme === 'oauth') {
+      const { PhotonOAuthRuntime } = await import('./auth/runtime-oauth.js');
+      const photonDisplayMeta = this.mcp as PhotonClassWithMeta & { label?: string };
+      const photonSource = await readText(this.options.filePath);
+      const oauthStylesheets = await resolvePhotonStylesheetAssets(
+        this.options.filePath,
+        photonSource
       );
-      beamTransport = new BeamCompatTransport(photonName, {
-        description: this.mcp?.description,
-        icon: this.mcp?.icon,
-        stateful: !!this.mcp?.stateful,
-        hasSettings: !!this.mcp?.hasSettings,
-        auth: this.mcp?.auth,
-        authDirective: this.mcp?.authDirective,
-        ...(photonWebUrl
-          ? { webUrl: photonWebUrl, webDescription: this.mcp?.description || `${photonName} MCP` }
-          : {}),
-      });
-      if (this.mcp?.authDirective?.scheme === 'oauth') {
-        const { PhotonOAuthRuntime } = await import('./auth/runtime-oauth.js');
-        const photonDisplayMeta = this.mcp as PhotonClassWithMeta & { label?: string };
-        const photonSource = await readText(this.options.filePath);
-        const oauthStylesheets = await resolvePhotonStylesheetAssets(
-          this.options.filePath,
-          photonSource
-        );
-        const oauthCustomCss = oauthStylesheets.oauth
-          ? await readText(oauthStylesheets.oauth.resolvedPath)
-          : undefined;
-        const publicBase =
-          process.env.PHOTON_PUBLIC_URL?.replace(/\/+$/, '') || `http://127.0.0.1:${port}`;
-        this.oauthRuntime = new PhotonOAuthRuntime({
-          baseUrl: publicBase,
-          photonName,
-          photonDisplayName: photonDisplayMeta.label,
-          photonIcon: this.mcp?.icon,
-          photonDescription: this.mcp?.description,
-          devMode: this.devMode,
-          oauthCustomCss,
-          scopesSupported: Array.from(
-            new Set(
-              (this.mcp?.tools || []).flatMap((tool: any) =>
-                Array.isArray(tool.scopes)
-                  ? tool.scopes.filter(
-                      (scope: unknown): scope is string => typeof scope === 'string'
-                    )
-                  : []
-              )
+      const oauthCustomCss = oauthStylesheets.oauth
+        ? await readText(oauthStylesheets.oauth.resolvedPath)
+        : undefined;
+      const publicBase =
+        process.env.PHOTON_PUBLIC_URL?.replace(/\/+$/, '') || `http://127.0.0.1:${port}`;
+      this.oauthRuntime = new PhotonOAuthRuntime({
+        baseUrl: publicBase,
+        photonName,
+        photonDisplayName: photonDisplayMeta.label,
+        photonIcon: this.mcp?.icon,
+        photonDescription: this.mcp?.description,
+        devMode: this.devMode,
+        oauthCustomCss,
+        authMethods: this.mcp?.authDirective?.methods,
+        scopesSupported: Array.from(
+          new Set(
+            (this.mcp?.tools || []).flatMap((tool: any) =>
+              Array.isArray(tool.scopes)
+                ? tool.scopes.filter((scope: unknown): scope is string => typeof scope === 'string')
+                : []
             )
-          ),
-        });
-        beamTransport.oauthRuntime = this.oauthRuntime;
-      }
-      this.capabilityNegotiator.interceptTransportForRawCapabilities(
-        beamTransport,
-        this.server,
-        (msg: any) => this.channelManager.interceptPermissionRequest(msg)
-      );
-      await this.server.connect(beamTransport);
-      beamTransport.mainTools = (this.mcp?.tools || [])
-        .filter((t: any) => !t.internal)
-        .map((t: any) => ({
-          name: t.name,
-          scopes: Array.isArray(t.scopes) ? t.scopes : [],
-        }));
-
-      // Wire sub-photons: collect all loaded photons except the main one
-      const mainName = this.mcp?.name || 'photon';
-      const allLoaded = this.loader.getLoadedPhotons();
-      for (const [, loaded] of allLoaded) {
-        if (loaded.name === mainName) continue;
-        const icon = (loaded as PhotonClassWithMeta).icon || '⚡';
-        const stateful = !!(loaded as PhotonClassWithMeta).stateful;
-        // ^^ getLoadedPhotons() returns the canonical PhotonClassExtended type;
-        // these two callsites still need the narrower runtime cast until
-        // the loader's return type widens to PhotonClassWithMeta.
-        const hasSettings = !!loaded.settingsSchema?.hasSettings;
-        const webUrl = selectServerWebAppUrl(
-          loaded as PhotonClassWithMeta & Parameters<typeof selectServerWebAppUrl>[0]
-        );
-        // Convert PhotonTool[] to MCP tool format with UI linking
-        const uiAssets = loaded.assets?.ui || [];
-        const tools = (
-          loaded.tools as Array<ExtractedSchema & { internal?: boolean; scopes?: string[] }>
-        )
-          .filter((t) => !t.internal)
-          .map((t) => {
-            const linkedUI = uiAssets.find(
-              (u) => u.linkedTool === t.name || u.linkedTools?.includes(t.name)
-            );
-            return {
-              name: t.name,
-              description: t.description || '',
-              inputSchema: t.inputSchema,
-              ...(Array.isArray(t.scopes) ? { scopes: t.scopes } : {}),
-              ...(linkedUI ? { linkedUi: linkedUI.id } : {}),
-            };
-          });
-        beamTransport.subPhotons.push({
-          name: loaded.name,
-          description: loaded.description || `${loaded.name} MCP`,
-          icon,
-          stateful,
-          hasSettings,
-          ...(webUrl ? { webUrl, webDescription: loaded.description || `${loaded.name} MCP` } : {}),
-          tools,
-        });
-      }
-
-      // Wire sub-photon tool executor — returns MCP-formatted result
-      beamTransport.subPhotonExecutor = async (
-        photonName: string,
-        method: string,
-        args: any,
-        caller
-      ) => {
-        for (const [, loaded] of allLoaded) {
-          if (loaded.name === photonName) {
-            const result = await this.loader.executeTool(loaded, method, args, {
-              caller,
-            });
-            // Wrap raw result in MCP content format if not already wrapped
-            if (result && result.content && Array.isArray(result.content)) {
-              return result;
-            }
-            if (result instanceof Uint8Array && result[0] === 0x42 && result[1] === 0x4d) {
-              return {
-                content: [
-                  {
-                    type: 'image',
-                    data: Buffer.from(result).toString('base64'),
-                    mimeType: 'image/bmp',
-                  },
-                ],
-              };
-            }
-            return {
-              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-            };
-          }
-        }
-        throw new Error(`Photon not found: ${photonName}`);
-      };
-      beamTransport.subPhotonAuthorizer = (photonName, method, caller) => {
-        for (const [, loaded] of allLoaded) {
-          if (loaded.name === photonName) {
-            return this.loader.isToolAccessible(loaded, method, caller);
-          }
-        }
-        return false;
-      };
+          )
+        ),
+      });
     }
 
-    // From this point on, the official SDK v2 handler is the canonical MCP
-    // endpoint. The old BeamCompatTransport remains only as a source-level
-    // compatibility reference while downstream consumers migrate; no request
-    // is routed through it.
+    // The official SDK v2 handler is the only MCP HTTP transport. Photon adds
+    // authorization, role filtering, UI metadata, and application handlers
+    // through the factory; it does not implement JSON-RPC or session framing.
     this.mcpHttpHandler = this.createMcpHttpHandler();
 
     this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -4468,11 +3757,11 @@ export class PhotonServer {
         }
 
         // Legacy SSE transport (when not using Streamable HTTP)
-        if (!beamTransport && req.method === 'GET' && url.pathname === ssePath) {
+        if (req.method === 'GET' && url.pathname === ssePath) {
           await this.handleSSEConnection(req, res, messagesPath);
           return;
         }
-        if (!beamTransport && req.method === 'POST' && url.pathname === messagesPath) {
+        if (req.method === 'POST' && url.pathname === messagesPath) {
           await this.handleSSEMessage(req, res, url);
           return;
         }

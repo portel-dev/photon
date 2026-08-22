@@ -538,14 +538,95 @@ const NODE_BUILTINS = new Set([
  * in `@dependencies` — wrangler's bundle would fail later with a less
  * actionable error.
  */
-function extractImportedPackages(source: string): string[] {
+function maskComments(source: string): string {
+  let output = '';
+  let state: 'code' | 'line-comment' | 'block-comment' = 'code';
+
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index];
+    const next = source[index + 1];
+
+    if (state === 'code') {
+      if (current === '/' && next === '/') {
+        output += '  ';
+        index += 1;
+        state = 'line-comment';
+      } else if (current === '/' && next === '*') {
+        output += '  ';
+        index += 1;
+        state = 'block-comment';
+      } else {
+        output += current;
+      }
+      continue;
+    }
+
+    if (current === '\n' || current === '\r') {
+      output += current;
+      if (state === 'line-comment') state = 'code';
+    } else {
+      output += ' ';
+    }
+
+    if (state === 'block-comment' && current === '*' && next === '/') {
+      output += ' ';
+      index += 1;
+      state = 'code';
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Mask template literals before scanning imports. Photon web/app HTML is
+ * commonly returned from a template literal and may contain browser imports,
+ * such as `import ... from 'https://cdn...'`. Those are not Worker imports
+ * and must not be reported as undeclared npm packages.
+ */
+function maskTemplateLiterals(source: string): string {
+  let output = '';
+  let inTemplate = false;
+  let escaped = false;
+
+  for (const current of source) {
+    if (!inTemplate) {
+      if (current === '`') {
+        inTemplate = true;
+        output += ' ';
+      } else {
+        output += current;
+      }
+      continue;
+    }
+
+    if (current === '\n' || current === '\r') {
+      output += current;
+    } else {
+      output += ' ';
+    }
+
+    if (escaped) {
+      escaped = false;
+    } else if (current === '\\') {
+      escaped = true;
+    } else if (current === '`') {
+      inTemplate = false;
+    }
+  }
+
+  return output;
+}
+
+export function extractImportedPackages(source: string): string[] {
   const seen = new Set<string>();
+  const scanSource = maskTemplateLiterals(maskComments(source));
   const importRe = /^\s*(?:import|export)(?:\s[\s\S]*?)?\s+from\s+['"]([^'"]+)['"]/gm;
   const requireRe = /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   const dynamicRe = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   for (const re of [importRe, requireRe, dynamicRe]) {
     let m;
-    while ((m = re.exec(source)) !== null) {
+    while ((m = re.exec(scanSource)) !== null) {
       const spec = m[1];
       if (spec.startsWith('.') || spec.startsWith('/')) continue;
       const stripped = spec.startsWith('node:') ? spec.slice(5) : spec;
@@ -660,12 +741,18 @@ function wranglerEnv(): NodeJS.ProcessEnv {
   return { ...process.env, CLOUDFLARE_API_TOKEN: resolved.token };
 }
 
-/** Use Wrangler's native OAuth session for uploads and version promotion. */
+/**
+ * Use the same resolved Cloudflare credential for upload and promotion.
+ *
+ * The old implementation removed CLOUDFLARE_API_TOKEN here so Wrangler would
+ * fall back to its native profile. That made `wrangler deploy` appear
+ * successful while the subsequent version lookup/promotion could select a
+ * secret-only version created by another process. Keeping one credential
+ * source makes upload and promotion operate on the same account and version
+ * list.
+ */
 function wranglerDeployEnv(): NodeJS.ProcessEnv {
-  const resolved = resolveCloudflareApiToken();
-  if (resolved?.source !== 'cf-cli') return process.env;
-  const { CLOUDFLARE_API_TOKEN: _ignored, ...nativeEnv } = process.env;
-  return nativeEnv;
+  return wranglerEnv();
 }
 
 export interface CloudflareDeployOptions {
@@ -696,13 +783,19 @@ type CloudflareOAuthAuthMode = 'optional' | 'required';
  * Non-OAuth tags retain legacy behavior; malformed or duplicate metadata
  * fails deployment closed.
  */
-function parseCloudflareOAuthAuthMode(source: string): CloudflareOAuthAuthMode | undefined {
+function parseCloudflareOAuthAuth(
+  source: string
+):
+  | { mode: CloudflareOAuthAuthMode; methods?: import('../auth/directive.js').PhotonAuthMethod[] }
+  | undefined {
   const result = extractPhotonAuthDirectiveFromSource(source);
   if (!result) return undefined;
   if (result.error || !result.directive) {
     throw new Error(`Invalid class-level @auth metadata: ${result.error ?? 'unknown error'}`);
   }
-  return result.directive.scheme === 'oauth' ? result.directive.mode : undefined;
+  return result.directive.scheme === 'oauth'
+    ? { mode: result.directive.mode, methods: result.directive.methods }
+    : undefined;
 }
 
 interface CloudflareRouteConfig {
@@ -1620,7 +1713,8 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
         })
       : undefined;
 
-  const declaredOAuthMode = parseCloudflareOAuthAuthMode(sourceCode);
+  const declaredOAuth = parseCloudflareOAuthAuth(sourceCode);
+  const declaredOAuthMode = declaredOAuth?.mode;
   // An explicit CLI value is authoritative. When it is omitted, the
   // class-level Photon contract can opt the generated Worker into OAuth.
   const effectiveMcpAuth = options.mcpAuth ?? (declaredOAuthMode ? 'oauth' : undefined);
@@ -1937,6 +2031,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       scopes: oauthScopes,
       issuer: oauthIssuer!,
       oauthAuthMode: oauthAuthMode!,
+      oauthAuthMethods: declaredOAuth?.methods,
       kvNamespaceId: process.env.PHOTON_MCP_OAUTH_KV_ID,
       oauthCustomCss,
     });

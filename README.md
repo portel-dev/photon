@@ -607,7 +607,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | `@param ... {@format email}` | Param | Input validation and field type |
 | `@param ... {@min N} {@max N}` | Param | Numeric range constraints |
 | `@ui` | Class/Method | Link a custom HTML template |
-| `@auth` | Class | Require or describe MCP authentication and populate `this.caller` |
+| `@auth` | Class | Require or describe MCP authentication, including passwordless methods such as `@auth email passkey`, and populate `this.caller` |
 | `@scope` | Method | Override the inferred OAuth scope for a protected MCP tool call |
 | `@expose` | Method | Auto-bind to `POST /api/<kebab>` for SPA fetch (`public` skips the SameSite gate) |
 | `@get /path` | Method | HTTP-only GET route; shown as a web app in Beam, not an MCP tool. Supports `:param` segments |

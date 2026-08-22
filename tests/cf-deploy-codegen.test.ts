@@ -51,6 +51,7 @@ import {
   preserveCloudflareDurableObjectMigrationVersion,
   parseCloudflareDurableObjectMigrationVersion,
   resolveCloudflareWorkerName,
+  extractImportedPackages,
 } from '../dist/deploy/cloudflare.js';
 
 type Route = { method: string; path: string; handler: string };
@@ -60,6 +61,30 @@ describe('cf deploy Worker naming', () => {
     expect(resolveCloudflareWorkerName('consult')).toBe('consult');
     expect(resolveCloudflareWorkerName('consult', '')).toBe('consult');
     expect(resolveCloudflareWorkerName('consult', 'my-consult-worker')).toBe('my-consult-worker');
+  });
+});
+
+describe('cf deploy import pre-flight', () => {
+  it('ignores browser imports embedded in Photon HTML template literals', () => {
+    const source = String.raw`
+      const page = \`
+        <script type="module">
+          import { Room } from 'https://cdn.jsdelivr.net/npm/livekit-client@2.21.0/+esm';
+        </script>
+      \`;
+    `;
+
+    expect(extractImportedPackages(source)).toEqual([]);
+  });
+
+  it('still reports real server-side package imports', () => {
+    const source = `
+      import { parse } from 'some-package';
+      /* import ignored from 'comment-package'; */
+      const page = \`import ignored from 'browser-package'\`;
+    `;
+
+    expect(extractImportedPackages(source)).toEqual(['some-package']);
   });
 });
 
@@ -391,8 +416,16 @@ describe('cf deploy code-gen', () => {
 
   it('uses the official MCP v2 server boundary for negotiation and metadata', () => {
     expect(workerCode).toContain("from '@modelcontextprotocol/server'");
-    expect(workerCode).toContain('new Server(');
+    expect(workerCode).toContain('new McpServer(');
     expect(workerCode).toContain('createMcpHandler');
+    expect(workerCode).toContain('server.registerTool(');
+    expect(workerCode).toContain('server.registerResource(');
+    expect(workerCode).toContain('fromJsonSchema(');
+    expect(workerCode).not.toContain("server.setRequestHandler('tools/list'");
+    expect(workerCode).not.toContain("server.setRequestHandler('tools/call'");
+    expect(workerCode).not.toContain('WebStandardStreamableHTTPServerTransport');
+    expect(workerCode).not.toContain('handleStreamableHTTP');
+    expect(workerCode).not.toContain('function uiAssetForUri(');
     expect(workerCode).toContain("legacy: 'stateless'");
     expect(workerCode).toContain(
       "'io.modelcontextprotocol/ui': { mimeTypes: [MCP_APP_MIME_TYPE] }"

@@ -33,7 +33,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@internal` | Marks entire photon as internal (hidden from sidebar). | `@internal` |
 | `@worker` | Forces the photon to run in an isolated worker thread. See [Worker Isolation](#worker-isolation). | `@worker` |
 | `@noworker` | Forces the photon to run in-process even if it has lifecycle hooks. See [Worker Isolation](#worker-isolation). | `@noworker` |
-| `@auth` | Selects inbound MCP authentication. Explicit OAuth uses a scheme and mode. | `@auth oauth optional` or `@auth oauth required` |
+| `@auth` | Selects inbound MCP authentication and optional passwordless login methods. | `@auth oauth optional`, `@auth email passkey`, or `@auth email passkey optional` |
 | `@forkedFrom` | Origin reference for forked photons. Auto-injected on install. | `@forkedFrom portel-dev/photons#kanban` |
 
 ### Worker Isolation
@@ -86,6 +86,8 @@ the [MCP authorization spec](https://modelcontextprotocol.io/specification/lates
 |-------|----------|
 | `@auth oauth required` | Every MCP HTTP request requires a valid OAuth access token. Anonymous callers get 401. |
 | `@auth oauth optional` | Anonymous public tools remain available; supplied tokens are verified and may expose a different catalog. |
+| `@auth email passkey` | Uses passwordless email sign-in with passkey support, required by default. The methods are carried as OAuth login metadata. |
+| `@auth email passkey optional` | Same login methods, while allowing anonymous public tools. |
 | `@auth required` / `@auth optional` | Backward-compatible legacy authentication modes. These do not opt into Photon's authorization server. |
 | `@auth oauth` | Backward-compatible per-subject instance binding. Add `required` or `optional` to opt into inbound OAuth. |
 | `@auth https://accounts.google.com` | OIDC provider URL (implies required). Advertised in PRM metadata. |

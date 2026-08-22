@@ -4,7 +4,16 @@ import {
   photonAuthTagValues,
 } from '../src/editor-support/docblock-tag-catalog.js';
 
-assert.deepEqual(photonAuthTagValues, ['required', 'optional', 'oauth required', 'oauth optional']);
+assert.deepEqual(photonAuthTagValues, [
+  'required',
+  'optional',
+  'oauth required',
+  'oauth optional',
+  'email',
+  'passkey',
+  'email passkey',
+  'email passkey optional',
+]);
 
 const catalog = buildPhotonDocblockTagCatalog('1.36.1');
 const auth = catalog.allTags.find((tag) => tag.label === '@auth');
@@ -15,6 +24,8 @@ assert.match(auth.info ?? '', /oauth required/);
 assert.match(auth.info ?? '', /oauth optional/);
 assert.match(auth.snippetTmpl ?? '', /oauth required/);
 assert.match(auth.snippetTmpl ?? '', /oauth optional/);
+assert.match(auth.info ?? '', /email passkey/);
+assert.match(auth.snippetTmpl ?? '', /email passkey/);
 assert.equal(
   catalog.inlineGeneralTags.some((tag) => tag.label === '@auth'),
   false,

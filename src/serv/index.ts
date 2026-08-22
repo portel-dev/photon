@@ -123,6 +123,21 @@ export {
   type EndpointDeps,
 } from './auth/endpoints.js';
 
+// Passwordless authentication boundary. Photon generates and verifies
+// challenges; the embedding Photon supplies the delivery callback.
+export {
+  AuthCodeService,
+  MemoryAuthChallengeStore,
+  type AuthCodeDeliveryAdapter,
+  type AuthCodeDeliveryRequest,
+  type AuthCodePurpose,
+  type AuthChallenge,
+  type AuthChallengeStore,
+  type AuthCodeServiceOptions,
+  type AuthCodeVerification,
+  type AuthCodeVerificationFailure,
+} from '../auth/auth-delivery.js';
+
 // HTTP adapter for the AS endpoints (Node http compatible)
 export { handleAuthServerHTTP, type AuthServerHTTPOptions } from './auth/http-adapter.js';
 
@@ -212,6 +227,11 @@ import {
   type EndpointConfig,
   type EndpointDeps,
 } from './auth/endpoints.js';
+import {
+  AuthCodeService,
+  type AuthCodeDeliveryAdapter,
+  type AuthChallengeStore,
+} from '../auth/auth-delivery.js';
 import { PhotonExecutor, type ExecutionContext } from './runtime/index.js';
 
 export interface ServConfig {
@@ -249,6 +269,12 @@ export interface ServConfig {
   consentStore?: ConsentStore;
   /** Paused-authorization-request store (optional, defaults to memory). */
   pendingAuthStore?: PendingAuthorizationStore;
+  /** Delivery callback for Photon-owned one-time authentication codes. */
+  authCodeDelivery?: AuthCodeDeliveryAdapter;
+  /** Durable challenge store; defaults to memory for local development. */
+  authChallengeStore?: AuthChallengeStore;
+  /** Secret used to hash short-lived authentication codes. */
+  authCodeSecret?: string;
   /**
    * Overrides for endpoint config (TTLs, first-party allowlist, loginUrl).
    * `issuer` / `authorizeUrl` / `consentUrl` are derived from the tenant
@@ -287,6 +313,8 @@ export class Serv {
   readonly consentStore: ConsentStore;
   readonly pendingAuthStore: PendingAuthorizationStore;
   readonly cimdCache: CimdCache;
+  /** Optional passwordless authentication service. */
+  readonly authCodeService?: AuthCodeService;
 
   private elicitationStore = new MemoryElicitationStore();
   private grantStore = new MemoryGrantStore();
@@ -359,6 +387,13 @@ export class Serv {
     this.consentStore = config.consentStore ?? new MemoryConsentStore();
     this.pendingAuthStore = config.pendingAuthStore ?? new MemoryPendingAuthorizationStore();
     this.cimdCache = new CimdCache();
+    if (config.authCodeDelivery) {
+      this.authCodeService = new AuthCodeService({
+        adapter: config.authCodeDelivery,
+        store: config.authChallengeStore,
+        secret: config.authCodeSecret ?? config.stateSecret,
+      });
+    }
   }
 
   /**

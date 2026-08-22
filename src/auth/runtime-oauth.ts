@@ -48,6 +48,7 @@ export class PhotonOAuthRuntime {
     devMode?: boolean;
     scopesSupported?: string[];
     oauthCustomCss?: string;
+    authMethods?: Array<'email' | 'passkey'>;
   }) {
     this.issuer = options.baseUrl.replace(/\/+$/, '');
     this.resource = `${this.issuer}/mcp`;
@@ -127,6 +128,7 @@ export class PhotonOAuthRuntime {
         resourceIcon: options.photonIcon,
         resourceDescription: options.photonDescription,
         oauthCustomCss: options.oauthCustomCss,
+        authMethods: options.authMethods,
       },
     });
     this.serv.addTenant(this.tenant);

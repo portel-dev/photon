@@ -13,6 +13,22 @@ export * from '@portel/photon-core';
 // Export Photon-specific runtime components
 export { PhotonLoader } from './loader.js';
 export { PhotonServer } from './server.js';
+
+// Transport-neutral passwordless authentication primitives. Delivery is a
+// Photon-author callback; challenge generation, hashing, expiry, and replay
+// protection remain in the Photon runtime.
+export {
+  AuthCodeService,
+  MemoryAuthChallengeStore,
+  type AuthCodeDeliveryAdapter,
+  type AuthCodeDeliveryRequest,
+  type AuthCodePurpose,
+  type AuthChallenge,
+  type AuthChallengeStore,
+  type AuthCodeServiceOptions,
+  type AuthCodeVerification,
+  type AuthCodeVerificationFailure,
+} from './auth/auth-delivery.js';
 export { PhotonDocExtractor } from './photon-doc-extractor.js';
 export {
   parseAccessMetadata,

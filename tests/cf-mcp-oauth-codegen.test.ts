@@ -68,9 +68,28 @@ export default class Appointments {
   };
 }
 
+async function compileGeneratedWorker(workerPath: string): Promise<void> {
+  await build({
+    entryPoints: [workerPath],
+    bundle: true,
+    platform: 'neutral',
+    format: 'esm',
+    write: false,
+    logLevel: 'silent',
+    external: [
+      'cloudflare:workers',
+      'node:async_hooks',
+      'cron-parser',
+      '@modelcontextprotocol/server',
+    ],
+  });
+}
+
 describe('Cloudflare generated inbound MCP OAuth', () => {
   it('accepts oauth mode and emits the complete discovery and authorization route slice', async () => {
     const generated = await generate();
+
+    await compileGeneratedWorker(join(generated.output, 'src', 'worker.ts'));
 
     expect(generated.worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)? = "oauth"/);
     expect(generated.worker).toContain('const MCP_OAUTH_ISSUER = "https://consult.example.test"');
@@ -89,6 +108,12 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('resource_metadata="');
     expect(generated.worker).toContain('photonOAuthCaller');
     expect(generated.worker).toContain('const role = typeof claims.role');
+    expect(generated.worker).toContain(
+      "role: typeof claims.role === 'string' ? claims.role : undefined"
+    );
+    expect(generated.worker).toContain(
+      'const visibleTools = mcpAuthContext.run(authContext, () =>'
+    );
     expect(generated.worker).toContain(": 'user'");
     expect(generated.worker).toContain('scope: scope || undefined');
     expect(generated.worker).toContain("role: 'user'");
@@ -114,6 +139,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('Cf-Access-Authenticated-User-Email');
     expect(generated.worker).toContain('const MCP_OAUTH_PHOTON_DISPLAY_NAME = "Consult Arul"');
     expect(generated.worker).toContain('const MCP_OAUTH_PHOTON_ICON = "🗓️"');
+    expect(generated.worker).toContain('const MCP_OAUTH_AUTH_METHODS: string[] = []');
     expect(generated.worker).toContain(
       'const MCP_OAUTH_PHOTON_DESCRIPTION = "Book a focused consultation with Arul."'
     );
@@ -123,7 +149,7 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('name=\\"{{scopeField}}\\"');
     expect(generated.worker).toContain('.oauth-card');
     expect(generated.worker).toContain(
-      "default-src 'none'; img-src 'self' https: data:; style-src 'unsafe-inline'; form-action "
+      "default-src 'none'; img-src 'self' https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action "
     );
     expect(generated.worker).toContain('+ allowedFormActions + "; base-uri \'none\'"');
     expect(generated.worker).toContain('oauth-mark-image');
@@ -131,6 +157,8 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('function photonOAuthRenderConsentError(model)');
     expect(generated.worker).toContain('function photonOAuthErrorForRequest(');
     expect(generated.worker).toContain('photonOAuthAcceptsHtml');
+    expect(generated.worker).toContain('photonOAuthEmailChallenge');
+    expect(generated.worker).toContain('photonOAuthVerifyEmailCode');
     expect(generated.worker).toContain("request.headers.get('Sec-Fetch-Dest')?.toLowerCase()");
     expect(generated.worker).toContain("request.headers.get('Sec-Fetch-Mode')?.toLowerCase()");
     expect(generated.worker).toContain("fetchDest === 'document' || fetchMode === 'navigate'");
@@ -138,9 +166,11 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain("range.type === 'application/json'");
     expect(generated.worker).toContain('Allow access');
     expect(generated.worker).toContain('const grantedScope = selectedScopes.join');
-    expect(generated.worker).toMatch(
-      /server\.setRequestHandler\('tools\/list',[\s\S]*?mcpAuthContext\.run\(authContext/
-    );
+    expect(generated.worker).toContain('server.registerTool(');
+    expect(generated.worker).toContain('server.registerResource(');
+    expect(generated.worker).toContain('fromJsonSchema(');
+    expect(generated.worker).not.toContain("server.setRequestHandler('tools/list'");
+    expect(generated.worker).not.toContain("server.setRequestHandler('tools/call'");
     expect(generated.worker).toContain('const structuredContent = Array.isArray(result)');
     expect(generated.worker).toContain('? { items: result }');
   });
@@ -169,6 +199,24 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toMatch(/const MCP_AUTH_MODE(?:\s*:\s*string)? = "oauth"/);
     expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "required"');
     expect(generated.worker).toContain("request.method === 'POST'");
+  });
+
+  it('carries shorthand passwordless methods into generated OAuth workers', async () => {
+    const generated = await generate({ authTag: '@auth email passkey', inferFromAuth: true });
+
+    expect(generated.worker).toContain(
+      `const MCP_OAUTH_AUTH_METHODS: string[] = ["email","passkey"]`
+    );
+    expect(generated.worker).toContain('const MCP_OAUTH_AUTH_MODE = "required"');
+  });
+
+  it('keeps generated email validation and subject parsing as real regexes', async () => {
+    const generated = await generate({ authTag: '@auth email passkey', inferFromAuth: true });
+
+    expect(generated.worker).toContain('if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalized))');
+    expect(generated.worker).toContain('split(/[\\s,]+/)');
+    expect(generated.worker).not.toContain('[^\\\\s@]');
+    expect(generated.worker).not.toContain('/[\\\\s,]+/');
   });
 
   it('preserves legacy @auth oauth and fails closed for malformed or duplicate metadata', async () => {

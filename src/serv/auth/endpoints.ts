@@ -115,6 +115,8 @@ export interface EndpointConfig {
   resourceDescription?: string;
   /** Optional Photon-owned CSS appended after the safe OAuth defaults. */
   oauthCustomCss?: string;
+  /** Passwordless login methods requested by the Photon. */
+  authMethods?: Array<'email' | 'passkey'>;
 }
 
 export const DEFAULT_ENDPOINT_CONFIG: Omit<
@@ -346,6 +348,9 @@ async function handleAuthorizeImpl(req: AuthRequest, deps: EndpointDeps): Promis
     // Redirect to login with return_to pointing back at /authorize with full query
     const loginUrl = new URL(deps.config.loginUrl);
     loginUrl.searchParams.set('return_to', req.url);
+    if (deps.config.authMethods?.length) {
+      loginUrl.searchParams.set('auth_methods', deps.config.authMethods.join(' '));
+    }
     return redirectResponse(loginUrl.toString());
   }
 

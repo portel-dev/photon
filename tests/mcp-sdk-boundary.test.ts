@@ -76,4 +76,11 @@ assert.match(v2ServerBoundary, /@modelcontextprotocol\/server/);
 assert.match(v2ServerBoundary, /createMcpHandler/);
 assert.match(v2ServerBoundary, /serveStdio/);
 
+const runtimeServer = readFileSync(join(root, 'src', 'server.ts'), 'utf8');
+assert.doesNotMatch(
+  runtimeServer,
+  /BeamCompatTransport|beamTransport|SubPhotonInfo/,
+  'The runtime must not retain the retired custom Beam transport'
+);
+
 console.log('MCP SDK boundaries and official Beam client dependency pins are valid.');

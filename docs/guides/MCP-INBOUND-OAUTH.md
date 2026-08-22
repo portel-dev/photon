@@ -25,9 +25,49 @@ export default class Consult {
   different catalog through property-based exposure.
 - `@auth oauth required` requires a valid bearer token for every tool. An
   anonymous request receives an OAuth challenge.
+- `@auth email passkey` selects passwordless email sign-in with passkey support
+  and requires authentication by default. The two method names are shorthand
+  for the login methods used by Photon's inbound OAuth authorization server;
+  OAuth remains the MCP transport contract.
+- Add `optional` at the end (`@auth email passkey optional`) when anonymous
+  tools should remain available while authenticated tools use the same
+  connection.
 - OAuth syntax is `@auth oauth <optional|required>`. The older forms,
   `@auth optional` and `@auth required`, are legacy authentication modes, not
   OAuth.
+
+The `email` and `passkey` tokens describe the authentication methods a Photon
+expects its login page to offer. Photon owns the authentication state and
+challenge lifecycle; delivery is deliberately a callback so a Photon can use
+email, SMS, WhatsApp, or another channel without Photon depending on a vendor.
+
+Use the standard adapter shape when wiring a login provider:
+
+```ts
+import type { AuthCodeDeliveryRequest } from '@portel/photon';
+
+const authCodeDelivery = {
+  async sendCode(request: AuthCodeDeliveryRequest) {
+    await sendThroughYourPreferredChannel({
+      to: request.destination,
+      code: request.code,
+      purpose: request.purpose,
+      expiresAt: request.expiresAt,
+    });
+  },
+};
+```
+
+Register that adapter in the runtime's `authCodeDelivery` configuration. Photon
+generates the code, stores only a peppered hash, applies expiry and attempt
+limits, and consumes it exactly once. The callback receives the plaintext code
+only for delivery; never expose it as an MCP method or log it. A production
+deployment must provide a durable `authChallengeStore`.
+
+The first verified code can bootstrap the account and authorize passkey
+enrollment. The WebAuthn ceremony and persistent credential store are still
+required before advertising a passkey option. Do not change a Photon to
+`@auth email passkey` until that login adapter implements those ceremonies.
 
 Photon performs OAuth discovery and bearer verification at the MCP endpoint.
 Missing or invalid credentials are rejected; a valid token that lacks a
