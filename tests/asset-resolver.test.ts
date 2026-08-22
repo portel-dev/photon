@@ -86,4 +86,24 @@ describe('AssetResolver', () => {
     expect(assets?.ui[0]?.linkedTool).toBe('client_ui');
     expect(assets?.ui[0]?.linkedTools).toEqual(['client_ui']);
   });
+
+  test('does not leak class-level UI aliases into the first method block', async () => {
+    const source = `
+      /**
+       * @ui booking ./ui/app.tsx
+       * @ui booking-v3 ./ui/app.tsx
+       */
+      export default class Sample {
+        /**
+         * @ui booking-v3
+         */
+        list_slots() {}
+      }
+    `;
+    const photonPath = makePhoton(source);
+    const assets = await new AssetResolver(() => {}).discover(photonPath, source);
+
+    expect(assets?.ui.find((ui) => ui.id === 'booking')?.linkedTool).toBeUndefined();
+    expect(assets?.ui.find((ui) => ui.id === 'booking-v3')?.linkedTool).toBe('list_slots');
+  });
 });

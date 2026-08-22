@@ -187,27 +187,43 @@ export class AssetResolver {
    * Called after auto-discovery so all UI assets are available to look up.
    */
   private applyMethodUILinks(source: string, assets: PhotonAssets): void {
-    const methodUiRegex =
-      /\/\*\*[\s\S]*?@ui\s+(\w[\w-]*)[\s\S]*?\*\/\s*(?:(?:public|private|protected|static|async)\s+)*\*?\s*(\w+)\s*\(/g;
+    // Parse one docblock at a time. The old expression could start at a
+    // class-level block and consume later method blocks until it found a
+    // method, silently linking an unscoped class UI to the first method.
+    // Apart from being surprising, that made an otherwise valid legacy UI
+    // alias disappear from MCP resource discovery when another UI was linked
+    // to the same method.
+    const docblockRegex = /\/\*\*([\s\S]*?)\*\//g;
 
     let match;
-    while ((match = methodUiRegex.exec(source)) !== null) {
-      const [, uiId, methodName] = match;
-      const asset = assets.ui.find((u) => u.id === uiId);
-      if (asset) {
-        if (!asset.linkedTool) {
-          asset.linkedTool = methodName;
-          this.log(`  🔗 UI ${uiId} → ${methodName}`);
-        }
-        if (!asset.linkedTools) asset.linkedTools = [];
-        if (!asset.linkedTools.includes(methodName)) {
-          asset.linkedTools.push(methodName);
-          if (asset.linkedTools.length > 1) {
-            this.log(`  🔗 UI ${uiId} → ${methodName} (shared)`);
+    while ((match = docblockRegex.exec(source)) !== null) {
+      const [, docblock] = match;
+      const afterDocblock = source.slice(docblockRegex.lastIndex);
+      const methodMatch = afterDocblock.match(
+        /^\s*(?:(?:public|private|protected|static|async)\s+)*\*?\s*(\w+)\s*\(/
+      );
+      // A class-level block is followed by `export ... class`, not a method.
+      // Do not scan past that boundary looking for a later method.
+      if (!methodMatch) continue;
+      const methodName = methodMatch[1];
+      for (const uiMatch of docblock.matchAll(/@ui\s+(\w[\w-]*)/g)) {
+        const uiId = uiMatch[1];
+        const asset = assets.ui.find((u) => u.id === uiId);
+        if (asset) {
+          if (!asset.linkedTool) {
+            asset.linkedTool = methodName;
+            this.log(`  🔗 UI ${uiId} → ${methodName}`);
           }
+          if (!asset.linkedTools) asset.linkedTools = [];
+          if (!asset.linkedTools.includes(methodName)) {
+            asset.linkedTools.push(methodName);
+            if (asset.linkedTools.length > 1) {
+              this.log(`  🔗 UI ${uiId} → ${methodName} (shared)`);
+            }
+          }
+        } else {
+          this.log(`  ⚠️ @ui ${uiId} on ${methodName}: asset not found (check file exists)`);
         }
-      } else {
-        this.log(`  ⚠️ @ui ${uiId} on ${methodName}: asset not found (check file exists)`);
       }
     }
   }
