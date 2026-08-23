@@ -121,7 +121,7 @@ export function injectCloudflareMcpOAuth(
   }
   output = output.replace(
     outerInstance,
-    `    const requestPath = new URL(request.url).pathname;\n    const isOAuthEndpoint = requestPath === '/oauth/login' || requestPath === '/authorize' || requestPath === '/token' || requestPath === '/register' || requestPath === '/consent' || requestPath === '/revoke' || requestPath === '/introspect' || requestPath.startsWith('/.well-known/');\n    // Authorization state is single-tenant at the Worker edge. Do not let an\n    // arbitrary instance query/header select a different OAuth key or store.\n    const instance = isOAuthEndpoint ? 'default' : extractInstance(request, env);`
+    `    const requestPath = new URL(request.url).pathname;\n    const isOAuthEndpoint = requestPath === '/login' || requestPath === '/logout' || requestPath === '/web-session/complete' || requestPath === '/oauth/login' || requestPath === '/authorize' || requestPath === '/token' || requestPath === '/register' || requestPath === '/consent' || requestPath === '/revoke' || requestPath === '/introspect' || requestPath.startsWith('/.well-known/');\n    // Authorization state is single-tenant at the Worker edge. Do not let an\n    // arbitrary instance query/header select a different OAuth key or store.\n    const instance = isOAuthEndpoint ? 'default' : extractInstance(request, env);`
   );
 
   // Keep the anonymous caller compatible with @class ... {@role user}.
@@ -523,6 +523,40 @@ function photonOAuthSafeRedirect(uri: string): boolean {
   }
 }
 
+function photonOAuthSafeReturnPath(value: string | null | undefined, fallback = '/account'): string {
+  const candidate = String(value ?? '').trim();
+  if (!candidate || !candidate.startsWith('/') || candidate.startsWith('//') || candidate.includes('\\')) return fallback;
+  try {
+    const parsed = new URL(candidate, MCP_OAUTH_ISSUER);
+    if (parsed.origin !== MCP_OAUTH_ISSUER) return fallback;
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return fallback;
+  }
+}
+
+async function photonOAuthCreateWebSession(storage: PhotonOAuthStorage, tx: any): Promise<string> {
+  const token = photonOAuthB64(crypto.getRandomValues(new Uint8Array(32)));
+  const now = Date.now();
+  const session = {
+    id: 'web_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(18))),
+    sub: String(tx.sub),
+    role: String(tx.role ?? 'user'),
+    name: typeof tx.name === 'string' ? tx.name : String(tx.sub),
+    csrfToken: photonOAuthB64(crypto.getRandomValues(new Uint8Array(24))),
+    createdAt: now,
+    expiresAt: now + 30 * 24 * 60 * 60 * 1000,
+  };
+  await storage.put('web:session:' + await photonWebHash(token), session);
+  return token;
+}
+
+function photonOAuthSessionResponse(status: number, location: string, token?: string): Response {
+  const headers = new Headers({ Location: location, 'Cache-Control': 'no-store', ...CORS_HEADERS });
+  if (token) headers.set('Set-Cookie', photonWebSessionCookie(token));
+  return new Response(null, { status, headers });
+}
+
 async function photonOAuthClient(storage: PhotonOAuthStorage, clientId: string): Promise<any | null> {
   return (await storage.get<any>('oauth:client:' + clientId)) ?? null;
 }
@@ -589,9 +623,15 @@ function photonOAuthLoginPage(txId: string, message?: string, error?: string): R
   return photonOAuthHtml(200, html);
 }
 
-function photonOAuthVerifiedPage(txId: string, email: string): Response {
+function photonOAuthContinueTarget(tx: any): string {
+  if (tx?.flow === 'web') return MCP_OAUTH_ISSUER + '/web-session/complete?tx=' + encodeURIComponent(String(tx.id));
+  return MCP_OAUTH_ISSUER + '/consent?tx=' + encodeURIComponent(String(tx.id));
+}
+
+function photonOAuthVerifiedPage(txId: string, email: string, transaction?: any): Response {
   const passkey = MCP_OAUTH_AUTH_METHODS.includes('passkey') ? '<button class="button" id="add-passkey" type="button">Add a passkey on this device</button><p class="hint">Passkeys use your device security and can replace email codes the next time you connect.</p>' : '';
-  const html = photonOAuthLoginShell('Email verified', '<section class="card"><div class="eyebrow">Identity verified</div><h1>Continue securely</h1><p class="muted">You are signed in as <strong>' + photonOAuthEscape(email) + '</strong>.</p>' + passkey + '<a class="button secondary" style="display:block;text-align:center;text-decoration:none" href="/consent?tx=' + encodeURIComponent(txId) + '">Continue without a passkey</a></section>' + (MCP_OAUTH_AUTH_METHODS.includes('passkey') ? '<script>document.getElementById("add-passkey").onclick=async function(){try{var start=await fetch("/oauth/login",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({action:"passkey_begin_register",oauth_state:' + JSON.stringify(txId) + '})});var options=await start.json();if(!start.ok)throw new Error(options.error_description||"Passkey unavailable");var dec=function(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";var b=atob(s),a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer};options.publicKey.challenge=dec(options.publicKey.challenge);options.publicKey.user.id=dec(options.publicKey.user.id);var credential=await navigator.credentials.create(options);var bytes=function(v){return Array.from(new Uint8Array(v))};var finish=await fetch("/oauth/login",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({action:"passkey_finish_register",oauth_state:' + JSON.stringify(txId) + ',payload:JSON.stringify({id:credential.id,response:{clientDataJSON:bytes(credential.response.clientDataJSON),attestationObject:bytes(credential.response.attestationObject)}})})});var result=await finish.json();if(!finish.ok)throw new Error(result.error_description||"Passkey registration failed");location.href=result.redirect}catch(e){alert(e.message)}};</script>' : ''));
+  const continueUrl = photonOAuthContinueTarget(transaction ?? { id: txId });
+  const html = photonOAuthLoginShell('Email verified', '<section class="card"><div class="eyebrow">Identity verified</div><h1>Continue securely</h1><p class="muted">You are signed in as <strong>' + photonOAuthEscape(email) + '</strong>.</p>' + passkey + '<a class="button secondary" style="display:block;text-align:center;text-decoration:none" href="' + photonOAuthEscape(continueUrl) + '">Continue without a passkey</a></section>' + (MCP_OAUTH_AUTH_METHODS.includes('passkey') ? '<script>document.getElementById("add-passkey").onclick=async function(){try{var start=await fetch("/oauth/login",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({action:"passkey_begin_register",oauth_state:' + JSON.stringify(txId) + '})});var options=await start.json();if(!start.ok)throw new Error(options.error_description||"Passkey unavailable");var dec=function(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";var b=atob(s),a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer};options.publicKey.challenge=dec(options.publicKey.challenge);options.publicKey.user.id=dec(options.publicKey.user.id);var credential=await navigator.credentials.create(options);var bytes=function(v){return Array.from(new Uint8Array(v))};var finish=await fetch("/oauth/login",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({action:"passkey_finish_register",oauth_state:' + JSON.stringify(txId) + ',payload:JSON.stringify({id:credential.id,response:{clientDataJSON:bytes(credential.response.clientDataJSON),attestationObject:bytes(credential.response.attestationObject)}})})});var result=await finish.json();if(!finish.ok)throw new Error(result.error_description||"Passkey registration failed");location.href=result.redirect}catch(e){alert(e.message)}};</script>' : ''));
   return photonOAuthHtml(200, html);
 }
 
@@ -656,7 +696,7 @@ async function photonOAuthVerifyEmailCode(storage: PhotonOAuthStorage, env: Env,
   const role = hostSubjects.includes(challenge.email) ? 'host' : 'user';
   const verified = { ...tx, sub: challenge.email, role, name: challenge.email, emailVerified: true };
   await storage.put('oauth:tx:' + tx.id, verified);
-  return MCP_OAUTH_AUTH_METHODS.includes('passkey') ? photonOAuthVerifiedPage(tx.id, challenge.email) : new Response(null, { status: 302, headers: { Location: MCP_OAUTH_ISSUER + '/consent?tx=' + encodeURIComponent(tx.id), 'Cache-Control': 'no-store', ...CORS_HEADERS } });
+  return MCP_OAUTH_AUTH_METHODS.includes('passkey') ? photonOAuthVerifiedPage(tx.id, challenge.email, verified) : new Response(null, { status: 302, headers: { Location: photonOAuthContinueTarget(verified), 'Cache-Control': 'no-store', ...CORS_HEADERS } });
 }
 
 function photonOAuthBytes(value: any): Uint8Array {
@@ -766,7 +806,7 @@ async function photonOAuthFinishPasskeyRegister(storage: PhotonOAuthStorage, env
   await storage.delete('oauth:webauthn:' + tx.id);
   await storage.put('oauth:tx:' + tx.id, { ...tx, passkeyRegistered: true });
   void env;
-  return photonOAuthJson(200, { redirect: MCP_OAUTH_ISSUER + '/consent?tx=' + encodeURIComponent(tx.id) });
+  return photonOAuthJson(200, { redirect: photonOAuthContinueTarget({ ...tx, passkeyRegistered: true }) });
 }
 
 async function photonOAuthFinishPasskeyAuth(storage: PhotonOAuthStorage, env: Env, tx: any, payload: any): Promise<Response> {
@@ -782,7 +822,7 @@ async function photonOAuthFinishPasskeyAuth(storage: PhotonOAuthStorage, env: En
   const hostSubjects = String((env as any).PHOTON_MCP_OAUTH_HOST_SUBJECTS ?? '').split(/[\s,]+/).map((value) => value.trim().toLowerCase()).filter(Boolean);
   const role = hostSubjects.includes(transaction.email) ? 'host' : 'user';
   await storage.put('oauth:tx:' + tx.id, { ...tx, sub: transaction.email, role, name: transaction.email, emailVerified: true });
-  return photonOAuthJson(200, { redirect: MCP_OAUTH_ISSUER + '/consent?tx=' + encodeURIComponent(tx.id) });
+  return photonOAuthJson(200, { redirect: photonOAuthContinueTarget({ ...tx, sub: transaction.email, role, name: transaction.email, emailVerified: true }) });
 }
 
 async function photonOAuthVerifyRegistration(expectedChallenge: string, payload: any): Promise<{ credentialId: Uint8Array; publicJwk: JsonWebKey; signCount: number } | null> {
@@ -905,7 +945,7 @@ async function handlePhotonMcpOAuth(
 ): Promise<Response | null> {
   const url = new URL(request.url);
   const pathname = url.pathname;
-  const isOAuthPath = pathname === '/oauth/login' || pathname === '/authorize' || pathname === '/token' || pathname === '/register' || pathname === '/consent' || pathname === '/revoke' || pathname === '/introspect' || pathname === '/.well-known/jwks.json' || pathname === '/.well-known/oauth-protected-resource' || pathname === '/.well-known/oauth-authorization-server';
+  const isOAuthPath = pathname === '/login' || pathname === '/logout' || pathname === '/web-session/complete' || pathname === '/oauth/login' || pathname === '/authorize' || pathname === '/token' || pathname === '/register' || pathname === '/consent' || pathname === '/revoke' || pathname === '/introspect' || pathname === '/.well-known/jwks.json' || pathname === '/.well-known/oauth-protected-resource' || pathname === '/.well-known/oauth-authorization-server';
   if (!isOAuthPath) return null;
   // All OAuth metadata, issuer claims, redirects, and resource identifiers
   // must use the configured canonical issuer. Request aliases are not OAuth
@@ -913,6 +953,40 @@ async function handlePhotonMcpOAuth(
   const origin = MCP_OAUTH_ISSUER;
   const resource = origin + '/mcp';
   const scopes = MCP_OAUTH_DEFAULT_SCOPES.length > 0 ? MCP_OAUTH_DEFAULT_SCOPES : ['mcp:read'];
+
+  if (pathname === '/login' && request.method === 'GET') {
+    if (!MCP_OAUTH_AUTH_METHODS.includes('email')) {
+      return photonOAuthErrorForRequest(request, 503, 'temporarily_unavailable', 'Browser email authentication is not enabled for this Photon.');
+    }
+    const tx = {
+      id: 'webtx_' + photonOAuthB64(crypto.getRandomValues(new Uint8Array(18))),
+      flow: 'web',
+      returnTo: photonOAuthSafeReturnPath(url.searchParams.get('return_to')),
+      createdAt: Date.now(),
+      expiresAt: Date.now() + MCP_OAUTH_TX_TTL * 1000,
+    };
+    await storage.put('oauth:tx:' + tx.id, tx);
+    return photonOAuthSessionResponse(302, origin + '/oauth/login?oauth_state=' + encodeURIComponent(tx.id));
+  }
+
+  if (pathname === '/logout' && (request.method === 'GET' || request.method === 'POST')) {
+    const token = photonWebParseCookies(request.headers.get('Cookie'))['__photon_session'];
+    const headers = new Headers({ Location: photonOAuthSafeReturnPath(url.searchParams.get('return_to'), '/'), 'Cache-Control': 'no-store', ...CORS_HEADERS });
+    if (token) headers.set('Set-Cookie', photonWebExpiredSessionCookie());
+    if (token) await storage.delete('web:session:' + await photonWebHash(token));
+    return new Response(null, { status: 302, headers });
+  }
+
+  if (pathname === '/web-session/complete' && request.method === 'GET') {
+    const txId = url.searchParams.get('tx');
+    const tx = txId ? await storage.get<any>('oauth:tx:' + txId) : null;
+    if (!tx || tx.flow !== 'web' || tx.expiresAt < Date.now() || !tx.sub || !tx.role) {
+      return photonOAuthErrorForRequest(request, 400, 'invalid_request', 'The browser login has expired. Start again from the Photon login page.');
+    }
+    const token = await photonOAuthCreateWebSession(storage, tx);
+    await storage.delete('oauth:tx:' + tx.id);
+    return photonOAuthSessionResponse(302, photonOAuthSafeReturnPath(tx.returnTo, '/account'), token);
+  }
 
   if (pathname === '/oauth/login' && request.method === 'GET') {
     const txId = url.searchParams.get('oauth_state') ?? url.searchParams.get('tx');

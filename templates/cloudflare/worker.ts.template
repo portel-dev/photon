@@ -795,7 +795,7 @@ function withCfCapabilities(
   Object.defineProperty(instance, 'caller', {
     get() {
       return (
-        mcpAuthContext.getStore()?.caller ?? {
+        mcpAuthContext.getStore()?.caller ?? photonWebContext.getStore()?.caller ?? {
           id: 'anonymous',
           name: undefined,
           anonymous: true,
@@ -803,6 +803,26 @@ function withCfCapabilities(
           claims: {},
         }
       );
+    },
+    enumerable: false,
+    configurable: false,
+  });
+
+  // Browser-session identity is request-scoped in exactly the same way as
+  // MCP caller identity. Photon HTTP handlers can use `this.webSession` to
+  // protect account/host pages without knowing how the session cookie is
+  // stored or renewed.
+  Object.defineProperty(instance, 'webSession', {
+    get() {
+      return photonWebContext.getStore()?.session ?? null;
+    },
+    enumerable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(instance, 'request', {
+    get() {
+      return photonWebContext.getStore()?.request ?? undefined;
     },
     enumerable: false,
     configurable: false,
@@ -944,6 +964,72 @@ const requestContext = new AsyncLocalStorage<RequestContext>();
  * `tools/call` invocation, not the DO lifetime.
  */
 const mcpAuthContext = new AsyncLocalStorage<{ authed: boolean; caller?: any }>();
+
+type PhotonWebSessionRecord = {
+  id: string;
+  sub: string;
+  role: string;
+  name?: string;
+  csrfToken: string;
+  createdAt: number;
+  expiresAt: number;
+};
+
+const photonWebContext = new AsyncLocalStorage<{
+  request: Request;
+  session: PhotonWebSessionRecord | null;
+  caller: any;
+}>();
+
+function photonWebParseCookies(header: string | null): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  for (const part of String(header ?? '').split(';')) {
+    const index = part.indexOf('=');
+    if (index < 0) continue;
+    const name = part.slice(0, index).trim();
+    if (!name) continue;
+    try { cookies[name] = decodeURIComponent(part.slice(index + 1).trim()); } catch { /* ignore malformed cookies */ }
+  }
+  return cookies;
+}
+
+async function photonWebHash(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  const bytes = new Uint8Array(digest);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function photonWebSessionFor(request: Request, storage: DurableObjectStorage): Promise<PhotonWebSessionRecord | null> {
+  const token = photonWebParseCookies(request.headers.get('Cookie'))['__photon_session'];
+  if (!token) return null;
+  const key = 'web:session:' + await photonWebHash(token);
+  const session = await storage.get<PhotonWebSessionRecord>(key);
+  if (!session || session.expiresAt <= Date.now()) {
+    if (session) await storage.delete(key);
+    return null;
+  }
+  return session;
+}
+
+function photonWebCaller(session: PhotonWebSessionRecord | null): any {
+  if (!session) return { id: 'anonymous', name: undefined, anonymous: true, role: 'user', scope: undefined, claims: {} };
+  return { id: session.sub, name: session.name ?? session.sub, anonymous: false, role: session.role, scope: undefined, scopes: [], claims: { sub: session.sub, role: session.role } };
+}
+
+async function photonWebContextFor(request: Request, storage: DurableObjectStorage) {
+  const session = await photonWebSessionFor(request, storage);
+  return { request, session, caller: photonWebCaller(session) };
+}
+
+function photonWebSessionCookie(token: string, maxAge = 30 * 24 * 60 * 60): string {
+  return '__photon_session=' + encodeURIComponent(token) + '; Path=/; Max-Age=' + maxAge + '; HttpOnly; Secure; SameSite=Lax';
+}
+
+function photonWebExpiredSessionCookie(): string {
+  return photonWebSessionCookie('', 0);
+}
 
 /**
  * Constant-time string comparison to avoid leaking the bearer through
@@ -1772,7 +1858,10 @@ abstract class BasePhotonDO extends DurableObject<Env> {
       const fn = (this.photon as any)[matchedRoute.route.handler];
       if (typeof fn === 'function') {
         try {
-          const response = await fn.call(this.photon, request, matchedRoute.params);
+          const webContext = await photonWebContextFor(request, this.ctx.storage);
+          const response = await photonWebContext.run(webContext, () =>
+            fn.call(this.photon, request, matchedRoute.params)
+          );
           if (response instanceof Response) return response;
           return Response.json(response, { headers: CORS_HEADERS });
         } catch (error: any) {
@@ -1820,7 +1909,8 @@ abstract class BasePhotonDO extends DurableObject<Env> {
           return new Response('Invalid JSON body', { status: 400, headers: CORS_HEADERS });
         }
         try {
-          const result = await fn.call(this.photon, parsed);
+          const webContext = await photonWebContextFor(request, this.ctx.storage);
+          const result = await photonWebContext.run(webContext, () => fn.call(this.photon, parsed));
           if (result instanceof Response) return result;
           return Response.json(result, { headers: CORS_HEADERS });
         } catch (error: any) {

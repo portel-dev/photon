@@ -100,6 +100,9 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain("'/.well-known/jwks.json'");
     expect(generated.worker).toContain("pathname === '/authorize'");
     expect(generated.worker).toContain("requestPath === '/oauth/login'");
+    expect(generated.worker).toContain("requestPath === '/login'");
+    expect(generated.worker).toContain("requestPath === '/logout'");
+    expect(generated.worker).toContain("requestPath === '/web-session/complete'");
     expect(generated.worker).toContain("pathname === '/token'");
     expect(generated.worker).toContain("pathname === '/register'");
     expect(generated.worker).toContain("pathname === '/consent'");
@@ -159,6 +162,12 @@ describe('Cloudflare generated inbound MCP OAuth', () => {
     expect(generated.worker).toContain('photonOAuthAcceptsHtml');
     expect(generated.worker).toContain('photonOAuthEmailChallenge');
     expect(generated.worker).toContain('photonOAuthVerifyEmailCode');
+    expect(generated.worker).toContain('const photonWebContext = new AsyncLocalStorage');
+    expect(generated.worker).toContain("Object.defineProperty(instance, 'webSession'");
+    expect(generated.worker).toContain("Object.defineProperty(instance, 'request'");
+    expect(generated.worker).toContain("'__photon_session='");
+    expect(generated.worker).toContain("'web:session:' + await photonWebHash(token)");
+    expect(generated.worker).toContain('photonWebContext.run(webContext');
     expect(generated.worker).toContain("request.headers.get('Sec-Fetch-Dest')?.toLowerCase()");
     expect(generated.worker).toContain("request.headers.get('Sec-Fetch-Mode')?.toLowerCase()");
     expect(generated.worker).toContain("fetchDest === 'document' || fetchMode === 'navigate'");

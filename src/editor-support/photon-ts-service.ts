@@ -132,10 +132,22 @@ interface PhotonConfigStore {
   set(key: string, value: string): void;
 }
 
+interface PhotonWebSession {
+  id: string;
+  sub: string;
+  role: string;
+  name?: string;
+  csrfToken: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 declare class Photon {
   get caller(): CallerInfo;
   get client(): PhotonClientContext | undefined;
   get request(): PhotonRequestContext | undefined;
+  /** Verified browser identity for Cloudflare web routes, or null for guests. */
+  get webSession(): PhotonWebSession | null;
   get memory(): MemoryProvider;
   get config(): PhotonConfigStore;
   get schedule(): ScheduleProvider;

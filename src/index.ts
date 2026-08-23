@@ -29,6 +29,15 @@ export {
   type AuthCodeVerification,
   type AuthCodeVerificationFailure,
 } from './auth/auth-delivery.js';
+export {
+  PHOTON_WEB_SESSION_COOKIE,
+  PHOTON_WEB_SESSION_TTL_SECONDS,
+  parseCookieHeader,
+  buildSessionCookie,
+  buildExpiredSessionCookie,
+  isSafeReturnPath,
+  type PhotonWebSession,
+} from './auth/web-session.js';
 export { PhotonDocExtractor } from './photon-doc-extractor.js';
 export {
   parseAccessMetadata,
