@@ -728,31 +728,28 @@ function resolveCloudflareApiToken(): { token: string; source: 'env' | 'cf-cli' 
 }
 
 /**
- * Build the environment for Wrangler subprocesses. In a normal terminal
- * Wrangler reads the `cf` OAuth session from its own config, but a piped
- * `bunx wrangler ... --json` invocation can otherwise return an empty stream.
- * Supplying the refreshed token here keeps version discovery deterministic.
- * This environment is only for Wrangler; direct Cloudflare REST calls must
- * not assume the `cf` OAuth token is an API token.
+ * Build the environment for Wrangler subprocesses. Wrangler must retain its
+ * native OAuth profile for `whoami` and version discovery; the `cf` CLI's
+ * `cfoat_...` token is used only by our direct REST fallback below.
  */
 function wranglerEnv(): NodeJS.ProcessEnv {
-  const resolved = resolveCloudflareApiToken();
-  if (!resolved) return process.env;
-  return { ...process.env, CLOUDFLARE_API_TOKEN: resolved.token };
+  return process.env;
 }
 
 /**
- * Use the same resolved Cloudflare credential for upload and promotion.
+ * Use Wrangler's native OAuth session for uploads and version promotion.
  *
- * The old implementation removed CLOUDFLARE_API_TOKEN here so Wrangler would
- * fall back to its native profile. That made `wrangler deploy` appear
- * successful while the subsequent version lookup/promotion could select a
- * secret-only version created by another process. Keeping one credential
- * source makes upload and promotion operate on the same account and version
- * list.
+ * The `cf` CLI token is suitable for the direct Cloudflare API calls used for
+ * discovery, but it is not interchangeable with Wrangler's native OAuth
+ * profile for `wrangler deploy`. Passing it as CLOUDFLARE_API_TOKEN can make
+ * Wrangler exit successfully after autoconfiguration without uploading a
+ * version. Keep the two credential paths explicit.
  */
 function wranglerDeployEnv(): NodeJS.ProcessEnv {
-  return wranglerEnv();
+  const resolved = resolveCloudflareApiToken();
+  if (resolved?.source !== 'cf-cli') return process.env;
+  const { CLOUDFLARE_API_TOKEN: _ignored, ...nativeEnv } = process.env;
+  return nativeEnv;
 }
 
 export interface CloudflareDeployOptions {
@@ -886,6 +883,29 @@ export function ensureNewCloudflareVersion(versionId: string, previousVersionId?
     throw new Error('Cloudflare has not exposed the newly uploaded Worker version yet.');
   }
   return versionId;
+}
+
+/**
+ * Wrangler's `versions list --json` uses the deployable-only API in some
+ * releases. Immediately after an upload that list can still report the
+ * previous live version even though the unfiltered Cloudflare API already
+ * exposes the new upload. Prefer that API result before declaring a deploy
+ * idempotent.
+ */
+export function preferUploadedCloudflareVersion(
+  listedVersionId: string,
+  apiVersionId: string | undefined,
+  previousVersionId?: string
+): string {
+  if (
+    previousVersionId &&
+    listedVersionId === previousVersionId &&
+    apiVersionId &&
+    apiVersionId !== previousVersionId
+  ) {
+    return apiVersionId;
+  }
+  return listedVersionId;
 }
 
 export interface CloudflareDurableObjectSpec {
@@ -2502,7 +2522,6 @@ async function promoteLatestCloudflareVersion(
   logger.info('Confirming the uploaded Cloudflare version is serving traffic...');
   let versionList = '';
   let lastListError: unknown;
-  let lastObservedVersionId: string | undefined;
   // Versioned deployments can take several seconds to become visible to the
   // versions API. Keep polling long enough that a just-uploaded version is
   // not mistaken for an idempotent deploy of the previous version.
@@ -2525,10 +2544,16 @@ async function promoteLatestCloudflareVersion(
         latestVersionId =
           (await fetchCloudflareWorkerVersionIds(outputDir, photonName, env))[0] || '';
       }
+      if (previousVersionId && latestVersionId === previousVersionId) {
+        latestVersionId = preferUploadedCloudflareVersion(
+          latestVersionId,
+          (await fetchCloudflareWorkerVersionIds(outputDir, photonName, env))[0],
+          previousVersionId
+        );
+      }
       if (!latestVersionId) {
         throw new Error('Cloudflare has not exposed a deployable Worker version yet.');
       }
-      lastObservedVersionId = latestVersionId;
       const versionId = ensureNewCloudflareVersion(latestVersionId, previousVersionId);
       logger.info(`Promoting Worker version ${versionId} to 100%...`);
       await new Promise<void>((resolve, reject) => {
@@ -2559,15 +2584,6 @@ async function promoteLatestCloudflareVersion(
       lastListError = error;
       if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-  }
-
-  // Wrangler can complete an idempotent deploy without creating a second
-  // version. That is a successful deployment: the existing version remains
-  // live, and there is nothing to promote. Only fail when there was no prior
-  // deployable version to keep serving.
-  if (previousVersionId && lastObservedVersionId === previousVersionId) {
-    logger.info('Cloudflare kept the existing Worker version; no promotion was needed.');
-    return;
   }
 
   throw new Error(

@@ -25,6 +25,7 @@ import {
   parseCloudflareDurableObjectVersion,
   selectLatestCloudflareVersion,
   ensureNewCloudflareVersion,
+  preferUploadedCloudflareVersion,
 } from '../src/deploy/cloudflare.js';
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -308,6 +309,12 @@ describe('CF deploy version promotion', () => {
   it('never re-promotes the version that existed before upload', () => {
     expect(ensureNewCloudflareVersion('newer', 'older')).toBe('newer');
     expect(() => ensureNewCloudflareVersion('older', 'older')).toThrow(/not exposed/);
+  });
+
+  it('prefers the unfiltered API version when Wrangler still lists the live version', () => {
+    expect(preferUploadedCloudflareVersion('live', 'uploaded', 'live')).toBe('uploaded');
+    expect(preferUploadedCloudflareVersion('uploaded', 'live', 'live')).toBe('uploaded');
+    expect(preferUploadedCloudflareVersion('live', undefined, 'live')).toBe('live');
   });
 });
 
