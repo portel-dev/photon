@@ -1178,36 +1178,36 @@ async function discoverCloudflareDurableObjectClasses(
   workerName: string,
   env: NodeJS.ProcessEnv
 ): Promise<{ classes: Record<string, string>; migrationVersion: number }> {
-  const list = spawnSync(
-    detectRunner(),
-    ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
-    { cwd: outputDir, encoding: 'utf-8', env }
-  );
-  let versionOutput = `${list.stdout || ''}\n${list.stderr || ''}`;
-  // A first `bunx wrangler` invocation can return only its trailing newline
-  // while the package runner is warming up. Retry the read once before
-  // deciding that the Worker has no versions (which would drop migration
-  // history on an otherwise normal redeploy).
-  if (versionOutput.trim().length === 0) {
-    const retry = spawnSync(
+  let versionOutput = '';
+  let versionIds: string[] = [];
+  // The first `bunx wrangler` invocation can return only a banner (or a
+  // trailing newline) while the package runner and Cloudflare API session are
+  // warming up. A single retry is not enough: treating that transient result
+  // as "no versions" drops the Durable Object migration history and makes a
+  // normal redeploy fail with Cloudflare error 10074.
+  for (let attempt = 0; attempt < 6 && versionIds.length === 0; attempt += 1) {
+    const list = spawnSync(
       detectRunner(),
       ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
       { cwd: outputDir, encoding: 'utf-8', env }
     );
-    versionOutput = `${retry.stdout || ''}\n${retry.stderr || ''}`;
-  }
-  let versionIds = Array.from(versionOutput.matchAll(/"id"\s*:\s*"([^"]+)"/g))
-    .map((match) => match[1])
-    .filter((id, index, all) => all.indexOf(id) === index)
-    .reverse();
-  // Keep discovery resilient to Wrangler/Bun output wrappers. The normal
-  // regex handles plain JSON, while the shared parser also understands a
-  // JSON array preceded by notices or ANSI output.
-  if (versionIds.length === 0) {
-    try {
-      versionIds = [selectLatestCloudflareVersion(versionOutput)];
-    } catch {
-      // Fall through to the Cloudflare API path below.
+    versionOutput = `${list.stdout || ''}\n${list.stderr || ''}`;
+    versionIds = Array.from(versionOutput.matchAll(/"id"\s*:\s*"([^"]+)"/g))
+      .map((match) => match[1])
+      .filter((id, index, all) => all.indexOf(id) === index)
+      .reverse();
+    // Keep discovery resilient to Wrangler/Bun output wrappers. The normal
+    // regex handles plain JSON, while the shared parser also understands a
+    // JSON array preceded by notices or ANSI output.
+    if (versionIds.length === 0) {
+      try {
+        versionIds = [selectLatestCloudflareVersion(versionOutput)];
+      } catch {
+        // Try again before falling through to the Cloudflare API path.
+      }
+    }
+    if (versionIds.length === 0 && attempt < 5) {
+      await new Promise((resolve) => setTimeout(resolve, 750));
     }
   }
   if (versionIds.length === 0) {
@@ -1258,17 +1258,23 @@ async function readLatestCloudflareVersionId(
   workerName: string,
   env: NodeJS.ProcessEnv
 ): Promise<string | undefined> {
-  const list = spawnSync(
-    detectRunner(),
-    ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
-    { cwd: outputDir, encoding: 'utf-8', env }
-  );
-  if (list.status !== 0) return undefined;
-  try {
-    return selectLatestCloudflareVersion(`${list.stdout || ''}\n${list.stderr || ''}`);
-  } catch {
-    return (await fetchCloudflareWorkerVersionIds(outputDir, workerName, env))[0];
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const list = spawnSync(
+      detectRunner(),
+      ['wrangler', 'versions', 'list', '--name', workerName, '--json'],
+      { cwd: outputDir, encoding: 'utf-8', env }
+    );
+    if (list.status === 0) {
+      try {
+        return selectLatestCloudflareVersion(`${list.stdout || ''}\n${list.stderr || ''}`);
+      } catch {
+        // The runner may have returned only its startup banner. Retry before
+        // falling back to the direct API lookup.
+      }
+    }
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 750));
   }
+  return (await fetchCloudflareWorkerVersionIds(outputDir, workerName, env))[0];
 }
 
 interface DeployJwtConfig {
@@ -2497,7 +2503,10 @@ async function promoteLatestCloudflareVersion(
   let versionList = '';
   let lastListError: unknown;
   let lastObservedVersionId: string | undefined;
-  const attempts = previousVersionId ? 10 : 3;
+  // Versioned deployments can take several seconds to become visible to the
+  // versions API. Keep polling long enough that a just-uploaded version is
+  // not mistaken for an idempotent deploy of the previous version.
+  const attempts = previousVersionId ? 20 : 5;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const result = spawnSync(
       detectRunner(),
@@ -2548,7 +2557,7 @@ async function promoteLatestCloudflareVersion(
       return;
     } catch (error) {
       lastListError = error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
