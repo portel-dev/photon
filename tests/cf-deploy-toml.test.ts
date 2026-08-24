@@ -26,6 +26,7 @@ import {
   selectLatestCloudflareVersion,
   ensureNewCloudflareVersion,
   preferUploadedCloudflareVersion,
+  cloudflareVersionIsServing,
 } from '../src/deploy/cloudflare.js';
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -188,6 +189,35 @@ describe('CF deploy autogen — auto-naming', () => {
     );
     expect(out).toContain('binding = "gallery_kv"');
     expect(out).toContain('binding = "notes_r2"');
+  });
+});
+
+describe('CF deploy promotion verification', () => {
+  it('detects the promoted version in Wrangler JSON with a positive percentage', () => {
+    expect(
+      cloudflareVersionIsServing(
+        JSON.stringify([
+          { versions: [{ version_id: 'old', percentage: 100 }] },
+          { versions: [{ version_id: 'new', percentage: 100 }] },
+        ]),
+        'new'
+      )
+    ).toBe(true);
+    expect(
+      cloudflareVersionIsServing(
+        JSON.stringify([{ versions: [{ version_id: 'new', percentage: 0 }] }]),
+        'new'
+      )
+    ).toBe(false);
+  });
+
+  it('ignores non-JSON Wrangler notices around the deployment payload', () => {
+    expect(
+      cloudflareVersionIsServing(
+        '⛅️ wrangler\n' + JSON.stringify([{ versions: [{ version_id: 'new', percentage: 100 }] }]),
+        'new'
+      )
+    ).toBe(true);
   });
 });
 

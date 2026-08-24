@@ -1169,6 +1169,101 @@ async function fetchCloudflareWorkerVersion(
   }
 }
 
+interface CloudflareDeploymentSummary {
+  created_on?: string;
+  versions?: Array<{ version_id?: unknown; percentage?: unknown }>;
+}
+
+/**
+ * Return whether a Wrangler deployments payload shows a version serving traffic.
+ * Wrangler may prefix the JSON with notices, so parse the first usable array or
+ * object rather than assuming stdout is JSON-only.
+ */
+export function cloudflareVersionIsServing(output: string, versionId: string): boolean {
+  const firstArray = output.indexOf('[');
+  const lastArray = output.lastIndexOf(']');
+  if (firstArray < 0 || lastArray <= firstArray) return false;
+  try {
+    const parsed = JSON.parse(output.slice(firstArray, lastArray + 1)) as unknown;
+    if (!Array.isArray(parsed)) return false;
+    return parsed.some((deployment) => {
+      const versions = (deployment as CloudflareDeploymentSummary | null)?.versions;
+      return (
+        Array.isArray(versions) &&
+        versions.some(
+          (version) =>
+            version?.version_id === versionId &&
+            typeof version.percentage === 'number' &&
+            version.percentage > 0
+        )
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function fetchCloudflareWorkerDeployments(
+  outputDir: string,
+  workerName: string,
+  env: NodeJS.ProcessEnv
+): Promise<CloudflareDeploymentSummary[]> {
+  const resolved = resolveCloudflareApiToken();
+  const accountId = cloudflareAccountId(outputDir, env);
+  if (!resolved || !accountId) return [];
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}/deployments`,
+      { headers: { Authorization: `Bearer ${resolved.token}` } }
+    );
+    if (!response.ok) return [];
+    const payload = (await response.json()) as {
+      result?: { deployments?: CloudflareDeploymentSummary[] };
+    };
+    return payload.result?.deployments ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function confirmCloudflareVersionServing(
+  outputDir: string,
+  workerName: string,
+  versionId: string,
+  env: NodeJS.ProcessEnv
+): Promise<void> {
+  // The deployment API is authoritative when the cf CLI token is available.
+  // Keep Wrangler as a fallback for users authenticated only through its
+  // native OAuth profile.
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const deployments = await fetchCloudflareWorkerDeployments(outputDir, workerName, env);
+    if (
+      deployments.some((deployment) =>
+        deployment.versions?.some(
+          (version) =>
+            version.version_id === versionId &&
+            typeof version.percentage === 'number' &&
+            version.percentage > 0
+        )
+      )
+    ) {
+      return;
+    }
+
+    const listed = spawnSync(
+      detectRunner(),
+      ['wrangler', 'deployments', 'list', '--name', workerName, '--json'],
+      { cwd: outputDir, encoding: 'utf-8', env }
+    );
+    if (cloudflareVersionIsServing(`${listed.stdout || ''}\n${listed.stderr || ''}`, versionId)) {
+      return;
+    }
+    if (attempt < 14) await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  throw new Error(`Cloudflare did not confirm Worker version ${versionId} serving traffic.`);
+}
+
 function durableObjectClassesFromVersion(
   version: CloudflareWorkerVersionDetails | undefined
 ): Record<string, string> {
@@ -2579,6 +2674,7 @@ async function promoteLatestCloudflareVersion(
           else reject(new Error(`wrangler version promotion failed with exit code ${code}`));
         });
       });
+      await confirmCloudflareVersionServing(outputDir, photonName, versionId, env);
       return;
     } catch (error) {
       lastListError = error;
