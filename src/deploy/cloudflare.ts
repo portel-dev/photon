@@ -732,8 +732,13 @@ function resolveCloudflareApiToken(): { token: string; source: 'env' | 'cf-cli' 
  * native OAuth profile for `whoami` and version discovery; the `cf` CLI's
  * `cfoat_...` token is used only by our direct REST fallback below.
  */
-function wranglerEnv(): NodeJS.ProcessEnv {
-  return process.env;
+export function wranglerEnv(): NodeJS.ProcessEnv {
+  // CODEX_CI is an internal Codex desktop flag. Wrangler interprets it as
+  // its own hosted/CI integration switch and can exit after autoconfiguration
+  // without uploading a Worker version. It must never cross this subprocess
+  // boundary; all other caller environment variables remain available.
+  const { CODEX_CI: _ignored, ...env } = process.env;
+  return env;
 }
 
 /**
@@ -746,9 +751,10 @@ function wranglerEnv(): NodeJS.ProcessEnv {
  * version. Keep the two credential paths explicit.
  */
 function wranglerDeployEnv(): NodeJS.ProcessEnv {
+  const base = wranglerEnv();
   const resolved = resolveCloudflareApiToken();
-  if (resolved?.source !== 'cf-cli') return process.env;
-  const { CLOUDFLARE_API_TOKEN: _ignored, ...nativeEnv } = process.env;
+  if (resolved?.source !== 'cf-cli') return base;
+  const { CLOUDFLARE_API_TOKEN: _ignored, ...nativeEnv } = base;
   return nativeEnv;
 }
 

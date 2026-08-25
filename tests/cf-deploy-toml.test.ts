@@ -27,6 +27,7 @@ import {
   ensureNewCloudflareVersion,
   preferUploadedCloudflareVersion,
   cloudflareVersionIsServing,
+  wranglerEnv,
 } from '../src/deploy/cloudflare.js';
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -193,6 +194,19 @@ describe('CF deploy autogen — auto-naming', () => {
 });
 
 describe('CF deploy promotion verification', () => {
+  it('does not pass the Codex CI marker into Wrangler subprocesses', () => {
+    const previous = process.env.CODEX_CI;
+    process.env.CODEX_CI = '1';
+    try {
+      const env = wranglerEnv();
+      expect(env.CODEX_CI).toBeUndefined();
+      expect(env.PATH).toBe(process.env.PATH);
+    } finally {
+      if (previous === undefined) delete process.env.CODEX_CI;
+      else process.env.CODEX_CI = previous;
+    }
+  });
+
   it('detects the promoted version in Wrangler JSON with a positive percentage', () => {
     expect(
       cloudflareVersionIsServing(
