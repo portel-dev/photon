@@ -11,8 +11,8 @@ import {
   StdioClientTransport,
   StreamableHTTPClientTransport,
   SSEClientTransport,
-} from '../../mcp/sdk-v1-2025/client.js';
-import { ElicitRequestSchema } from '../../mcp/sdk-v1-2025/types.js';
+} from '../../mcp/sdk-v2-2026/client.js';
+import { ElicitRequestSchema } from '../../mcp/sdk-v2-2026/types.js';
 import { SDKMCPClientFactory, type MCPConfig } from '@portel/photon-core';
 import { logger } from '../../shared/logger.js';
 import { requestExternalElicitation } from '../streamable-http-transport.js';

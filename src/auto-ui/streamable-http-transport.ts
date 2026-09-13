@@ -1,12 +1,17 @@
 /**
- * Streamable HTTP Transport for MCP
+ * Photon MCP HTTP application layer
  *
- * Implements the MCP Streamable HTTP transport specification (2025-03-26).
- * This allows standard MCP clients (like Claude Desktop) to connect to Beam.
+ * Beam production traffic is served by the official MCP TypeScript SDK v2
+ * handler below. This module supplies Photon's application handlers and the
+ * surrounding auth, CORS, UI, task, and Photon-state behavior.
+ *
+ * The older `handleStreamableHTTP` implementation remains exported for the
+ * standalone compatibility fixtures and the narrow JSON-only legacy-client
+ * path; negotiated Beam traffic does not route through it.
  *
  * Endpoint: /mcp
- * - POST: Client sends JSON-RPC requests, server responds with JSON or SSE
- * - GET: Opens SSE stream for server-initiated messages
+ * - POST: Client sends JSON-RPC requests through the official SDK v2 handler
+ * - GET: Modern stateless subscriptions are owned by the official SDK
  *
  * Configuration Schema (SEP-1596 inspired):
  * - Returns configurationSchema in initialize response
@@ -14,13 +19,13 @@
  * - beam/configure tool for submitting configuration
  * - beam/browse tool for server filesystem browsing
  *
- * @see https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
  */
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
 import { randomUUID, timingSafeEqual, type JsonWebKey } from 'crypto';
 import { readdir, stat, readFile, writeFile } from 'fs/promises';
 import { readText } from '../shared/io.js';
+import { logger } from '../shared/logger.js';
 import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
@@ -183,6 +188,15 @@ import {
   type TracePropagationValidation,
 } from '../telemetry/propagation.js';
 import { AppSessionHandleStore, type AppSessionBinding } from '../mcp/protocol/app-sessions.js';
+import {
+  createMcpHandler,
+  fromJsonSchema,
+  ProtocolError,
+  Server,
+  type McpHttpHandler,
+  type ServerContext,
+} from '../mcp/sdk-v2-2026/server.js';
+import { toNodeHandler } from '../mcp/sdk-v2-2026/node.js';
 import { IdempotencyStore, PHOTON_IDEMPOTENCY_META_KEY } from '../mcp/protocol/idempotency.js';
 
 const MCP_LIST_PAGE_SIZE = 100;
@@ -7667,6 +7681,476 @@ export interface StreamableHTTPOptions {
     ) => void;
     onClientDisconnect: (sessionId: string) => void;
   };
+}
+
+/**
+ * Build the Beam MCP surface on the official MCP SDK v2 serving entry.
+ *
+ * The Photon handler table remains the application layer: it owns Photon
+ * discovery, tool execution, UI metadata, tasks, auth-aware filtering, and
+ * Beam management methods. The SDK owns the HTTP/MCP boundary around it:
+ * request parsing, protocol-era selection, JSON-RPC envelopes, validation,
+ * response framing, and stateless request lifetimes.
+ */
+export function createOfficialBeamMcpHandler(options: StreamableHTTPOptions): McpHttpHandler {
+  const legacyCapabilities = buildServerCapabilities(
+    selectMCPWireAdapter(MCP_PROTOCOL_VERSIONS.LEGACY_2025_11_25, buildServerInfo())
+  );
+  const modernCapabilities = buildServerCapabilities(
+    selectMCPWireAdapter(MCP_PROTOCOL_VERSIONS.STATELESS_2026_07_28, buildServerInfo())
+  );
+  const capabilities = {
+    ...modernCapabilities,
+    completions: {},
+    // Keep the legacy task and AG-UI capability declarations available to
+    // clients that negotiate the SDK's supported 2025 stateless fallback.
+    tasks: legacyCapabilities.tasks,
+    experimental: legacyCapabilities.experimental,
+  } as Record<string, unknown>;
+  const passthroughParams = fromJsonSchema<Record<string, unknown>>({
+    type: 'object',
+    additionalProperties: true,
+  });
+
+  const requestHeaders = (request: Request): IncomingHttpHeaders => {
+    const headers: IncomingHttpHeaders = {};
+    request.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    return headers;
+  };
+
+  const callerFromSDKContext = (context: ServerContext): CallerInfo | undefined => {
+    const authInfo = context.http?.authInfo;
+    if (!authInfo) return undefined;
+    const claims = authInfo.extra ?? {};
+    const id =
+      (typeof claims.sub === 'string' && claims.sub) ||
+      (typeof claims.client_id === 'string' && claims.client_id) ||
+      authInfo.clientId ||
+      'verified-caller';
+    return {
+      id,
+      name:
+        (typeof claims.name === 'string' && claims.name) ||
+        (typeof claims.preferred_username === 'string' && claims.preferred_username) ||
+        undefined,
+      anonymous: false,
+      scope: authInfo.scopes.join(' '),
+      claims,
+    };
+  };
+
+  const applyClaimScope = async (session: MCPSession, request: Request): Promise<void> => {
+    const rawCode = request.headers.get('mcp-claim-code');
+    if (!rawCode) {
+      session.claimScopeDir = undefined;
+      return;
+    }
+    try {
+      const { validateClaimSync } = await import('../daemon/claims.js');
+      const result = validateClaimSync(rawCode);
+      session.claimScopeDir = result.ok ? result.claim.scopeDir : undefined;
+    } catch {
+      // Claims are additive. A missing/unreadable claims store leaves the
+      // request unscoped, matching the historical Beam behavior.
+      session.claimScopeDir = undefined;
+    }
+  };
+
+  const requestForPhoton = (
+    method: string,
+    params: unknown,
+    context: ServerContext
+  ): JSONRPCRequest => {
+    const requestParams = isRecord(params) ? { ...params } : {};
+    const meta = isRecord(context.mcpReq._meta) ? { ...context.mcpReq._meta } : {};
+    const envelope = isRecord(context.mcpReq.envelope) ? context.mcpReq.envelope : {};
+    // SDK v2 lifts the reserved envelope members into a map keyed by their
+    // wire names (the `io.modelcontextprotocol/*` constants), not by the
+    // shorter field labels. Preserve those keys when adapting back to
+    // Photon's application request shape so capability-gated metadata and
+    // app-session behavior see the same client declaration the SDK validated.
+    const envelopeKeys = [
+      'io.modelcontextprotocol/protocolVersion',
+      'io.modelcontextprotocol/clientInfo',
+      'io.modelcontextprotocol/clientCapabilities',
+    ];
+    for (const key of envelopeKeys) {
+      if (Object.prototype.hasOwnProperty.call(envelope, key)) {
+        meta[key] = envelope[key];
+      }
+    }
+    if (Object.keys(meta).length > 0) requestParams._meta = meta;
+
+    const requestState = context.mcpReq.requestState();
+    if (requestState !== undefined) requestParams.requestState = requestState;
+    if (context.mcpReq.inputResponses !== undefined) {
+      requestParams.inputResponses = context.mcpReq.inputResponses;
+    }
+
+    return {
+      jsonrpc: '2.0',
+      id: context.mcpReq.id,
+      method,
+      params: requestParams,
+    };
+  };
+
+  /**
+   * The official SDK validates standard result shapes. Photon metadata is
+   * intentionally carried in `_meta` at that boundary because standard MCP
+   * tool/discover schemas do not permit arbitrary top-level `x-*` or custom
+   * discovery members. The Beam client lifts these values back into its
+   * compatibility view after the SDK has decoded the response.
+   */
+  const normalizeForOfficialSDK = (
+    method: string,
+    value: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const normalized = { ...value };
+    const metadata = isRecord(normalized._meta) ? { ...normalized._meta } : {};
+
+    for (const key of Object.keys(normalized)) {
+      if (key.startsWith('x-')) {
+        metadata[key] = normalized[key];
+        delete normalized[key];
+      }
+    }
+
+    if (method === 'server/discover') {
+      const discoveryMetadata: Record<string, unknown> = {};
+      for (const [field, key] of [
+        ['configurationSchema', `${PHOTON_EXTENSION_ID}/configurationSchema`],
+        ['requestMetadata', `${PHOTON_EXTENSION_ID}/requestMetadata`],
+        ['photonVersion', `${PHOTON_EXTENSION_ID}/photonVersion`],
+        ['taskMode', `${PHOTON_EXTENSION_ID}/taskMode`],
+        ['protocolVersion', `${PHOTON_EXTENSION_ID}/protocolVersion`],
+      ] as const) {
+        if (Object.prototype.hasOwnProperty.call(normalized, field)) {
+          discoveryMetadata[key] = normalized[field];
+          delete normalized[field];
+        }
+      }
+      Object.assign(metadata, discoveryMetadata);
+    }
+
+    if (method === 'tools/list' && Array.isArray(normalized.tools)) {
+      normalized.tools = normalized.tools.map((tool) =>
+        isRecord(tool) ? normalizeForOfficialSDK('tools/item', tool) : tool
+      );
+    }
+
+    if (Object.keys(metadata).length > 0) normalized._meta = metadata;
+    return normalized;
+  };
+
+  const invokePhotonHandler = async (
+    method: string,
+    params: unknown,
+    context: ServerContext,
+    era: 'legacy' | 'modern'
+  ): Promise<Record<string, unknown>> => {
+    const request = requestForPhoton(method, params, context);
+    const requestInfo = context.http?.req;
+    const headers = requestInfo ? requestHeaders(requestInfo) : {};
+    const session = getOrCreateSession(context.sessionId, false);
+    session.initialized = true;
+    session.lastActivity = new Date();
+    const envelope = context.mcpReq.envelope as Record<string, unknown> | undefined;
+    session.clientInfo = isRecord(envelope?.clientInfo)
+      ? (envelope.clientInfo as { name: string; version: string })
+      : session.clientInfo;
+    session.clientCapabilities = isRecord(envelope?.clientCapabilities)
+      ? envelope.clientCapabilities
+      : session.clientCapabilities;
+    session.isBeam = session.clientInfo?.name === 'beam';
+    await applyClaimScope(session, requestInfo ?? new Request('http://localhost/mcp'));
+
+    const caller = callerFromSDKContext(context);
+    const requestContext = resolvePhotonRequestContext({
+      request,
+      session,
+      headers,
+      caller,
+    });
+    // The official serving entry already selected the era. Keep the
+    // application adapter aligned with that decision even when an older
+    // client's request omitted a protocol-version header.
+    requestContext.protocolVersion =
+      era === 'modern'
+        ? MCP_PROTOCOL_VERSIONS.STATELESS_2026_07_28
+        : requestContext.protocolVersion;
+    requestContext.client.protocolVersion = requestContext.protocolVersion;
+    const wireAdapter = selectMCPWireAdapter(requestContext.protocolVersion, buildServerInfo());
+    const handler = handlers[method];
+    if (!handler) {
+      throw new ProtocolError(JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND, `Method not found: ${method}`);
+    }
+
+    const handlerContext: HandlerContext = {
+      photons: options.photons,
+      photonMCPs: options.photonMCPs,
+      externalMCPs: options.externalMCPs,
+      externalMCPClients: options.externalMCPClients,
+      externalMCPSDKClients: options.externalMCPSDKClients,
+      reconnectExternalMCP: options.reconnectExternalMCP,
+      loadUIAsset: options.loadUIAsset,
+      configurePhoton: options.configurePhoton,
+      reloadPhoton: options.reloadPhoton,
+      schedulePhotonReload: options.schedulePhotonReload,
+      removePhoton: options.removePhoton,
+      updateMetadata: options.updateMetadata,
+      generatePhotonHelp: options.generatePhotonHelp,
+      loader: options.loader,
+      broadcast: options.broadcast,
+      responseStream: {
+        send: (message: object) => {
+          if (!isRecord(message) || typeof message.method !== 'string') return;
+          void context.mcpReq.notify(message as never);
+        },
+      },
+      signal: context.mcpReq.signal,
+      subscriptionManager: options.subscriptionManager,
+      workingDir: options.workingDir,
+      singleServerNames: options.singleServerNames,
+      caller,
+      requestContext,
+      clientProfile: requestContext.client,
+      wireAdapter,
+    };
+
+    const response = await handler(request, session, handlerContext);
+    if (response.error) {
+      throw new ProtocolError(response.error.code, response.error.message, response.error.data);
+    }
+    return isRecord(response.result) ? normalizeForOfficialSDK(method, response.result) : {};
+  };
+
+  const factory = async (sdkContext: {
+    era: 'legacy' | 'modern';
+    requestInfo?: Request;
+    authInfo?: unknown;
+  }) => {
+    const server = new Server(buildServerInfo(), {
+      capabilities: capabilities as never,
+      // Photon handlers already implement their durable request-state store;
+      // the SDK still carries and exposes requestState to each adapter call.
+      inputRequired: { legacyShim: true },
+    });
+
+    const standardMethods = [
+      'server/discover',
+      'tools/list',
+      'tools/call',
+      'prompts/list',
+      'prompts/get',
+      'resources/list',
+      'resources/templates/list',
+      'resources/read',
+      'resources/subscribe',
+      'resources/unsubscribe',
+      'completion/complete',
+    ];
+    for (const method of standardMethods) {
+      (server as any).setRequestHandler(
+        method,
+        async (request: unknown, context: ServerContext) => {
+          const params = isRecord(request) ? request.params : undefined;
+          return invokePhotonHandler(method, params, context, sdkContext.era);
+        }
+      );
+    }
+
+    // The SDK owns initialize/initialized, but Photon-specific methods remain
+    // available through the official server's validated custom-method path.
+    for (const method of Object.keys(handlers)) {
+      if (
+        method === 'initialize' ||
+        method === 'notifications/initialized' ||
+        method === 'logging/setLevel' ||
+        standardMethods.includes(method)
+      ) {
+        continue;
+      }
+      server.setRequestHandler(
+        method,
+        { params: passthroughParams },
+        async (params: unknown, context: ServerContext) =>
+          invokePhotonHandler(method, params, context, sdkContext.era)
+      );
+    }
+
+    return server;
+  };
+
+  return createMcpHandler(factory, {
+    legacy: 'stateless',
+    responseMode: 'auto',
+    keepAliveMs: 15_000,
+    onerror: (error) =>
+      logger.error(`Official Beam MCP handler error: ${error.stack || error.message}`),
+  });
+}
+
+/**
+ * Node's small adapter around the SDK's web-standard handler. Auth, CORS,
+ * rate limiting, and the Node request/response conversion are HTTP concerns;
+ * MCP protocol parsing and framing remain entirely in the official SDK.
+ */
+export async function handleOfficialBeamMcpHttp(
+  req: IncomingMessage,
+  res: ServerResponse,
+  handler: McpHttpHandler,
+  options: StreamableHTTPOptions
+): Promise<boolean> {
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  if (url.pathname !== '/mcp') return false;
+
+  const corsOrigin = getCorsOrigin(req);
+  if (req.headers.origin && !corsOrigin) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Forbidden Origin header' }));
+    return true;
+  }
+  const corsHeaders: Record<string, string> = {
+    ...(corsOrigin ? { 'Access-Control-Allow-Origin': corsOrigin } : {}),
+    'Access-Control-Expose-Headers': 'Mcp-Session-Id, Mcp-Protocol-Version',
+  };
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      ...corsHeaders,
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': [
+        'Content-Type',
+        'Accept',
+        'Authorization',
+        'Mcp-Session-Id',
+        'Mcp-Protocol-Version',
+        'Mcp-Claim-Code',
+        'Mcp-Method',
+        'Mcp-Name',
+        'X-Photon-App-Session-Id',
+        ...advertisedMCPParamHeaders(options.photons, options.externalMCPs),
+      ].join(', '),
+    });
+    res.end();
+    return true;
+  }
+
+  if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, Mcp-Protocol-Version');
+
+  // Preserve the wire contract for the older JSON-only clients that predate
+  // protocol negotiation and SSE response negotiation. Once a client sends a
+  // negotiation header or advertises SSE, the official SDK owns the request;
+  // JSON-only headerless clients stay on the legacy transport so their
+  // initialize response and session continue to use the same legacy state.
+  const hasProtocolNegotiationHeaders =
+    req.headers['mcp-protocol-version'] !== undefined || req.headers['mcp-method'] !== undefined;
+  const acceptsEventStream = String(req.headers.accept || '')
+    .toLowerCase()
+    .includes('text/event-stream');
+  if (!hasProtocolNegotiationHeaders && (req.method === 'GET' || !acceptsEventStream)) {
+    return handleStreamableHTTP(req, res, options);
+  }
+
+  const clientKey = req.socket?.remoteAddress || 'unknown';
+  if (!mcpRateLimiter.isAllowed(clientKey)) {
+    res.writeHead(429, { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '60' });
+    res.end(JSON.stringify({ error: 'Too many requests' }));
+    return true;
+  }
+
+  const chunks: Buffer[] = [];
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const body = Buffer.concat(chunks);
+  let parsedBody: unknown;
+  if (body.length > 0) {
+    try {
+      parsedBody = JSON.parse(body.toString('utf8'));
+    } catch {
+      // Let the official SDK produce its canonical parse error response.
+    }
+  }
+
+  const requests = Array.isArray(parsedBody)
+    ? (parsedBody as JSONRPCRequest[])
+    : parsedBody && typeof parsedBody === 'object'
+      ? [parsedBody as JSONRPCRequest]
+      : [];
+  const authRequirements = authorizationRequirements(
+    requests,
+    options.photons,
+    options.externalMCPs
+  );
+  const suppliedToken = bearerToken(req.headers.authorization);
+  let authInfo:
+    | {
+        token: string;
+        clientId: string;
+        scopes: string[];
+        extra?: Record<string, unknown>;
+      }
+    | undefined;
+  if (authRequirements.protected || req.headers.authorization !== undefined) {
+    const resource = oauthResourceForRequest(req, options);
+    const resourceMetadataUrl = oauthResourceMetadataForRequest(req, options, resource);
+    if (!suppliedToken || authRequirements.configurationError) {
+      sendMCPAuthorizationFailure(res, {
+        status: 401,
+        id: authRequirements.requestId,
+        reason: authRequirements.configurationError
+          ? 'authorization_server_mismatch'
+          : 'missing_token',
+        resourceMetadataUrl,
+        scopes: authRequirements.requiredScopes,
+      });
+      return true;
+    }
+    const verify = options.verifyBearerToken ?? verifyConfiguredMCPBearer;
+    const verification = await verify(suppliedToken, {
+      resource,
+      expectedIssuer: authRequirements.expectedIssuer,
+      requiredScopes: authRequirements.requiredScopes,
+    });
+    if (!verification.ok) {
+      sendMCPAuthorizationFailure(res, {
+        status: verification.reason === 'insufficient_scope' ? 403 : 401,
+        id: authRequirements.requestId,
+        reason: verification.reason,
+        resourceMetadataUrl,
+        scopes: authRequirements.requiredScopes,
+      });
+      return true;
+    }
+    const caller = callerFromVerifiedClaims(verification);
+    authInfo = {
+      token: suppliedToken,
+      clientId: caller.id,
+      scopes: caller.scope ? caller.scope.split(/\s+/).filter(Boolean) : [],
+      extra: verification.claims,
+    };
+  }
+
+  const requestWithAuth = req as IncomingMessage & { auth?: typeof authInfo };
+  const previousAuth = requestWithAuth.auth;
+  if (authInfo) requestWithAuth.auth = authInfo;
+  try {
+    // The official Node adapter owns request conversion, streamed response
+    // writes, backpressure, and disconnect cancellation. Pass the body we
+    // already parsed for authorization so the Node stream is not consumed a
+    // second time.
+    await toNodeHandler(handler, {
+      onerror: (error) => logger.error(`Official Beam MCP adapter error: ${error.message}`),
+    })(requestWithAuth, res, parsedBody);
+  } finally {
+    if (previousAuth === undefined) delete requestWithAuth.auth;
+    else requestWithAuth.auth = previousAuth;
+  }
+  return true;
 }
 
 /**

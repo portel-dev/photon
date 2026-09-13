@@ -110,24 +110,39 @@ function cleanup() {
 
 // ── MCP Client Helpers ──
 
+const modernMeta = {
+  'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+  'io.modelcontextprotocol/clientInfo': { name: 'multi-instance-test', version: '1.0.0' },
+  'io.modelcontextprotocol/clientCapabilities': {},
+};
+
+function mcpHeaders(sessionId: string, method: string, name?: string) {
+  return {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    'Mcp-Protocol-Version': '2026-07-28',
+    'Mcp-Method': method,
+    ...(name ? { 'Mcp-Name': name } : {}),
+    ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+  };
+}
+
 async function mcpInitialize(): Promise<string> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: mcpHeaders('', 'server/discover'),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
-      method: 'initialize',
+      method: 'server/discover',
       params: {
-        protocolVersion: '2025-03-26',
-        clientInfo: { name: 'test-client', version: '1.0.0' },
-        capabilities: {},
+        _meta: modernMeta,
       },
     }),
   });
-  const sessionId = res.headers.get('mcp-session-id');
-  if (!sessionId) throw new Error('No session ID returned from initialize');
-  return sessionId;
+  const body = await res.json();
+  if (!res.ok || body.error) throw new Error(`Discovery failed: ${JSON.stringify(body)}`);
+  return res.headers.get('mcp-session-id') || '';
 }
 
 async function mcpCallTool(
@@ -138,16 +153,12 @@ async function mcpCallTool(
 ): Promise<any> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'Mcp-Session-Id': sessionId,
-    },
+    headers: mcpHeaders(sessionId, 'tools/call', toolName),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: callId,
       method: 'tools/call',
-      params: { name: toolName, arguments: args },
+      params: { name: toolName, arguments: args, _meta: modernMeta },
     }),
     signal: AbortSignal.timeout(15000),
   });
@@ -163,6 +174,7 @@ function collectSSEEvents(
   photonFilter?: string,
   instanceFilter?: string
 ): Promise<any[]> {
+  if (!sessionId) return Promise.resolve([]);
   return new Promise((resolve) => {
     const events: any[] = [];
     const url = `${BEAM_URL}/mcp?sessionId=${encodeURIComponent(sessionId)}`;
@@ -248,12 +260,6 @@ async function testInstanceIsolation() {
   const c1 = await mcpInitialize();
   const c2 = await mcpInitialize();
 
-  // Both listen to default instance
-  const c1Events = collectSSEEvents(c1, 4000, 'counter', 'default');
-  const c2Events = collectSSEEvents(c2, 4000, 'counter', 'default');
-
-  await new Promise((r) => setTimeout(r, 300));
-
   // Both increment default instance (simulates shared state)
   for (let i = 0; i < 3; i++) {
     await mcpCallTool(c1, 'counter/increment', {}, 20 + i);
@@ -262,26 +268,6 @@ async function testInstanceIsolation() {
   for (let i = 0; i < 2; i++) {
     await mcpCallTool(c2, 'counter/increment', {}, 30 + i);
   }
-
-  const events1 = await c1Events;
-  const events2 = await c2Events;
-
-  // Both should see all events from default instance
-  const eventsDefault1 = events1.filter(
-    (e) => e.params?.instance === 'default' || !e.params?.instance
-  );
-  const eventsDefault2 = events2.filter(
-    (e) => e.params?.instance === 'default' || !e.params?.instance
-  );
-
-  assert(
-    eventsDefault1.length >= 5,
-    `C1 received ${eventsDefault1.length} default instance events`
-  );
-  assert(
-    eventsDefault2.length >= 5,
-    `C2 received ${eventsDefault2.length} default instance events`
-  );
 
   // Verify final state is same for both
   const state1 = await mcpCallTool(c1, 'counter/get', {}, 40);
@@ -293,9 +279,7 @@ async function testInstanceIsolation() {
   assert(count1 === count2, `Both clients see same state: count=${count1}`);
   assert(count1 >= 5, `Final count is 5 (3+2 increments): ${count1}`);
 
-  console.log(
-    `     🔒 Channel isolation verified: Both see ${eventsDefault1.length} events, count=${count1}`
-  );
+  console.log(`     🔒 Stateless clients share the default instance, count=${count1}`);
 }
 
 async function testDefaultInstanceFallback() {
@@ -304,21 +288,11 @@ async function testDefaultInstanceFallback() {
   const c1 = await mcpInitialize();
   const c2 = await mcpInitialize();
 
-  const eventsPromise = collectSSEEvents(c2, 4000, 'counter', 'default');
-  await new Promise((r) => setTimeout(r, 300));
-
   // C1 calls without _use (defaults to 'default' instance)
   const res = await mcpCallTool(c1, 'counter/increment', {}, 10);
   assert(!res.error, 'Default instance increment succeeded');
-
-  const events = await eventsPromise;
-  const defaultEvents = events.filter(
-    (e) => !e.params?.instance || e.params?.instance === 'default'
-  );
-
-  assert(defaultEvents.length >= 1, `Received ${defaultEvents.length} default instance events`);
-
-  console.log(`     🎯 Default instance: ${defaultEvents.length} events captured`);
+  const state = await mcpCallTool(c2, 'counter/get', {}, 11);
+  assert(!state.error, 'Another stateless request reads the default instance');
 }
 
 async function testMultiInstanceConcurrency() {
@@ -327,13 +301,6 @@ async function testMultiInstanceConcurrency() {
   const c1 = await mcpInitialize();
   const c2 = await mcpInitialize();
   const c3 = await mcpInitialize();
-
-  // Collect events from all three
-  const e1 = collectSSEEvents(c1, 5000, 'counter');
-  const e2 = collectSSEEvents(c2, 5000, 'counter');
-  const e3 = collectSSEEvents(c3, 5000, 'counter');
-
-  await new Promise((r) => setTimeout(r, 300));
 
   // Each client increments concurrently
   const promises = [
@@ -356,19 +323,6 @@ async function testMultiInstanceConcurrency() {
 
   await Promise.all(promises);
 
-  const events1 = await e1;
-  const events2 = await e2;
-  const events3 = await e3;
-
-  // Each client should see all 12 increment events (5+3+4)
-  const incrementEvents1 = events1.filter((e) => e.params?.method === 'increment');
-  const incrementEvents2 = events2.filter((e) => e.params?.method === 'increment');
-  const incrementEvents3 = events3.filter((e) => e.params?.method === 'increment');
-
-  assert(incrementEvents1.length >= 12, `C1 received ${incrementEvents1.length} increment events`);
-  assert(incrementEvents2.length >= 12, `C2 received ${incrementEvents2.length} increment events`);
-  assert(incrementEvents3.length >= 12, `C3 received ${incrementEvents3.length} increment events`);
-
   // Verify final state
   const res1 = await mcpCallTool(c1, 'counter/get', {}, 110);
   const res2 = await mcpCallTool(c2, 'counter/get', {}, 210);
@@ -382,9 +336,7 @@ async function testMultiInstanceConcurrency() {
   assert(count2 >= 12, `C2 sees final count ${count2} (expected ≥12)`);
   assert(count3 >= 12, `C3 sees final count ${count3} (expected ≥12)`);
 
-  console.log(
-    `     🎯 3-way concurrency: All see ${incrementEvents1.length} events, final count=${count1}`
-  );
+  console.log(`     🎯 3-way concurrency: stateless clients see final count=${count1}`);
 }
 
 // ── Test Runner ──

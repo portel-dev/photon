@@ -10,7 +10,7 @@ import type { MarketplaceManager } from '../../marketplace-manager.js';
 import type { PhotonContext } from '../../context.js';
 import type { SimpleRateLimiter } from '../../shared/security.js';
 import type { AnyPhotonInfo, ExternalMCPInfo, MCPServerConfig } from '../types.js';
-import type { ClientType as Client } from '../../mcp/sdk-v1-2025/client.js';
+import type { ClientType as Client } from '../../mcp/sdk-v2-2026/client.js';
 
 /** Unified config structure for config.json */
 export interface PhotonConfig {
@@ -104,6 +104,10 @@ export interface BeamState {
   apiRateLimiter: SimpleRateLimiter;
   /** HTTP server instance */
   server: import('http').Server | null;
+  /** Official SDK v2 MCP handler for the Beam endpoint. */
+  mcpHandler?: import('../../mcp/sdk-v2-2026/server.js').McpHttpHandler | null;
+  /** Initial Photon loading promise, used to drain startup before shutdown. */
+  startupPromise?: Promise<void>;
   /** File watchers */
   watchers: import('fs').FSWatcher[];
   /** Pending reload debounce timers */

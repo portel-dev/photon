@@ -82,7 +82,10 @@ const ANY_JSON_SCHEMA = fromJsonSchema<unknown>({});
 const DEFAULT_CAPABILITIES: JSONRecord = {
   tools: { listChanged: true },
   resources: { subscribe: true, listChanged: true },
-  elicitation: { form: true, url: true },
+  // MCP SDK v2 models elicitation modes as capability objects. The previous
+  // boolean shorthand made the browser client fail schema validation during
+  // modern negotiation before it could load the Beam tool list.
+  elicitation: { form: {}, url: {} },
   sampling: {},
   roots: { listChanged: true },
   extensions: {
@@ -115,6 +118,45 @@ function sdkRequestOptions(options: CallOptions = {}): RequestOptions & JSONReco
   return Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined));
 }
 
+/**
+ * Restore Photon extensions that the official MCP decoder correctly keeps in
+ * `_meta` but does not expose as arbitrary top-level fields. Beam's existing
+ * view model still reads the `x-photon-*` compatibility names.
+ */
+function restorePhotonExtensions<T>(value: T): T {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as T & JSONRecord;
+  const metadata = record._meta;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return value;
+
+  const restored = { ...record };
+  for (const [key, extension] of Object.entries(metadata)) {
+    if (key.startsWith('x-') && !Object.prototype.hasOwnProperty.call(restored, key)) {
+      restored[key] = extension;
+    }
+  }
+  return restored as T;
+}
+
+function restorePhotonDiscoveryMetadata(
+  result: DiscoverResult | undefined
+): DiscoverResult | undefined {
+  if (!result || !result._meta || typeof result._meta !== 'object') return result;
+  const metadata = result._meta as JSONRecord;
+  const restored = { ...result } as DiscoverResult & JSONRecord;
+  const extensionPrefix = 'dev.portel.photon/';
+  for (const [field, key] of [
+    ['configurationSchema', `${extensionPrefix}configurationSchema`],
+    ['requestMetadata', `${extensionPrefix}requestMetadata`],
+    ['photonVersion', `${extensionPrefix}photonVersion`],
+    ['taskMode', `${extensionPrefix}taskMode`],
+    ['protocolVersion', `${extensionPrefix}protocolVersion`],
+  ] as const) {
+    if (Object.prototype.hasOwnProperty.call(metadata, key)) restored[field] = metadata[key];
+  }
+  return restored;
+}
+
 export class MCPClientSDK {
   private readonly baseUrl: URL;
   private readonly client: Client;
@@ -138,6 +180,23 @@ export class MCPClientSDK {
       // Beam renders input_required UI itself. The official SDK validates
       // and normalizes the result, but does not own the dialog.
       inputRequired: { autoFulfill: false },
+      // Let the official client open the modern `subscriptions/listen`
+      // stream and refresh its derived list caches. Photon only translates
+      // the SDK callback into Beam's existing event API below.
+      listChanged: {
+        tools: {
+          onChanged: (error, tools) =>
+            this.emitListChanged('notifications/tools/list_changed', error, tools),
+        },
+        prompts: {
+          onChanged: (error, prompts) =>
+            this.emitListChanged('notifications/prompts/list_changed', error, prompts),
+        },
+        resources: {
+          onChanged: (error, resources) =>
+            this.emitListChanged('notifications/resources/list_changed', error, resources),
+        },
+      },
     });
 
     this.transport = new StreamableHTTPClientTransport(this.baseUrl, {
@@ -192,7 +251,7 @@ export class MCPClientSDK {
   }
 
   getDiscoverResult(): DiscoverResult | undefined {
-    return this.client.getDiscoverResult();
+    return restorePhotonDiscoveryMetadata(this.client.getDiscoverResult());
   }
 
   get negotiatedProtocolVersion(): string | undefined {
@@ -210,7 +269,7 @@ export class MCPClientSDK {
     const result = await (this.isCustomMethod(method)
       ? this.client.request(request, ANY_JSON_SCHEMA, sdkRequestOptions(options))
       : this.client.request(request, sdkRequestOptions(options)));
-    return result as T;
+    return restorePhotonExtensions(result as T);
   }
 
   async notify(method: string, params: JSONRecord = {}): Promise<void> {
@@ -247,7 +306,7 @@ export class MCPClientSDK {
       ...(options.requestState ? { requestState: options.requestState } : {}),
       ...(options.inputResponses ? { inputResponses: options.inputResponses } : {}),
     } as CallToolRequestParams & JSONRecord;
-    return this.client.callTool(
+    const result = await this.client.callTool(
       params as any,
       {
         ...sdkRequestOptions({ ...options, onProgress }),
@@ -255,12 +314,13 @@ export class MCPClientSDK {
         allowInputRequired: true,
       } as any
     );
+    return restorePhotonExtensions(result);
   }
 
   async listTools(): Promise<unknown[]> {
     this.markActive();
     const result = await this.client.listTools();
-    return result.tools as unknown[];
+    return result.tools.map((tool) => restorePhotonExtensions(tool));
   }
 
   async listResources(): Promise<unknown[]> {
@@ -367,6 +427,14 @@ export class MCPClientSDK {
         this.emit(method, params);
       });
     }
+  }
+
+  private emitListChanged(method: string, error: Error | null, items: unknown[] | null): void {
+    if (error) {
+      this.emit('error', error);
+      return;
+    }
+    this.emit(method, items);
   }
 
   private emit(event: string, data?: unknown): void {

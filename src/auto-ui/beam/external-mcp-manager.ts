@@ -10,7 +10,7 @@
  * (which read the maps directly) continue to work unchanged.
  */
 
-import type { ClientType as Client } from '../../mcp/sdk-v1-2025/client.js';
+import type { ClientType as Client } from '../../mcp/sdk-v2-2026/client.js';
 import { logger } from '../../shared/logger.js';
 import { withTimeout } from '../../async/index.js';
 import { getErrorMessage } from '../../shared/error-handler.js';

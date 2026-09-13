@@ -196,6 +196,10 @@ async function assertBunBeamCliStaysAlive(): Promise<void> {
 
   let output = '';
   let exited = false;
+  const exitPromise = new Promise<void>((resolve) => {
+    proc.once('exit', () => resolve());
+    proc.once('error', () => resolve());
+  });
   proc.stdout?.on('data', (chunk) => {
     output += chunk.toString();
   });
@@ -231,44 +235,67 @@ async function assertBunBeamCliStaysAlive(): Promise<void> {
     assert(!exited, `Bun-launched Beam exited after startup. Output:\n${output}`);
   } finally {
     proc.kill('SIGTERM');
+    // The CLI drains initial Photon compilation during graceful shutdown.
+    // Wait for that drain before the main Beam process starts; otherwise both
+    // processes can legitimately touch the same content-addressed cache while
+    // this liveness probe is being torn down.
+    await Promise.race([exitPromise, new Promise<void>((resolve) => setTimeout(resolve, 10000))]);
   }
 }
 
 // ── MCP helpers ──
 
-async function mcpInitialize(): Promise<string> {
+type BeamSessionId = string;
+
+const modernMeta = {
+  'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+  'io.modelcontextprotocol/clientInfo': { name: 'test', version: '1.0.0' },
+  'io.modelcontextprotocol/clientCapabilities': {},
+};
+
+function mcpHeaders(
+  sessionId: BeamSessionId,
+  method: string,
+  name?: string
+): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    'Mcp-Protocol-Version': '2026-07-28',
+    'Mcp-Method': method,
+    ...(name ? { 'Mcp-Name': name } : {}),
+    ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+  };
+}
+
+async function mcpInitialize(): Promise<BeamSessionId> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: mcpHeaders('', 'server/discover'),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
-      method: 'initialize',
+      method: 'server/discover',
       params: {
-        protocolVersion: '2025-03-26',
-        clientInfo: { name: 'test', version: '1.0.0' },
-        capabilities: {},
+        _meta: modernMeta,
       },
     }),
   });
-  const sessionId = res.headers.get('mcp-session-id');
-  if (!sessionId) throw new Error('No session ID');
-  return sessionId;
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(`Initialize failed: ${JSON.stringify(data)}`);
+  // The official SDK's stateless HTTP handler deliberately omits this header.
+  return res.headers.get('mcp-session-id') || '';
 }
 
-async function mcpListTools(sessionId: string): Promise<any[]> {
+async function mcpListTools(sessionId: BeamSessionId): Promise<any[]> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'Mcp-Session-Id': sessionId,
-    },
+    headers: mcpHeaders(sessionId, 'tools/list'),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 2,
       method: 'tools/list',
-      params: {},
+      params: { _meta: modernMeta },
     }),
     signal: AbortSignal.timeout(10000),
   });
@@ -277,7 +304,7 @@ async function mcpListTools(sessionId: string): Promise<any[]> {
 }
 
 async function mcpCallTool(
-  sessionId: string,
+  sessionId: BeamSessionId,
   toolName: string,
   args: Record<string, any>,
   callId: number = 3,
@@ -285,16 +312,12 @@ async function mcpCallTool(
 ): Promise<any> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'Mcp-Session-Id': sessionId,
-    },
+    headers: mcpHeaders(sessionId, 'tools/call', toolName),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: callId,
       method: 'tools/call',
-      params: { name: toolName, arguments: args },
+      params: { name: toolName, arguments: args, _meta: modernMeta },
     }),
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -310,7 +333,7 @@ function toolMatches(tool: any, name: string): boolean {
 }
 
 async function waitForTool(
-  sessionId: string,
+  sessionId: BeamSessionId,
   toolName: string,
   timeoutMs = 15000
 ): Promise<boolean> {
@@ -324,7 +347,7 @@ async function waitForTool(
 }
 
 async function waitForToolsState(
-  sessionId: string,
+  sessionId: BeamSessionId,
   predicate: (tools: any[]) => boolean,
   timeoutMs = 15000
 ): Promise<any[]> {
@@ -339,7 +362,7 @@ async function waitForToolsState(
 }
 
 async function waitForCallableTool(
-  sessionId: string,
+  sessionId: BeamSessionId,
   toolName: string,
   args: Record<string, any>,
   callIdStart: number,
@@ -439,7 +462,11 @@ async function inspectBeamAppRoute(page: any): Promise<{
 /**
  * Collect SSE notifications for a given duration.
  */
-function collectSSEEvents(sessionId: string, durationMs: number): Promise<any[]> {
+function collectSSEEvents(sessionId: BeamSessionId, durationMs: number): Promise<any[]> {
+  // Stateless MCP has no durable GET stream to attach to. Notifications that
+  // belong to an in-flight request are carried by that request's response;
+  // cross-request Beam broadcasts are intentionally not part of this route.
+  if (!sessionId) return Promise.resolve([]);
   return new Promise((resolve) => {
     const events: any[] = [];
     const controller = new AbortController();
@@ -575,29 +602,19 @@ async function run() {
     );
   });
 
-  // ─── Test 3: State-changed SSE events include photon name ───
-  await test('state-changed SSE event includes photon name and method', async () => {
-    // Open SSE listener on a second session
-    const session2 = await mcpInitialize();
-    const eventPromise = collectSSEEvents(session2, 5000);
+  // ─── Test 3: Stateless requests share the daemon-backed Photon state ───
+  await test('stateless Beam requests share Photon state without a session', async () => {
+    assert(sessionId === '', 'official stateless handler does not issue a session ID');
+    const item = `stateless-sync-${Date.now()}`;
+    const addResp = await mcpCallTool(sessionId, 'sync-list.add', { item }, 20);
+    assert(!addResp.error && !addResp.result?.isError, 'stateless mutation succeeds');
 
-    // Wait for SSE connection to establish
-    await new Promise((r) => setTimeout(r, 500));
-
-    // Trigger a mutation on the first session
-    await mcpCallTool(sessionId, 'sync-list.add', { item: `sse-test-${Date.now()}` }, 20);
-
-    const events = await eventPromise;
-    const stateChanged = events.filter(
-      (e: any) => e.method === 'notifications/state-changed' || e.params?.photon === 'sync-list'
+    const listResp = await mcpCallTool(sessionId, 'sync-list.get', {}, 21);
+    const items = parseToolResult(listResp);
+    assert(
+      Array.isArray(items) && items.includes(item),
+      'a later stateless request sees the mutation'
     );
-    // At minimum, the mutation should produce a state-changed broadcast
-    // (It may not arrive if the SSE connection timing is unlucky, so we're lenient)
-    if (stateChanged.length > 0) {
-      const evt = stateChanged[0].params || stateChanged[0];
-      assert(!!evt.photon, 'state-changed event missing photon name');
-    }
-    // If no events arrived, that's OK for this test — timing is inherently flaky with SSE
   });
 
   // ─── Test 4: Dynamic photon subscription ───
@@ -661,8 +678,8 @@ export default class SyncList {
 
     // Poll for clear to appear in tools/list. File watcher + daemon reload
     // can complete in separate ticks, so fixed sleeps are unnecessarily flaky.
-    const clearFound = await waitForTool(sessionId, 'sync-list.clear');
-    assert(clearFound, 'sync-list.clear should appear in tools after hot-reload');
+    const clearFound = await waitForTool(sessionId, 'sync-list.clear', 30000);
+    assert(clearFound, `sync-list.clear should appear in tools after hot-reload`);
 
     // Verify clear is callable (not "Tool not found") after the daemon view catches up.
     const clearResp = await waitForCallableTool(sessionId, 'sync-list.clear', {}, 40, 45000);
@@ -769,17 +786,10 @@ export default class StudioTest {
     );
   });
 
-  // ─── Test 8: CLI mutation produces SSE state-changed event ───
-  await test('CLI mutation triggers SSE state-changed event at Beam', async () => {
+  // ─── Test 8: CLI mutation is visible to stateless MCP requests ───
+  await test('CLI mutation is visible through stateless Beam MCP', async () => {
     // First add an item so sync-list has data to work with
     await mcpCallTool(sessionId, 'sync-list.add', { item: 'sse-baseline' }, 60);
-
-    // Open SSE listener on a second session
-    const session2 = await mcpInitialize();
-    const eventPromise = collectSSEEvents(session2, 8000);
-
-    // Wait for SSE connection to establish
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Mutate via CLI (goes through daemon, not Beam transport)
     const cliItem = `cli-sse-${Date.now()}`;
@@ -792,18 +802,11 @@ export default class StudioTest {
       }
     );
 
-    const events = await eventPromise;
-
-    // Look for state-changed event with our photon
-    const stateChangedEvents = events.filter(
-      (e: any) =>
-        e.method === 'notifications/state-changed' ||
-        (e.params?.photon === 'sync-list' && e.params?.method === 'add')
-    );
-
     assert(
-      stateChangedEvents.length > 0,
-      `Expected state-changed SSE event after CLI mutation, got ${events.length} total events: ${events.map((e: any) => e.method || e.params?.photon).join(', ')}`
+      (parseToolResult(await mcpCallTool(sessionId, 'sync-list.get', {}, 61)) || []).includes(
+        cliItem
+      ),
+      'a stateless MCP request sees the CLI mutation'
     );
   });
 

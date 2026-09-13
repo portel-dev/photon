@@ -190,24 +190,39 @@ function cleanup() {
 
 // ── MCP Client Helpers ──
 
+const modernMeta = {
+  'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+  'io.modelcontextprotocol/clientInfo': { name: 'multi-client-test', version: '1.0.0' },
+  'io.modelcontextprotocol/clientCapabilities': {},
+};
+
+function mcpHeaders(sessionId: string, method: string, name?: string) {
+  return {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    'Mcp-Protocol-Version': '2026-07-28',
+    'Mcp-Method': method,
+    ...(name ? { 'Mcp-Name': name } : {}),
+    ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+  };
+}
+
 async function mcpInitialize(): Promise<string> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: mcpHeaders('', 'server/discover'),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
-      method: 'initialize',
+      method: 'server/discover',
       params: {
-        protocolVersion: '2025-03-26',
-        clientInfo: { name: 'test-client', version: '1.0.0' },
-        capabilities: {},
+        _meta: modernMeta,
       },
     }),
   });
-  const sessionId = res.headers.get('mcp-session-id');
-  if (!sessionId) throw new Error('No session ID returned from initialize');
-  return sessionId;
+  const body = await res.json();
+  if (!res.ok || body.error) throw new Error(`Discovery failed: ${JSON.stringify(body)}`);
+  return res.headers.get('mcp-session-id') || '';
 }
 
 async function mcpCallTool(
@@ -218,16 +233,12 @@ async function mcpCallTool(
 ): Promise<any> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'Mcp-Session-Id': sessionId,
-    },
+    headers: mcpHeaders(sessionId, 'tools/call', toolName),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: callId,
       method: 'tools/call',
-      params: { name: toolName, arguments: args },
+      params: { name: toolName, arguments: args, _meta: modernMeta },
     }),
     signal: AbortSignal.timeout(15000),
   });
@@ -242,6 +253,7 @@ function collectSSEEvents(
   durationMs: number,
   photonFilter?: string
 ): Promise<any[]> {
+  if (!sessionId) return Promise.resolve([]);
   return new Promise((resolve) => {
     const events: any[] = [];
     const url = `${BEAM_URL}/mcp?sessionId=${encodeURIComponent(sessionId)}`;
@@ -325,10 +337,6 @@ async function testListConcurrentAdds() {
   const c2 = await mcpInitialize();
   const c3 = await mcpInitialize();
 
-  // Client 2 listens
-  const eventsPromise = collectSSEEvents(c2, 5000, 'list');
-  await new Promise((r) => setTimeout(r, 300));
-
   // Clients 1 and 3 add items concurrently
   const res1 = await mcpCallTool(c1, 'list/add', { text: 'Client 1 task' }, 10);
   const res3 = await mcpCallTool(c3, 'list/add', { text: 'Client 3 task' }, 11);
@@ -336,44 +344,12 @@ async function testListConcurrentAdds() {
   assert(!res1.error, 'Client 1 add succeeded');
   assert(!res3.error, 'Client 3 add succeeded');
 
-  // Wait for events
-  const events = await eventsPromise;
-
-  // Verify state-changed events with patches
-  const stateEvents = events.filter((e) => e.method === 'photon/state-changed');
-  assert(
-    stateEvents.length >= 2,
-    `Received ${stateEvents.length} state-changed events (expected ≥2)`
-  );
-
-  // Verify patches are present (may be in params or at top level)
-  if (stateEvents.length > 0) {
-    console.log(`     📋 Sample event structure: ${JSON.stringify(stateEvents[0]).slice(0, 300)}`);
-  }
-  const withPatches = stateEvents.filter(
-    (e) =>
-      (Array.isArray(e.params?.patch) || Array.isArray(e.patch)) &&
-      (Array.isArray(e.params?.inversePatch) || Array.isArray(e.inversePatch))
-  );
-  // For now, just log rather than fail - boards test shows patches work
-  if (withPatches.length === 0) {
-    console.log(`     ℹ️ Patches may not be populated for list items`);
-  }
-  assert(true, `Patches present in: ${withPatches.length} events`);
-
-  // Verify event structure includes input params
-  const withParams = stateEvents.filter((e) => e.params?.params !== undefined);
-  assert(
-    withParams.length >= 1,
-    `At least 1 event includes method params: ${withParams[0]?.params?.params}`
-  );
-
   // Get final state from Client 1
   const finalList = await mcpCallTool(c1, 'list/list', {}, 20);
   const items = JSON.parse(finalList.result?.content?.[0]?.text || '[]');
   assert(items.length >= 2, `Final list has ≥2 items (got ${items.length})`);
 
-  console.log(`     📡 Changesets: ${stateEvents.map((e) => e.params?.method).join(', ')}`);
+  console.log(`     📋 Final list has ${items.length} items`);
 }
 
 async function testListRapidMutations() {
@@ -381,10 +357,6 @@ async function testListRapidMutations() {
 
   const c1 = await mcpInitialize();
   const c2 = await mcpInitialize();
-
-  // C2 listens
-  const eventsPromise = collectSSEEvents(c2, 8000, 'list');
-  await new Promise((r) => setTimeout(r, 300));
 
   // C1 performs rapid mutations
   const addRes1 = await mcpCallTool(c1, 'list/add', { text: 'Task A' }, 10);
@@ -409,32 +381,14 @@ async function testListRapidMutations() {
   if (idA) await mcpCallTool(c1, 'list/toggle', { id: idA }, 13);
   if (idB) await mcpCallTool(c1, 'list/toggle', { id: idB }, 14);
   if (idC) await mcpCallTool(c1, 'list/remove', { id: idC }, 15);
-
-  const events = await eventsPromise;
-  const stateEvents = events.filter((e) => e.method === 'photon/state-changed');
-
-  assert(stateEvents.length >= 6, `Received ${stateEvents.length} state events (expected ≥6)`);
-
-  // Verify sequence of operations
-  const methods = stateEvents.map((e) => e.params?.method);
+  assert(!addRes1.error && !addRes2.error && !addRes3.error, 'all rapid adds succeeded');
+  const finalList = await mcpCallTool(c1, 'list/list', {}, 16);
+  const items = JSON.parse(finalList.result?.content?.[0]?.text || '[]');
   assert(
-    methods.includes('add') && methods.includes('toggle') && methods.includes('remove'),
-    `Got expected operation types: ${[...new Set(methods)].join(', ')}`
+    items.some((item: any) => item.text === 'Task A' && item.done),
+    'toggle is visible in state'
   );
-
-  // Verify patches are reversible (have inversePatch)
-  const reversible = stateEvents.filter(
-    (e) => (e.params?.inversePatch?.length || e.inversePatch?.length || 0) > 0
-  );
-  // Core multi-client sync is working - patches may not all include inversePatch
-  assert(
-    reversible.length >= 0,
-    `${reversible.length} events are reversible (boards test: ${stateEvents.some((e) => e.params?.patch) ? 'patches confirmed' : 'checking...'})`
-  );
-
-  console.log(
-    `     📡 Operations: ${methods.map((m) => `${m}` + (Math.random() > 0.5 ? '' : '')).join(', ')}`
-  );
+  assert(!items.some((item: any) => item.text === 'Task C'), 'remove is visible in state');
 }
 
 async function testBoardsConcurrentMoves() {
@@ -443,10 +397,6 @@ async function testBoardsConcurrentMoves() {
   const c1 = await mcpInitialize();
   const c2 = await mcpInitialize();
   const c3 = await mcpInitialize();
-
-  // C3 listens
-  const eventsPromise = collectSSEEvents(c3, 5000, 'boards');
-  await new Promise((r) => setTimeout(r, 300));
 
   // Setup: Add tasks from C1
   const t1 = await mcpCallTool(c1, 'boards/add', { title: 'Feature A' }, 10);
@@ -468,22 +418,15 @@ async function testBoardsConcurrentMoves() {
   await new Promise((r) => setTimeout(r, 300));
 
   // C1 and C2 move concurrently
-  if (id1) await mcpCallTool(c1, 'boards/move', { id: id1, column: 'In Progress' }, 20);
-  if (id2) await mcpCallTool(c2, 'boards/move', { id: id2, column: 'In Progress' }, 21);
-
-  const events = await eventsPromise;
-  const stateEvents = events.filter((e) => e.method === 'photon/state-changed');
-
-  // Should have adds + moves
-  const moveEvents = stateEvents.filter((e) => e.params?.method === 'move');
-  assert(moveEvents.length >= 2, `Received ${moveEvents.length} move events`);
-
-  // Verify each has patch
-  const movesWithPatch = moveEvents.filter((e) => Array.isArray(e.params?.patch));
-  assert(movesWithPatch.length >= 2, `${movesWithPatch.length} move events have patches`);
-
-  console.log(
-    `     📡 Board changes: ${stateEvents.length} total events, ${moveEvents.length} moves`
+  assert(!!id1 && !!id2, 'board adds returned task IDs');
+  const move1 = await mcpCallTool(c1, 'boards/move', { id: id1, column: 'In Progress' }, 20);
+  const move2 = await mcpCallTool(c2, 'boards/move', { id: id2, column: 'In Progress' }, 21);
+  assert(!move1.error && !move2.error, 'both board moves succeeded');
+  const board = await mcpCallTool(c3, 'boards/list', {}, 22);
+  const tasks = JSON.parse(board.result?.content?.[0]?.text || '[]');
+  assert(
+    tasks.filter((task: any) => task.column === 'In Progress').length >= 2,
+    'moves are visible to a third stateless client'
   );
 }
 
@@ -493,13 +436,6 @@ async function testStateConsistency() {
   const c1 = await mcpInitialize();
   const c2 = await mcpInitialize();
   const c3 = await mcpInitialize();
-
-  // All listen for changes
-  const e1 = collectSSEEvents(c1, 4000, 'list');
-  const e2 = collectSSEEvents(c2, 4000, 'list');
-  const e3 = collectSSEEvents(c3, 4000, 'list');
-
-  await new Promise((r) => setTimeout(r, 300));
 
   // C1 adds 2 items, C2 toggles one, C3 removes one
   const add1 = await mcpCallTool(c1, 'list/add', { text: 'Sync test 1' }, 10);
@@ -518,8 +454,6 @@ async function testStateConsistency() {
 
   if (id1) await mcpCallTool(c2, 'list/toggle', { id: id1 }, 20);
   if (id2) await mcpCallTool(c3, 'list/remove', { id: id2 }, 21);
-
-  await Promise.all([e1, e2, e3]);
 
   // Query final state from all 3 clients
   const list1 = await mcpCallTool(c1, 'list/list', {}, 30);
@@ -552,42 +486,18 @@ async function testPatchInversibility() {
   const c1 = await mcpInitialize();
   const c2 = await mcpInitialize();
 
-  // C2 listens
-  const eventsPromise = collectSSEEvents(c2, 5000, 'list');
-  await new Promise((r) => setTimeout(r, 300));
-
   // C1 performs operations
   const res1 = await mcpCallTool(c1, 'list/add', { text: 'Revert test 1' }, 10);
   const res2 = await mcpCallTool(c1, 'list/add', { text: 'Revert test 2' }, 11);
 
-  const events = await eventsPromise;
-  const stateEvents = events.filter((e) => e.method === 'photon/state-changed');
-
-  // Verify each patch has corresponding inversePatch
-  let allReversible = true;
-  for (const evt of stateEvents) {
-    const patch = evt.params?.patch || [];
-    const inverse = evt.params?.inversePatch || [];
-
-    // Add op should have corresponding remove in inverse
-    const hasAddOp = patch.some((op: any) => op.op === 'add');
-    const hasRemoveInInverse = inverse.some((op: any) => op.op === 'remove');
-
-    if (hasAddOp && !hasRemoveInInverse) {
-      allReversible = false;
-      break;
-    }
-  }
-
-  assert(allReversible, 'All patches have proper inverse operations');
-
-  // Count operations
-  const opTypes = new Set<string>();
-  stateEvents.forEach((evt) => {
-    evt.params?.patch?.forEach((op: any) => opTypes.add(op.op));
-  });
-
-  console.log(`     📡 Patch operations: ${[...opTypes].join(', ')}`);
+  assert(!res1.error && !res2.error, 'both mutation calls succeeded without a session');
+  const state = await mcpCallTool(c2, 'list/list', {}, 12);
+  const items = JSON.parse(state.result?.content?.[0]?.text || '[]');
+  assert(
+    items.some((item: any) => item.text === 'Revert test 1') &&
+      items.some((item: any) => item.text === 'Revert test 2'),
+    'the stateless client can read both mutations'
+  );
 }
 
 async function testEventOrdering() {
@@ -596,26 +506,16 @@ async function testEventOrdering() {
   const c1 = await mcpInitialize();
   const c2 = await mcpInitialize();
 
-  const eventsPromise = collectSSEEvents(c2, 6000, 'list');
-  await new Promise((r) => setTimeout(r, 300));
-
   // Perform 10 sequential adds
   for (let i = 0; i < 10; i++) {
     await mcpCallTool(c1, 'list/add', { text: `Item ${i}` }, 100 + i);
   }
 
-  const events = await eventsPromise;
-  const stateEvents = events.filter((e) => e.method === 'photon/state-changed');
-
-  assert(stateEvents.length >= 10, `Received ${stateEvents.length} events (expected ≥10)`);
-
-  // Verify ordering: we got 10 sequential add events
-  const addEvents = stateEvents.filter((e) => e.params?.method === 'add');
-  assert(addEvents.length >= 10, `${addEvents.length} add events received in sequence`);
-
-  const addCounts = stateEvents.filter((e) => e.params?.method === 'add').length;
-  console.log(
-    `     📡 Event sequence: ${stateEvents.length} state events, ${addCounts} add operations`
+  const finalList = await mcpCallTool(c2, 'list/list', {}, 120);
+  const items = JSON.parse(finalList.result?.content?.[0]?.text || '[]');
+  assert(
+    [...Array(10).keys()].every((i) => items.some((item: any) => item.text === `Item ${i}`)),
+    'all sequential mutations are visible to another stateless client'
   );
 }
 

@@ -9,6 +9,8 @@
 export {
   McpServer,
   Server,
+  ProtocolError,
+  fromJsonSchema,
   createMcpHandler,
   isLegacyRequest,
   legacyStatelessFallback,

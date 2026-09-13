@@ -1167,6 +1167,70 @@ export class PhotonLoader {
     return path.join(this.getDependencyCacheDir(cacheKey), '.build');
   }
 
+  /**
+   * Serialize cache population across PhotonLoader processes.
+   *
+   * Beam and the daemon can observe the same stateful Photon change at nearly
+   * the same time. The compiler writes into a content-addressed cache, while
+   * dependency reconciliation may remove that cache when the source hash
+   * changes. Without a process-wide lock, one loader can import an artifact
+   * that the other loader has just removed. Keep the lock outside the Photon
+   * cache directory so clearAllCaches() cannot remove its own coordination
+   * file.
+   */
+  private async withCompilationCacheLock<T>(
+    cacheKey: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const lockDir = path.join(getCacheDir(this.baseDir), 'locks');
+    const lockPath = path.join(lockDir, `${cacheKey}.lock`);
+    const waitStartedAt = Date.now();
+    const maxWaitMs = 5 * 60 * 1000;
+    let lockHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
+
+    await fs.mkdir(lockDir, { recursive: true });
+
+    while (!lockHandle) {
+      try {
+        lockHandle = await fs.open(lockPath, 'wx');
+        await lockHandle.writeFile(`${process.pid}\n${new Date().toISOString()}\n`);
+      } catch (error) {
+        if (lockHandle) {
+          await lockHandle.close().catch(() => undefined);
+          lockHandle = undefined;
+        }
+
+        const code = (error as NodeJS.ErrnoException)?.code;
+        if (code !== 'EEXIST') throw error;
+
+        // A crashed loader must not make the cache unusable forever. Only
+        // remove this exact, stale coordination file; the cache itself is
+        // never removed by the stale-lock recovery path.
+        try {
+          const lockStat = await fs.stat(lockPath);
+          if (Date.now() - lockStat.mtimeMs > maxWaitMs) {
+            await fs.rm(lockPath, { force: true });
+            continue;
+          }
+        } catch {
+          // The holder may have released the lock between stat and rm.
+        }
+
+        if (Date.now() - waitStartedAt > maxWaitMs) {
+          throw new Error(`Timed out waiting for Photon cache lock: ${cacheKey}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
+    try {
+      return await operation();
+    } finally {
+      await lockHandle.close().catch(() => undefined);
+      await fs.rm(lockPath, { force: true }).catch(() => undefined);
+    }
+  }
+
   private async clearBuildCache(cacheKey: string): Promise<void> {
     const buildDir = this.getBuildCacheDir(cacheKey);
     await fs.rm(buildDir, { recursive: true, force: true });
@@ -1181,6 +1245,30 @@ export class PhotonLoader {
     await this.clearBuildCache(cacheKey);
   }
 
+  private async cleanupStaleCompiledArtifacts(
+    cacheKey: string,
+    currentPaths: string[]
+  ): Promise<void> {
+    const buildDir = this.getBuildCacheDir(cacheKey);
+    const keep = new Set(currentPaths.map((compiledPath) => path.resolve(compiledPath)));
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(buildDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+        .map((entry) => {
+          const candidate = path.resolve(buildDir, entry.name);
+          if (keep.has(candidate)) return Promise.resolve();
+          return fs.rm(candidate, { force: true });
+        })
+    );
+  }
+
   /**
    * Clear all caches for a photon identified by file path.
    * Called by Beam when a photon fails to load, so the next reload
@@ -1190,7 +1278,7 @@ export class PhotonLoader {
     const absolutePath = path.resolve(filePath);
     const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
     const cacheKey = this.getCacheKey(mcpName, absolutePath);
-    await this.clearAllCaches(cacheKey);
+    await this.withCompilationCacheLock(cacheKey, () => this.clearAllCaches(cacheKey));
     this.log(`🗑️  Cache cleared for ${mcpName} (auto-retry after load failure)`);
   }
 
@@ -1288,7 +1376,12 @@ export class PhotonLoader {
       }
       await this.clearAllCaches(cacheKey);
     } else if (needsBuildClear) {
-      await this.clearBuildCache(cacheKey);
+      // Compiled artifacts are content-addressed by source and photon-core
+      // version. Keep the previous artifacts during a source-only reload so a
+      // second loader (Beam, daemon, or a Bun/Node sibling) cannot remove an
+      // artifact that another process is importing. Successful loads prune
+      // stale files while still holding the compilation lock below.
+      this.log(`🔄 Source changed for ${mcpName}, retaining hashed build artifacts`);
     }
 
     let nodeModules: string | null = null;
@@ -1472,14 +1565,6 @@ export class PhotonLoader {
         if (dependencies.length > 0) {
           this.log(`📦 Found ${dependencies.length} dependencies`);
         }
-
-        await this.ensureDependenciesWithHash(
-          cacheKey,
-          mcpName,
-          dependencies,
-          sourceHash,
-          absolutePath
-        );
       }
 
       // Security: scan source for dangerous patterns before loading
@@ -1493,32 +1578,95 @@ export class PhotonLoader {
       const importModule = async () => {
         if (tsContent) {
           this.onProgress?.('compiling typescript');
-          const cachedJsPath = await this.compileTypeScript(absolutePath, cacheKey!, tsContent);
-          lastCompiledJsPath = cachedJsPath;
-          const cachedJsUrl = pathToFileURL(cachedJsPath).href;
-          return await import(`${cachedJsUrl}?t=${Date.now()}`);
+          const compiled = await this.compileTypeScript(absolutePath, cacheKey!, tsContent);
+          lastCompiledJsPath = compiled.path;
+          // Bun can poison a directory after an imported file is removed. Put
+          // each Bun load in its own disposable directory and copy the whole
+          // compiled graph there. Removing that directory after import cannot
+          // affect the shared content-addressed build directory or a later
+          // reload. Node keeps using the canonical compiled artifact directly.
+          const bunImportDir = process.versions.bun
+            ? path.join(
+                path.dirname(compiled.path),
+                '.imports',
+                `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+              )
+            : undefined;
+          const importPath = bunImportDir
+            ? path.join(bunImportDir, path.basename(compiled.path))
+            : compiled.path;
+          if (bunImportDir) {
+            await fs.mkdir(bunImportDir, { recursive: true });
+            for (const compiledPath of compiled.paths) {
+              await fs.copyFile(compiledPath, path.join(bunImportDir, path.basename(compiledPath)));
+            }
+          }
+          const cachedJsUrl = pathToFileURL(importPath).href;
+          let imported: any;
+          try {
+            imported = await import(`${cachedJsUrl}?t=${Date.now()}`);
+          } finally {
+            if (bunImportDir)
+              await fs.rm(bunImportDir, { recursive: true, force: true }).catch(() => undefined);
+          }
+          await this.cleanupStaleCompiledArtifacts(cacheKey!, compiled.paths);
+          return imported;
         }
         const fileUrl = pathToFileURL(absolutePath).href;
         return await import(`${fileUrl}?t=${Date.now()}`);
       };
 
+      const loadCompiledModule = async (): Promise<any> => {
+        if (tsContent && cacheKey && sourceHash) {
+          return this.withCompilationCacheLock(cacheKey, async () => {
+            await this.ensureDependenciesWithHash(
+              cacheKey,
+              mcpName,
+              dependencies,
+              sourceHash,
+              absolutePath
+            );
+            return runWithPhotonDir(this.baseDir, importModule);
+          });
+        }
+        return runWithPhotonDir(this.baseDir, importModule);
+      };
+
+      const isMissingCompiledArtifact = (error: unknown): boolean =>
+        !!lastCompiledJsPath &&
+        (String(error).includes(lastCompiledJsPath) ||
+          (String(error).includes('.build/') && String(error).includes('.mjs')) ||
+          String(error).includes('ERR_MODULE_NOT_FOUND'));
+
+      const loadCompiledModuleWithRetry = async (): Promise<any> => {
+        const retryDelays = [0, 50, 250, 1000, 3000];
+        let lastError: unknown;
+        for (const delay of retryDelays) {
+          if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+          try {
+            return await loadCompiledModule();
+          } catch (error) {
+            lastError = error;
+            if (!tsContent || !isMissingCompiledArtifact(error)) throw error;
+            this.log(`⚠️  Compiled artifact unavailable; retrying ${mcpName}`, { delay });
+          }
+        }
+        throw lastError;
+      };
+
       try {
-        module = await runWithPhotonDir(this.baseDir, importModule);
+        module = await loadCompiledModuleWithRetry();
       } catch (error) {
         // A watcher reload and a worker respawn can compile the same source
         // concurrently. If the content-addressed artifact disappears between
         // compilation and import, retry the import path once. Do not clear the
         // dependency cache here: this is a transient artifact race, not a
         // missing package, and clearing the cache would widen the race window.
-        const missingCompiledArtifact =
-          !!lastCompiledJsPath &&
-          (String(error).includes(lastCompiledJsPath) ||
-            (String(error).includes('.build/') && String(error).includes('.mjs')) ||
-            String(error).includes('ERR_MODULE_NOT_FOUND'));
+        const missingCompiledArtifact = isMissingCompiledArtifact(error);
 
         if (missingCompiledArtifact && tsContent && cacheKey) {
           this.log(`⚠️  Compiled artifact disappeared during load; retrying ${mcpName}`);
-          module = await runWithPhotonDir(this.baseDir, importModule);
+          module = await loadCompiledModuleWithRetry();
         } else if (
           this.shouldRetryInstall(error) &&
           tsContent &&
@@ -1527,20 +1675,22 @@ export class PhotonLoader {
           cacheKey
         ) {
           this.log(`⚠️  Missing dependency detected, reinstalling dependencies for ${mcpName}`);
-          await this.clearAllCaches(cacheKey);
-          await this.ensureDependenciesWithHash(
-            cacheKey,
-            mcpName,
-            dependencies,
-            sourceHash,
-            absolutePath
-          );
-          module = await runWithPhotonDir(this.baseDir, importModule);
+          module = await this.withCompilationCacheLock(cacheKey, async () => {
+            await this.clearAllCaches(cacheKey);
+            await this.ensureDependenciesWithHash(
+              cacheKey,
+              mcpName,
+              dependencies,
+              sourceHash,
+              absolutePath
+            );
+            return runWithPhotonDir(this.baseDir, importModule);
+          });
         } else {
           if (this.isCompilationServiceError(error) && cacheKey) {
             // Compiler process crashed — clear the build cache so the next startup
             // recompiles from source instead of finding a stale or missing artifact.
-            await this.clearBuildCache(cacheKey);
+            await this.withCompilationCacheLock(cacheKey, () => this.clearBuildCache(cacheKey));
             this.log(
               `⚠️  Compiler service crashed for ${mcpName || 'unknown'}, build cache cleared. Restart to recover.`
             );
@@ -3041,7 +3191,7 @@ export class PhotonLoader {
     tsFilePath: string,
     cacheKey: string,
     tsContent?: string
-  ): Promise<string> {
+  ): Promise<{ path: string; paths: string[] }> {
     const cacheDir = this.getBuildCacheDir(cacheKey);
     const compiled = new Map<string, string>();
     const result = await this.compileTypeScriptWithLocalImports(
@@ -3051,7 +3201,7 @@ export class PhotonLoader {
       tsContent
     );
     this.log(`Compiled: ${path.basename(tsFilePath)}`, { cached: result });
-    return result;
+    return { path: result, paths: [...compiled.values()] };
   }
 
   private async compileTypeScriptWithLocalImports(

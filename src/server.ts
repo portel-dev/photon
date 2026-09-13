@@ -3703,6 +3703,19 @@ export class PhotonServer {
           return;
         }
 
+        // Keep the original GET /mcp SSE entrypoint for direct PhotonServer
+        // consumers that still use the 2025 endpoint-event transport. Beam
+        // and all modern Streamable HTTP clients use the official SDK handler
+        // below; a session-bound GET continues through that handler.
+        if (
+          req.method === 'GET' &&
+          url.pathname === ssePath &&
+          typeof req.headers['mcp-session-id'] !== 'string'
+        ) {
+          await this.handleSSEConnection(req, res, messagesPath);
+          return;
+        }
+
         // Official MCP SDK v2 web-standard handler. It owns protocol-era
         // negotiation, request envelopes, sessions, SSE, and legacy fallback.
         if (this.mcpHttpHandler && url.pathname === ssePath) {
@@ -3756,7 +3769,8 @@ export class PhotonServer {
           return;
         }
 
-        // Legacy SSE transport (when not using Streamable HTTP)
+        // Legacy SSE message endpoint for clients established through the
+        // compatibility GET /mcp path above.
         if (req.method === 'GET' && url.pathname === ssePath) {
           await this.handleSSEConnection(req, res, messagesPath);
           return;

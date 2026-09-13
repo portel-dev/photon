@@ -76,6 +76,30 @@ assert.match(v2ServerBoundary, /@modelcontextprotocol\/server/);
 assert.match(v2ServerBoundary, /createMcpHandler/);
 assert.match(v2ServerBoundary, /serveStdio/);
 
+const v2ClientBoundary = readFileSync(join(root, 'src', 'mcp', 'sdk-v2-2026', 'client.ts'), 'utf8');
+assert.match(v2ClientBoundary, /@modelcontextprotocol\/client/);
+assert.match(v2ClientBoundary, /StreamableHTTPClientTransport/);
+
+const beamRuntime = readFileSync(join(root, 'src', 'auto-ui', 'beam.ts'), 'utf8');
+assert.match(beamRuntime, /createOfficialBeamMcpHandler/);
+assert.match(beamRuntime, /handleOfficialBeamMcpHttp/);
+assert.doesNotMatch(
+  beamRuntime,
+  /handleStreamableHTTP/,
+  'Beam production routing must use the official SDK HTTP handler'
+);
+
+const beamExternalMcp = readFileSync(
+  join(root, 'src', 'auto-ui', 'beam', 'external-mcp.ts'),
+  'utf8'
+);
+assert.match(beamExternalMcp, /sdk-v2-2026\/client/);
+assert.doesNotMatch(
+  beamExternalMcp,
+  /sdk-v1-2025\/client/,
+  'Beam external MCP clients must use the official SDK v2 boundary'
+);
+
 const runtimeServer = readFileSync(join(root, 'src', 'server.ts'), 'utf8');
 assert.doesNotMatch(
   runtimeServer,

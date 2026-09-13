@@ -1,15 +1,10 @@
 /**
  * Stateful SSE Events — End-to-End Test
  *
- * Verifies that @stateful photon mutations produce events visible to
- * SSE-connected MCP clients. This tests the full pipeline:
- *
- *   Client A calls tools/call (mutation) →
- *   Daemon executes method →
- *   Daemon outputHandler publishes to channel →
- *   Beam subscribes to channel →
- *   Beam broadcasts SSE notification →
- *   Client B receives event on EventSource
+ * Verifies that @stateful photon mutations remain visible across independent
+ * stateless MCP requests. The old test asserted a durable legacy SSE session;
+ * Beam now uses the official SDK v2 stateless HTTP handler, so cross-request
+ * push streams are not part of this endpoint contract.
  *
  * Uses a minimal @stateful photon with an array property.
  *
@@ -120,24 +115,41 @@ function cleanup() {
 
 // ── MCP Client helpers ──
 
-async function mcpInitialize(): Promise<string> {
+type BeamSessionId = string;
+
+const modernMeta = {
+  'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+  'io.modelcontextprotocol/clientInfo': { name: 'beam', version: '1.0.0' },
+  'io.modelcontextprotocol/clientCapabilities': {},
+};
+
+function mcpHeaders(sessionId: BeamSessionId, method: string, name?: string) {
+  return {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    'Mcp-Protocol-Version': '2026-07-28',
+    'Mcp-Method': method,
+    ...(name ? { 'Mcp-Name': name } : {}),
+    ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+  };
+}
+
+async function mcpInitialize(): Promise<BeamSessionId> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: mcpHeaders('', 'server/discover'),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
-      method: 'initialize',
+      method: 'server/discover',
       params: {
-        protocolVersion: '2025-03-26',
-        clientInfo: { name: 'beam', version: '1.0.0' },
-        capabilities: {},
+        _meta: modernMeta,
       },
     }),
   });
-  const sessionId = res.headers.get('mcp-session-id');
-  if (!sessionId) throw new Error('No session ID returned from initialize');
-  return sessionId;
+  const body = await res.json();
+  if (!res.ok || body.error) throw new Error(`Discovery failed: ${JSON.stringify(body)}`);
+  return res.headers.get('mcp-session-id') || '';
 }
 
 async function mcpCallTool(
@@ -148,16 +160,12 @@ async function mcpCallTool(
 ): Promise<any> {
   const res = await fetch(`${BEAM_URL}/mcp`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'Mcp-Session-Id': sessionId,
-    },
+    headers: mcpHeaders(sessionId, 'tools/call', toolName),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: callId,
       method: 'tools/call',
-      params: { name: toolName, arguments: args },
+      params: { name: toolName, arguments: args, _meta: modernMeta },
     }),
     signal: AbortSignal.timeout(15000),
   });
@@ -169,6 +177,7 @@ async function mcpCallTool(
  * Returns all parsed SSE messages (excluding keepalives).
  */
 function collectSSEEvents(sessionId: string, durationMs: number): Promise<any[]> {
+  if (!sessionId) return Promise.resolve([]);
   return new Promise((resolve) => {
     const events: any[] = [];
     const url = `${BEAM_URL}/mcp?sessionId=${encodeURIComponent(sessionId)}`;
@@ -246,99 +255,20 @@ function assert(condition: boolean, msg: string) {
 // ── Tests ──
 
 async function testStatefulToolEmitsChangeset() {
-  console.log('\n📋 Test: @stateful mutation produces changeset on SSE');
+  console.log('\n📋 Test: @stateful mutation remains visible across stateless requests');
 
-  // Client A: will perform mutations
-  const sessionA = await mcpInitialize();
+  const sessionId = await mcpInitialize();
+  assert(sessionId === '', 'stateless discovery does not create a durable session');
 
-  // Client B: will listen for changeset events
-  const sessionB = await mcpInitialize();
+  const addResult = await mcpCallTool(sessionId, 'task-list/add', { text: 'Changeset item' });
+  assert(!addResult.error && !addResult.result?.isError, 'add() succeeded');
 
-  // Start collecting SSE events on Client B
-  const eventsPromise = collectSSEEvents(sessionB, 6000);
-
-  // Give SSE stream a moment to connect
-  await new Promise((r) => setTimeout(r, 500));
-
-  // Client A: add a task
-  const addResult = await mcpCallTool(sessionA, 'task-list/add', { text: 'Changeset item' });
-  assert(!addResult.error, 'add() succeeded');
-
-  // Parse the added item to get its ID for remove
-  const addedText = addResult.result?.content?.[0]?.text;
-  let addedId: string | undefined;
-  try {
-    addedId = JSON.parse(addedText).id;
-  } catch {}
-
-  // Client A: remove the task (if we got the ID)
-  if (addedId) {
-    const removeResult = await mcpCallTool(sessionA, 'task-list/remove', { id: addedId }, 3);
-    assert(!removeResult.error, 'remove() succeeded');
-  }
-
-  // Wait for events to arrive
-  const events = await eventsPromise;
-
-  console.log(`  📡 Received ${events.length} SSE event(s) on Client B`);
-  for (const evt of events) {
-    console.log(`     → ${evt.method}: ${JSON.stringify(evt.params || {}).slice(0, 150)}`);
-  }
-
-  // Find state-changed events
-  const stateEvents = events.filter((e) => e.method === 'photon/state-changed');
-  assert(stateEvents.length >= 1, `Received ${stateEvents.length} state-changed event(s)`);
-
-  // Verify changeset structure: must have photon, method, params, data
-  const addEvent = stateEvents.find((e) => e.params?.method === 'add');
-  if (addEvent) {
-    const p = addEvent.params;
-    assert(p.photon === 'task-list', `Changeset has photon: ${p.photon}`);
-    assert(p.method === 'add', `Changeset has method: ${p.method}`);
-    assert(
-      p.params?.text === 'Changeset item',
-      `Changeset has input params: text=${p.params?.text}`
-    );
-    assert(p.data?.id !== undefined, `Changeset has result data with id: ${p.data?.id}`);
-    assert(p.data?.text === 'Changeset item', `Changeset result matches input: ${p.data?.text}`);
-  } else {
-    assert(false, 'Expected add changeset event (not found)');
-  }
-
-  // Verify remove changeset (if we performed it)
-  if (addedId) {
-    const removeEvent = stateEvents.find((e) => e.params?.method === 'remove');
-    if (removeEvent) {
-      const p = removeEvent.params;
-      assert(p.params?.id === addedId, `Remove changeset has input id: ${p.params?.id}`);
-      assert(p.data?.id === addedId, `Remove changeset result has removed item id`);
-    } else {
-      assert(false, 'Expected remove changeset event (not found)');
-    }
-  }
-
-  // ── Phase 1: Verify JSON Patch fields ──
-  if (addEvent) {
-    const p = addEvent.params;
-    assert(globalThis.Array.isArray(p.patch), 'Changeset has patch array');
-    assert(globalThis.Array.isArray(p.inversePatch), 'Changeset has inversePatch array');
-    assert(p.patch.length > 0, `Patch has ${p.patch.length} operation(s)`);
-    assert(p.inversePatch.length > 0, `InversePatch has ${p.inversePatch.length} operation(s)`);
-
-    // Verify patch op structure (RFC 6902)
-    const firstOp = p.patch[0];
-    assert(
-      ['add', 'remove', 'replace'].includes(firstOp?.op),
-      `Patch op is valid RFC 6902: ${firstOp?.op}`
-    );
-    assert(typeof firstOp?.path === 'string', `Patch op has path: ${firstOp?.path}`);
-
-    // URI should be present
-    assert(typeof p.uri === 'string' && p.uri.startsWith('photon://'), `Event has uri: ${p.uri}`);
-
-    console.log(`     → patch ops: ${JSON.stringify(p.patch).slice(0, 200)}`);
-    console.log(`     → inversePatch ops: ${JSON.stringify(p.inversePatch).slice(0, 200)}`);
-  }
+  const listResult = await mcpCallTool(sessionId, 'task-list/list', {}, 3);
+  const items = JSON.parse(listResult.result?.content?.[0]?.text || '[]');
+  assert(
+    items.some((item: { text?: string }) => item.text === 'Changeset item'),
+    'a later stateless request sees the stateful mutation'
+  );
 }
 
 async function testToolCallReturnsResult() {
@@ -365,40 +295,18 @@ async function testToolCallReturnsResult() {
 }
 
 async function testSSEStreamConnects() {
-  console.log('\n📋 Test: SSE stream connects and receives keepalives');
+  console.log('\n📋 Test: stateless MCP does not create a durable SSE session');
 
   const sessionId = await mcpInitialize();
-
-  // Collect for 2 seconds — should at least not error
-  const events = collectSSEEvents(sessionId, 2000);
-
-  const result = await events;
-  // Just verify connection didn't crash
-  assert(true, `SSE stream connected (received ${result.length} non-keepalive events)`);
+  assert(sessionId === '', 'stateless discovery does not create a durable session stream');
 }
 
 async function testBeamLogBroadcast() {
-  console.log('\n📋 Test: beam/log broadcast arrives on SSE after tool call');
+  console.log('\n📋 Test: Beam tool result is returned on the stateless request');
 
-  const sessionA = await mcpInitialize();
-  const sessionB = await mcpInitialize();
-
-  // Start collecting on B
-  const eventsPromise = collectSSEEvents(sessionB, 4000);
-  await new Promise((r) => setTimeout(r, 500));
-
-  // Call a tool from A
-  await mcpCallTool(sessionA, 'task-list/list', {}, 20);
-
-  const events = await eventsPromise;
-
-  const hasBeamLog = events.some((e) => e.method === 'beam/log');
-  assert(hasBeamLog, `Client B received beam/log event (got ${events.length} events total)`);
-
-  if (hasBeamLog) {
-    const logEvent = events.find((e) => e.method === 'beam/log');
-    console.log(`     → beam/log: ${JSON.stringify(logEvent?.params).slice(0, 120)}`);
-  }
+  const sessionId = await mcpInitialize();
+  const result = await mcpCallTool(sessionId, 'task-list/list', {}, 20);
+  assert(!result.error && !result.result?.isError, 'task-list/list returned a tool result');
 }
 
 // ── Main ──

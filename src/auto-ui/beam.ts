@@ -359,7 +359,8 @@ import { generateServerCard } from '../server-card.js';
 import { resolveUIAssetPath, readUIContent, readUICompiled } from './ui-resolver.js';
 import type { CompiledTsx } from '../tsx-compiler.js';
 import {
-  handleStreamableHTTP,
+  createOfficialBeamMcpHandler,
+  handleOfficialBeamMcpHttp,
   broadcastMCPListChanges,
   broadcastNotification,
   broadcastToBeam,
@@ -1486,6 +1487,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     sessionViewState: new Map(),
     apiRateLimiter,
     server: null,
+    mcpHandler: null,
     watchers: [],
     pendingReloads: new Map(),
     activeLoads: new Set(),
@@ -1821,7 +1823,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // ══════════════════════════════════════════════════════════════════════════
       if (url.pathname === '/mcp') {
         await photonsReady;
-        const handled = await handleStreamableHTTP(req, res, {
+        const mcpOptions = {
           photons, // Pass all photons including unconfigured for configurationSchema
           photonMCPs,
           externalMCPs: ctx.externalMCPs,
@@ -1945,7 +1947,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               });
             }
           },
-        });
+        };
+        const mcpHandler =
+          beamState.mcpHandler ?? (beamState.mcpHandler = createOfficialBeamMcpHandler(mcpOptions));
+        const handled = await handleOfficialBeamMcpHttp(req, res, mcpHandler, mcpOptions);
         if (handled) return;
       }
 
@@ -3075,7 +3080,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Broadcast photon changes to all connected clients via MCP SSE
   const broadcastPhotonChange = () => {
-    // MCP Streamable HTTP clients (SSE) get tools/list_changed notification
+    // The official SDK owns subscriptions/listen delivery for modern MCP
+    // clients. Keep the legacy broadcast for the compatibility test surface
+    // and older Beam sessions that still use the old event channel.
+    beamState.mcpHandler?.notify.toolsChanged();
+    beamState.mcpHandler?.notify.promptsChanged();
+    beamState.mcpHandler?.notify.resourcesChanged();
     broadcastMCPListChanges();
     // Beam SSE clients get full photons list
     broadcastToBeam('beam/photons', { photons });
@@ -3677,18 +3687,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 return;
               }
 
-              // On the first failure, clear the build cache and retry automatically.
-              // This recovers from stale artifacts or dependency issues without
-              // requiring the user to touch the file or restart Beam.
+              // On the first failure, retry automatically. The loader already
+              // retries missing compiled artifacts and dependency imports under
+              // the cross-process compilation lock. Clearing the shared cache
+              // here would race a daemon reload that is still importing the
+              // same content-addressed artifact.
               if (!autoRetried.has(photonName)) {
                 autoRetried.add(photonName);
-                logger.info(`🔄 ${photonName} failed to load, clearing cache and retrying...`);
-                try {
-                  const retryPath = photons.find((p) => p.name === photonName)?.path || photonPath;
-                  await loader.clearCacheForFile(retryPath);
-                } catch {
-                  // best-effort
-                }
+                logger.info(`🔄 ${photonName} failed to load, retrying after cache race...`);
                 setTimeout(() => void handleFileChange(photonName), 500);
                 return;
               }
@@ -3851,25 +3857,35 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     tryListen();
   });
 
-  // Load photons in parallel batches (server is already listening)
-  const LOAD_CONCURRENCY = 4;
-  for (let i = 0; i < photonList.length; i += LOAD_CONCURRENCY) {
-    const batch = photonList.slice(i, i + LOAD_CONCURRENCY);
-    const results = await Promise.allSettled(batch.map((name) => loadSinglePhoton(name)));
-    for (const result of results) {
-      if (result.status === 'fulfilled' && result.value) {
-        // Dedup: file watcher may have already loaded this photon during startup
-        if (!photons.find((p) => p.name === result.value!.name)) {
-          photons.push(result.value);
+  // Load photons in parallel batches (server is already listening). Keep the
+  // promise on BeamState so SIGTERM can drain this work before closing the
+  // process. The shell is intentionally available before this completes, and
+  // a short-lived startup probe may otherwise terminate a loader while it is
+  // still compiling into the shared cache.
+  const initialPhotonLoad = (async () => {
+    try {
+      const LOAD_CONCURRENCY = 4;
+      for (let i = 0; i < photonList.length; i += LOAD_CONCURRENCY) {
+        const batch = photonList.slice(i, i + LOAD_CONCURRENCY);
+        const results = await Promise.allSettled(batch.map((name) => loadSinglePhoton(name)));
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value) {
+            // Dedup: file watcher may have already loaded this photon during startup
+            if (!photons.find((p) => p.name === result.value!.name)) {
+              photons.push(result.value);
+            }
+          }
         }
       }
+    } finally {
+      // Local Photon tools are now stable and safe to expose to MCP clients.
+      // External MCP setup is independent and may take longer, so it must not
+      // hold the initial local tools/list lifecycle hostage.
+      resolvePhotonStartup();
     }
-  }
-
-  // Local Photon tools are now stable and safe to expose to MCP clients.
-  // External MCP setup is independent and may take longer, so it must not
-  // hold the initial local tools/list lifecycle hostage.
-  resolvePhotonStartup();
+  })();
+  beamState.startupPromise = initialPhotonLoad;
+  await initialPhotonLoad;
 
   // Load external MCPs from config
   const externalMCPList = await loadExternalMCPs(savedConfig);
@@ -4305,6 +4321,16 @@ export async function stopBeam(): Promise<void> {
 
 export async function __stopBeamStateForTests(state: BeamState): Promise<void> {
   activeBeamStates.delete(state);
+
+  // startBeam listens before it finishes compiling the initial Photon set.
+  // Drain that work before closing the server or exiting so another process
+  // cannot inherit a half-written shared compiler cache.
+  await state.startupPromise?.catch(() => undefined);
+
+  if (state.mcpHandler) {
+    await state.mcpHandler.close().catch(() => undefined);
+    state.mcpHandler = null;
+  }
 
   for (const timer of state.pendingReloads.values()) {
     clearTimeout(timer);
