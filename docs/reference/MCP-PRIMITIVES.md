@@ -168,6 +168,32 @@ That's it. The runtime routes the question through the client's
 elicitation UI (Beam dialog, Claude confirm prompt, etc.) and returns
 `true` / `false`. Coerces any truthy / falsy response.
 
+### Form validation and specialized fields
+
+`form` accepts a JSON Schema object. Photon renders its `properties` as a
+multi-field form and validates `required`, `pattern`, `minLength`,
+`maxLength`, `minimum`, and `maximum` before submitting it. The same schema is
+sent to MCP clients, so clients can apply the constraints in their own UI as
+well.
+
+Photon also provides opt-in formats for common sensitive inputs. Use
+`credit-card` for a card number (including Luhn validation),
+`credit-card-expiry` for an unexpired `MM/YY` value, and `credit-card-cvv` for
+a three- or four-digit security code. These formats only validate input shape;
+they do not process payments or store card data.
+
+```ts
+const payment = yield io.ask.form('Payment details', {
+  type: 'object',
+  properties: {
+    cardNumber: { type: 'string', format: 'credit-card' },
+    expiry: { type: 'string', format: 'credit-card-expiry' },
+    cvv: { type: 'string', format: 'credit-card-cvv' },
+  },
+  required: ['cardNumber', 'expiry', 'cvv'],
+});
+```
+
 ## `this.elicit` — arbitrary input
 
 `this.confirm` is sugar over the broader elicitation surface. For

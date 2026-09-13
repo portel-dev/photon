@@ -2,6 +2,10 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, buttons, forms } from '../styles/index.js';
 import { trapFocus } from '../utils/focus-trap.js';
+import {
+  validateElicitationFormFields,
+  type FormValidationField,
+} from '../utils/form-validation.js';
 import { shieldCheck, sizedIcon } from '../icons.js';
 import './inputs/date-picker.js';
 import './inputs/number-stepper.js';
@@ -50,7 +54,7 @@ export interface ElicitationOption {
   selected?: boolean;
 }
 
-export interface FormField {
+export interface FormField extends FormValidationField {
   name: string;
   label?: string;
   type?: string;
@@ -62,7 +66,10 @@ export interface FormField {
   min?: number;
   max?: number;
   step?: number;
-  format?: string; // date, date-time, time
+  format?: string; // date, date-time, time, credit-card, credit-card-expiry, credit-card-cvv
+  pattern?: string;
+  minLength?: number;
+  maxLength?: number;
 }
 
 @customElement('elicitation-modal')
@@ -676,6 +683,7 @@ export class ElicitationModal extends LitElement {
   @state() private _inputValue: any = '';
   @state() private _selectedValues: string[] = [];
   @state() private _formValues: Record<string, any> = {};
+  @state() private _formErrors: Record<string, string> = {};
 
   private _oauthPopup: Window | null = null;
   private _oauthCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -731,6 +739,7 @@ export class ElicitationModal extends LitElement {
       this.data.default ?? (this.data.ask === 'number' ? (this.data.min ?? 0) : '');
     this._selectedValues = [];
     this._formValues = {};
+    this._formErrors = {};
 
     // Pre-select options if specified
     if (this.data.options) {
@@ -1058,33 +1067,10 @@ export class ElicitationModal extends LitElement {
 
   private _renderForm() {
     // Support both direct fields array and JSON Schema format
-    let fields = this.data?.fields || [];
+    const fields = this._getFormFields();
 
-    // Convert JSON Schema to fields array if schema is provided
-    if (fields.length === 0 && this.data?.schema?.properties) {
-      const schema = this.data.schema;
-      const required = new Set(schema.required || []);
-      fields = Object.entries(schema.properties).map(([name, prop]: [string, any]) => ({
-        name,
-        label: prop.title || name,
-        type:
-          prop.type === 'boolean'
-            ? 'boolean'
-            : prop.type === 'integer'
-              ? 'integer'
-              : prop.type === 'number'
-                ? 'number'
-                : 'text',
-        required: required.has(name),
-        default: prop.default,
-        placeholder: prop.description,
-        enum: prop.enum,
-        min: prop.minimum,
-        max: prop.maximum,
-        step: prop.multipleOf,
-        format: prop.format,
-      }));
-
+    // Initialize form values with defaults
+    if (this.data?.schema?.properties && (this.data?.fields || []).length === 0) {
       // Initialize form values with defaults
       if (Object.keys(this._formValues).length === 0) {
         const defaults: Record<string, any> = {};
@@ -1104,6 +1090,9 @@ export class ElicitationModal extends LitElement {
             <div class="form-group">
               <label>${field.label || field.name}${field.required ? ' *' : ''}</label>
               ${this._renderFormField(field)}
+              ${this._formErrors[field.name]
+                ? html`<div class="error-text" role="alert">${this._formErrors[field.name]}</div>`
+                : nothing}
             </div>
           `
         )}
@@ -1115,15 +1104,48 @@ export class ElicitationModal extends LitElement {
     `;
   }
 
+  private _getFormFields(): FormField[] {
+    if (this.data?.fields?.length) return this.data.fields;
+    const schema = this.data?.schema;
+    if (!schema?.properties) return [];
+
+    const required = new Set(schema.required || []);
+    return Object.entries(schema.properties).map(([name, prop]: [string, any]) => ({
+      name,
+      label: prop.title || name,
+      type:
+        prop.type === 'boolean'
+          ? 'boolean'
+          : prop.type === 'integer'
+            ? 'integer'
+            : prop.type === 'number'
+              ? 'number'
+              : 'text',
+      required: required.has(name),
+      default: prop.default,
+      placeholder: prop.description,
+      enum: prop.enum,
+      min: prop.minimum,
+      max: prop.maximum,
+      step: prop.multipleOf,
+      format: prop.format,
+      pattern: prop.pattern,
+      minLength: prop.minLength,
+      maxLength: prop.maxLength,
+    }));
+  }
+
   private _renderFormField(field: FormField) {
     const type = field.type || 'text';
     const value = this._formValues[field.name] ?? '';
+    const hasError = Boolean(this._formErrors[field.name]);
 
     if (type === 'textarea') {
       return html`
         <textarea
           rows="3"
           .value=${value}
+          aria-invalid=${hasError ? 'true' : 'false'}
           placeholder=${field.placeholder || ''}
           @input=${(e: Event) =>
             this._updateFormValue(field.name, (e.target as HTMLTextAreaElement).value)}
@@ -1236,10 +1258,30 @@ export class ElicitationModal extends LitElement {
     }
 
     // Default: text input
+    const format = field.format?.toLowerCase();
+    const autocomplete =
+      format === 'credit-card'
+        ? 'cc-number'
+        : format === 'credit-card-expiry'
+          ? 'cc-exp'
+          : format === 'credit-card-cvv'
+            ? 'cc-csc'
+            : undefined;
+    const inputMode =
+      format === 'credit-card' || format === 'credit-card-expiry' || format === 'credit-card-cvv'
+        ? 'numeric'
+        : undefined;
+
     return html`
       <input
         type=${type}
         .value=${value}
+        aria-invalid=${hasError ? 'true' : 'false'}
+        autocomplete=${autocomplete || nothing}
+        inputmode=${inputMode || nothing}
+        minlength=${field.minLength ?? nothing}
+        maxlength=${field.maxLength ?? nothing}
+        pattern=${field.pattern || nothing}
         placeholder=${field.placeholder || ''}
         ?required=${field.required}
         @input=${(e: Event) =>
@@ -1269,6 +1311,11 @@ export class ElicitationModal extends LitElement {
 
   private _updateFormValue(name: string, value: any) {
     this._formValues = { ...this._formValues, [name]: value };
+    if (this._formErrors[name]) {
+      const nextErrors = { ...this._formErrors };
+      delete nextErrors[name];
+      this._formErrors = nextErrors;
+    }
   }
 
   private _handleKeydown(e: KeyboardEvent) {
@@ -1289,6 +1336,15 @@ export class ElicitationModal extends LitElement {
   }
 
   private _submitForm() {
+    const errors = validateElicitationFormFields(this._getFormFields(), this._formValues);
+    if (Object.keys(errors).length > 0) {
+      this._formErrors = errors;
+      void this.updateComplete.then(() => {
+        const firstError = this.shadowRoot?.querySelector('[aria-invalid="true"]') as HTMLElement;
+        firstError?.focus();
+      });
+      return;
+    }
     this._submitValue(this._formValues);
   }
 

@@ -86,6 +86,7 @@ SUITES=(
   "execution-history:$RUN tests/execution-history.test.ts"
   "beam-daemon-routes:$RUN tests/beam-daemon-routes.test.ts"
   "ui-rendering:$RUN_TEST tests/ui/result-rendering.test.ts"
+  "elicitation-form-validation:$RUN_TEST tests/elicitation-form-validation.test.ts"
   "photon-instance-mgr:$VITEST tests/photon-instance-manager.test.ts"
   "viewport-proxy:$VITEST tests/viewport-aware-proxy.test.ts"
   "viewport-manager:$VITEST tests/viewport-manager.test.ts"

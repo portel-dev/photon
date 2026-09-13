@@ -14,6 +14,7 @@
 
 ### Bug Fixes
 
+* **ui:** enforce elicitation form constraints and built-in credit-card validation before submission
 * **cloudflare:** preserve MCP App resources, render metadata, bridge transport, and promoted deployment versions in generated Workers
 * **beam:** improve MCP App startup, sizing, postMessage transport, and asset rendering
 * **ui:** remove public-CDN dependencies from chart, QR, map, and network renderers so generated interfaces work under strict CSP
