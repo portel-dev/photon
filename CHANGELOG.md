@@ -4,6 +4,8 @@
 
 ### Features
 
+* **runtime:** route HTTP, webhook, and WebSocket method execution through the shared Photon dispatcher with request context, instance serialization, tracing, and audit lifecycle
+* **docs:** document the multi-target execution model and the mapping from Photon long-running methods to negotiated MCP Tasks
 * **mcp:** add release-candidate MCP 2026 stateless Streamable HTTP support with request-scoped discovery, subscriptions, Tasks, JSON Schema 2020-12, OAuth/JWT hardening, and compatibility coverage for MCP 2025 clients
 * **mcp:** add property-based tool exposure, A2A agent cards, and safety metadata for read-only, idempotent, and open/closed-world tools
 * **mcp-apps:** add official MCP Apps resources and bridge support across Beam, local HTTP, and Cloudflare deployments

@@ -2959,7 +2959,12 @@ export class PhotonServer {
               headers: req.headers as Record<string, string>,
               ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
             });
-            const result: unknown = await fn.call(photonInstance, webReq);
+            const result: unknown = await this.loader.executeHttpRoute(
+              targetMcp as PhotonClass,
+              route.handler,
+              webReq,
+              { transport: 'http' }
+            );
 
             if (result instanceof Response) {
               await writeFetchResponseToNode(
@@ -3198,7 +3203,24 @@ export class PhotonServer {
         method: req.method,
         headers: req.headers as Record<string, string>,
       });
-      const result: unknown = await fn.call(photonInstance, webReq);
+      const result: unknown = await this.loader.executeHttpRoute(
+        targetMcp as PhotonClass,
+        route.handler,
+        webReq,
+        {
+          transport: 'websocket',
+          caller: callerFromVerifiedClaims(httpClaims),
+          requestContext: {
+            transport: 'websocket',
+            protocolVersion: 'websocket',
+            client: {
+              protocolVersion: 'websocket',
+              clientName: 'photon-websocket',
+              mode: 'stateless',
+            },
+          },
+        }
+      );
       if (!(result instanceof Response)) {
         reject(500, 'Internal Server Error', 'WebSocket route did not return a Response');
         return;
@@ -4257,9 +4279,42 @@ export class PhotonServer {
                     return;
                   }
                 }
-                result = await fn.call(photonInstance, parsed);
+                result = await this.loader.executeHttpRoute(
+                  targetMcp as PhotonClass,
+                  matchedRoute.handler,
+                  parsed as Record<string, unknown>,
+                  {
+                    transport: 'http',
+                    caller: callerFromVerifiedClaims(httpClaims),
+                    requestContext: {
+                      transport: 'http',
+                      protocolVersion: 'http',
+                      client: {
+                        protocolVersion: 'http',
+                        clientName: 'photon-http-expose',
+                        mode: 'stateless',
+                      },
+                    },
+                  }
+                );
               } else {
-                result = await fn.call(photonInstance, webReq);
+                result = await this.loader.executeHttpRoute(
+                  targetMcp as PhotonClass,
+                  matchedRoute.handler,
+                  webReq,
+                  {
+                    caller: callerFromVerifiedClaims(httpClaims),
+                    requestContext: {
+                      transport: 'http',
+                      protocolVersion: 'http',
+                      client: {
+                        protocolVersion: 'http',
+                        clientName: 'photon-http',
+                        mode: 'stateless',
+                      },
+                    },
+                  }
+                );
               }
 
               // Pass-through: if the handler already returned a Response, do

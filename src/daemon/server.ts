@@ -2526,7 +2526,18 @@ function startWebhookServer(port: number): void {
         const result = await sessionManager.loader.executeTool(
           session.instance,
           resolvedMethod,
-          args
+          args,
+          {
+            requestContext: {
+              transport: 'webhook',
+              protocolVersion: 'http',
+              client: {
+                protocolVersion: 'http',
+                clientName: 'photon-webhook',
+                mode: 'stateless',
+              },
+            },
+          }
         );
 
         logger.info('Webhook executed', { photon: photonName, method });

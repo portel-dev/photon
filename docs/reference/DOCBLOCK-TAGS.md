@@ -344,7 +344,13 @@ Emoji icons (`@icon 🧮`) continue to work as before via `x-icon` for Beam UI b
 
 ### Async Execution
 
-Methods tagged with `@async` run in the background. The client receives an execution ID immediately while the method continues executing. Results are recorded in the execution audit trail.
+Methods tagged with `@async` are eligible for background execution. On the
+legacy CLI/MCP path, the client receives an execution ID immediately and the
+result is recorded in the execution audit trail. When a modern MCP HTTP client
+negotiates the exact `io.modelcontextprotocol/tasks` extension, the same method
+is instead represented by a durable MCP task with `working`,
+`input_required`, `completed`, `failed`, or `cancelled` state. The Photon
+method and generator engine do not change between these targets.
 
 ```typescript
 /**
@@ -376,7 +382,7 @@ async generate({ quarter }: { quarter: string }) {
 - Batch operations across large datasets
 - Any operation where the client shouldn't block waiting
 
-**How results are stored:** The execution audit trail (`~/.photon/.data/{photonId}/logs/executions.jsonl`) records the full result, timing, and any errors once the background task completes.
+**How results are stored:** The execution audit trail (`~/.photon/.data/{photonId}/logs/executions.jsonl`) records the full result, timing, and any errors once the background task completes. Modern MCP tasks additionally persist their task record under Photon's task state directory so `tasks/get`, `tasks/update`, and `tasks/cancel` remain available across requests and can enforce caller ownership.
 
 ## HTTP Route Tags
 

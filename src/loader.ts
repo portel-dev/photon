@@ -4972,6 +4972,137 @@ Run: photon mcp ${mcpName} --config
   }
 
   /**
+   * Execute a method that is intentionally HTTP-only (`@get`, `@post`, ...).
+   *
+   * HTTP route methods are excluded from the MCP tool catalog, so they cannot
+   * use executeTool() without changing the public protocol surface. They do,
+   * however, need the same request context, instance serialization, tracing,
+   * and audit semantics as a tool call. Keeping this narrow dispatcher here
+   * gives every transport one runtime seam while preserving the route method's
+   * native Request/Response contract. `@expose` uses the same dispatcher with
+   * its parsed JSON body as the method argument, because that surface is both
+   * an HTTP endpoint and an MCP tool.
+   */
+  async executeHttpRoute(
+    mcp: PhotonClass,
+    handlerName: string,
+    request: Request | Record<string, unknown>,
+    options: {
+      caller?: CallerInfo;
+      requestContext?: PhotonExecutionRequestContext;
+      traceId?: string;
+      signal?: AbortSignal;
+      transport?: string;
+    } = {}
+  ): Promise<unknown> {
+    const target = mcp.instance as Record<string, unknown> | undefined;
+    let method = target?.[handlerName];
+    let receiver: object | null | undefined = target;
+
+    if (typeof method !== 'function' && target) {
+      method = Object.getPrototypeOf(target)?.[handlerName];
+    }
+    if (typeof method !== 'function' && mcp.classConstructor) {
+      method = mcp.classConstructor[handlerName];
+      receiver = null;
+    }
+    if (typeof method !== 'function') {
+      throw new Error(`HTTP route handler not found: ${handlerName}`);
+    }
+
+    const requestContext = options.requestContext ?? {
+      transport: options.transport ?? 'http',
+      protocolVersion: 'http',
+      client: {
+        protocolVersion: 'http',
+        clientName: 'photon-http',
+        mode: 'stateless' as const,
+      },
+    };
+    const startedAt = Date.now();
+    const audit = getAuditTrail();
+    const requestSummary =
+      request instanceof Request
+        ? { method: request.method, url: request.url }
+        : { method: requestContext.transport, url: undefined };
+    const { finish: auditFinish } = audit.start(mcp.name, handlerName, requestSummary);
+    const span = startToolSpan(
+      mcp.name,
+      handlerName,
+      requestSummary,
+      options.traceId,
+      Boolean((mcp as PhotonClass & { stateful?: boolean }).stateful),
+      requestContext.traceparent,
+      {
+        tracestate: requestContext.tracestate,
+        baggage: requestContext.baggage,
+      }
+    );
+    let outcome: 'success' | 'error' = 'success';
+    let thrown: unknown;
+    const outputHandler = this.createOutputHandler();
+    const inputProvider = this.createInputProvider();
+
+    const invoke = () =>
+      runWithRequestContext(
+        {
+          photon: mcp.name,
+          tool: handlerName,
+          traceId: options.traceId,
+          parentTraceparent: requestContext.traceparent,
+          tracestate: requestContext.tracestate,
+          baggage: requestContext.baggage,
+          caller: options.caller,
+          request: requestContext,
+          photonDir: this.baseDir,
+          startedAt,
+        },
+        () =>
+          executionContext.run(
+            {
+              outputHandler,
+              caller: options.caller,
+              inputProvider,
+              requestContext,
+            } as unknown as Parameters<typeof executionContext.run>[0],
+            () => method.call(receiver, request)
+          )
+      );
+
+    try {
+      if (options.signal?.aborted) throw new Error('HTTP route request was aborted');
+      const gateKey = mcp.instance as object | undefined;
+      const result = gateKey ? await this._withInstanceGate(gateKey, invoke) : await invoke();
+      auditFinish(result);
+      span.setStatus('OK');
+      return result;
+    } catch (error) {
+      outcome = 'error';
+      thrown = error;
+      auditFinish(null, error as Error);
+      span.recordException(error);
+      span.setStatus('ERROR', error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      writeAudit({
+        ts: new Date().toISOString(),
+        event: 'invocation',
+        photon: mcp.name,
+        method: handlerName,
+        instance: mcp.instance?.instanceName,
+        client: requestContext.transport,
+        sessionId: requestContext.appSessionId,
+        traceId: options.traceId,
+        callerId: options.caller?.id,
+        outcome,
+        durationMs: Date.now() - startedAt,
+        error: thrown ? getErrorMessage(thrown) : undefined,
+      });
+      span.end();
+    }
+  }
+
+  /**
    * Long-lived subscription tools are async generators. They must not hold
    * the stateful instance gate for their entire stream lifetime, or every
    * ordinary request to the same photon queues behind the subscription.

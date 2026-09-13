@@ -32,6 +32,65 @@ The future is not humans OR AI using tools separately. It's humans AND AI **work
 
 ## What is Photon?
 
+### One Execution Model, Many Targets
+
+Photon methods are the business-logic boundary. Protocol adapters translate
+each target into that boundary; they do not reimplement the method. CLI, MCP,
+HTTP web routes, webhooks, and WebSocket upgrades all carry a transport-aware
+request context so caller identity, state isolation, tracing, audit records,
+and cancellation can be handled consistently.
+
+| Target | Adapter | Method contract |
+|---|---|---|
+| CLI | `photon` command runner | Typed arguments and a rendered result |
+| MCP stdio / legacy HTTP | MCP 2025 adapters | `tools/call` and legacy task vocabulary |
+| MCP modern HTTP | Official MCP TypeScript SDK v2 plus Photon handlers | Negotiated stateless MCP 2026 requests |
+| Web application | `@get`, `@post`, `@put`, `@patch`, `@delete` | Native `Request` → value or `Response` |
+| Webhook | `@webhook` daemon route | Parsed event payload plus webhook metadata |
+| WebSocket | HTTP upgrade route using `WebSocketPair` | Native `Request` → 101 `Response` |
+
+HTTP-only methods remain out of the MCP catalog by design. The loader's
+transport dispatcher wraps those methods with the same Photon request context,
+instance gate, tracing, and audit lifecycle used by tool execution while
+preserving their native web `Request`/`Response` API. `@expose` methods are the
+bridge case: they keep their MCP tool and also receive a same-origin HTTP
+route, so both paths use `executeTool()` and the same schema validation.
+
+#### Long-running methods and MCP Tasks
+
+Photon's existing execution forms do not change:
+
+- `@async` marks a method as eligible for server-directed background execution.
+- Async generators continue to yield progress/status events and may yield
+  `{ ask: ... }` to pause for input.
+- Ordinary async methods remain ordinary blocking calls unless they are marked
+  `@async` or explicitly declare MCP task support.
+
+When a modern MCP HTTP client declares the exact
+`io.modelcontextprotocol/tasks` extension, the MCP adapter materializes an
+eligible call as a durable Photon task. The task stores the method name,
+arguments, owner binding, trace context, TTL, progress, input requests, and
+terminal result. The existing Photon execution engine runs underneath it, with
+an `AbortSignal` for cancellation:
+
+```
+tools/call ──(Tasks negotiated + eligible method)──▶ durable task: working
+                                                      │
+                              progress/status ◀──────┤
+                              yield { ask } ──────────▶ input_required
+                                                      │
+                 tasks/update ───────────────────────┘
+                                                      ▼
+                                      completed | failed | cancelled
+```
+
+Clients that do not negotiate the extension keep the existing behavior. MCP
+2025 clients use Photon's legacy task vocabulary when explicitly requested;
+modern clients use `tools/call`, `tasks/get`, `tasks/update`, and
+`tasks/cancel`. Task IDs are opaque and access-bound to the creating caller.
+The 2026 Tasks extension remains experimental until its upstream protocol and
+SDK support are finalized.
+
 ### The Smallest Unit
 
 A **photon** (in physics) is the smallest unit of light.
@@ -71,7 +130,10 @@ To avoid confusion, here is what does **not** exist in the Photon runtime:
 - **No `FormGenerator` or `ResultRenderer` class.** UI generation is internal to the Beam runtime and not exposed as a public API.
 - **No subpath exports.** The npm package `@portel/photon` exports a CLI binary only. There are no importable subpath modules like `@portel/photon/server`, `@portel/photon/security`, `@portel/photon/cache`, or `@portel/photon/monitoring`.
 - **No `PhotonServer` class.** The MCP server is managed internally by the runtime. Use `photon mcp <name>` to start it.
-- **No WebSocket.** Beam uses MCP Streamable HTTP (SSE) exclusively. WebSocket is architecturally forbidden in both the server and frontend.
+- **WebSocket is not the MCP transport.** Beam's MCP control plane uses MCP
+  Streamable HTTP. Photons may additionally expose explicit WebSocket upgrade
+  routes for realtime web applications; those routes use the portable
+  Workers-style `WebSocketPair` contract and the shared Photon dispatcher.
 - **No Jest.** Tests use **vitest** and **tsx**.
 
 ---
@@ -101,8 +163,8 @@ Just as Claude Desktop is an MCP client for AI, Beam gives humans the same inter
 |-----------|-----|----------|
 | **MCP (stdio)** | AI clients (Claude Desktop, Cursor) | MCP over stdio |
 | **CLI** | Humans in terminal | Direct method calls |
-| **Beam** | Humans in browser | MCP Streamable HTTP |
-| **PWA** | End users | Standalone app (MCP + UI bundled) |
+| **Beam** | Humans in browser | MCP Streamable HTTP, with proxied web routes |
+| **Web app / PWA** | End users | HTTP routes, WebSockets, and optional MCP-backed UI |
 
 ### Client-First UI Contract
 

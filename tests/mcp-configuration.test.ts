@@ -99,7 +99,11 @@ async function startBeamServer(port: number, dir: string): Promise<ChildProcess>
 
   // Wait for server to be fully ready (photons loaded)
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Server start timeout')), 30000);
+    // A stale global daemon may need to restart and eagerly index the user's
+    // Photon directory before Beam can print its ready banner. Keep this
+    // integration timeout distinct from the daemon's own readiness timeout so
+    // a legitimate restart is not reported as a false product failure.
+    const timeout = setTimeout(() => reject(new Error('Server start timeout')), 60000);
     let allOutput = '';
 
     let beamReady = false;

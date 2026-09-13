@@ -168,6 +168,7 @@ SUITES=(
   "progress-token-echo:$VITEST tests/progress-token-echo.test.ts"
   "transport-parity-resources:$VITEST tests/transport-parity-resources.test.ts"
   "transport-parity:$RUN tests/transport-parity.test.ts"
+  "transport-dispatcher:$VITEST tests/transport-dispatcher.test.ts"
   "conformance:$RUN tests/conformance/conformance.test.ts"
   "dynamic-resources-subscribe:$VITEST tests/dynamic-resources-subscribe.test.ts"
   "roots:$VITEST tests/roots.test.ts"

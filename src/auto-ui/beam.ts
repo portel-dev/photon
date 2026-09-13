@@ -340,7 +340,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 import { withTimeout } from '../async/index.js';
-// WebSocket removed - now using MCP Streamable HTTP (SSE) only
+// Beam's MCP control plane uses Streamable HTTP (SSE). Photon web apps may
+// still declare separate WebSocket upgrade routes; those are handled by the
+// local server and the portable WebSocketPair contract.
 import { resolvePhotonPath, type ListedPhoton } from '../path-resolver.js';
 import { discoverLocalPhotons } from '../context.js';
 import { PhotonLoader } from '../loader.js';
@@ -2947,7 +2949,20 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 headers: req.headers as Record<string, string>,
                 ...(req.method !== 'GET' && bodyBuffer.length > 0 ? { body: bodyBuffer } : {}),
               });
-              const result: unknown = await fn.call(photonClass.instance, webReq);
+              const result: unknown = loader.executeHttpRoute
+                ? await loader.executeHttpRoute(photonClass, route.handler, webReq, {
+                    transport: 'beam-web',
+                    requestContext: {
+                      transport: 'beam-web',
+                      protocolVersion: 'http',
+                      client: {
+                        protocolVersion: 'http',
+                        clientName: 'photon-beam-web',
+                        mode: 'stateless',
+                      },
+                    },
+                  })
+                : await fn.call(photonClass.instance, webReq);
 
               if (result instanceof Response) {
                 const prefix = `/web/${photonName}`;

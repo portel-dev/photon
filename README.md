@@ -164,7 +164,7 @@ You write a TypeScript class. Methods are your capabilities. Types describe what
 </div>
 
 ```
-analytics.photon.ts  →  Web UI (Beam)  ·  CLI  ·  MCP Server for AI
+analytics.photon.ts  →  Beam  ·  Web app  ·  Webhook  ·  WebSocket  ·  CLI  ·  MCP
 ```
 
 The more you express, the more Photon derives:
@@ -175,7 +175,7 @@ The more you express, the more Photon derives:
 | Type annotations | Input validation rules, UI field types |
 | JSDoc comments | Documentation for AI clients and human users |
 | Constructor parameters | Config UI, environment variable mapping, runtime injection (`Photon`, `Cloudflare`, `CloudflareEnv`) |
-| `@tags` | Validation, formatting, scheduling, webhooks |
+| `@tags` | Validation, formatting, scheduling, webhooks, and HTTP routes |
 
 When you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation, Beam validates it in the form, the CLI validates it before running, and the MCP schema enforces it for the AI. One annotation. Three consumers.
 
@@ -199,7 +199,7 @@ When forms aren't the right interface for what you're building, you can replace 
 
 > Custom UIs follow the [official MCP Apps Extension](https://modelcontextprotocol.io/extensions/apps/overview) and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
 
-Photons that declare HTTP routes with `@get`, `@post`, `@put`, `@patch`, or `@delete` are shown in Beam as web apps. Routes support dynamic path segments (e.g. `@get /items/:id`) matched by specificity: literal segments win over parameters. Beam proxies requests to those routes and injects an `x-photon-base-path` header so the app can construct correct absolute paths regardless of where Beam is hosted.
+Photons that declare HTTP routes with `@get`, `@post`, `@put`, `@patch`, or `@delete` are shown in Beam as web apps. Routes support dynamic path segments (e.g. `@get /items/:id`) matched by specificity: literal segments win over parameters. Beam proxies requests to those routes and injects an `x-photon-base-path` header so the app can construct correct absolute paths regardless of where Beam is hosted. Web apps and WebSockets are Photon application targets; MCP Apps are a separate official MCP extension for embedded UI resources.
 
 ---
 
@@ -653,6 +653,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | [MCP Client Registration](./docs/guides/mcp-client-registration.md) | Register MCP clients with Photon's AS via CIMD or DCR |
 | [Observability](./docs/guides/observability.md) | OpenTelemetry traces, metrics, logs, and structured errors |
 | [Protocol Features](./docs/guides/PROTOCOL-FEATURES.md) | Capability handshake, structured errors, trace correlation |
+| [Multi-target Architecture](./docs/internals/ARCHITECTURE.md#one-execution-model-many-targets) | How one Photon method maps to CLI, MCP, web, webhook, WebSocket, and MCP Tasks |
 | [Daemon Pub/Sub](./docs/internals/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
 | [Webhooks](./docs/reference/WEBHOOKS.md) | HTTP endpoints for external services |
 | [Locks](./docs/reference/LOCKS.md) | Distributed locks for exclusive access |
