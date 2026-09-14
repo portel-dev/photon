@@ -19,8 +19,7 @@ const store = await import('../dist/tasks/store.js');
 
 const VERSION = '2026-07-28';
 const TASK_EXTENSION = 'io.modelcontextprotocol/tasks';
-const REAL_NODE =
-  '/Users/arul/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node';
+const REAL_NODE = process.env.PHOTON_TEST_NODE || process.execPath;
 
 function meta(options: { tasks?: boolean; appSession?: string } = {}) {
   return {
