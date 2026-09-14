@@ -26,6 +26,15 @@ RUN_TEST="bun test"
 # Bun-based test runner.
 NODE_BIN="${PHOTON_TEST_NODE:-}"
 if [ -z "$NODE_BIN" ]; then
+  # CI installs Node in a hosted-tool cache rather than one of the macOS
+  # locations below. Check PATH first, but only accept a genuine Node binary
+  # because Bun also exposes a `node` compatibility command.
+  path_node="$(command -v node 2>/dev/null || true)"
+  if [ -n "$path_node" ] && "$path_node" --version 2>/dev/null | grep -Eq '^v[0-9]'; then
+    NODE_BIN="$path_node"
+  fi
+fi
+if [ -z "$NODE_BIN" ]; then
   for candidate in $(find /opt/homebrew/Cellar/node /usr/local/opt /usr/bin -path '*/bin/node' -type f -perm -111 2>/dev/null | sort -V -r); do
     if "$candidate" --version 2>/dev/null | grep -Eq '^v[0-9]'; then
       NODE_BIN="$candidate"

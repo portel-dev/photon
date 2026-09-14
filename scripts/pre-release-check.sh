@@ -15,6 +15,14 @@ ulimit -n 4096 2>/dev/null || ulimit -n 2048 2>/dev/null || true
 # override the binary explicitly.
 RELEASE_TEST_NODE="${PHOTON_TEST_NODE:-}"
 if [ -z "$RELEASE_TEST_NODE" ]; then
+  # GitHub-hosted runners install Node in PATH. Check it before the macOS
+  # fallback locations, while rejecting Bun's `node` compatibility command.
+  path_node="$(command -v node 2>/dev/null || true)"
+  if [ -n "$path_node" ] && "$path_node" --version 2>/dev/null | grep -Eq '^v[0-9]'; then
+    RELEASE_TEST_NODE="$path_node"
+  fi
+fi
+if [ -z "$RELEASE_TEST_NODE" ]; then
   for candidate in $(find /opt/homebrew/Cellar/node /usr/local/opt /usr/bin -path '*/bin/node' -type f -perm -111 2>/dev/null | sort -V -r); do
     if "$candidate" --version 2>/dev/null | grep -Eq '^v[0-9]'; then
       RELEASE_TEST_NODE="$candidate"
