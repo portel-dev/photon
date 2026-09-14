@@ -85,7 +85,7 @@ SUITES=(
   "daemon-pubsub:$RUN tests/daemon-pubsub.test.ts"
   "daemon-subscribe-reconnect-leak:$RUN tests/daemon-subscribe-reconnect-leak.test.ts"
   "storage-injected-location:$RUN tests/storage-injected-location.test.ts"
-  "daemon-chaos:PHOTON_TEST_NODE=$NODE_BIN $NODE_BIN tests/daemon-chaos.test.ts"
+  "daemon-chaos:PHOTON_TEST_NODE=$NODE_BIN $NODE_BIN --import tsx tests/daemon-chaos.test.ts"
   "env-proxy-set:$RUN tests/env-proxy-set.test.ts"
   "identity:$RUN tests/identity.test.ts"
   "daemon-buffer:$RUN tests/daemon-event-buffer.test.ts"
