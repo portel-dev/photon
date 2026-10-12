@@ -15,6 +15,7 @@ import { verifyContentHash, validateAssetPath, isPathWithin } from './shared/sec
 import { getDefaultContext } from './context.js';
 import { getCacheDir, getMetadataPath, resolvePath } from '@portel/photon-core';
 import { SchemaExtractor } from '@portel/photon-core';
+import { parseMarketplaceSource } from './marketplace-source.js';
 import {
   FileMarketplaceManifestCache,
   type MarketplaceManifestCache,
@@ -365,6 +366,9 @@ export class MarketplaceManager {
   private parseMarketplaceSource(
     input: string
   ): Omit<Marketplace, 'enabled' | 'lastUpdated'> | null {
+    return parseMarketplaceSource(input);
+
+    /*
     // Pattern 1: username/repo (GitHub shorthand)
     const shorthandMatch = input.match(/^([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+)$/);
     if (shorthandMatch) {
@@ -463,6 +467,7 @@ export class MarketplaceManager {
     }
 
     return null;
+    */
   }
 
   /**
