@@ -961,9 +961,9 @@ export class PhotonServer {
    * Send a notification through the STDIO write queue.
    * Serializes writes so concurrent generators don't interleave JSON on stdout.
    */
-  private queueNotification(notification: ServerNotification, _server = this.server): void {
+  private queueNotification(notification: ServerNotification, server = this.server): void {
     this._notifyQueue = this._notifyQueue
-      .then(() => this.server?.notification(notification))
+      .then(() => server?.notification(notification))
       .catch((err) =>
         this.logger.debug('Failed to send notification', { error: getErrorMessage(err) })
       );
