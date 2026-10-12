@@ -287,11 +287,7 @@ async function executeGeneratorWithAbort<T>(
   }
 }
 
-interface DependencySpec {
-  name: string;
-  version: string;
-  optional?: boolean;
-}
+type DependencySpec = ParsedDependencySpec;
 
 export interface ConstructorEnvReplayOptions {
   currentEnv?: Record<string, string>;
@@ -307,6 +303,11 @@ interface LoadOptions {
 
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
 import { PHOTON_VERSION, getResolvedPhotonCoreVersion } from './version.js';
+import {
+  defaultDependencySpecParser,
+  type DependencySpecParser,
+  type DependencySpec as ParsedDependencySpec,
+} from './dependency-specs.js';
 
 // Timeout for external fetch requests (marketplace, GitHub)
 const FETCH_TIMEOUT_MS = 30 * 1000;
@@ -852,6 +853,7 @@ export class PhotonLoader {
   private marketplaceManager?: MarketplaceManager;
   private marketplaceManagerPromise?: Promise<MarketplaceManager>;
   private logger: Logger;
+  private readonly dependencySpecParser: DependencySpecParser;
   private settingsPersistence: SettingsPersistence;
   private assetResolver: AssetResolver;
 
@@ -954,9 +956,15 @@ export class PhotonLoader {
    */
   public onProgress?: (phase: string) => void;
 
-  constructor(verbose: boolean = false, logger?: Logger, baseDir?: string) {
+  constructor(
+    verbose: boolean = false,
+    logger?: Logger,
+    baseDir?: string,
+    dependencySpecParser: DependencySpecParser = defaultDependencySpecParser
+  ) {
     this.verbose = verbose;
     this.logger = logger ?? createLogger({ component: 'photon-loader', minimal: true });
+    this.dependencySpecParser = dependencySpecParser;
     this.baseDir = baseDir || getDefaultContext().baseDir;
     this.dependencyManager = new DependencyManager(
       path.join(getCacheDir(this.baseDir), 'dependencies')
@@ -1452,62 +1460,15 @@ export class PhotonLoader {
     );
   }
 
-  private static parseDependenciesFromSource(source: string): DependencySpec[] {
-    const deps: DependencySpec[] = [];
-
-    // Only match @dependencies inside JSDoc blocks (/** ... */)
-    const jsdocBlocks = source.match(/\/\*\*[\s\S]*?\*\//g) || [];
-    const jsdocText = jsdocBlocks.join('\n');
-
-    const regex = /@dependencies\s+([^\r\n]+)/g;
-    let match;
-    while ((match = regex.exec(jsdocText)) !== null) {
-      const entries = match[1]
-        .replace(/\*\/$/, '') // strip trailing */ if on same line
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean);
-      for (const entry of entries) {
-        const atIndex = entry.lastIndexOf('@');
-        let name: string;
-        let version: string;
-        if (atIndex <= 0) {
-          // No version specified (e.g., "sharp") — default to latest
-          name = entry.trim();
-          version = '*';
-        } else {
-          name = entry.slice(0, atIndex).trim();
-          version = entry.slice(atIndex + 1).trim();
-        }
-        // Validate: npm package names are lowercase, may have @scope/, no spaces
-        if (name.includes(' ') || !/^(@[a-z0-9-]+\/)?[a-z0-9._-]+$/.test(name)) {
-          continue;
-        }
-        // Trailing ? marks the dependency as optional (e.g. sharp@^0.33.0?)
-        const optional = version.endsWith('?');
-        if (optional) {
-          version = version.slice(0, -1);
-        }
-        if (name && version) {
-          deps.push({ name, version, ...(optional && { optional: true }) });
-        }
-      }
-    }
-    return deps;
+  static parseDependenciesFromSource(source: string): DependencySpec[] {
+    return defaultDependencySpecParser.parse(source);
   }
 
-  private static mergeDependencySpecs(
+  static mergeDependencySpecs(
     existing: DependencySpec[],
     additional: DependencySpec[]
   ): DependencySpec[] {
-    const map = new Map<string, DependencySpec>();
-    for (const dep of existing) {
-      map.set(dep.name, dep);
-    }
-    for (const dep of additional) {
-      map.set(dep.name, dep);
-    }
-    return Array.from(map.values());
+    return defaultDependencySpecParser.merge(existing, additional);
   }
 
   /**
@@ -1550,8 +1511,8 @@ export class PhotonLoader {
         }
 
         const extracted = await this.dependencyManager.extractDependencies(absolutePath);
-        const parsed = PhotonLoader.parseDependenciesFromSource(tsContent);
-        dependencies = PhotonLoader.mergeDependencySpecs(extracted, parsed);
+        const parsed = this.dependencySpecParser.parse(tsContent);
+        dependencies = this.dependencySpecParser.merge(extracted, parsed);
 
         // @portel/photon-core is the runtime itself — never pass it to the package installer.
         // The dependency manager's fixBrokenPhotonCoreLink() handles symlinking it
