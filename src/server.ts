@@ -89,6 +89,7 @@ import {
   formatMcpTemplateResult,
   imageContentFromMcpResult,
 } from './mcp-result-policy.js';
+import { authorizeMcpTool } from './mcp-tool-policy.js';
 import { CapabilityNegotiator } from './capability-negotiator.js';
 import {
   ResourceServer,
@@ -1416,23 +1417,13 @@ export class PhotonServer {
     const targetMcp = await this.resolveInstanceMcp(extra);
     const { name: toolName, arguments: args } = request.params;
     const caller = callerFromVerifiedClaims(authClaimsFromHandlerContext(extra));
-    if (!this.loader.isToolAccessible(targetMcp, toolName, caller)) {
-      throw new Error(`Tool '${toolName}' is not available for this caller`);
-    }
-    const tool = targetMcp.tools.find((candidate) => candidate.name === toolName) as
-      | ExtractedSchema
-      | undefined;
-    if (!tool) throw new Error(`Tool '${toolName}' not found`);
-    const declaredSurfaces = (tool as ExtractedSchema & { surfaces?: string[] }).surfaces;
-    if (declaredSurfaces && !declaredSurfaces.includes('mcp')) {
-      throw new Error(`Tool '${toolName}' is not exposed on the MCP surface`);
-    }
+    const authorized = authorizeMcpTool(targetMcp, toolName, caller, this.loader, request);
     return {
       targetMcp,
-      toolName,
+      toolName: authorized.toolName,
       args: (args || {}) as Record<string, unknown>,
       caller,
-      tool,
+      tool: authorized.tool,
     };
   }
 
