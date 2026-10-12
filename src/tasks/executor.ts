@@ -6,7 +6,14 @@
  */
 
 import { randomBytes } from 'crypto';
-import { getTask, updateTask, transitionTask, unregisterController, taskEvents } from './store.js';
+import {
+  getTask,
+  updateTask,
+  transitionTask,
+  unregisterController,
+  taskEvents,
+  taskRuntimeKey,
+} from './store.js';
 import {
   TERMINAL_STATES,
   type Task,
@@ -44,26 +51,32 @@ interface PendingTaskInput {
 
 const pendingInputs = new Map<string, Map<string, PendingTaskInput>>();
 
+function pendingKey(taskId: string): string {
+  return taskRuntimeKey(taskId);
+}
+
 /**
  * Resolve pending input for a task, resuming generator execution.
  * Returns true if there was pending input to resolve.
  */
 export function resolveTaskInput(taskId: string, value: any): boolean {
-  const requests = pendingInputs.get(taskId);
+  const runtimeKey = pendingKey(taskId);
+  const requests = pendingInputs.get(runtimeKey);
   const pending = requests?.values().next().value;
   if (!pending || !requests) return false;
-  const key = requests.keys().next().value as string;
-  requests.delete(key);
-  if (requests.size === 0) pendingInputs.delete(taskId);
+  const requestKey = requests.keys().next().value as string;
+  requests.delete(requestKey);
+  if (requests.size === 0) pendingInputs.delete(runtimeKey);
   updateTask(taskId, { state: 'working', input: undefined, inputRequests: undefined });
   pending.resolve(value);
   return true;
 }
 
 function rejectAllTaskInputs(taskId: string, reason: string): boolean {
-  const requests = pendingInputs.get(taskId);
+  const key = pendingKey(taskId);
+  const requests = pendingInputs.get(key);
   if (!requests) return false;
-  pendingInputs.delete(taskId);
+  pendingInputs.delete(key);
   for (const pending of requests.values()) pending.reject(new Error(reason));
   return true;
 }
@@ -79,7 +92,7 @@ export function rejectTaskInput(taskId: string, reason: string): boolean {
  * Check if a task has pending input waiting.
  */
 export function hasPendingInput(taskId: string): boolean {
-  return (pendingInputs.get(taskId)?.size ?? 0) > 0;
+  return (pendingInputs.get(pendingKey(taskId))?.size ?? 0) > 0;
 }
 
 function nextTaskInputKey(task: Task): string {
@@ -99,14 +112,15 @@ export function requestTaskInput(
   const task = awaitableTask(taskId);
   const key = nextTaskInputKey(task);
   const existing = task.inputRequests ?? {};
-  const requests = pendingInputs.get(taskId) ?? new Map<string, PendingTaskInput>();
-  pendingInputs.set(taskId, requests);
+  const runtimeKey = pendingKey(taskId);
+  const requests = pendingInputs.get(runtimeKey) ?? new Map<string, PendingTaskInput>();
+  pendingInputs.set(runtimeKey, requests);
 
   return new Promise((resolve, reject) => {
     const cleanup = () => signal?.removeEventListener('abort', onAbort);
     const onAbort = () => {
       requests.delete(key);
-      if (requests.size === 0) pendingInputs.delete(taskId);
+      if (requests.size === 0) pendingInputs.delete(runtimeKey);
       cleanup();
       reject(new Error('Task cancelled'));
     };
@@ -143,7 +157,7 @@ export function submitTaskInputResponses(
 ): { accepted: number; outstanding: number } {
   const task = getTask(taskId);
   const outstanding = task?.inputRequests ?? {};
-  const pending = pendingInputs.get(taskId);
+  const pending = pendingInputs.get(pendingKey(taskId));
   if (!task || !pending) return { accepted: 0, outstanding: Object.keys(outstanding).length };
 
   let accepted = 0;
@@ -157,7 +171,7 @@ export function submitTaskInputResponses(
     accepted++;
     resolutions.push({ pending: resolver, value });
   }
-  if (pending.size === 0) pendingInputs.delete(taskId);
+  if (pending.size === 0) pendingInputs.delete(pendingKey(taskId));
   updateTask(taskId, {
     ...(Object.keys(remaining).length === 0
       ? { state: 'working' as const, statusMessage: 'Resuming execution...' }
@@ -267,14 +281,14 @@ export function runTaskExecution(
     // successful input and cancellation.
     return new Promise<any>((resolve, reject) => {
       const onAbort = () => {
-        if (pendingInputs.has(taskId)) {
-          pendingInputs.delete(taskId);
+        if (pendingInputs.has(pendingKey(taskId))) {
+          pendingInputs.delete(pendingKey(taskId));
           reject(new Error('Task cancelled'));
         }
         signal.removeEventListener('abort', onAbort);
       };
       pendingInputs.set(
-        taskId,
+        pendingKey(taskId),
         new Map([
           [
             'legacy',
