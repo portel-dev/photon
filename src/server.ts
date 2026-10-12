@@ -703,7 +703,10 @@ export class PhotonServer {
   /** Client capability detection and negotiation */
   private capabilityNegotiator = new CapabilityNegotiator();
   /** Write queue for serialized STDIO notifications (prevents interleaving from concurrent generators) */
-  private readonly notificationQueue: NotificationQueue<ServerNotification>;
+  private readonly notificationQueues = new WeakMap<
+    Server,
+    NotificationQueue<ServerNotification>
+  >();
 
   /** Compatibility alias for tests that seed raw capabilities directly on PhotonServer */
   public rawClientCapabilities = this.capabilityNegotiator.rawClientCapabilities;
@@ -768,10 +771,6 @@ export class PhotonServer {
 
     this.options = options;
     this.devMode = options.devMode || false;
-    this.notificationQueue = new NotificationQueue(
-      { send: (notification) => this.server.notification(notification) },
-      (error) => this.logger.debug('Failed to send notification', { error: getErrorMessage(error) })
-    );
 
     // Progressive skill disclosure: descriptors are safe to include in the
     // initial server instructions; full bodies remain available through the
@@ -966,8 +965,15 @@ export class PhotonServer {
    * Send a notification through the STDIO write queue.
    * Serializes writes so concurrent generators don't interleave JSON on stdout.
    */
-  private queueNotification(notification: ServerNotification, _server = this.server): void {
-    this.notificationQueue.enqueue(notification);
+  private queueNotification(notification: ServerNotification, server = this.server): void {
+    let queue = this.notificationQueues.get(server);
+    if (!queue) {
+      queue = new NotificationQueue({ send: (value) => server.notification(value) }, (error) =>
+        this.logger.debug('Failed to send notification', { error: getErrorMessage(error) })
+      );
+      this.notificationQueues.set(server, queue);
+    }
+    queue.enqueue(notification);
   }
 
   /**
@@ -1581,7 +1587,7 @@ export class PhotonServer {
       // Forward channel events to daemon for cross-process pub/sub
       this.channelManager.publishIfChannel(emit);
 
-      // Forward emit yields as MCP progress notifications to STDIO client
+      // Forward emit yields as MCP progress notifications to the active client
       // All notifications go through queueNotification to prevent interleaving
       // when concurrent generators write to the same stdout pipe
       if (emit?.emit === 'progress') {
@@ -1804,7 +1810,7 @@ export class PhotonServer {
     // SSE stream BEFORE the HTTP POST response body is written. Without this, the
     // client receives the tool result, deletes its _progressHandlers entry, and then
     // silently drops any notifications that arrive later on the SSE stream.
-    await this.notificationQueue.drain();
+    await this.notificationQueues.get(ctx.server)?.drain();
 
     return response;
   }
