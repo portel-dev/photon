@@ -22,7 +22,7 @@ import {
 } from './types.js';
 import type { TracePropagationContext } from '../telemetry/propagation.js';
 import { validateTracePropagation } from '../telemetry/propagation.js';
-import { getTasksDir, getLegacyTasksDir } from '@portel/photon-core';
+import { getTasksDir } from '@portel/photon-core';
 import { getDefaultContext } from '../context.js';
 import { getRequestContext } from '../telemetry/context.js';
 
@@ -38,9 +38,6 @@ import { getRequestContext } from '../telemetry/context.js';
  */
 function resolveTasksDir(): string {
   const newDir = getTasksDir(getRequestContext()?.photonDir ?? getDefaultContext().baseDir);
-  if (existsSync(newDir)) return newDir;
-  const legacyDir = getLegacyTasksDir();
-  if (existsSync(legacyDir)) return legacyDir;
   return newDir;
 }
 
