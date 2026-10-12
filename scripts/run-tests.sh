@@ -46,7 +46,7 @@ NODE_BIN="${NODE_BIN:-$RUN}"
 # Run Vitest under the real Node binary as well. Some integration tests use
 # Node HTTP behavior (including ephemeral ports) that Bun's compatibility
 # wrapper does not reproduce reliably.
-VITEST="$NODE_BIN node_modules/vitest/vitest.mjs run"
+VITEST="$NODE_BIN node_modules/vitest/vitest.mjs run --exclude '.claude/worktrees/**'"
 
 # Build first
 echo "━━━ Building ━━━"
