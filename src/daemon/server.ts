@@ -259,17 +259,20 @@ const inProcessBroker = new InProcessBroker();
 setBroker(inProcessBroker);
 const constructorEnvReplayStore = new ConstructorEnvReplayStore();
 
-// Worker manager for @worker-tagged photons (isolated in worker threads)
-const workerManager = new WorkerManager(logger);
-
-// Wire worker manager pub/sub bridge to main broker
-workerManager.onPublish = (channel, message) => {
-  // Worker pub/sub bridge: the worker emits a ChannelMessage-shaped envelope;
-  // unknown → ChannelMessage cast is the trust boundary between the worker
-  // protocol and the in-process broker.
-  void inProcessBroker.publish(message as ChannelMessage);
-  workerManager.dispatchToWorkers(channel, message);
-};
+// Worker manager for @worker-tagged photons (isolated in worker threads).
+// Its constructor receives typed dependency and channel ports; the compatibility
+// callback properties remain available to older embedders.
+const workerManager = new WorkerManager(logger, {
+  channels: {
+    publish: (channel, message) => {
+      void inProcessBroker.publish(message as ChannelMessage);
+      workerManager.dispatchToWorkers(channel, message);
+    },
+    subscribe: (workerKey, channel) => logger.debug('Worker subscribed', { workerKey, channel }),
+    unsubscribe: (workerKey, channel) =>
+      logger.debug('Worker unsubscribed', { workerKey, channel }),
+  },
+});
 
 // Track connected sockets for graceful shutdown broadcast
 const connectedSockets = new Set<net.Socket>();
@@ -2746,25 +2749,28 @@ async function getOrCreateSessionManager(
       // Wire dep resolver BEFORE spawn so the worker can resolve @photon deps
       // during initialization (loadFile triggers dep resolution before 'ready').
       if (!workerManager.depResolver) {
-        workerManager.depResolver = async (depName, depPath, _consumerPhoton) => {
-          const depManager = await getOrCreateSessionManager(depName, depPath, workingDir);
-          if (!depManager) return null;
-          const loaded = await depManager.getOrLoadInstance('');
-          const toolNames = (loaded?.tools || []).map((t: any) => t.name as string);
-          return { toolNames };
-        };
-        workerManager.depCaller = async (depName, method, args) => {
-          const depKey = compositeKey(depName, workingDir);
-          const depManager = sessionManagers.get(depKey);
-          if (!depManager) throw new Error(`Dependency ${depName} not loaded`);
-          trackExecution(depKey);
-          try {
+        const dependencyPorts = {
+          resolve: async (depName: string, depPath: string, _consumerPhoton: string) => {
+            const depManager = await getOrCreateSessionManager(depName, depPath, workingDir);
+            if (!depManager) return null;
             const loaded = await depManager.getOrLoadInstance('');
-            return await depManager.loader.executeTool(loaded, method, args);
-          } finally {
-            untrackExecution(depKey);
-          }
+            const toolNames = (loaded?.tools || []).map((t: any) => t.name as string);
+            return { toolNames };
+          },
+          call: async (depName: string, method: string, args: Record<string, unknown>) => {
+            const depKey = compositeKey(depName, workingDir);
+            const depManager = sessionManagers.get(depKey);
+            if (!depManager) throw new Error(`Dependency ${depName} not loaded`);
+            trackExecution(depKey);
+            try {
+              const loaded = await depManager.getOrLoadInstance('');
+              return await depManager.loader.executeTool(loaded, method, args);
+            } finally {
+              untrackExecution(depKey);
+            }
+          },
         };
+        workerManager.setPorts?.({ dependencies: dependencyPorts });
       }
 
       logger.info('Spawning worker thread for @worker photon', { photonName, key });

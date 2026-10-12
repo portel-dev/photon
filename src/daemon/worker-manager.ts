@@ -64,11 +64,15 @@ export class WorkerManager {
   /** Callback when worker unsubscribes from a channel */
   public onUnsubscribe?: (workerKey: string, channel: string) => void;
 
-  constructor(
-    logger: Logger,
-    private readonly ports: WorkerManagerPorts = {}
-  ) {
+  private ports: WorkerManagerPorts;
+
+  constructor(logger: Logger, ports: WorkerManagerPorts = {}) {
     this.logger = logger.child({ component: 'worker-manager' });
+    this.ports = ports;
+  }
+
+  setPorts(ports: WorkerManagerPorts): void {
+    this.ports = { ...this.ports, ...ports };
   }
 
   /** Check if a photon is running in a worker */
