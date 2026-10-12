@@ -6157,6 +6157,7 @@ const handlers: Record<string, RequestHandler> = {
           inputProvider,
           caller: ctx.caller,
           requestContext: ctx.requestContext,
+          signal: controller.signal,
         });
       }
       const method = mcp.instance?.[methodName];

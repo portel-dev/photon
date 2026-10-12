@@ -204,6 +204,15 @@ export function waitForStateChange(
 
     taskEvents.on('stateChange', handler);
     signal?.addEventListener('abort', onAbort);
+
+    // Subscribe before checking the persisted record. This closes the
+    // completion-vs-listener registration race: a task may finish between the
+    // caller's initial read and this function, and no later event would wake us.
+    const current = getTask(taskId);
+    if (current && (!predicate || predicate(current.state))) {
+      cleanup();
+      resolve(current);
+    }
   });
 }
 
@@ -253,25 +262,38 @@ export function runTaskExecution(
       input: ask,
     });
 
-    // Block until resolveTaskInput() or rejectTaskInput() is called
+    // Block until resolveTaskInput() or rejectTaskInput() is called.
+    // Keep the abort listener in the resolver closure so it is removed on both
+    // successful input and cancellation.
     return new Promise<any>((resolve, reject) => {
-      pendingInputs.set(taskId, new Map([['legacy', { resolve, reject }]]));
-
-      // If already aborted, reject immediately
-      if (signal.aborted) {
-        pendingInputs.delete(taskId);
-        reject(new Error('Task cancelled'));
-        return;
-      }
-
-      // Listen for abort to clean up
       const onAbort = () => {
         if (pendingInputs.has(taskId)) {
           pendingInputs.delete(taskId);
           reject(new Error('Task cancelled'));
         }
+        signal.removeEventListener('abort', onAbort);
       };
-      signal.addEventListener('abort', onAbort, { once: true });
+      pendingInputs.set(
+        taskId,
+        new Map([
+          [
+            'legacy',
+            {
+              resolve: (value: any) => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(value);
+              },
+              reject: (error: Error) => {
+                signal.removeEventListener('abort', onAbort);
+                reject(error);
+              },
+            },
+          ],
+        ])
+      );
+
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
     });
   };
 

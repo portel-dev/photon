@@ -13,7 +13,7 @@ import type { Server } from './mcp/sdk-v2-2026/server.js';
 import {
   createTask,
   getTask,
-  updateTask,
+  transitionTask,
   listTasks,
   registerController,
   getController,
@@ -23,15 +23,45 @@ import { toWireFormat, relatedTaskMeta, taskErrorMessage, TERMINAL_STATES } from
 import type { Task } from './tasks/types.js';
 import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from './tasks/executor.js';
 import type { LogLevel } from './shared/logger.js';
+import type {
+  PhotonClassExtended,
+  CallerInfo,
+  InputProvider,
+  OutputHandler,
+  SamplingProvider,
+} from '@portel/photon-core';
+import type { PhotonExecutionRequestContext } from './telemetry/context.js';
+import type { PhotonAppContext } from './app-context.js';
 
-/** Minimal interface for executing a tool — avoids importing PhotonLoader */
+/** Narrow invocation port: callers must provide the real hydrated Photon target. */
 export interface ToolExecutor {
   executeTool(
-    photon: { name: string },
+    photon: PhotonClassExtended,
     toolName: string,
     args: Record<string, unknown>,
-    options: { outputHandler?: (data: any) => void; inputProvider?: (ask: any) => Promise<any> }
+    options: {
+      outputHandler?: OutputHandler;
+      inputProvider?: InputProvider;
+      samplingProvider?: SamplingProvider;
+      caller?: CallerInfo;
+      requestContext?: PhotonExecutionRequestContext;
+      roots?: Array<{ uri: string; name?: string }>;
+      appContext?: PhotonAppContext;
+      traceId?: string;
+      signal?: AbortSignal;
+    }
   ): Promise<any>;
+}
+
+export interface TaskExecutionOptions {
+  outputHandler?: OutputHandler;
+  inputProvider?: InputProvider;
+  samplingProvider?: SamplingProvider;
+  caller?: CallerInfo;
+  requestContext?: PhotonExecutionRequestContext;
+  roots?: Array<{ uri: string; name?: string }>;
+  appContext?: PhotonAppContext;
+  traceId?: string;
 }
 
 /** Minimal interface for creating an input provider via MCP elicitation */
@@ -56,26 +86,34 @@ export class TaskExecutor {
    * Returns the MCP response if task mode applies, or null if it doesn't.
    */
   handleTaskModeCall(
-    photonName: string,
+    photon: PhotonClassExtended,
     toolName: string,
     args: Record<string, unknown>,
-    taskField: { ttl?: number }
+    taskField: { ttl?: number },
+    options: TaskExecutionOptions = {}
   ): { content: Array<{ type: string; text: string }> } {
+    const photonName = photon.name;
     const ttl = typeof taskField.ttl === 'number' ? taskField.ttl : undefined;
     this.log('info', 'Starting background task', { photon: photonName, tool: toolName });
     const task = createTask(photonName, toolName, args, ttl);
     const controller = new AbortController();
     registerController(task.id, controller);
 
-    const executeFn = async (taskInputProvider: any, outputHandler: any) => {
-      return this.toolExecutor.executeTool({ name: photonName }, toolName, args, {
+    const executeFn = async (taskInputProvider: InputProvider, outputHandler: OutputHandler) => {
+      return this.toolExecutor.executeTool(photon, toolName, args, {
+        ...options,
         outputHandler,
         inputProvider: taskInputProvider,
+        signal: controller.signal,
       });
     };
 
     runTaskExecution(task.id, executeFn, {
       signal: controller.signal,
+      caller: options.caller,
+      ...(options.outputHandler
+        ? { outputHandler: (data: any) => void options.outputHandler?.(data) }
+        : {}),
     });
 
     return {
@@ -118,12 +156,17 @@ export class TaskExecutor {
     }
     const controller = getController(taskId);
     if (controller) controller.abort();
-    const updated = updateTask(taskId, {
+    const updated = transitionTask(taskId, ['working', 'input_required'], {
       state: 'cancelled',
       statusMessage: 'The task was cancelled by request.',
+      input: undefined,
+      inputRequests: undefined,
     });
     unregisterController(taskId);
-    return toWireFormat(updated!);
+    if (!updated || updated.state !== 'cancelled') {
+      throw new Error(`Cannot cancel task in terminal state: ${updated?.state ?? task.state}`);
+    }
+    return toWireFormat(updated);
   }
 
   /**

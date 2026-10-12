@@ -48,7 +48,7 @@ import type { JsonWebKey } from 'node:crypto';
 import { URL, fileURLToPath } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import { PhotonClassExtended } from '@portel/photon-core';
-import type { ExtractedSchema, PhotonClass } from '@portel/photon-core';
+import type { ExtractedSchema, PhotonClass, CallerInfo } from '@portel/photon-core';
 import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
@@ -1537,29 +1537,49 @@ export class PhotonServer {
     return pending;
   }
 
+  private async resolveAuthorizedToolTarget(
+    request: any,
+    extra?: HandlerAuthContext
+  ): Promise<{
+    targetMcp: PhotonClassExtended;
+    toolName: string;
+    args: Record<string, unknown>;
+    caller?: CallerInfo;
+    tool: ExtractedSchema;
+  }> {
+    if (!this.mcp) throw new Error('MCP not loaded');
+    const targetMcp = await this.resolveInstanceMcp(extra);
+    const { name: toolName, arguments: args } = request.params;
+    const caller = callerFromVerifiedClaims(authClaimsFromHandlerContext(extra));
+    if (!this.loader.isToolAccessible(targetMcp, toolName, caller)) {
+      throw new Error(`Tool '${toolName}' is not available for this caller`);
+    }
+    const tool = targetMcp.tools.find((candidate) => candidate.name === toolName) as
+      | ExtractedSchema
+      | undefined;
+    if (!tool) throw new Error(`Tool '${toolName}' not found`);
+    const declaredSurfaces = (tool as ExtractedSchema & { surfaces?: string[] }).surfaces;
+    if (declaredSurfaces && !declaredSurfaces.includes('mcp')) {
+      throw new Error(`Tool '${toolName}' is not exposed on the MCP surface`);
+    }
+    return {
+      targetMcp,
+      toolName,
+      args: (args || {}) as Record<string, unknown>,
+      caller,
+      tool,
+    };
+  }
+
   private async handleCallTool(
     ctx: HandlerContext,
     request: any,
     extra?: HandlerAuthContext
   ): Promise<any> {
-    if (!this.mcp) {
-      throw new Error('MCP not loaded');
-    }
-    const targetMcp = await this.resolveInstanceMcp(extra);
-
-    const { name: toolName, arguments: args } = request.params;
-    const claims = authClaimsFromHandlerContext(extra);
-    const caller = callerFromVerifiedClaims(claims);
-    if (!this.loader.isToolAccessible(targetMcp, toolName, caller)) {
-      throw new Error(`Tool '${toolName}' is not available for this caller`);
-    }
-    const declaredTool = targetMcp.tools.find((tool) => tool.name === toolName);
-    const declaredSurfaces = (
-      declaredTool as (ExtractedSchema & { surfaces?: string[] }) | undefined
-    )?.surfaces;
-    if (declaredSurfaces && !declaredSurfaces.includes('mcp')) {
-      throw new Error(`Tool '${toolName}' is not exposed on the MCP surface`);
-    }
+    const { targetMcp, toolName, args, caller } = await this.resolveAuthorizedToolTarget(
+      request,
+      extra
+    );
     // Per MCP spec, the server must echo the client-supplied progressToken
     // from request _meta back in notifications/progress so clients can match
     // streamed progress to their original request. Fall back to a synthetic
@@ -1897,7 +1917,7 @@ export class PhotonServer {
     }
 
     const renderMeta = buildPhotonRenderMeta(schema, {
-      uiResourceUri: supportsLinkedUI ? `ui://${this.mcp.name}/${linkedUI.id}` : undefined,
+      uiResourceUri: supportsLinkedUI ? `ui://${targetMcp.name}/${linkedUI.id}` : undefined,
     });
     if (renderMeta) {
       response._meta = { ...response._meta, [PHOTON_RENDER_META_KEY]: renderMeta };
@@ -1918,7 +1938,7 @@ export class PhotonServer {
         response.structuredContent =
           typeof actualResult === 'string' ? { text: actualResult } : actualResult;
       }
-      const uiMeta = this.resourceServer.buildUIToolMeta(this.mcp.name, linkedUI.id);
+      const uiMeta = this.resourceServer.buildUIToolMeta(targetMcp.name, linkedUI.id);
       response._meta = { ...response._meta, ...uiMeta };
     }
 
@@ -1986,126 +2006,141 @@ export class PhotonServer {
       await this.resolveUnresolvedPhoton();
     }
 
+    const taskField = (request.params as Record<string, unknown>)?.task;
+    const requestedToolName = (request.params as { name?: unknown })?.name;
+    const requestedTool =
+      this.mcp && typeof requestedToolName === 'string'
+        ? this.mcp.tools.find((tool) => tool.name === requestedToolName)
+        : undefined;
+    const needsPreflight = Boolean(
+      taskField || (requestedTool as ExtractedSchema | undefined)?.isAsync
+    );
+    const authorized = needsPreflight
+      ? await this.resolveAuthorizedToolTarget(request, extra)
+      : undefined;
+
     // @async fire-and-forget execution
-    if (this.mcp) {
-      const { name: toolName, arguments: args } = request.params;
-      const tool = this.mcp.tools.find((t) => t.name === toolName);
-      if ((tool as ExtractedSchema)?.isAsync) {
-        // Generate a W3C-compatible OTel trace ID (32 hex chars = 128-bit)
-        const traceId = crypto.randomBytes(16).toString('hex');
-        const executionId = traceId;
-        const inputProvider = this.createMCPInputProvider(ctx.server);
-        const samplingProvider = this.createMCPSamplingProvider(ctx.server);
-        const clientProgressToken = (
-          request.params as { _meta?: { progressToken?: string | number } }
-        )?._meta?.progressToken;
-        const progressToken = clientProgressToken ?? `progress_${toolName}`;
-        const outputHandler = (emit: any) => {
-          this.channelManager.publishIfChannel(emit);
-          // Forward emit yields as MCP notifications for async tools
-          if (emit?.emit === 'progress' || emit?.emit === 'status') {
-            const rawValue =
-              emit?.emit === 'progress' && typeof emit.value === 'number' ? emit.value : 0;
-            const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
-            const payload = emit.value ?? emit.data;
-            void ctx.server.notification({
-              method: 'notifications/progress',
-              params: {
-                progressToken,
-                progress,
-                total: 100,
-                message: emit.message || '',
-                ...(payload !== undefined &&
-                (emit?.emit === 'status' || typeof payload !== 'number')
-                  ? { data: payload }
-                  : {}),
-              },
-            });
-          } else if (emit?.emit === 'log') {
+    if (authorized && authorized.tool.isAsync) {
+      const { targetMcp, toolName, args, caller } = authorized;
+      // Generate a W3C-compatible OTel trace ID (32 hex chars = 128-bit)
+      const traceId = crypto.randomBytes(16).toString('hex');
+      const executionId = traceId;
+      const inputProvider = this.createMCPInputProvider(ctx.server);
+      const samplingProvider = this.createMCPSamplingProvider(ctx.server);
+      const clientProgressToken = (
+        request.params as { _meta?: { progressToken?: string | number } }
+      )?._meta?.progressToken;
+      const progressToken = clientProgressToken ?? `progress_${toolName}`;
+      const outputHandler = (emit: any) => {
+        this.channelManager.publishIfChannel(emit);
+        // Forward emit yields as MCP notifications for async tools
+        if (emit?.emit === 'progress' || emit?.emit === 'status') {
+          const rawValue =
+            emit?.emit === 'progress' && typeof emit.value === 'number' ? emit.value : 0;
+          const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
+          const payload = emit.value ?? emit.data;
+          void ctx.server.notification({
+            method: 'notifications/progress',
+            params: {
+              progressToken,
+              progress,
+              total: 100,
+              message: emit.message || '',
+              ...(payload !== undefined && (emit?.emit === 'status' || typeof payload !== 'number')
+                ? { data: payload }
+                : {}),
+            },
+          });
+        } else if (emit?.emit === 'log') {
+          void ctx.server.notification({
+            method: 'notifications/message',
+            params: {
+              level: emit.level || 'info',
+              data: emit.message || '',
+            },
+          });
+        } else if (emit?.emit === 'render') {
+          try {
             void ctx.server.notification({
               method: 'notifications/message',
               params: {
-                level: emit.level || 'info',
-                data: emit.message || '',
+                level: 'info',
+                data: JSON.stringify({
+                  _render: true,
+                  format: emit.format,
+                  value: emit.value,
+                }),
               },
             });
-          } else if (emit?.emit === 'render') {
-            try {
-              void ctx.server.notification({
-                method: 'notifications/message',
-                params: {
-                  level: 'info',
-                  data: JSON.stringify({
-                    _render: true,
-                    format: emit.format,
-                    value: emit.value,
-                  }),
-                },
-              });
-            } catch {
-              // Client may not support logging capability
-            }
-          } else if (emit?.emit === 'render:clear') {
-            try {
-              void ctx.server.notification({
-                method: 'notifications/message',
-                params: {
-                  level: 'info',
-                  data: JSON.stringify({ _render: true, clear: true }),
-                },
-              });
-            } catch {
-              // Client may not support logging capability
-            }
+          } catch {
+            // Client may not support logging capability
           }
-        };
-
-        this.loader
-          .executeTool(this.mcp, toolName, args || {}, {
-            inputProvider,
-            outputHandler,
-            samplingProvider,
-            traceId,
-            roots: this.rootsByServer.get(ctx.server),
-          })
-          .catch((error) => {
-            this.log('error', `Async tool ${toolName} failed`, {
-              executionId,
-              error: getErrorMessage(error),
+        } else if (emit?.emit === 'render:clear') {
+          try {
+            void ctx.server.notification({
+              method: 'notifications/message',
+              params: {
+                level: 'info',
+                data: JSON.stringify({ _render: true, clear: true }),
+              },
             });
-          });
+          } catch {
+            // Client may not support logging capability
+          }
+        }
+      };
 
-        // Build W3C traceparent: 00-{traceId}-{spanId}-01
-        const spanId = crypto.randomBytes(8).toString('hex');
-        const traceparent = `00-${traceId}-${spanId}-01`;
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(
-                {
-                  executionId,
-                  _traceId: traceId,
-                  _traceparent: traceparent,
-                  status: 'running',
-                  photon: this.mcp.name,
-                  method: toolName,
-                  message: `Task started in background. Use execution ID to check status.`,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
-      }
+      this.loader
+        .executeTool(targetMcp, toolName, args, {
+          inputProvider,
+          outputHandler,
+          samplingProvider,
+          traceId,
+          roots: this.rootsByServer.get(ctx.server),
+          caller,
+        })
+        .catch((error) => {
+          this.log('error', `Async tool ${toolName} failed`, {
+            executionId,
+            error: getErrorMessage(error),
+          });
+        });
+
+      // Build W3C traceparent: 00-{traceId}-{spanId}-01
+      const spanId = crypto.randomBytes(8).toString('hex');
+      const traceparent = `00-${traceId}-${spanId}-01`;
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                executionId,
+                _traceId: traceId,
+                _traceparent: traceparent,
+                status: 'running',
+                photon: targetMcp.name,
+                method: toolName,
+                message: `Task started in background. Use execution ID to check status.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
     }
 
     // ── Task mode: when params contain task field, run async ──
-    const taskField = (request.params as Record<string, unknown>)?.task;
-    if (taskField && this.mcp) {
-      const { name: toolName, arguments: args } = request.params;
-      return this.taskExecutor.handleTaskModeCall(this.mcp.name, toolName, args || {}, taskField);
+    if (taskField && authorized) {
+      const { targetMcp, toolName, args, caller } = authorized;
+      return this.taskExecutor.handleTaskModeCall(targetMcp, toolName, args, taskField, {
+        caller,
+        inputProvider: this.createMCPInputProvider(ctx.server),
+        samplingProvider: this.createMCPSamplingProvider(ctx.server),
+        roots: this.rootsByServer.get(ctx.server),
+        appContext: this.appContexts.get(ctx.sessionId || 'anonymous'),
+      });
     }
 
     try {
