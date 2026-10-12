@@ -17,6 +17,11 @@ import { getCacheDir, getMetadataPath, resolvePath } from '@portel/photon-core';
 import { SchemaExtractor } from '@portel/photon-core';
 import { parseMarketplaceSource } from './marketplace-source.js';
 import {
+  FileMarketplaceConfigStore,
+  type MarketplaceConfigStore,
+  type MarketplaceConfig as StoredMarketplaceConfig,
+} from './marketplace-config-store.js';
+import {
   FileMarketplaceManifestCache,
   type MarketplaceManifestCache,
   type MarketplaceManifest as CachedMarketplaceManifest,
@@ -117,9 +122,7 @@ export interface Marketplace {
   lastUpdated?: string;
 }
 
-interface MarketplaceConfig {
-  marketplaces: Marketplace[];
-}
+type MarketplaceConfig = StoredMarketplaceConfig;
 
 /**
  * Photon metadata from photons.json manifest
@@ -258,42 +261,31 @@ function validateSafeName(name: string, label: string): void {
 export class MarketplaceManager {
   private config: MarketplaceConfig = { marketplaces: [] };
   private logger: Logger;
-  private configDir: string;
   private configFile: string;
   private metadataFile: string;
   private readonly manifestCache: MarketplaceManifestCache;
+  private readonly configStore: MarketplaceConfigStore;
 
-  constructor(logger?: Logger, baseDir?: string, manifestCache?: MarketplaceManifestCache) {
+  constructor(
+    logger?: Logger,
+    baseDir?: string,
+    manifestCache?: MarketplaceManifestCache,
+    configStore?: MarketplaceConfigStore
+  ) {
     this.logger = logger ?? createLogger({ component: 'marketplace-manager', minimal: true });
     const dir = baseDir || CONFIG_DIR;
-    this.configDir = dir;
     this.configFile = path.join(dir, 'marketplaces.json');
+    this.configStore =
+      configStore ?? new FileMarketplaceConfigStore(dir, this.configFile, this.logger);
     const cacheDir = path.join(getCacheDir(dir), 'marketplaces');
     this.manifestCache = manifestCache ?? new FileMarketplaceManifestCache(cacheDir, this.logger);
     this.metadataFile = getMetadataPath(dir);
   }
 
   async initialize() {
-    await fs.mkdir(this.configDir, { recursive: true });
+    await this.configStore.initialize();
     await this.manifestCache.initialize();
-
-    if (existsSync(this.configFile)) {
-      const data = await readText(this.configFile);
-      try {
-        this.config = JSON.parse(data);
-      } catch (parseError) {
-        this.logger.warn(
-          `Corrupted marketplaces.json, resetting to defaults: ${getErrorMessage(parseError)}`
-        );
-        this.config = { marketplaces: getDefaultMarketplaces() };
-        await this.save();
-      }
-    } else {
-      this.config = { marketplaces: getDefaultMarketplaces() };
-      await this.save();
-    }
-
-    // Ensure all built-in marketplaces are present (handles upgrades)
+    this.config = await this.configStore.load(getDefaultMarketplaces());
     await this.ensureBuiltInMarketplaces();
   }
 
@@ -322,7 +314,7 @@ export class MarketplaceManager {
   }
 
   async save() {
-    await writeJSON(this.configFile, this.config);
+    await this.configStore.save(this.config);
   }
 
   /**
