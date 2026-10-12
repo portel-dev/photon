@@ -2658,7 +2658,8 @@ export class PhotonServer {
       if (error instanceof Error && error.stack) {
         this.log('debug', error.stack);
       }
-      process.exit(1);
+      await this.stop();
+      throw error;
     }
   }
 
