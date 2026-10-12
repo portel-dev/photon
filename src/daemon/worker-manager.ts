@@ -13,6 +13,7 @@ import { Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import type { MainToWorkerMessage, WorkerToMainMessage, WorkerInit } from './worker-protocol.js';
 import type { TracePropagationContext } from '../telemetry/propagation.js';
+import type { WorkerManagerPorts } from './worker-ports.js';
 
 export interface WorkerInfo {
   worker: Worker;
@@ -63,7 +64,10 @@ export class WorkerManager {
   /** Callback when worker unsubscribes from a channel */
   public onUnsubscribe?: (workerKey: string, channel: string) => void;
 
-  constructor(logger: Logger) {
+  constructor(
+    logger: Logger,
+    private readonly ports: WorkerManagerPorts = {}
+  ) {
     this.logger = logger.child({ component: 'worker-manager' });
   }
 
@@ -446,18 +450,21 @@ export class WorkerManager {
       }
 
       case 'publish': {
+        this.ports.channels?.publish(msg.channel, msg.message);
         this.onPublish?.(msg.channel, msg.message);
         break;
       }
 
       case 'subscribe': {
         if (info) info.subscribedChannels.add(msg.channel);
+        this.ports.channels?.subscribe(key, msg.channel);
         this.onSubscribe?.(key, msg.channel);
         break;
       }
 
       case 'unsubscribe': {
         if (info) info.subscribedChannels.delete(msg.channel);
+        this.ports.channels?.unsubscribe(key, msg.channel);
         this.onUnsubscribe?.(key, msg.channel);
         break;
       }
@@ -480,9 +487,11 @@ export class WorkerManager {
     if (!info) return;
 
     try {
-      const result = this.depResolver
-        ? await this.depResolver(depName, depPath, info.photonName)
-        : null;
+      const result = this.ports.dependencies
+        ? await this.ports.dependencies.resolve(depName, depPath, info.photonName)
+        : this.depResolver
+          ? await this.depResolver(depName, depPath, info.photonName)
+          : null;
 
       if (result) {
         const msg: MainToWorkerMessage = {
@@ -526,7 +535,11 @@ export class WorkerManager {
     if (!info) return;
 
     try {
-      const result = this.depCaller ? await this.depCaller(depName, method, args) : undefined;
+      const result = this.ports.dependencies
+        ? await this.ports.dependencies.call(depName, method, args)
+        : this.depCaller
+          ? await this.depCaller(depName, method, args)
+          : undefined;
 
       const msg: MainToWorkerMessage = {
         type: 'dep_call_result',
