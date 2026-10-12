@@ -24,6 +24,7 @@ import type { TracePropagationContext } from '../telemetry/propagation.js';
 import { validateTracePropagation } from '../telemetry/propagation.js';
 import { getTasksDir, getLegacyTasksDir } from '@portel/photon-core';
 import { getDefaultContext } from '../context.js';
+import { getRequestContext } from '../telemetry/context.js';
 
 /**
  * Resolve the tasks directory at call time rather than module import.
@@ -36,7 +37,7 @@ import { getDefaultContext } from '../context.js';
  * migration pattern used elsewhere.
  */
 function resolveTasksDir(): string {
-  const newDir = getTasksDir(getDefaultContext().baseDir);
+  const newDir = getTasksDir(getRequestContext()?.photonDir ?? getDefaultContext().baseDir);
   if (existsSync(newDir)) return newDir;
   const legacyDir = getLegacyTasksDir();
   if (existsSync(legacyDir)) return legacyDir;
@@ -91,6 +92,7 @@ export function createTask(
   } = {}
 ): Task {
   ensureDir();
+  startTaskMaintenance();
   recoverInterruptedTasks();
   const now = new Date().toISOString();
   const normalizedTtl =
@@ -129,6 +131,7 @@ export function createTask(
 
 export function getTask(id: string): Task | null {
   ensureDir();
+  startTaskMaintenance();
   recoverInterruptedTasks();
   const p = taskPath(id);
   if (!existsSync(p)) return null;
@@ -189,6 +192,7 @@ export function transitionTask(
 
 export function listTasks(photon?: string): Task[] {
   ensureDir();
+  startTaskMaintenance();
   recoverInterruptedTasks();
   const files = readdirSync(resolveTasksDir()).filter((f) => f.endsWith('.json'));
   const tasks: Task[] = [];
@@ -281,21 +285,29 @@ export function _getTasksDir(): string {
   return resolveTasksDir();
 }
 
-// Startup cleanup and periodic retention enforcement.
-try {
-  const cleaned = cleanExpiredTasks();
-  if (cleaned > 0) {
-    console.error(`🗑️  Cleaned ${cleaned} expired task(s)`);
-  }
-} catch {
-  // Best effort
-}
+let taskMaintenanceTimer: NodeJS.Timeout | null = null;
 
-const taskMaintenanceTimer = setInterval(() => {
+/** Start task retention maintenance for an owning runtime. Idempotent. */
+export function startTaskMaintenance(): void {
+  if (taskMaintenanceTimer) return;
   try {
     cleanExpiredTasks();
   } catch {
-    // Best effort
+    // Best effort; a later interval retries cleanup.
   }
-}, 60_000);
-taskMaintenanceTimer.unref();
+  taskMaintenanceTimer = setInterval(() => {
+    try {
+      cleanExpiredTasks();
+    } catch {
+      // Best effort.
+    }
+  }, 60_000);
+  taskMaintenanceTimer.unref();
+}
+
+/** Stop task retention maintenance so embedded runtimes and tests can dispose cleanly. */
+export function stopTaskMaintenance(): void {
+  if (!taskMaintenanceTimer) return;
+  clearInterval(taskMaintenanceTimer);
+  taskMaintenanceTimer = null;
+}
