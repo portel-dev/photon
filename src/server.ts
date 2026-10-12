@@ -77,6 +77,12 @@ import { isLocalRequest, setSecurityHeaders, getCorsOrigin } from './shared/secu
 import { TaskExecutor } from './task-executor.js';
 import { validateAppContext, type PhotonAppContext } from './app-context.js';
 import { extractSkillDeclarations, readSkillWithin } from './skills.js';
+import {
+  buildMcpElicitParams,
+  extractMcpElicitValue,
+  getDefaultMcpElicitValue,
+  type PhotonAsk,
+} from './mcp-elicitation-policy.js';
 import { CapabilityNegotiator } from './capability-negotiator.js';
 import {
   ResourceServer,
@@ -1026,185 +1032,22 @@ export class PhotonServer {
     };
   }
 
-  /**
-   * Build MCP elicit request params from a Photon ask yield
+  /*
+   * Elicitation wire policy lives in mcp-elicitation-policy.ts. These old
+   * methods remain temporarily for source compatibility with internal tests.
    */
   private buildElicitParams(ask: any): any {
-    const baseMessage = ask.message || 'Please provide input';
-
-    switch (ask.ask) {
-      case 'text':
-      case 'password':
-        return {
-          mode: 'form',
-          message: baseMessage,
-          requestedSchema: {
-            type: 'object',
-            properties: {
-              value: {
-                type: 'string',
-                title: ask.label || 'Input',
-                description: ask.hint || ask.message,
-                default: ask.default,
-              },
-            },
-            required: ask.required !== false ? ['value'] : [],
-          },
-        };
-
-      case 'confirm':
-        return {
-          mode: 'form',
-          message: baseMessage,
-          requestedSchema: {
-            type: 'object',
-            properties: {
-              confirmed: {
-                type: 'boolean',
-                title: 'Confirm',
-                description: ask.message,
-                default: ask.default ?? false,
-              },
-            },
-            required: ['confirmed'],
-          },
-        };
-
-      case 'number':
-        return {
-          mode: 'form',
-          message: baseMessage,
-          requestedSchema: {
-            type: 'object',
-            properties: {
-              value: {
-                type: 'number',
-                title: ask.label || 'Number',
-                description: ask.hint || ask.message,
-                default: ask.default,
-                minimum: ask.min,
-                maximum: ask.max,
-              },
-            },
-            required: ask.required !== false ? ['value'] : [],
-          },
-        };
-
-      case 'select':
-        // For select, we use enum in the schema
-        const selectOptions = ask.options || [];
-        const options = selectOptions.map((o: any) => (typeof o === 'string' ? o : o.value));
-        const labels = selectOptions.map((o: any) => (typeof o === 'string' ? o : o.label));
-        const photonOptions = selectOptions
-          .filter((o: any) => typeof o === 'object' && o !== null)
-          .map((o: any) => ({
-            value: o.value,
-            ...(o.label ? { label: o.label } : {}),
-            ...(o.description ? { description: o.description } : {}),
-            ...(o.image ? { image: o.image } : {}),
-            ...(o.price != null ? { price: o.price } : {}),
-            ...(o.badge ? { badge: o.badge } : {}),
-            ...(o.badgeType ? { badgeType: o.badgeType } : {}),
-            ...(o.category ? { category: o.category } : {}),
-          }));
-        const photonOptionMetadata =
-          photonOptions.length > 0 ? { 'x-photon-options': photonOptions } : {};
-        return {
-          mode: 'form',
-          message: baseMessage + (ask.multi ? ' (select multiple)' : ''),
-          requestedSchema: {
-            type: 'object',
-            properties: {
-              selection: ask.multi
-                ? {
-                    type: 'array',
-                    items: { type: 'string', enum: options, ...photonOptionMetadata },
-                    title: ask.label || 'Selection',
-                    description: `Options: ${labels.join(', ')}`,
-                  }
-                : {
-                    type: 'string',
-                    enum: options,
-                    title: ask.label || 'Selection',
-                    description: `Options: ${labels.join(', ')}`,
-                    ...photonOptionMetadata,
-                  },
-            },
-            required: ask.required !== false ? ['selection'] : [],
-          },
-        };
-
-      case 'date':
-        return {
-          mode: 'form',
-          message: baseMessage,
-          requestedSchema: {
-            type: 'object',
-            properties: {
-              value: {
-                type: 'string',
-                format: 'date',
-                title: ask.label || 'Date',
-                description: ask.hint || ask.message,
-                default: ask.default,
-              },
-            },
-            required: ask.required !== false ? ['value'] : [],
-          },
-        };
-
-      default:
-        // Generic text input for unknown types
-        return {
-          mode: 'form',
-          message: baseMessage,
-          requestedSchema: {
-            type: 'object',
-            properties: {
-              value: {
-                type: 'string',
-                title: 'Input',
-              },
-            },
-          },
-        };
-    }
+    return buildMcpElicitParams(ask as PhotonAsk) as any;
   }
 
-  /**
-   * Extract value from elicitation response content
-   */
+  /* Legacy compatibility wrapper. */
   private extractElicitValue(ask: any, content: Record<string, any>): any {
-    switch (ask.ask) {
-      case 'confirm':
-        return content.confirmed ?? false;
-      case 'select':
-        return content.selection;
-      default:
-        return content.value;
-    }
+    return extractMcpElicitValue(ask as PhotonAsk, content);
   }
 
-  /**
-   * Get default value for an ask when elicitation is not available or declined
-   */
+  /* Legacy compatibility wrapper. */
   private getDefaultForAsk(ask: any): any {
-    if ('default' in ask) {
-      return ask.default;
-    }
-
-    switch (ask.ask) {
-      case 'confirm':
-        return false;
-      case 'number':
-        return 0;
-      case 'select':
-        return ask.multi ? [] : null;
-      case 'date':
-        return new Date().toISOString().split('T')[0];
-      default:
-        return '';
-    }
+    return getDefaultMcpElicitValue(ask as PhotonAsk);
   }
 
   // ─── Shared handler implementations ─────────────────────────────────
