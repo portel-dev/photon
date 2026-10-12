@@ -15,6 +15,11 @@ import { verifyContentHash, validateAssetPath, isPathWithin } from './shared/sec
 import { getDefaultContext } from './context.js';
 import { getCacheDir, getMetadataPath, resolvePath } from '@portel/photon-core';
 import { SchemaExtractor } from '@portel/photon-core';
+import {
+  FileMarketplaceManifestCache,
+  type MarketplaceManifestCache,
+  type MarketplaceManifest as CachedMarketplaceManifest,
+} from './marketplace-manifest-cache.js';
 
 // Timeout for marketplace fetch requests
 const FETCH_TIMEOUT_MS = 10 * 1000;
@@ -159,17 +164,7 @@ interface LocalMetadata {
 /**
  * Marketplace manifest (.marketplace/photons.json)
  */
-interface MarketplaceManifest {
-  name: string;
-  version?: string;
-  description?: string;
-  owner?: {
-    name: string;
-    email?: string;
-    url?: string;
-  };
-  photons: PhotonMetadata[];
-}
+type MarketplaceManifest = CachedMarketplaceManifest;
 
 const CONFIG_DIR = getDefaultContext().baseDir;
 const METADATA_FILE = getMetadataPath(CONFIG_DIR);
@@ -264,21 +259,22 @@ export class MarketplaceManager {
   private logger: Logger;
   private configDir: string;
   private configFile: string;
-  private cacheDir: string;
   private metadataFile: string;
+  private readonly manifestCache: MarketplaceManifestCache;
 
-  constructor(logger?: Logger, baseDir?: string) {
+  constructor(logger?: Logger, baseDir?: string, manifestCache?: MarketplaceManifestCache) {
     this.logger = logger ?? createLogger({ component: 'marketplace-manager', minimal: true });
     const dir = baseDir || CONFIG_DIR;
     this.configDir = dir;
     this.configFile = path.join(dir, 'marketplaces.json');
-    this.cacheDir = path.join(getCacheDir(dir), 'marketplaces');
+    const cacheDir = path.join(getCacheDir(dir), 'marketplaces');
+    this.manifestCache = manifestCache ?? new FileMarketplaceManifestCache(cacheDir, this.logger);
     this.metadataFile = getMetadataPath(dir);
   }
 
   async initialize() {
     await fs.mkdir(this.configDir, { recursive: true });
-    await fs.mkdir(this.cacheDir, { recursive: true });
+    await this.manifestCache.initialize();
 
     if (existsSync(this.configFile)) {
       const data = await readText(this.configFile);
@@ -597,13 +593,6 @@ export class MarketplaceManager {
   }
 
   /**
-   * Get cache file path for marketplace
-   */
-  private getCacheFile(marketplaceName: string): string {
-    return path.join(this.cacheDir, `${marketplaceName}.json`);
-  }
-
-  /**
    * Fetch photons.json manifest from various sources
    */
   async fetchManifest(marketplace: Marketplace): Promise<MarketplaceManifest | null> {
@@ -672,8 +661,7 @@ export class MarketplaceManager {
 
     if (manifest) {
       // Save to cache
-      const cacheFile = this.getCacheFile(name);
-      await writeJSON(cacheFile, manifest);
+      await this.manifestCache.put(name, manifest);
 
       // Update lastUpdated timestamp
       marketplace.lastUpdated = new Date().toISOString();
@@ -704,26 +692,7 @@ export class MarketplaceManager {
    * Get cached marketplace manifest
    */
   async getCachedManifest(marketplaceName: string): Promise<MarketplaceManifest | null> {
-    const cacheFile = this.getCacheFile(marketplaceName);
-
-    if (!existsSync(cacheFile)) {
-      return null;
-    }
-
-    try {
-      return await readJSON(cacheFile);
-    } catch (error) {
-      // Cache file exists but is corrupted — delete it so it gets re-fetched
-      this.logger.warn(
-        `Corrupted marketplace cache for ${marketplaceName}, removing: ${getErrorMessage(error)}`
-      );
-      try {
-        await fs.unlink(cacheFile);
-      } catch {
-        // Ignore unlink errors
-      }
-      return null;
-    }
+    return this.manifestCache.get(marketplaceName);
   }
 
   /**
