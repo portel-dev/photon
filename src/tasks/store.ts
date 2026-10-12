@@ -64,16 +64,21 @@ taskEvents.setMaxListeners(50); // Multiple SSE sessions may listen
 /** Active task AbortControllers for cancellation */
 const activeControllers = new Map<string, AbortController>();
 
+/** Include the resolved workspace in in-memory task coordination keys. */
+export function taskRuntimeKey(taskId: string): string {
+  return `${resolveTasksDir()}\u0000${taskId}`;
+}
+
 export function registerController(taskId: string, controller: AbortController): void {
-  activeControllers.set(taskId, controller);
+  activeControllers.set(taskRuntimeKey(taskId), controller);
 }
 
 export function unregisterController(taskId: string): void {
-  activeControllers.delete(taskId);
+  activeControllers.delete(taskRuntimeKey(taskId));
 }
 
 export function getController(taskId: string): AbortController | undefined {
-  return activeControllers.get(taskId);
+  return activeControllers.get(taskRuntimeKey(taskId));
 }
 
 export function createTask(
