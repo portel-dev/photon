@@ -83,6 +83,12 @@ import {
   getDefaultMcpElicitValue,
   type PhotonAsk,
 } from './mcp-elicitation-policy.js';
+import {
+  formatMcpError,
+  formatMcpResult,
+  formatMcpTemplateResult,
+  imageContentFromMcpResult,
+} from './mcp-result-policy.js';
 import { CapabilityNegotiator } from './capability-negotiator.js';
 import {
   ResourceServer,
@@ -1716,8 +1722,8 @@ export class PhotonServer {
     const declaredMimeType = (schema as ExtractedSchema & { mimeType?: string }).mimeType;
     const formattedResult = this.formatResult(actualResult);
     const imageContent =
-      this.imageContentFromResult(actualResult, declaredMimeType) ||
-      this.imageContentFromResult(formattedResult, declaredMimeType);
+      imageContentFromMcpResult(actualResult, declaredMimeType) ||
+      imageContentFromMcpResult(formattedResult, declaredMimeType);
     const content: MCPTextContent | MCPImageContent = imageContent || {
       type: 'text',
       text: formattedResult,
@@ -2233,100 +2239,14 @@ export class PhotonServer {
    * Format tool result as text
    */
   private formatResult(result: any): string {
-    if (typeof result === 'string') {
-      return result;
-    } else if (result && typeof result === 'object') {
-      // Handle {success, content} format
-      if ('success' in result && 'content' in result) {
-        return result.content || String(result);
-      }
-      // Handle {success, error} format
-      if ('success' in result && 'error' in result) {
-        if (!result.success) {
-          throw new Error(result.error);
-        }
-        return result.error || 'Success';
-      }
-      return JSON.stringify(result, null, 2);
-    }
-    return String(result);
-  }
-
-  private imageContentFromResult(
-    value: unknown,
-    declaredMimeType?: string
-  ): {
-    type: 'image';
-    data: string;
-    mimeType: string;
-  } | null {
-    if (typeof value === 'string') {
-      const match = value.match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i);
-      if (match) return { type: 'image', mimeType: match[1], data: match[2].replace(/\s/g, '') };
-      if (value.trimStart().startsWith('{')) {
-        try {
-          return this.imageContentFromResult(JSON.parse(value), declaredMimeType);
-        } catch {
-          return null;
-        }
-      }
-      return null;
-    }
-    let bytes: Uint8Array | null = null;
-    if (value instanceof Uint8Array) bytes = value;
-    else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
-    else if (value && typeof value === 'object') {
-      const entries = Object.entries(value as Record<string, unknown>);
-      if (
-        entries.length > 0 &&
-        entries.every(([key, item]) => /^\d+$/.test(key) && Number.isInteger(item))
-      ) {
-        const ordered = entries.sort(([a], [b]) => Number(a) - Number(b));
-        bytes = Uint8Array.from(ordered.map(([, item]) => Number(item)));
-      }
-    }
-    if (!bytes) return null;
-    const detectedMimeType =
-      declaredMimeType ||
-      (bytes[0] === 0x42 && bytes[1] === 0x4d
-        ? 'image/bmp'
-        : bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
-          ? 'image/png'
-          : bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
-            ? 'image/jpeg'
-            : undefined);
-    if (!detectedMimeType?.startsWith('image/')) return null;
-    return {
-      type: 'image',
-      mimeType: detectedMimeType,
-      data: Buffer.from(bytes).toString('base64'),
-    };
+    return formatMcpResult(result);
   }
 
   /**
    * Format template result to MCP prompt response
    */
   private formatTemplateResult(result: any): any {
-    // Check if result is a TemplateResponse object
-    if (result && typeof result === 'object' && 'messages' in result) {
-      return {
-        messages: result.messages,
-      };
-    }
-
-    // Otherwise, treat as simple string template
-    const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-    return {
-      messages: [
-        {
-          role: 'user',
-          content: {
-            type: 'text',
-            text,
-          },
-        },
-      ],
-    };
+    return formatMcpTemplateResult(result);
   }
 
   /**
@@ -2364,10 +2284,8 @@ export class PhotonServer {
    * Provides structured, actionable error messages
    */
   private formatError(error: any, toolName: string, _args: any): any {
-    // The wire response is identical in development and production: arguments
-    // and stack traces are private diagnostics and must never reach a client.
     this.log('error', `[Photon Error] ${toolName}: ${sanitizePublicErrorMessage(error)}`);
-    return buildMCPToolError(toolName, error);
+    return formatMcpError(error, toolName);
   }
 
   /**
