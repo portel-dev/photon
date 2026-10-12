@@ -10,8 +10,11 @@
  */
 
 import type { Server } from './mcp/sdk-v2-2026/server.js';
-
-const MCP_UI_CAPABILITY = 'io.modelcontextprotocol/ui';
+import {
+  ClientCapabilityRegistry,
+  isOpenAIClientName,
+  supportsUI as profileSupportsUI,
+} from './client-capabilities.js';
 
 export class CapabilityNegotiator {
   /**
@@ -31,14 +34,19 @@ export class CapabilityNegotiator {
    * seed raw capabilities directly. Prefer `setRawCapabilities()` in
    * non-test code paths.
    */
-  rawClientCapabilities = new WeakMap<Server, Record<string, any>>();
+  private readonly registry = new ClientCapabilityRegistry();
+
+  /** Compatibility accessor retained for tests and legacy integrations. */
+  get rawClientCapabilities(): WeakMap<Server, Record<string, any>> {
+    return this.registry.raw;
+  }
 
   /**
    * Store raw capabilities for a server instance.
    * Called from the transport message interceptor.
    */
   setRawCapabilities(server: Server, capabilities: Record<string, any>): void {
-    this.rawClientCapabilities.set(server, capabilities);
+    this.registry.setRaw(server, capabilities);
   }
 
   /**
@@ -56,25 +64,13 @@ export class CapabilityNegotiator {
    * capability is implicit.
    */
   supportsUI(server: Server): boolean {
-    // Check SDK-parsed capabilities (works for `experimental` which is in the Zod schema)
-    const capabilities = server.getClientCapabilities() as Record<string, any>;
-    if (capabilities?.experimental?.[MCP_UI_CAPABILITY]) {
-      return true;
-    }
-
-    // Check raw capabilities captured before Zod parsing (needed for `extensions`
-    // which the SDK's Zod schema strips — Claude Desktop and ChatGPT use this field)
-    const raw = this.rawClientCapabilities.get(server);
-    if (raw?.extensions?.[MCP_UI_CAPABILITY]) {
-      return true;
-    }
-
-    // Beam is our own transport — UI support is implicit
     const clientInfo = server.getClientVersion();
-    if (clientInfo?.name === 'beam') return true;
-    if (this.isOpenAIAppHost(server)) return true;
-
-    return false;
+    return profileSupportsUI({
+      parsed: server.getClientCapabilities() as Record<string, any> | undefined,
+      raw: this.registry.getRaw(server),
+      clientName: clientInfo?.name,
+      supportsBeamUI: clientInfo?.name === 'beam',
+    });
   }
 
   /**
@@ -91,9 +87,7 @@ export class CapabilityNegotiator {
   }
 
   private isOpenAIClientName(name?: string): boolean {
-    if (!name) return false;
-    const normalized = name.toLowerCase();
-    return normalized === 'chatgpt' || normalized.includes('openai');
+    return isOpenAIClientName(name);
   }
 
   /**
