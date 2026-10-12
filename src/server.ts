@@ -809,7 +809,14 @@ export class PhotonServer {
           await session.server.notification(notification as ServerNotification);
         }
       },
-      getPhotonInstance: () => this.mcp as unknown,
+      permissionDispatcher: {
+        dispatch: (request) => {
+          const channel = this.mcp?.instance?.channel as
+            | { _dispatchPermission?: (value: unknown) => void }
+            | undefined;
+          channel?._dispatchPermission?.(request);
+        },
+      },
     };
     this.channelManager = new ChannelManager({
       channelOptions: {

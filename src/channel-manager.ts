@@ -38,13 +38,17 @@ export interface ChannelOptions {
  * Callback interface for sending notifications back to MCP clients.
  * PhotonServer implements this so ChannelManager stays decoupled.
  */
+export interface ChannelPermissionDispatcher {
+  dispatch(request: ChannelPermissionRequest): void;
+}
+
 export interface ChannelNotificationSink {
   /** Send a notification to the primary (STDIO) server */
   sendNotification(notification: { method: string; params: any }): Promise<void>;
   /** Send a notification to all SSE sessions */
   sendNotificationToAllSessions(notification: { method: string; params: any }): Promise<void>;
-  /** Get the photon instance for permission dispatch */
-  getPhotonInstance(): any;
+  /** Dispatch permission requests without exposing a Photon implementation. */
+  permissionDispatcher?: ChannelPermissionDispatcher;
 }
 
 export class ChannelManager {
@@ -156,10 +160,7 @@ export class ChannelManager {
       input_preview: params.input_preview || '',
     };
     this.log('info', `Permission request: ${request.tool_name} (${request.request_id})`);
-    const instance = this.sink.getPhotonInstance();
-    if (instance?.channel?._dispatchPermission) {
-      instance.channel._dispatchPermission(request);
-    }
+    this.sink.permissionDispatcher?.dispatch(request);
   }
 
   /**
