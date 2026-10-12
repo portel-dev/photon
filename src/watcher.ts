@@ -23,6 +23,7 @@ export class FileWatcher {
   private filePath: string;
   private assetFolderPath: string | null = null;
   private reloadTimeout: NodeJS.Timeout | null = null;
+  private lifecycleGeneration = 0;
   private logger: Logger;
 
   constructor(server: PhotonServer, filePath: string, logger?: Logger) {
@@ -45,7 +46,9 @@ export class FileWatcher {
   /**
    * Start watching the file and asset folder
    */
-  start() {
+  async start(): Promise<void> {
+    await this.stop(false);
+    const generation = ++this.lifecycleGeneration;
     const watchPaths: string[] = [this.filePath];
 
     if (this.assetFolderPath) {
@@ -67,13 +70,13 @@ export class FileWatcher {
     });
 
     this.watcher.on('change', (changedPath: string) => {
-      this.handleFileChange(changedPath);
+      this.handleFileChange(changedPath, generation);
     });
 
     // Also watch for new files in asset folder
     this.watcher.on('add', (changedPath: string) => {
       if (this.assetFolderPath && changedPath.startsWith(this.assetFolderPath)) {
-        this.handleFileChange(changedPath);
+        this.handleFileChange(changedPath, generation);
       }
     });
 
@@ -86,7 +89,7 @@ export class FileWatcher {
   /**
    * Handle file change event
    */
-  private handleFileChange(changedPath: string) {
+  private handleFileChange(changedPath: string, generation: number) {
     // Show relative path for asset files, basename for photon file
     let displayPath = path.basename(changedPath);
     if (this.assetFolderPath && changedPath.startsWith(this.assetFolderPath)) {
@@ -95,12 +98,15 @@ export class FileWatcher {
     this.logger.info(`File changed: ${displayPath}`);
 
     // Trailing debounce: reload only after streamed writes/editor saves settle.
+    if (generation !== this.lifecycleGeneration) return;
     if (this.reloadTimeout) {
       clearTimeout(this.reloadTimeout);
     }
 
     this.reloadTimeout = setTimeout(() => {
+      this.reloadTimeout = null;
       void (async () => {
+        if (generation !== this.lifecycleGeneration) return;
         try {
           await this.server.reload();
           this.logger.info('Hot reload complete');
@@ -119,7 +125,8 @@ export class FileWatcher {
   /**
    * Stop watching
    */
-  async stop() {
+  async stop(log = true): Promise<void> {
+    this.lifecycleGeneration++;
     if (this.watcher) {
       await this.watcher.close();
       this.watcher = null;
@@ -130,6 +137,6 @@ export class FileWatcher {
       this.reloadTimeout = null;
     }
 
-    this.logger.info('File watcher stopped');
+    if (log) this.logger.info('File watcher stopped');
   }
 }
