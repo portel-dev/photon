@@ -20,6 +20,9 @@ import type {
 
 const DEFAULT_INSTANCE = '';
 
+type PhotonLoaderPort = PhotonLoader;
+type PhotonLoaderFactory = (baseDir?: string) => PhotonLoaderPort;
+
 export class SessionManager {
   private sessions = new Map<string, PhotonSession>();
   /** Maps instanceName → loaded photon instance (shared across sessions) */
@@ -28,7 +31,8 @@ export class SessionManager {
   private inflightLoads = new Map<string, Promise<any>>();
   private photonPath: string;
   private photonName: string;
-  public loader: PhotonLoader;
+  private loaderRef: PhotonLoaderPort;
+  private readonly loaderFactory: PhotonLoaderFactory;
   private sessionTimeout: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
   private logger: Logger;
@@ -47,21 +51,31 @@ export class SessionManager {
     constructorEnvReplay?: {
       store: ConstructorEnvReplayStore;
       identity: ConstructorEnvReplayIdentity;
-    }
+    },
+    loaderFactory?: PhotonLoaderFactory
   ) {
     this.photonPath = photonPath;
     this.photonName = photonName;
     this.sessionTimeout = sessionTimeout;
     this.logger =
       logger ?? createLogger({ component: 'session-manager', scope: photonName, minimal: true });
-    this.loader = new PhotonLoader(
-      false,
-      this.logger.child({ component: 'photon-loader', scope: photonName }),
-      workingDir
-    );
+    this.loaderFactory =
+      loaderFactory ??
+      ((baseDir) =>
+        new PhotonLoader(
+          false,
+          this.logger.child({ component: 'photon-loader', scope: photonName }),
+          baseDir
+        ));
+    this.loaderRef = this.loaderFactory(workingDir);
     this.constructorEnvReplay = constructorEnvReplay;
 
     this.startCleanup();
+  }
+
+  /** Compatibility view for daemon consumers; replacement happens atomically on migration. */
+  get loader(): PhotonLoaderPort {
+    return this.loaderRef;
   }
 
   setConstructorEnv(values: Record<string, string> | undefined): void {
@@ -161,7 +175,7 @@ export class SessionManager {
     });
 
     const replayOptions = this.getConstructorEnvReplayOptions();
-    const promise = this.loader
+    const promise = this.loaderRef
       .loadFile(this.photonPath, { instanceName, constructorEnvReplay: replayOptions })
       .then(
         (instance) => {
@@ -218,7 +232,7 @@ export class SessionManager {
    * pick up the new location on the next fresh import.
    */
   async migrateBaseDir(newBaseDir: string): Promise<void> {
-    this.loader.baseDir = newBaseDir;
+    this.loaderRef = this.loaderFactory(newBaseDir);
     await this.clearInstances('working-dir-renamed');
     this.logger.info('Migrated baseDir', { photon: this.photonName, newBaseDir });
   }
@@ -235,7 +249,7 @@ export class SessionManager {
     const sessionSnapshot = Array.from(this.sessions.values());
     for (const session of sessionSnapshot) {
       try {
-        const newInstance = await this.loader.loadFile(this.photonPath, {
+        const newInstance = await this.loaderRef.loadFile(this.photonPath, {
           instanceName: session.instanceName || 'default',
           constructorEnvReplay: this.getConstructorEnvReplayOptions(),
         });
