@@ -4532,11 +4532,12 @@ export class PhotonServer {
       } as ServerCapabilitiesWithWeb);
     }
 
-    // Copy handlers to the session server
-    this.setupSessionHandlers(sessionServer, sessionSink);
-
-    // Create SSE transport
+    // Create the transport before registering handlers so each connection has
+    // a stable, unique session identity for app context and instance routing.
     const transport = new SSEServerTransport(messagesPath, res);
+
+    // Copy handlers to the session server
+    this.setupSessionHandlers(sessionServer, sessionSink, transport.sessionId);
     this.capabilityNegotiator.interceptTransportForRawCapabilities(
       transport,
       sessionServer,
@@ -4554,6 +4555,8 @@ export class PhotonServer {
       if (closing) return;
       closing = true;
       this.sseSessions.delete(sessionId);
+      this.sseInstanceNames.delete(sessionId);
+      this.appContexts.delete(sessionId);
       this.subscriptions.disconnect(sessionSink);
       this.log('info', 'SSE client disconnected', { sessionId });
       void (async () => {
@@ -4626,10 +4629,14 @@ export class PhotonServer {
    * Set up handlers for a session-specific MCP server
    * This duplicates handlers from the main server to each session
    */
-  private setupSessionHandlers(sessionServer: Server, sessionSink?: ResourceUpdateSink) {
+  private setupSessionHandlers(
+    sessionServer: Server,
+    sessionSink?: ResourceUpdateSink,
+    sessionId = `sse-${crypto.randomUUID()}`
+  ) {
     this.logClientCapabilities(sessionServer);
 
-    const sseSessionKey = `sse-${this.daemonName}`;
+    const sseSessionKey = sessionId;
     const ctx: HandlerContext = {
       server: sessionServer,
       getInstanceName: () => this.sseInstanceNames.get(sseSessionKey),
