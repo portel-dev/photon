@@ -33,7 +33,6 @@ import {
   type LineRestartPolicy,
   type LineRuntimeState,
   type ScheduledJob,
-  type LockInfo,
 } from './protocol.js';
 import {
   setPromptHandler,
@@ -75,6 +74,7 @@ import {
   type ExecutionStatus,
 } from './execution-history.js';
 import { WorkerManager } from './worker-manager.js';
+import { InMemoryLockService } from './lock-service.js';
 import fastJsonPatch, { type Operation } from 'fast-json-patch';
 import {
   getOwnerFilePath,
@@ -626,55 +626,27 @@ function getEventsSince(
 // DISTRIBUTED LOCKS
 // ════════════════════════════════════════════════════════════════════════════════
 
-const activeLocks = new Map<string, LockInfo>();
 const DEFAULT_LOCK_TIMEOUT = 30000;
-
-function acquireLock(
-  lockName: string,
-  holder: string,
-  timeout: number = DEFAULT_LOCK_TIMEOUT
-): boolean {
-  const now = Date.now();
-  const existing = activeLocks.get(lockName);
-
-  if (existing && existing.expiresAt > now) {
-    if (existing.holder !== holder) {
-      return false;
-    }
-    existing.expiresAt = now + timeout;
-    return true;
-  }
-
-  activeLocks.set(lockName, {
-    name: lockName,
-    holder,
-    acquiredAt: now,
-    expiresAt: now + timeout,
-  });
-
-  logger.info('Lock acquired', { lockName, holder, timeout });
-  return true;
+const lockService = new InMemoryLockService();
+function acquireLock(lockName: string, holder: string, timeout = 30000): boolean {
+  const acquired = lockService.acquire(lockName, holder, timeout);
+  if (acquired) logger.info('Lock acquired', { lockName, holder, timeout });
+  return acquired;
 }
-
 function releaseLock(lockName: string, holder: string): boolean {
-  const existing = activeLocks.get(lockName);
-  if (!existing) return true;
-  if (existing.holder !== holder) return false;
-
-  activeLocks.delete(lockName);
-  logger.info('Lock released', { lockName, holder });
-  return true;
+  const released = lockService.release(lockName, holder);
+  if (released) logger.info('Lock released', { lockName, holder });
+  return released;
 }
-
 function cleanupExpiredLocks(): void {
-  const now = Date.now();
-  for (const [name, lock] of activeLocks.entries()) {
-    if (lock.expiresAt <= now) {
-      activeLocks.delete(name);
-      logger.info('Lock expired', { lockName: name, holder: lock.holder });
-    }
-  }
+  lockService.cleanupExpired();
 }
+const activeLocks = {
+  get: (name: string) => lockService.get(name),
+  values: () => lockService.list().values(),
+  delete: (name: string) => lockService.release(name, lockService.get(name)?.holder ?? ''),
+  clear: () => lockService.clear(),
+};
 
 /**
  * Periodic cleanup of in-memory maps that can grow unbounded.
