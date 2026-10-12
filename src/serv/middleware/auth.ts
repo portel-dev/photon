@@ -229,7 +229,7 @@ export class AuthMiddleware {
 
     if (
       this.config.requiredRoles?.length &&
-      (!context.membership || !this.config.requiredRoles.includes(context.membership.role))
+      (!context.membership || !hasPermission(context.membership.role, this.config.requiredRoles))
     ) {
       return {
         success: false,
