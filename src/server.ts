@@ -121,6 +121,7 @@ import {
 } from './auto-ui/app-manifest.js';
 import { generateStandaloneWebShell } from './auto-ui/standalone-web/app-shell.js';
 import { generateRenderersScript } from './auto-ui/bridge/renderers.js';
+import { NotificationQueue } from './notification-queue.js';
 
 installLocalWebSocketPair();
 
@@ -702,7 +703,7 @@ export class PhotonServer {
   /** Client capability detection and negotiation */
   private capabilityNegotiator = new CapabilityNegotiator();
   /** Write queue for serialized STDIO notifications (prevents interleaving from concurrent generators) */
-  private _notifyQueue: Promise<void> = Promise.resolve();
+  private readonly notificationQueue: NotificationQueue<ServerNotification>;
 
   /** Compatibility alias for tests that seed raw capabilities directly on PhotonServer */
   public rawClientCapabilities = this.capabilityNegotiator.rawClientCapabilities;
@@ -767,6 +768,10 @@ export class PhotonServer {
 
     this.options = options;
     this.devMode = options.devMode || false;
+    this.notificationQueue = new NotificationQueue(
+      { send: (notification) => this.server.notification(notification) },
+      (error) => this.logger.debug('Failed to send notification', { error: getErrorMessage(error) })
+    );
 
     // Progressive skill disclosure: descriptors are safe to include in the
     // initial server instructions; full bodies remain available through the
@@ -961,12 +966,8 @@ export class PhotonServer {
    * Send a notification through the STDIO write queue.
    * Serializes writes so concurrent generators don't interleave JSON on stdout.
    */
-  private queueNotification(notification: ServerNotification, server = this.server): void {
-    this._notifyQueue = this._notifyQueue
-      .then(() => server?.notification(notification))
-      .catch((err) =>
-        this.logger.debug('Failed to send notification', { error: getErrorMessage(err) })
-      );
+  private queueNotification(notification: ServerNotification, _server = this.server): void {
+    this.notificationQueue.enqueue(notification);
   }
 
   /**
@@ -1803,7 +1804,7 @@ export class PhotonServer {
     // SSE stream BEFORE the HTTP POST response body is written. Without this, the
     // client receives the tool result, deletes its _progressHandlers entry, and then
     // silently drops any notifications that arrive later on the SSE stream.
-    await this._notifyQueue;
+    await this.notificationQueue.drain();
 
     return response;
   }
