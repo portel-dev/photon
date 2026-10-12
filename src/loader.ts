@@ -143,7 +143,6 @@ import {
   executeGenerator,
   isAskYield,
   isEmitYield,
-  type AskYield,
   type EmitYield,
   type PhotonYield,
   type InputProvider,
@@ -151,9 +150,6 @@ import {
   type SamplingProvider,
   // Implicit stateful execution (auto-detect checkpoint yields)
   maybeStatefulExecute,
-  // Elicit for fallback
-  prompt as elicitPrompt,
-  confirm as elicitConfirm,
   // Progress rendering
   ProgressRenderer,
   // CLI formatting
@@ -324,6 +320,7 @@ import {
   type PhotonAuthDirective,
 } from './auth/directive.js';
 import { makeReactiveProxy } from './reactive-proxy.js';
+import { createCliInputProvider } from './cli-input-provider.js';
 import {
   findExportedPhoton,
   getPhotonName,
@@ -5647,91 +5644,10 @@ Run: photon mcp ${mcpName} --config
    * Supports the new ask/emit pattern from photon-core 1.2.0
    */
   private createInputProvider(): InputProvider {
-    return async (ask: AskYield): Promise<any> => {
-      this.progressRenderer.done();
-      switch (ask.ask) {
-        case 'text':
-        case 'password':
-          return await elicitPrompt(ask.message, 'default' in ask ? ask.default : undefined);
-
-        case 'confirm':
-          return await elicitConfirm(ask.message);
-
-        case 'select': {
-          const options = (ask.options || []).map((o: any) => {
-            if (typeof o === 'string') return { value: o, label: o };
-            return { value: o.value ?? o.label, label: o.label };
-          });
-
-          // Print choices clearly as a numbered list
-          let msg = `${ask.message}\n`;
-          options.forEach((opt, idx) => {
-            msg += `  [${idx + 1}] ${opt.label}\n`;
-          });
-          msg += ask.multi
-            ? `Select option(s) (comma-separated numbers or names): `
-            : `Select an option (number or name): `;
-
-          const result = await elicitPrompt(msg);
-          if (!result) return ask.multi ? [] : null;
-
-          // Parse and match the user selection
-          if (ask.multi) {
-            const parts = result.split(',').map((s) => s.trim().toLowerCase());
-            const selected: any[] = [];
-            for (const part of parts) {
-              const idx = parseInt(part, 10) - 1;
-              if (idx >= 0 && idx < options.length) {
-                selected.push(options[idx].value);
-              } else {
-                const match = options.find(
-                  (o) =>
-                    o.label.toLowerCase() === part ||
-                    o.value.toString().toLowerCase() === part ||
-                    o.label.toLowerCase().includes(part)
-                );
-                if (match) selected.push(match.value);
-              }
-            }
-            return selected;
-          } else {
-            const part = result.trim().toLowerCase();
-            const idx = parseInt(part, 10) - 1;
-            if (idx >= 0 && idx < options.length) {
-              return options[idx].value;
-            }
-            const match = options.find(
-              (o) =>
-                o.label.toLowerCase() === part ||
-                o.value.toString().toLowerCase() === part ||
-                o.label.toLowerCase().includes(part)
-            );
-            return match ? match.value : result;
-          }
-        }
-
-        case 'number': {
-          const result = await elicitPrompt(ask.message, ask.default?.toString());
-          return result ? parseFloat(result) : (ask.default ?? 0);
-        }
-
-        case 'date': {
-          const result = await elicitPrompt(ask.message, ask.default);
-          return result || ask.default || new Date().toISOString();
-        }
-
-        case 'file':
-          // File selection not supported in CLI readline
-          this.logger.warn(`⚠️ File selection not supported in CLI: ${ask.message}`);
-          return null;
-
-        default: {
-          const unknownAsk = ask as { ask?: string };
-          this.logger.warn(`⚠️ Unknown ask type: ${unknownAsk.ask || 'unknown'}`);
-          return undefined;
-        }
-      }
-    };
+    return createCliInputProvider({
+      doneProgress: () => this.progressRenderer.done(),
+      warn: (message) => this.logger.warn(message),
+    });
   }
 
   /**
