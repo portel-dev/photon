@@ -176,8 +176,6 @@ import {
   type PhotonMCPConfig,
   type MCPServerConfig,
   type SettingsSchema,
-  isClass as sharedIsClass,
-  findPhotonClass as sharedFindPhotonClass,
   parseEnvValue as sharedParseEnvValue,
   compilePhotonTS,
   parseRuntimeRequirement,
@@ -325,6 +323,12 @@ import {
   legacyAuthValue,
   type PhotonAuthDirective,
 } from './auth/directive.js';
+import {
+  findExportedPhoton,
+  getPhotonName,
+  getPhotonToolMethods,
+  isPhotonClass,
+} from './photon-reflection.js';
 
 /** Detect preferred package manager. Prefers bun for speed, falls back to npm. */
 function detectPreferredPackageManager(): string {
@@ -1661,14 +1665,14 @@ export class PhotonLoader {
       }
 
       // Find the exported class
-      const MCPClass = this.findMCPClass(module);
+      const MCPClass = findExportedPhoton(module);
 
-      if (!MCPClass || !this.isClass(MCPClass)) {
+      if (!MCPClass || !isPhotonClass(MCPClass)) {
         throw new Error('No class found in file. Expected a default-exported class with methods.');
       }
 
       // Get MCP name
-      const name = this.getMCPName(MCPClass);
+      const name = getPhotonName(MCPClass);
       const classDocblockForReplay = this.extractClassDocblock(tsContent || '');
       const isStatefulSource = /@stateful\b/.test(classDocblockForReplay);
 
@@ -2529,8 +2533,8 @@ export class PhotonLoader {
     const tsContent = sourceCode;
 
     // Find the exported class
-    const MCPClass = this.findMCPClass(module);
-    if (!MCPClass || !this.isClass(MCPClass)) {
+    const MCPClass = findExportedPhoton(module);
+    if (!MCPClass || !isPhotonClass(MCPClass)) {
       throw new Error(
         'No class found in preloaded module. Expected a default-exported class with methods.'
       );
@@ -2539,7 +2543,7 @@ export class PhotonLoader {
     // Prefer file-path-derived name (e.g. 'whatsapp' from whatsapp.photon.ts)
     // over class-name-derived kebab-case (e.g. 'whats-app' from WhatsApp class).
     // File path names are canonical in the photon ecosystem.
-    const classNameDerived = this.getMCPName(MCPClass);
+    const classNameDerived = getPhotonName(MCPClass);
     const name = mcpName || classNameDerived;
     const classDocblockForReplay = this.extractClassDocblock(tsContent);
     const isStatefulSource = /@stateful\b/.test(classDocblockForReplay);
@@ -3282,86 +3286,6 @@ export class PhotonLoader {
   }
 
   /**
-   * Find the MCP class in a module
-   * Delegates to shared findPhotonClass from photon-core
-   */
-  private findMCPClass(module: Record<string, unknown>): unknown {
-    return sharedFindPhotonClass(module);
-  }
-
-  /**
-   * Check if a function is a class constructor
-   * Delegates to shared isClass from photon-core
-   */
-  private isClass(fn: unknown): fn is new (...args: unknown[]) => unknown {
-    return sharedIsClass(fn);
-  }
-
-  /**
-   * Get MCP name from class
-   */
-  private getMCPName(mcpClass: new (...args: unknown[]) => unknown): string {
-    // Try to use Photon base class's method if available
-    const classWithStatic = mcpClass as { getMCPName?: () => string; name: string };
-    if (typeof classWithStatic.getMCPName === 'function') {
-      return classWithStatic.getMCPName();
-    }
-
-    // Fallback: implement convention for plain classes
-    // Convert PascalCase to kebab-case (e.g., MyAwesomeMCP → my-awesome-mcp)
-    return classWithStatic.name
-      .replace(/MCP$/, '') // Remove "MCP" suffix if present
-      .replace(/([A-Z])/g, '-$1')
-      .toLowerCase()
-      .replace(/^-/, ''); // Remove leading dash
-  }
-
-  /**
-   * Get tool methods from class
-   */
-  private getToolMethods(mcpClass: new (...args: unknown[]) => unknown): string[] {
-    // Try to use Photon base class's method if available
-    const classWithStatic = mcpClass as {
-      getToolMethods?: () => string[];
-      prototype: Record<string, unknown>;
-    };
-    if (typeof classWithStatic.getToolMethods === 'function') {
-      return classWithStatic.getToolMethods();
-    }
-
-    // Fallback: implement convention for plain classes
-    const prototype = classWithStatic.prototype;
-    const methods: string[] = [];
-    const conventionMethods = new Set(['constructor', 'onInitialize', 'onShutdown']);
-    const builtInStatics = new Set(['length', 'name', 'prototype', 'getToolMethods']);
-
-    // Get instance methods from prototype
-    // Use getOwnPropertyDescriptor to avoid triggering getters (which may call storage())
-    Object.getOwnPropertyNames(prototype).forEach((name) => {
-      if (name.startsWith('_') || conventionMethods.has(name)) return;
-      const desc = Object.getOwnPropertyDescriptor(prototype, name);
-      if (desc && typeof desc.value === 'function') {
-        methods.push(name);
-      }
-    });
-
-    // Get static methods from class constructor
-    const classAsRecord = mcpClass as unknown as Record<string, unknown>;
-    Object.getOwnPropertyNames(mcpClass).forEach((name) => {
-      if (
-        !name.startsWith('_') &&
-        !builtInStatics.has(name) &&
-        !conventionMethods.has(name) &&
-        typeof classAsRecord[name] === 'function'
-      ) {
-        methods.push(name);
-      }
-    });
-
-    return methods;
-  }
-
-  /**
    * Strip JSDoc tags from descriptions (e.g., @emits, @internal, @deprecated)
    */
   private stripJSDocTags(description: string | undefined): string {
@@ -3412,7 +3336,7 @@ export class PhotonLoader {
     /** Track C: methods tagged `@expose` for auto-RPC at /api/<kebab>. */
     exposes?: ExposeDef[];
   }> {
-    const methodNames = this.getToolMethods(mcpClass);
+    const methodNames = getPhotonToolMethods(mcpClass);
     let tools: PhotonTool[] = [];
     let templates: TemplateInfo[] = [];
     let statics: StaticInfo[] = [];
