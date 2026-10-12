@@ -30,6 +30,8 @@ export interface AccessRequestContext {
   request?: unknown;
 }
 
+import { evaluateAccessPolicy } from './access-policy.js';
+
 /** Parse `@class Appointments {@role host @plan pro}` from one docblock. */
 export function parseAccessMetadata(docblock: string): ToolAccessMetadata | undefined {
   const match = docblock.match(/@class\s+([A-Za-z_$][\w$]*)\s*\{([\s\S]*?)\}/i);
@@ -93,32 +95,7 @@ export function accessMetadataAllows(
   accessClasses: Record<string, any> | undefined,
   context: AccessRequestContext
 ): boolean {
-  if (!metadata) return true;
-  if (metadata.conditions.length === 0) return false;
-  const isCurrentPhoton = photon?.constructor?.name === metadata.className;
-  const accessClass =
-    accessClasses?.[metadata.className] ?? (isCurrentPhoton ? photon?.constructor : undefined);
-  if (!accessClass) return false;
-
-  // The proxy makes `this.caller` and `this.request` request-scoped even when
-  // the policy is a getter on the Photon instance or an imported class.
-  const target = isCurrentPhoton ? photon : new accessClass();
-  const scoped = new Proxy(target, {
-    get(object, property, receiver) {
-      if (property === 'caller') return context.caller ?? { id: 'anonymous', anonymous: true };
-      if (property === 'request') return context.request;
-      return Reflect.get(object, property, receiver);
-    },
-  });
-
-  try {
-    return metadata.conditions.every(({ property, value }) => {
-      const actual = Reflect.get(scoped, property, scoped);
-      return actual !== undefined && String(actual) === value;
-    });
-  } catch {
-    return false;
-  }
+  return evaluateAccessPolicy(metadata, photon, accessClasses, context);
 }
 
 export function accessClassMapFromModule(module: Record<string, unknown>): Record<string, any> {
