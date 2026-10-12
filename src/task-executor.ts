@@ -32,27 +32,11 @@ import type {
 } from '@portel/photon-core';
 import type { PhotonExecutionRequestContext } from './telemetry/context.js';
 import type { PhotonAppContext } from './app-context.js';
+import type { ToolInvocationPort, ToolInvocationOptions } from './tool-invocation.js';
 import { taskAccessMatches } from './tasks/access.js';
 
 /** Narrow invocation port: callers must provide the real hydrated Photon target. */
-export interface ToolExecutor {
-  executeTool(
-    photon: PhotonClassExtended,
-    toolName: string,
-    args: Record<string, unknown>,
-    options: {
-      outputHandler?: OutputHandler;
-      inputProvider?: InputProvider;
-      samplingProvider?: SamplingProvider;
-      caller?: CallerInfo;
-      requestContext?: PhotonExecutionRequestContext;
-      roots?: Array<{ uri: string; name?: string }>;
-      appContext?: PhotonAppContext;
-      traceId?: string;
-      signal?: AbortSignal;
-    }
-  ): Promise<any>;
-}
+export type ToolExecutor = ToolInvocationPort;
 
 export interface TaskExecutionOptions {
   outputHandler?: OutputHandler;
@@ -111,12 +95,12 @@ export class TaskExecutor {
     registerController(task.id, controller);
 
     const executeFn = async (taskInputProvider: InputProvider, outputHandler: OutputHandler) => {
-      return this.toolExecutor.executeTool(photon, toolName, args, {
+      return this.toolExecutor.execute(photon, toolName, args, {
         ...options,
         outputHandler,
         inputProvider: taskInputProvider,
         signal: controller.signal,
-      });
+      } as ToolInvocationOptions);
     };
 
     runTaskExecution(task.id, executeFn, {

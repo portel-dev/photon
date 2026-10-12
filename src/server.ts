@@ -860,8 +860,8 @@ export class PhotonServer {
     this.taskExecutor = new TaskExecutor(
       (level, message, meta) => this.log(level, message, meta),
       {
-        executeTool: (photon, toolName, args, opts) =>
-          this.loader.executeTool(photon as PhotonClass, toolName, args, opts),
+        execute: (photon, toolName, args, opts) =>
+          this.loader.executeTool(photon, toolName, args, opts),
       },
       { createMCPInputProvider: (server) => this.createMCPInputProvider(server) }
     );
