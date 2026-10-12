@@ -322,6 +322,7 @@ import {
 import { makeReactiveProxy } from './reactive-proxy.js';
 import { createCliInputProvider } from './cli-input-provider.js';
 import { InMemoryPhotonCache, type PhotonCache } from './photon-cache.js';
+import type { DependencyResolutionPorts } from './dependency-resolvers.js';
 import {
   findExportedPhoton,
   getPhotonName,
@@ -747,6 +748,7 @@ export class PhotonLoader {
   private mcpClientFactory?: MCPClientFactory;
   /** Cache of loaded Photon instances by source path */
   private readonly photonCache: PhotonCache<PhotonClassExtended> = new InMemoryPhotonCache();
+  private readonly dependencyPorts: DependencyResolutionPorts;
 
   private auditInput(value: unknown): unknown {
     const seen = new WeakSet<object>();
@@ -961,11 +963,13 @@ export class PhotonLoader {
     verbose: boolean = false,
     logger?: Logger,
     baseDir?: string,
-    dependencySpecParser: DependencySpecParser = defaultDependencySpecParser
+    dependencySpecParser: DependencySpecParser = defaultDependencySpecParser,
+    dependencyPorts: DependencyResolutionPorts = {}
   ) {
     this.verbose = verbose;
     this.logger = logger ?? createLogger({ component: 'photon-loader', minimal: true });
     this.dependencySpecParser = dependencySpecParser;
+    this.dependencyPorts = dependencyPorts;
     this.baseDir = baseDir || getDefaultContext().baseDir;
     this.dependencyManager = new DependencyManager(
       path.join(getCacheDir(this.baseDir), 'dependencies')
@@ -3780,6 +3784,7 @@ export class PhotonLoader {
    * Validates connection on first use - throws MCPConfigurationError if connection fails
    */
   private async getMCPClient(dep: MCPDependency): Promise<any> {
+    if (this.dependencyPorts.mcp) return this.dependencyPorts.mcp.resolve(dep);
     // Check cache first
     if (this.mcpClients.has(dep.name)) {
       return this.mcpClients.get(dep.name);
@@ -3879,6 +3884,9 @@ export class PhotonLoader {
     currentPhotonPath: string,
     callerInstanceName?: string
   ): Promise<any> {
+    if (this.dependencyPorts.photon) {
+      return this.dependencyPorts.photon.resolve(dep, currentPhotonPath, callerInstanceName);
+    }
     // Check preloaded dependencies first (compiled binary mode)
     if (this.preloadedDependencies) {
       const preloaded =
