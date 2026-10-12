@@ -19,6 +19,7 @@ import { LocalTokenVault } from './vault/token-vault.js';
 import { JwtService } from './auth/jwt.js';
 import { TenantResolver } from './middleware/tenant.js';
 import { AuthMiddleware } from './middleware/auth.js';
+import { createLocalComposition } from './local-composition.js';
 import { handleProtectedResourceRequest, handleAuthServerRequest } from './auth/well-known.js';
 
 // ============================================================================
@@ -126,75 +127,24 @@ export class LocalServ {
   readonly oauthProviders: OAuthProviderRegistry;
   readonly oauthFlow: OAuthFlowHandler;
 
-  // Secrets (auto-generated for local dev)
-  private readonly secrets: {
-    jwt: string;
-    encryption: string;
-    state: string;
-  };
-
   constructor(config: LocalServConfig = {}) {
     this.port = config.port ?? 3000;
     this.baseUrl = config.baseUrl ?? `http://localhost:${this.port}`;
     this.debug = config.debug ?? false;
 
-    // Generate random secrets for local dev
-    this.secrets = {
-      jwt: `local-jwt-${randomUUID()}`,
-      encryption: `local-enc-${randomUUID()}`,
-      state: `local-state-${randomUUID()}`,
-    };
-
-    // Initialize stores
-    this.sessions = new MemorySessionStore();
-    this.tenants = new MemoryTenantStore();
-    this.users = new LocalUserStore();
-    this.memberships = new LocalMembershipStore();
-    this.elicitations = new MemoryElicitationStore();
-    this.grants = new MemoryGrantStore();
-    this.vault = new LocalTokenVault({ masterKey: this.secrets.encryption });
-
-    // Initialize JWT service
-    this.jwt = new JwtService({
-      secret: this.secrets.jwt,
-      issuer: this.baseUrl,
-    });
-
-    // Initialize tenant resolver
-    this.tenantResolver = new TenantResolver({
-      baseDomain: 'localhost',
-      store: this.tenants,
-    });
-
-    // Initialize auth middleware
-    this.auth = new AuthMiddleware({
-      jwtService: this.jwt,
-      sessionStore: this.sessions,
-      userStore: this.users,
-      membershipStore: this.memberships,
-      oauthResource: (tenant) => {
-        const issuer = tenant.settings.customDomain
-          ? `https://${tenant.settings.customDomain}`
-          : `${this.baseUrl}/tenant/${tenant.slug}`;
-        return {
-          issuer,
-          resource: `${issuer}/mcp`,
-          resourceMetadataUrl: `${issuer}/.well-known/oauth-protected-resource`,
-          requiredScopes: ['mcp:read'],
-        };
-      },
-    });
-
-    // Initialize OAuth
-    this.oauthProviders = new OAuthProviderRegistry();
-    this.oauthFlow = new OAuthFlowHandler({
-      baseUrl: this.baseUrl,
-      stateSecret: this.secrets.state,
-      providers: this.oauthProviders,
-      elicitationStore: this.elicitations,
-      grantStore: this.grants,
-      tokenVault: this.vault,
-    });
+    const composition = createLocalComposition(this.baseUrl);
+    this.sessions = composition.sessions;
+    this.tenants = composition.tenants;
+    this.users = composition.users;
+    this.memberships = composition.memberships;
+    this.elicitations = composition.elicitations;
+    this.grants = composition.grants;
+    this.vault = composition.vault;
+    this.jwt = composition.jwt;
+    this.tenantResolver = composition.tenantResolver;
+    this.auth = composition.auth;
+    this.oauthProviders = composition.oauthProviders;
+    this.oauthFlow = composition.oauthFlow;
 
     this.log('LocalServ initialized', { port: this.port, baseUrl: this.baseUrl });
   }
