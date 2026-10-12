@@ -1032,20 +1032,14 @@ export class PhotonServer {
     };
   }
 
-  /*
-   * Elicitation wire policy lives in mcp-elicitation-policy.ts. These old
-   * methods remain temporarily for source compatibility with internal tests.
-   */
   private buildElicitParams(ask: any): any {
     return buildMcpElicitParams(ask as PhotonAsk) as any;
   }
 
-  /* Legacy compatibility wrapper. */
   private extractElicitValue(ask: any, content: Record<string, any>): any {
     return extractMcpElicitValue(ask as PhotonAsk, content);
   }
 
-  /* Legacy compatibility wrapper. */
   private getDefaultForAsk(ask: any): any {
     return getDefaultMcpElicitValue(ask as PhotonAsk);
   }
