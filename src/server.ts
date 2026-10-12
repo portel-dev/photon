@@ -646,6 +646,20 @@ export class PhotonServer {
   /** Official v2 stdio serving handle. */
   private stdioHandle: ReturnType<typeof serveStdio> | null = null;
   private webSocketServer = new WebSocketServer({ noServer: true });
+  private companionWebServer: ReturnType<typeof createServer> | null = null;
+  private processErrorHandlersInstalled = false;
+  private readonly uncaughtExceptionHandler = (err: Error) => {
+    this.log('error', 'Uncaught exception in PhotonServer', {
+      error: getErrorMessage(err),
+      stack: err?.stack,
+    });
+  };
+  private readonly unhandledRejectionHandler = (reason: unknown) => {
+    this.log('error', 'Unhandled rejection in PhotonServer', {
+      error: reason instanceof Error ? getErrorMessage(reason) : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+    });
+  };
   private sseSessions: Map<string, SSESession> = new Map();
   private devMode: boolean;
   private hotReloadDisabled = false;
@@ -2506,19 +2520,12 @@ export class PhotonServer {
    * Initialize and start the server
    */
   async start() {
-    // Safety net: catch unhandled errors so a bad photon can't crash the server
-    process.on('uncaughtException', (err) => {
-      this.log('error', 'Uncaught exception in PhotonServer', {
-        error: getErrorMessage(err),
-        stack: err?.stack,
-      });
-    });
-    process.on('unhandledRejection', (reason) => {
-      this.log('error', 'Unhandled rejection in PhotonServer', {
-        error: reason instanceof Error ? getErrorMessage(reason) : String(reason),
-        stack: reason instanceof Error ? reason.stack : undefined,
-      });
-    });
+    // Install process handlers once per server instance and remove them in stop().
+    if (!this.processErrorHandlersInstalled) {
+      process.on('uncaughtException', this.uncaughtExceptionHandler);
+      process.on('unhandledRejection', this.unhandledRejectionHandler);
+      this.processErrorHandlersInstalled = true;
+    }
 
     try {
       // If unresolvedPhoton is set, skip loading — defer to first tool call
@@ -2720,6 +2727,7 @@ export class PhotonServer {
       const webServer = createServer((req, res) => {
         void this.handleWebRoute(req, res);
       });
+      this.companionWebServer = webServer;
       await new Promise<void>((resolve, reject) => {
         webServer.listen(webPort, () => resolve());
         webServer.on('error', reject);
@@ -4443,6 +4451,13 @@ export class PhotonServer {
       // Upgraded sockets are not normal HTTP connections, so Node's
       // closeAllConnections() does not include them.
       for (const browser of this.webSocketServer.clients) browser.terminate();
+      await new Promise<void>((resolve) => this.webSocketServer.close(() => resolve()));
+
+      if (this.companionWebServer) {
+        this.companionWebServer.closeAllConnections?.();
+        await new Promise<void>((resolve) => this.companionWebServer?.close(() => resolve()));
+        this.companionWebServer = null;
+      }
 
       // Close HTTP server if running — destroy lingering connections so .close() resolves
       if (this.httpServer) {
@@ -4468,6 +4483,12 @@ export class PhotonServer {
       this.log('info', 'Server stopped');
     } catch (error) {
       this.log('error', 'Error stopping server', { error: getErrorMessage(error) });
+    } finally {
+      if (this.processErrorHandlersInstalled) {
+        process.off('uncaughtException', this.uncaughtExceptionHandler);
+        process.off('unhandledRejection', this.unhandledRejectionHandler);
+        this.processErrorHandlersInstalled = false;
+      }
     }
   }
 
