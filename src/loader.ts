@@ -323,6 +323,7 @@ import {
   legacyAuthValue,
   type PhotonAuthDirective,
 } from './auth/directive.js';
+import { makeReactiveProxy } from './reactive-proxy.js';
 import {
   findExportedPhoton,
   getPhotonName,
@@ -6240,7 +6241,7 @@ Run: photon mcp ${mcpName} --config
           }
         };
 
-        const rootPath = `/${encodeJsonPointerSegment(prop)}`;
+        const rootPath = `/${String(prop).replace(/~/g, '~0').replace(/\//g, '~1')}`;
         let proxyVal = makeReactiveProxy(val, onMutation, rootPath);
         Object.defineProperty(instance, prop, {
           get() {
@@ -6335,58 +6336,4 @@ Run: photon mcp ${mcpName} --config
       };
     }
   }
-}
-
-function makeReactiveProxy(
-  val: any,
-  onMutation: (path: string, val: any, op: 'add' | 'replace' | 'remove') => void,
-  currentPath: string
-): any {
-  if (val && typeof val === 'object') {
-    const isProxySymbol = Symbol.for('__is_photon_proxy');
-    if (val[isProxySymbol]) return val;
-
-    for (const key of Object.keys(val)) {
-      val[key] = makeReactiveProxy(
-        val[key],
-        onMutation,
-        `${currentPath}/${encodeJsonPointerSegment(key)}`
-      );
-    }
-
-    return new Proxy(val, {
-      get(target, prop, receiver) {
-        if (prop === isProxySymbol) return true;
-        return Reflect.get(target, prop, receiver);
-      },
-      set(target, prop, newVal, receiver) {
-        if (typeof prop === 'symbol') {
-          return Reflect.set(target, prop, newVal, receiver);
-        }
-        if (Array.isArray(target) && prop === 'length') {
-          return Reflect.set(target, prop, newVal, receiver);
-        }
-        const isNew = !(prop in target);
-        const propPath = `${currentPath}/${encodeJsonPointerSegment(prop)}`;
-        const reactiveNewVal = makeReactiveProxy(newVal, onMutation, propPath);
-        const result = Reflect.set(target, prop, reactiveNewVal, receiver);
-        onMutation(propPath, newVal, isNew ? 'add' : 'replace');
-        return result;
-      },
-      deleteProperty(target, prop) {
-        if (typeof prop === 'symbol') {
-          return Reflect.deleteProperty(target, prop);
-        }
-        const propPath = `${currentPath}/${encodeJsonPointerSegment(prop)}`;
-        const result = Reflect.deleteProperty(target, prop);
-        onMutation(propPath, undefined, 'remove');
-        return result;
-      },
-    });
-  }
-  return val;
-}
-
-function encodeJsonPointerSegment(value: string | number): string {
-  return String(value).replace(/~/g, '~0').replace(/\//g, '~1');
 }
