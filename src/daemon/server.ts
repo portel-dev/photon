@@ -482,6 +482,7 @@ import {
   photonFromCompositeKey,
 } from './registry-keys.js';
 import { parseChannel } from '../shared/identity.js';
+import { ChannelEventBuffer } from './event-buffer.js';
 
 /**
  * Create a composite key from photonName + workingDir for map lookups.
@@ -543,86 +544,19 @@ const channelSubscriptions = new Map<string, Set<net.Socket>>();
 // EVENT BUFFER FOR REPLAY (Reliable Real-time Sync)
 // ════════════════════════════════════════════════════════════════════════════════
 
-interface BufferedEvent {
-  /** Timestamp-based ID (Date.now()) — no sequential generation needed */
-  id: number;
-  channel: string;
-  message: unknown;
-  timestamp: number;
-}
-
-interface ChannelBuffer {
-  events: BufferedEvent[];
-}
-
-/** Buffer retention window — events older than this are purged */
-const EVENT_BUFFER_DURATION_MS = 5 * 60 * 1000; // 5 minutes
-/** Hard cap per channel — prevents unbounded growth on high-frequency channels */
+const EVENT_BUFFER_DURATION_MS = 5 * 60 * 1000;
 const MAX_BUFFER_EVENTS_PER_CHANNEL = 500;
-const channelEventBuffers = new Map<string, ChannelBuffer>();
+const channelEventBuffer = new ChannelEventBuffer({
+  retentionMs: EVENT_BUFFER_DURATION_MS,
+  maxEventsPerChannel: MAX_BUFFER_EVENTS_PER_CHANNEL,
+});
 
 function bufferEvent(channel: string, message: unknown): number {
-  let buffer = channelEventBuffers.get(channel);
-  if (!buffer) {
-    buffer = { events: [] };
-    channelEventBuffers.set(channel, buffer);
-  }
-
-  const now = Date.now();
-  const event: BufferedEvent = {
-    id: now,
-    channel,
-    message,
-    timestamp: now,
-  };
-
-  buffer.events.push(event);
-
-  // Purge events older than retention window using findIndex + splice (O(1) amortized)
-  // instead of repeated shift() which is O(n) per call
-  const cutoff = now - EVENT_BUFFER_DURATION_MS;
-  if (buffer.events.length > 0 && buffer.events[0].timestamp < cutoff) {
-    const firstValid = buffer.events.findIndex((e) => e.timestamp >= cutoff);
-    if (firstValid === -1) {
-      buffer.events.length = 0;
-    } else if (firstValid > 0) {
-      buffer.events.splice(0, firstValid);
-    }
-  }
-
-  // Hard cap: trim oldest when a high-frequency channel exceeds the count limit.
-  // A reconnecting subscriber whose lastEventId predates the oldest buffered event
-  // will receive refreshNeeded:true via getEventsSince — same handling as the
-  // time-based purge above.
-  if (buffer.events.length > MAX_BUFFER_EVENTS_PER_CHANNEL) {
-    buffer.events.splice(0, buffer.events.length - MAX_BUFFER_EVENTS_PER_CHANNEL);
-  }
-
-  return now;
+  return channelEventBuffer.append(channel, message);
 }
 
-function getEventsSince(
-  channel: string,
-  lastTimestamp: number
-): { events: BufferedEvent[]; refreshNeeded: boolean } {
-  const buffer = channelEventBuffers.get(channel);
-
-  if (!buffer || buffer.events.length === 0) {
-    // If client has a lastEventId but buffer is empty (e.g. daemon restarted),
-    // signal that a full refresh is needed — events were lost.
-    return { events: [], refreshNeeded: lastTimestamp > 0 };
-  }
-
-  const oldestEvent = buffer.events[0];
-
-  // Client's last timestamp is older than our oldest buffered event → stale, full sync needed
-  if (lastTimestamp < oldestEvent.timestamp) {
-    return { events: [], refreshNeeded: true };
-  }
-
-  // Delta sync: return events after the client's last timestamp
-  const events = buffer.events.filter((e) => e.timestamp > lastTimestamp);
-  return { events, refreshNeeded: false };
+function getEventsSince(channel: string, lastTimestamp: number) {
+  return channelEventBuffer.since(channel, lastTimestamp);
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -657,14 +591,7 @@ const activeLocks = {
  */
 function cleanupStaleMaps(): void {
   const now = Date.now();
-  const cutoff = now - EVENT_BUFFER_DURATION_MS;
-
-  // Remove channel buffers whose events are all expired (channel went quiet)
-  for (const [channel, buffer] of channelEventBuffers.entries()) {
-    if (buffer.events.length === 0 || buffer.events[buffer.events.length - 1].timestamp < cutoff) {
-      channelEventBuffers.delete(channel);
-    }
-  }
+  channelEventBuffer.cleanup(now);
 
   // Remove empty channel subscription sets and prune destroyed sockets
   for (const [channel, subs] of channelSubscriptions.entries()) {
@@ -7155,7 +7082,7 @@ function collectHealthSnapshot(): HealthSnapshot {
     sessions: totalSessions,
     fileWatchers: fileWatchers.size,
     channelSubs: channelSubscriptions.size,
-    eventBuffers: channelEventBuffers.size,
+    eventBuffers: channelEventBuffer.size(),
     pendingPrompts: pendingPrompts.size,
     pollTimers: pollTimers.size,
     openFds: countOpenFds(),
@@ -7819,7 +7746,7 @@ function shutdown(): void {
     jobTimers.clear();
     scheduledJobs.clear();
     activeLocks.clear();
-    channelEventBuffers.clear();
+    channelEventBuffer.clear();
     eventLogSeq.clear();
     stateKeysCache.clear();
 
