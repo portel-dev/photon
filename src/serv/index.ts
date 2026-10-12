@@ -208,6 +208,8 @@ import {
   OAuthFlowHandler,
   MemoryElicitationStore,
   MemoryGrantStore,
+  type ElicitationStore,
+  type GrantStore,
 } from './auth/oauth.js';
 import { CimdCache, type WellKnownConfig } from './auth/well-known.js';
 import {
@@ -269,6 +271,11 @@ export interface ServConfig {
   consentStore?: ConsentStore;
   /** Paused-authorization-request store (optional, defaults to memory). */
   pendingAuthStore?: PendingAuthorizationStore;
+  /** OAuth elicitation and grant stores (optional, defaults to memory). */
+  elicitationStore?: ElicitationStore;
+  grantStore?: GrantStore;
+  /** Client metadata cache (optional, defaults to an in-memory cache). */
+  cimdCache?: CimdCache;
   /** Delivery callback for Photon-owned one-time authentication codes. */
   authCodeDelivery?: AuthCodeDeliveryAdapter;
   /** Durable challenge store; defaults to memory for local development. */
@@ -316,8 +323,8 @@ export class Serv {
   /** Optional passwordless authentication service. */
   readonly authCodeService?: AuthCodeService;
 
-  private elicitationStore = new MemoryElicitationStore();
-  private grantStore = new MemoryGrantStore();
+  readonly elicitationStore: ElicitationStore;
+  readonly grantStore: GrantStore;
 
   constructor(config: ServConfig) {
     this.config = config;
@@ -330,6 +337,8 @@ export class Serv {
       new LocalTokenVault({
         masterKey: config.encryptionKey,
       });
+    this.elicitationStore = config.elicitationStore ?? new MemoryElicitationStore();
+    this.grantStore = config.grantStore ?? new MemoryGrantStore();
 
     // Initialize JWT service
     this.jwtService = new JwtService({
@@ -386,7 +395,7 @@ export class Serv {
     this.clientRegistry = config.clientRegistry ?? new MemoryClientRegistry();
     this.consentStore = config.consentStore ?? new MemoryConsentStore();
     this.pendingAuthStore = config.pendingAuthStore ?? new MemoryPendingAuthorizationStore();
-    this.cimdCache = new CimdCache();
+    this.cimdCache = config.cimdCache ?? new CimdCache();
     if (config.authCodeDelivery) {
       this.authCodeService = new AuthCodeService({
         adapter: config.authCodeDelivery,
