@@ -321,6 +321,7 @@ import {
 } from './auth/directive.js';
 import { makeReactiveProxy } from './reactive-proxy.js';
 import { createCliInputProvider } from './cli-input-provider.js';
+import { InMemoryPhotonCache, type PhotonCache } from './photon-cache.js';
 import {
   findExportedPhoton,
   getPhotonName,
@@ -745,7 +746,7 @@ export class PhotonLoader {
   private verbose: boolean;
   private mcpClientFactory?: MCPClientFactory;
   /** Cache of loaded Photon instances by source path */
-  private loadedPhotons: Map<string, PhotonClassExtended> = new Map();
+  private readonly photonCache: PhotonCache<PhotonClassExtended> = new InMemoryPhotonCache();
 
   private auditInput(value: unknown): unknown {
     const seen = new WeakSet<object>();
@@ -786,7 +787,7 @@ export class PhotonLoader {
 
   /** Get all loaded photon instances (including sub-photons loaded via @photon). */
   getLoadedPhotons(): Map<string, PhotonClassExtended> {
-    return this.loadedPhotons;
+    return new Map(this.photonCache.entries());
   }
 
   private async attachRuntimeConfigApi(
@@ -839,12 +840,10 @@ export class PhotonLoader {
       },
     });
   }
-  /** In-flight Photon load promises — dedup concurrent loads of the same path */
-  private loadedPhotonPromises: Map<string, Promise<any>> = new Map();
   /** MCP clients cache - reuse connections */
-  private mcpClients: Map<string, any> = new Map();
+  private readonly mcpClients = new Map<string, any>();
   /** In-flight MCP client creation promises — dedup concurrent creates for the same dep */
-  private mcpClientPromises: Map<string, Promise<any>> = new Map();
+  private readonly mcpClientPromises = new Map<string, Promise<any>>();
   /** Cached MCP config from ~/.photon/config.json */
   private mcpConfig?: PhotonMCPConfig;
   /** Inflight config load promise (dedup concurrent calls) */
@@ -3891,8 +3890,8 @@ export class PhotonLoader {
           return undefined;
         }
         const cacheKey = preloadedCacheKey(dep.name, dep.instanceName);
-        if (this.loadedPhotons.has(cacheKey)) {
-          return this.loadedPhotons.get(cacheKey)!.instance;
+        if (this.photonCache.get(cacheKey) !== undefined) {
+          return this.photonCache.get(cacheKey)!.instance;
         }
         this.log(`  📦 Loading preloaded dependency: ${dep.name}`);
         const loaded = await this.loadFromModule(
@@ -3901,7 +3900,7 @@ export class PhotonLoader {
           preloaded.source,
           dep.instanceName ? { instanceName: dep.instanceName } : undefined
         );
-        this.loadedPhotons.set(cacheKey, loaded);
+        this.photonCache.set(cacheKey, loaded);
         return loaded.instance;
       }
     }
@@ -3914,8 +3913,8 @@ export class PhotonLoader {
     const cacheKey = instanceCacheKey(resolvedPath, dep.instanceName);
 
     // Check cache
-    if (this.loadedPhotons.has(cacheKey)) {
-      return this.loadedPhotons.get(cacheKey)!.instance;
+    if (this.photonCache.get(cacheKey) !== undefined) {
+      return this.photonCache.get(cacheKey)!.instance;
     }
 
     // Ask the daemon for a shared instance (avoids duplicate WhatsApp sockets, etc.)
@@ -3932,8 +3931,9 @@ export class PhotonLoader {
     }
 
     // Dedup concurrent loads: if another call is already loading this path, wait for it
-    if (this.loadedPhotonPromises.has(cacheKey)) {
-      const loaded = await this.loadedPhotonPromises.get(cacheKey);
+    const pendingLoad = this.photonCache.getPending(cacheKey);
+    if (pendingLoad) {
+      const loaded = await pendingLoad;
       return loaded.instance;
     }
 
@@ -3944,14 +3944,14 @@ export class PhotonLoader {
       resolvedPath,
       dep.instanceName ? { instanceName: dep.instanceName } : undefined
     );
-    this.loadedPhotonPromises.set(cacheKey, loadPromise);
+    this.photonCache.setPending(cacheKey, loadPromise);
     try {
       const loaded = await loadPromise;
       // Cache it
-      this.loadedPhotons.set(cacheKey, loaded);
+      this.photonCache.set(cacheKey, loaded);
       return loaded.instance;
     } finally {
-      this.loadedPhotonPromises.delete(cacheKey);
+      this.photonCache.deletePending(cacheKey);
     }
   }
 
