@@ -49,6 +49,7 @@ import { URL, fileURLToPath } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import { PhotonClassExtended } from '@portel/photon-core';
 import type { ExtractedSchema, PhotonClass, CallerInfo } from '@portel/photon-core';
+import { buildTaskAccessBinding } from './tasks/access.js';
 import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
@@ -2136,6 +2137,10 @@ export class PhotonServer {
       const { targetMcp, toolName, args, caller } = authorized;
       return this.taskExecutor.handleTaskModeCall(targetMcp, toolName, args, taskField, {
         caller,
+        owner: buildTaskAccessBinding(caller, {
+          appSessionId: ctx.sessionId,
+          appSessionSource: 'legacy-mcp-session',
+        }),
         inputProvider: this.createMCPInputProvider(ctx.server),
         samplingProvider: this.createMCPSamplingProvider(ctx.server),
         roots: this.rootsByServer.get(ctx.server),
@@ -2315,20 +2320,32 @@ export class PhotonServer {
     // Photon's existing task surface available to legacy clients while using
     // the v2 SDK's runtime negotiation for all other methods.
     const taskServer = server as any;
-    taskServer.setRequestHandler(GetTaskRequestSchema, async (request: any) => {
-      return this.taskExecutor.handleGetTask(request?.params?.taskId);
+    const taskOwner = (extra?: HandlerAuthContext) =>
+      buildTaskAccessBinding(callerFromVerifiedClaims(authClaimsFromHandlerContext(extra)), {
+        appSessionId: ctx.sessionId,
+        appSessionSource: 'legacy-mcp-session',
+      });
+    taskServer.setRequestHandler(GetTaskRequestSchema, async (request: any, extra: any) => {
+      return this.taskExecutor.handleGetTask(request?.params?.taskId, taskOwner(extra));
     });
 
-    taskServer.setRequestHandler(ListTasksRequestSchema, async (request: any) => {
-      return this.taskExecutor.handleListTasks(request?.params?.cursor as string | undefined);
+    taskServer.setRequestHandler(ListTasksRequestSchema, async (request: any, extra: any) => {
+      return this.taskExecutor.handleListTasks(
+        request?.params?.cursor as string | undefined,
+        taskOwner(extra)
+      );
     });
 
-    taskServer.setRequestHandler(CancelTaskRequestSchema, async (request: any) => {
-      return this.taskExecutor.handleCancelTask(request?.params?.taskId);
+    taskServer.setRequestHandler(CancelTaskRequestSchema, async (request: any, extra: any) => {
+      return this.taskExecutor.handleCancelTask(request?.params?.taskId, taskOwner(extra));
     });
 
-    taskServer.setRequestHandler(GetTaskPayloadRequestSchema, async (request: any) => {
-      return this.taskExecutor.handleGetTaskPayload(request?.params?.taskId, server);
+    taskServer.setRequestHandler(GetTaskPayloadRequestSchema, async (request: any, extra: any) => {
+      return this.taskExecutor.handleGetTaskPayload(
+        request?.params?.taskId,
+        server,
+        taskOwner(extra)
+      );
     });
 
     this.setupRootsForServer(server);

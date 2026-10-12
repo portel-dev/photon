@@ -20,7 +20,7 @@ import {
   unregisterController,
 } from './tasks/store.js';
 import { toWireFormat, relatedTaskMeta, taskErrorMessage, TERMINAL_STATES } from './tasks/types.js';
-import type { Task } from './tasks/types.js';
+import type { Task, TaskAccessBinding } from './tasks/types.js';
 import { runTaskExecution, resolveTaskInput, waitForTerminalOrInput } from './tasks/executor.js';
 import type { LogLevel } from './shared/logger.js';
 import type {
@@ -32,6 +32,7 @@ import type {
 } from '@portel/photon-core';
 import type { PhotonExecutionRequestContext } from './telemetry/context.js';
 import type { PhotonAppContext } from './app-context.js';
+import { taskAccessMatches } from './tasks/access.js';
 
 /** Narrow invocation port: callers must provide the real hydrated Photon target. */
 export interface ToolExecutor {
@@ -62,6 +63,7 @@ export interface TaskExecutionOptions {
   roots?: Array<{ uri: string; name?: string }>;
   appContext?: PhotonAppContext;
   traceId?: string;
+  owner?: TaskAccessBinding;
 }
 
 /** Minimal interface for creating an input provider via MCP elicitation */
@@ -95,7 +97,16 @@ export class TaskExecutor {
     const photonName = photon.name;
     const ttl = typeof taskField.ttl === 'number' ? taskField.ttl : undefined;
     this.log('info', 'Starting background task', { photon: photonName, tool: toolName });
-    const task = createTask(photonName, toolName, args, ttl);
+    const task = createTask(photonName, toolName, args, ttl, {
+      owner: options.owner,
+      traceContext: options.requestContext
+        ? {
+            traceparent: options.requestContext.traceparent,
+            tracestate: options.requestContext.tracestate,
+            baggage: options.requestContext.baggage,
+          }
+        : undefined,
+    });
     const controller = new AbortController();
     registerController(task.id, controller);
 
@@ -124,17 +135,17 @@ export class TaskExecutor {
   /**
    * Handle tasks/get — returns wire-format task status.
    */
-  handleGetTask(taskId: string): any {
+  handleGetTask(taskId: string, owner?: TaskAccessBinding): any {
     const task = getTask(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (!task || !taskAccessMatches(task, owner)) throw new Error(`Task not found: ${taskId}`);
     return toWireFormat(task);
   }
 
   /**
    * Handle tasks/list — returns paginated task list.
    */
-  handleListTasks(cursor?: string): any {
-    const allTasks = listTasks();
+  handleListTasks(cursor?: string, owner?: TaskAccessBinding): any {
+    const allTasks = listTasks().filter((task) => taskAccessMatches(task, owner));
     const offset = cursor ? parseInt(cursor, 10) || 0 : 0;
     const pageSize = 50;
     const page = allTasks.slice(offset, offset + pageSize);
@@ -148,9 +159,9 @@ export class TaskExecutor {
   /**
    * Handle tasks/cancel — aborts the task and returns updated status.
    */
-  handleCancelTask(taskId: string): any {
+  handleCancelTask(taskId: string, owner?: TaskAccessBinding): any {
     const task = getTask(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (!task || !taskAccessMatches(task, owner)) throw new Error(`Task not found: ${taskId}`);
     if (TERMINAL_STATES.includes(task.state)) {
       throw new Error(`Cannot cancel task in terminal state: ${task.state}`);
     }
@@ -173,9 +184,13 @@ export class TaskExecutor {
    * Handle tasks/get_result — blocks until task completes or times out.
    * Handles input_required states via elicitation.
    */
-  async handleGetTaskPayload(taskId: string, server: Server): Promise<any> {
+  async handleGetTaskPayload(
+    taskId: string,
+    server: Server,
+    owner?: TaskAccessBinding
+  ): Promise<any> {
     const task = getTask(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (!task || !taskAccessMatches(task, owner)) throw new Error(`Task not found: ${taskId}`);
 
     // Already terminal — return immediately
     if (TERMINAL_STATES.includes(task.state)) {
