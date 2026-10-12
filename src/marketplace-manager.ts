@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 import { execFileSync } from 'child_process';
-import { readText, readBytes, readJSON, writeText, writeBytes, writeJSON } from './shared/io.js';
+import { readText, readBytes, readJSON, writeText, writeBytes } from './shared/io.js';
 import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
@@ -21,6 +21,11 @@ import {
   type MarketplaceConfigStore,
   type MarketplaceConfig as StoredMarketplaceConfig,
 } from './marketplace-config-store.js';
+import {
+  FileMarketplaceInstallMetadataStore,
+  type MarketplaceInstallMetadataStore,
+  type LocalMetadata as InstallMetadata,
+} from './marketplace-install-metadata.js';
 import {
   FileMarketplaceManifestCache,
   type MarketplaceManifestCache,
@@ -161,9 +166,7 @@ export interface PhotonInstallMetadata {
 /**
  * Local metadata file structure
  */
-interface LocalMetadata {
-  photons: Record<string, PhotonInstallMetadata>;
-}
+type LocalMetadata = InstallMetadata;
 
 /**
  * Marketplace manifest (.marketplace/photons.json)
@@ -262,9 +265,9 @@ export class MarketplaceManager {
   private config: MarketplaceConfig = { marketplaces: [] };
   private logger: Logger;
   private configFile: string;
-  private metadataFile: string;
   private readonly manifestCache: MarketplaceManifestCache;
   private readonly configStore: MarketplaceConfigStore;
+  private readonly installMetadataStore: MarketplaceInstallMetadataStore;
 
   constructor(
     logger?: Logger,
@@ -279,7 +282,7 @@ export class MarketplaceManager {
       configStore ?? new FileMarketplaceConfigStore(dir, this.configFile, this.logger);
     const cacheDir = path.join(getCacheDir(dir), 'marketplaces');
     this.manifestCache = manifestCache ?? new FileMarketplaceManifestCache(cacheDir, this.logger);
-    this.metadataFile = getMetadataPath(dir);
+    this.installMetadataStore = new FileMarketplaceInstallMetadataStore(getMetadataPath(dir));
   }
 
   async initialize() {
@@ -940,7 +943,7 @@ export class MarketplaceManager {
    * Safe to call on every startup — only fetches when assets are actually missing.
    */
   async repairMissingAssets(workingDir: string): Promise<number> {
-    const localMetadata = await this.readMetadata();
+    const localMetadata = await this.installMetadataStore.read();
     let repaired = 0;
 
     for (const [fileName, installInfo] of Object.entries(localMetadata.photons)) {
@@ -1428,41 +1431,14 @@ export class MarketplaceManager {
     metadata: PhotonMetadata,
     combinedHash: string
   ): Promise<void> {
-    const localMetadata = await this.readMetadata();
-
-    localMetadata.photons[fileName] = {
-      marketplace: marketplace.name,
-      marketplaceRepo: marketplace.repo,
-      version: metadata.version,
-      originalHash: combinedHash,
-      installedAt: new Date().toISOString(),
-    };
-
-    await this.writeMetadata(localMetadata);
+    await this.installMetadataStore.savePhoton(fileName, marketplace, metadata, combinedHash);
   }
 
   /**
    * Get local installation metadata for a Photon
    */
   async getPhotonInstallMetadata(fileName: string): Promise<PhotonInstallMetadata | null> {
-    const localMetadata = await this.readMetadata();
-    return localMetadata.photons[fileName] || null;
-  }
-
-  private async readMetadata(): Promise<LocalMetadata> {
-    try {
-      if (existsSync(this.metadataFile)) {
-        return await readJSON(this.metadataFile);
-      }
-    } catch {
-      /* corrupted — start fresh */
-    }
-    return { photons: {} };
-  }
-
-  private async writeMetadata(metadata: LocalMetadata): Promise<void> {
-    await fs.mkdir(path.dirname(this.metadataFile), { recursive: true });
-    await writeJSON(this.metadataFile, metadata);
+    return this.installMetadataStore.getPhoton(fileName);
   }
 
   /**
@@ -1713,7 +1689,7 @@ export class MarketplaceManager {
     const sourceName = path.basename(sourcePath).replace(/\.photon\.(ts|js)$/, '');
     const normalizedSourceKey = this.toMetadataKey(sourcePath, workingDir);
     const requestedNewName = options?.newName?.trim();
-    const localMetadata = await this.readMetadata();
+    const localMetadata = await this.installMetadataStore.read();
     const installMeta = localMetadata.photons[normalizedSourceKey];
     const isLocalSource = !installMeta;
     const targetName = requestedNewName || sourceName;
@@ -1851,7 +1827,7 @@ export class MarketplaceManager {
     if (installMeta) {
       delete localMetadata.photons[normalizedSourceKey];
     }
-    await this.writeMetadata(localMetadata);
+    await this.installMetadataStore.write(localMetadata);
 
     const parts = [];
     if (targetName !== sourceName) {
