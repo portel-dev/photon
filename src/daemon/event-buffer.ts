@@ -18,13 +18,11 @@ export interface EventBufferOptions {
 /** Bounded replay buffer for daemon channel events. */
 export class ChannelEventBuffer {
   private readonly buffers = new Map<string, BufferedEvent[]>();
-  private hasPublishedEvents = false;
 
   constructor(private readonly options: EventBufferOptions) {}
 
   append(channel: string, message: unknown, now = Date.now()): number {
     const events = this.buffers.get(channel) ?? [];
-    this.hasPublishedEvents = true;
     events.push({ id: now, channel, message, timestamp: now });
     const cutoff = now - this.options.retentionMs;
     while (events.length > 0 && events[0].timestamp < cutoff) events.shift();
@@ -38,7 +36,7 @@ export class ChannelEventBuffer {
   since(channel: string, lastTimestamp: number): EventReplay {
     const events = this.buffers.get(channel);
     if (!events || events.length === 0) {
-      return { events: [], refreshNeeded: this.hasPublishedEvents && lastTimestamp > 0 };
+      return { events: [], refreshNeeded: lastTimestamp > 0 };
     }
     if (lastTimestamp < events[0].timestamp) {
       return { events: [], refreshNeeded: true };
