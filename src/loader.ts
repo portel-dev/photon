@@ -321,6 +321,7 @@ import {
 } from './auth/directive.js';
 import { makeReactiveProxy } from './reactive-proxy.js';
 import { createCliInputProvider } from './cli-input-provider.js';
+import type { PhotonMetadataExtractionPort } from './photon-metadata.js';
 import { InMemoryPhotonCache, type PhotonCache } from './photon-cache.js';
 import type { DependencyResolutionPorts } from './dependency-resolvers.js';
 import {
@@ -749,6 +750,7 @@ export class PhotonLoader {
   /** Cache of loaded Photon instances by source path */
   private readonly photonCache: PhotonCache<PhotonClassExtended> = new InMemoryPhotonCache();
   private readonly dependencyPorts: DependencyResolutionPorts;
+  private readonly metadataPort: PhotonMetadataExtractionPort;
 
   private auditInput(value: unknown): unknown {
     const seen = new WeakSet<object>();
@@ -964,12 +966,18 @@ export class PhotonLoader {
     logger?: Logger,
     baseDir?: string,
     dependencySpecParser: DependencySpecParser = defaultDependencySpecParser,
-    dependencyPorts: DependencyResolutionPorts = {}
+    dependencyPorts: DependencyResolutionPorts = {},
+    metadataPort?: PhotonMetadataExtractionPort
   ) {
     this.verbose = verbose;
     this.logger = logger ?? createLogger({ component: 'photon-loader', minimal: true });
     this.dependencySpecParser = dependencySpecParser;
     this.dependencyPorts = dependencyPorts;
+    this.metadataPort = metadataPort ?? {
+      extractTools: (photonClass, sourceFilePath, sourceContent) =>
+        this.extractTools(photonClass, sourceFilePath, sourceContent),
+      extractConstructorParams: (filePath) => this.extractConstructorParams(filePath),
+    };
     this.baseDir = baseDir || getDefaultContext().baseDir;
     this.dependencyManager = new DependencyManager(
       path.join(getCacheDir(this.baseDir), 'dependencies')
@@ -2400,7 +2408,7 @@ export class PhotonLoader {
         authDirective: extractedAuthDirective,
         httpRoutes: extractedHttpRoutes,
         exposes: extractedExposes,
-      } = await this.extractTools(MCPClass, absolutePath);
+      } = await this.metadataPort.extractTools(MCPClass, absolutePath);
 
       // ═══ CF RUNTIME INJECTION ═══
       // The photon's CF surface comes from the new `Cloudflare` injection
@@ -2909,7 +2917,7 @@ export class PhotonLoader {
       authDirective: extractedAuthDirective,
       httpRoutes: extractedHttpRoutes,
       exposes: extractedExposes,
-    } = await this.extractTools(MCPClass, absolutePath, tsContent);
+    } = await this.metadataPort.extractTools(MCPClass, absolutePath, tsContent);
 
     // CF runtime injection (mirrors the loadFile path above)
     if (tsContent) {
