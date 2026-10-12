@@ -121,7 +121,6 @@ import {
 } from './auto-ui/app-manifest.js';
 import { generateStandaloneWebShell } from './auto-ui/standalone-web/app-shell.js';
 import { generateRenderersScript } from './auto-ui/bridge/renderers.js';
-import { NotificationQueue } from './notification-queue.js';
 
 installLocalWebSocketPair();
 
@@ -703,10 +702,7 @@ export class PhotonServer {
   /** Client capability detection and negotiation */
   private capabilityNegotiator = new CapabilityNegotiator();
   /** Write queue for serialized STDIO notifications (prevents interleaving from concurrent generators) */
-  private readonly notificationQueues = new WeakMap<
-    Server,
-    NotificationQueue<ServerNotification>
-  >();
+  private _notifyQueue: Promise<void> = Promise.resolve();
 
   /** Compatibility alias for tests that seed raw capabilities directly on PhotonServer */
   public rawClientCapabilities = this.capabilityNegotiator.rawClientCapabilities;
@@ -965,15 +961,12 @@ export class PhotonServer {
    * Send a notification through the STDIO write queue.
    * Serializes writes so concurrent generators don't interleave JSON on stdout.
    */
-  private queueNotification(notification: ServerNotification, server = this.server): void {
-    let queue = this.notificationQueues.get(server);
-    if (!queue) {
-      queue = new NotificationQueue({ send: (value) => server.notification(value) }, (error) =>
-        this.logger.debug('Failed to send notification', { error: getErrorMessage(error) })
+  private queueNotification(notification: ServerNotification, _server = this.server): void {
+    this._notifyQueue = this._notifyQueue
+      .then(() => this.server?.notification(notification))
+      .catch((err) =>
+        this.logger.debug('Failed to send notification', { error: getErrorMessage(err) })
       );
-      this.notificationQueues.set(server, queue);
-    }
-    queue.enqueue(notification);
   }
 
   /**
@@ -1810,7 +1803,7 @@ export class PhotonServer {
     // SSE stream BEFORE the HTTP POST response body is written. Without this, the
     // client receives the tool result, deletes its _progressHandlers entry, and then
     // silently drops any notifications that arrive later on the SSE stream.
-    await this.notificationQueues.get(ctx.server)?.drain();
+    await this._notifyQueue;
 
     return response;
   }
