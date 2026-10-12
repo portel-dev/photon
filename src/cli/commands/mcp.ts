@@ -702,7 +702,7 @@ export function registerMCPCommand(program: Command): void {
         // Start file watcher in dev mode (only if resolved)
         if (options.dev && filePath) {
           const watcher = new FileWatcher(server, filePath, server.createScopedLogger('watcher'));
-          watcher.start();
+          await watcher.start();
 
           // Clean up watcher on shutdown
           process.on('SIGINT', () => {

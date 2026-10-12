@@ -13,7 +13,7 @@ import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { verifyContentHash, validateAssetPath, isPathWithin } from './shared/security.js';
 import { getDefaultContext } from './context.js';
-import { getMetadataPath, resolvePath } from '@portel/photon-core';
+import { getCacheDir, getMetadataPath, resolvePath } from '@portel/photon-core';
 import { SchemaExtractor } from '@portel/photon-core';
 
 // Timeout for marketplace fetch requests
@@ -272,7 +272,7 @@ export class MarketplaceManager {
     const dir = baseDir || CONFIG_DIR;
     this.configDir = dir;
     this.configFile = path.join(dir, 'marketplaces.json');
-    this.cacheDir = path.join(getDefaultContext().cacheDir, 'marketplaces');
+    this.cacheDir = path.join(getCacheDir(dir), 'marketplaces');
     this.metadataFile = getMetadataPath(dir);
   }
 

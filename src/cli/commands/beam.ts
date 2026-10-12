@@ -239,7 +239,7 @@ export function registerSSECommand(program: Command): void {
         // Start file watcher in dev mode
         if (options.dev) {
           const watcher = new FileWatcher(server, filePath, server.createScopedLogger('watcher'));
-          watcher.start();
+          await watcher.start();
 
           process.on('SIGINT', () => {
             void watcher.stop();
