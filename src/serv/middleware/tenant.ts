@@ -11,6 +11,24 @@ import type { Tenant, RequestContext } from '../types/index.js';
 // Tenant Store Interface
 // ============================================================================
 
+/** Normalize an HTTP host for case-insensitive tenant matching. */
+export function normalizeHost(raw: string): string {
+  let host = raw.trim().toLowerCase();
+  if (host.startsWith('[')) {
+    const closingBracket = host.indexOf(']');
+    if (closingBracket !== -1) {
+      host = host.slice(1, closingBracket);
+    }
+    // eslint-disable-next-line no-restricted-syntax -- host:port parsing, not a Photon identity
+  } else if (host.indexOf(':') === host.lastIndexOf(':')) {
+    // A single colon denotes the optional host port. Leave unbracketed IPv6
+    // literals alone rather than truncating them at their first colon.
+    // eslint-disable-next-line no-restricted-syntax -- host:port parsing, not a Photon identity
+    host = host.split(':', 1)[0];
+  }
+  return host.endsWith('.') ? host.slice(0, -1) : host;
+}
+
 export interface TenantStore {
   /**
    * Find tenant by slug
@@ -44,7 +62,7 @@ export class MemoryTenantStore implements TenantStore {
     this.tenants.set(tenant.id, tenant);
     this.slugIndex.set(tenant.slug, tenant.id);
     if (tenant.settings.customDomain) {
-      this.domainIndex.set(tenant.settings.customDomain, tenant.id);
+      this.domainIndex.set(normalizeHost(tenant.settings.customDomain), tenant.id);
     }
   }
 
@@ -85,6 +103,7 @@ export class TenantResolver {
     this.config = {
       pathPrefix: '/tenant/',
       ...config,
+      baseDomain: normalizeHost(config.baseDomain),
     };
   }
 
@@ -96,7 +115,7 @@ export class TenantResolver {
     url?: string;
     headers?: { host?: string };
   }): Promise<Tenant | null> {
-    const host = request.host ?? request.headers?.host ?? '';
+    const host = normalizeHost(request.host ?? request.headers?.host ?? '');
     const url = request.url ?? '';
 
     // 1. Try subdomain resolution (acme.serv.example.com)

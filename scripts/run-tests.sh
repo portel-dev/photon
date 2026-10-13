@@ -142,6 +142,7 @@ SUITES=(
   "schedule-baseDir-regression:$RUN tests/schedule-baseDir-regression.test.ts"
   "schedule-suppress-disable:$RUN tests/schedule-suppress-disable.test.ts"
   "serv-http-auth:$RUN tests/serv-http-auth.test.ts"
+  "tenant-resolver:$RUN tests/tenant-resolver.test.ts"
   "session-resolver:$RUN tests/session-resolver.test.ts"
   "session-resolver-disk-fallback:$RUN tests/session-resolver-disk-fallback.test.ts"
   "shell-cwd-injection:$RUN tests/shell-cwd-injection.test.ts"
@@ -183,6 +184,15 @@ SUITES=(
   "roots:$VITEST tests/roots.test.ts"
   "subscribe-sse-e2e:$VITEST tests/dynamic-resources-subscribe-sse.e2e.test.ts"
   "beam-status-sse:$VITEST tests/beam-status-sse.test.ts"
+  "status-sse-service:$VITEST tests/status-sse-service.test.ts"
+  "solid-boundaries:$RUN tests/architecture/solid-boundaries.test.ts"
+  "transport-lifecycle:$RUN tests/transport-lifecycle.test.ts"
+  "task-runtime:$RUN tests/task-runtime.test.ts"
+  "task-input-integration:$RUN tests/task-input-integration.test.ts"
+  "task-workspace-boundary:$RUN tests/task-workspace-boundary.test.ts"
+  "task-runtime-recovery:$RUN tests/task-runtime-recovery.test.ts"
+  "watcher-lifecycle:$RUN tests/watcher-lifecycle.test.ts"
+  "loader-load-parity:$RUN tests/loader-load-parity.test.ts"
   "websocket-upgrade:$VITEST tests/websocket-upgrade.test.ts"
 )
 

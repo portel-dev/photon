@@ -13,7 +13,7 @@ import type {
   PhotonGrant,
   ElicitationRequest,
 } from '../types/index.js';
-import type { TenantStore } from '../middleware/tenant.js';
+import { normalizeHost, type TenantStore } from '../middleware/tenant.js';
 import type { UserStore, MembershipStore } from '../middleware/auth.js';
 import type { ElicitationStore, GrantStore } from '../auth/oauth.js';
 import type { D1Client } from './d1-client.js';
@@ -91,8 +91,8 @@ export class D1TenantStore implements TenantStore {
   async findByCustomDomain(domain: string): Promise<Tenant | null> {
     // Query tenants where settings.customDomain matches
     const rows = await this.db.all<TenantRow>(
-      "SELECT * FROM tenants WHERE json_extract(settings, '$.customDomain') = ?",
-      domain
+      "SELECT * FROM tenants WHERE LOWER(RTRIM(json_extract(settings, '$.customDomain'), '.')) = ?",
+      normalizeHost(domain)
     );
     return rows.length > 0 ? this.rowToTenant(rows[0]) : null;
   }
