@@ -1295,6 +1295,55 @@ Custom calendar component replacing the native browser date input. Supports type
 | `date-range` | Two date pickers side by side |
 | `datetime-range` | Two date-time pickers side by side |
 
+#### Semantic Coordinate Inputs
+
+Coordinate fields are rendered as editable decimal text fields rather than
+integer-like number steppers. The built-in semantic ranges are:
+
+| Format | Range | Default step |
+|--------|-------|--------------|
+| `latitude` / `geo-latitude` | `-90..90` | `0.000001` |
+| `longitude` / `geo-longitude` | `-180..180` | `0.000001` |
+| `decimal` / `float` / `double` | Producer-defined | `0.01` |
+
+Explicit `minimum`, `maximum`, and `multipleOf` values override inferred
+coordinate bounds and step size. When no explicit format is present, the
+conservative parameter-name fallbacks `latitude`/`lat` and
+`longitude`/`lon`/`lng` are recognized. An unrelated explicit format disables
+name-based inference.
+
+Beam and Photon-hosted MCP elicitation forms may add a progressive **Use
+current location** action to latitude/longitude fields. The action is
+permission-gated and only requests the browser location after the user clicks
+it. Successful values remain numeric and local to the form until submission;
+manual typing remains available. Unsupported browsers, insecure contexts,
+denied permission, timeouts, and unavailable positions leave manual entry
+usable. Other MCP hosts may render the same schema without this optional
+browser enhancement.
+
+An explicit action can be declared in JSON Schema metadata when a producer
+wants to opt in without relying on a field name:
+
+```json
+{
+  "latitude": {
+    "type": "number",
+    "format": "latitude",
+    "x-action": {
+      "action": "geolocation",
+      "target": "latitude",
+      "label": "Use current location"
+    }
+  }
+}
+```
+
+The shared field-plus-action layout is intentionally extensible. Future
+actions such as Today/Now, Use my timezone, unit selection, and media pickers
+can use the same pattern without changing the MCP wire schema. Nested object
+and array-item fields continue to use their existing nested controls for now;
+use top-level coordinate properties when the semantic action is needed.
+
 #### Example — all input widgets in one method
 
 ```typescript

@@ -1,7 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { theme, buttons, forms } from '../../styles/index.js';
-import type { FieldAction } from '../../utils/semantic-actions.js';
 
 @customElement('semantic-action-input')
 export class SemanticActionInput extends LitElement {

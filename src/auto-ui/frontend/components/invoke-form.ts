@@ -752,9 +752,6 @@ export class InvokeForm extends LitElement {
   @state()
   private _semanticActionStatus: Record<string, string> = {};
 
-  @state()
-  private _semanticActionErrors: Record<string, boolean> = {};
-
   private get _storageKey(): string {
     return `beam-form:${this.photonName}:${this.methodName}`;
   }
@@ -1753,7 +1750,7 @@ export class InvokeForm extends LitElement {
 
       this._values = nextValues;
       if (this.rememberValues) this._savePersistedValues();
-      const accuracy = position.coords.accuracy;
+      const accuracy = position.accuracy;
       this._setSemanticActionState(
         keys,
         false,
@@ -2616,12 +2613,13 @@ export class InvokeForm extends LitElement {
           }
         }
 
-        // Number constraints
+        // Number constraints use the same effective bounds as the rendered control.
         if (typeof value === 'number') {
-          if (s.minimum != null && value < s.minimum) {
-            errors[key] = `Must be at least ${s.minimum}`;
-          } else if (s.maximum != null && value > s.maximum) {
-            errors[key] = `Must be at most ${s.maximum}`;
+          const numeric = resolveNumericInput(key, s);
+          if (numeric.minimum != null && value < numeric.minimum) {
+            errors[key] = `Must be at least ${numeric.minimum}`;
+          } else if (numeric.maximum != null && value > numeric.maximum) {
+            errors[key] = `Must be at most ${numeric.maximum}`;
           } else if (s.exclusiveMinimum != null && value <= s.exclusiveMinimum) {
             errors[key] = `Must be greater than ${s.exclusiveMinimum}`;
           } else if (s.exclusiveMaximum != null && value >= s.exclusiveMaximum) {

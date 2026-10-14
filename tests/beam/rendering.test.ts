@@ -214,10 +214,19 @@ test('Coordinate fields use decimal inputs instead of number steppers', async ()
         | HTMLElement
         | undefined;
       const root = form?.shadowRoot;
-      const latitude = root?.querySelector('#field-latitude') as HTMLInputElement | null;
-      const longitude = root?.querySelector('#field-longitude') as HTMLInputElement | null;
+      const latitudeHost = root?.querySelector('#field-latitude') as HTMLElement | null;
+      const longitudeHost = root?.querySelector('#field-longitude') as HTMLElement | null;
+      const latitude = latitudeHost?.shadowRoot?.querySelector('input') as HTMLInputElement | null;
+      const longitude = longitudeHost?.shadowRoot?.querySelector(
+        'input'
+      ) as HTMLInputElement | null;
       return {
         stepperCount: root?.querySelectorAll('number-stepper').length ?? 0,
+        locationActions: root?.querySelectorAll('semantic-action-input').length ?? 0,
+        latitudeButtonType:
+          latitudeHost?.shadowRoot?.querySelector('button')?.getAttribute('type') ?? null,
+        latitudeButtonLabel:
+          latitudeHost?.shadowRoot?.querySelector('button')?.getAttribute('aria-label') ?? null,
         latitude: latitude
           ? {
               type: latitude.type,

@@ -1404,7 +1404,7 @@ export class ElicitationModal extends LitElement {
           this._formErrors = nextErrors;
         }
       }
-      const accuracy = position.coords.accuracy;
+      const accuracy = position.accuracy;
       this._setSemanticActionState(
         fieldNames,
         false,
