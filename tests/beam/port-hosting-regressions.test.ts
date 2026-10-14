@@ -273,7 +273,7 @@ async function run(): Promise<void> {
 
   await test('MCP select schemas retain Photon rich option metadata for Beam', () => {
     const transportSource = source('src/auto-ui/streamable-http-transport.ts');
-    const serverSource = source('src/server.ts');
+    const policySource = source('src/mcp-elicitation-policy.ts');
 
     assert.match(
       transportSource,
@@ -281,7 +281,7 @@ async function run(): Promise<void> {
       'modern MCP select options must retain image and pricing metadata'
     );
     assert.match(
-      serverSource,
+      policySource,
       /'x-photon-options':\s*photonOptions/,
       'legacy MCP select options must retain Photon rich option metadata'
     );
