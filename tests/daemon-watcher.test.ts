@@ -1286,12 +1286,23 @@ async function testSourcePatterns() {
 
   await test('getEventsSince signals refresh_needed when buffer is empty but client has lastEventId', async () => {
     const source = await fsPromises.readFile(
-      path.join(process.cwd(), 'src/daemon/server.ts'),
+      path.join(process.cwd(), 'src/daemon/event-buffer.ts'),
       'utf-8'
     );
     assert.ok(
       source.includes('refreshNeeded: lastTimestamp > 0'),
       'Expected empty buffer + non-zero lastTimestamp to return refreshNeeded: true'
+    );
+  });
+
+  await test('source-stat watcher dedupe uses canonical composite-key parsing', async () => {
+    const source = await fsPromises.readFile(
+      path.join(process.cwd(), 'src/daemon/server.ts'),
+      'utf-8'
+    );
+    assert.ok(
+      source.includes('photonFromCompositeKey(key) !== photonName'),
+      'Expected watcher source-stat dedupe to parse composite keys canonically'
     );
   });
 
@@ -1467,8 +1478,13 @@ async function testSourcePatterns() {
       source.includes('createHash') && source.includes('.mjs'),
       'Expected content hash used in .mjs filename'
     );
-    // Verify cache-hit check exists
-    assert.ok(source.includes('fs.access(cachedJsPath)'), 'Expected cache-hit check via fs.access');
+    // Verify the cache-hit check without coupling Core to a concrete filesystem
+    // implementation: Core 2.28.0 uses its injected `io` seam here.
+    assert.match(
+      source,
+      /\baccess\s*\(\s*cachedJsPath\s*\)/,
+      'Expected cache-hit check through the compiler filesystem seam'
+    );
   });
 }
 

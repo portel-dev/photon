@@ -67,17 +67,12 @@ import {
   SubscriptionRegistry,
   type ResourceUpdateSink,
 } from '../resource-server.js';
+import { getTaskRuntime, taskEvents } from '../tasks/store.js';
+import type { TaskRuntimePort } from '../tasks/ports.js';
 import {
-  createTask,
-  getTask,
-  updateTask,
-  transitionTask,
-  listTasks,
-  registerController,
-  unregisterController,
-  getController,
-  taskEvents,
-} from '../tasks/store.js';
+  TransportLifecycle,
+  type TransportLifecycleScheduler,
+} from '../mcp/transport-lifecycle.js';
 import {
   toWireFormat,
   toModernTaskWire,
@@ -126,14 +121,7 @@ function selectWebAppUrl(
   if (!hasWebRoot && !selectClientAppUi(photon)) return undefined;
   return `/web/${photon.name}/`;
 }
-import {
-  runTaskExecution,
-  requestTaskInput,
-  resolveTaskInput,
-  rejectTaskInput,
-  submitTaskInputResponses,
-  waitForTerminalOrInput,
-} from '../tasks/executor.js';
+import { runTaskExecution, requestTaskInput } from '../tasks/executor.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
 import { isPathInScope } from '../daemon/claims.js';
 import {
@@ -858,6 +846,42 @@ export const __streamableHttpTransportInternals = {
   activeStatelessSubscriptionCount: () => statelessSubscriptions.size,
 };
 
+type HandlerContextOverrides = Pick<HandlerContext, 'wireAdapter'> &
+  Partial<
+    Pick<
+      HandlerContext,
+      'responseStream' | 'signal' | 'caller' | 'requestContext' | 'clientProfile'
+    >
+  >;
+
+function buildHandlerContext(
+  options: StreamableHTTPOptions,
+  overrides: HandlerContextOverrides
+): HandlerContext {
+  return {
+    photons: options.photons,
+    photonMCPs: options.photonMCPs,
+    externalMCPs: options.externalMCPs,
+    externalMCPClients: options.externalMCPClients,
+    externalMCPSDKClients: options.externalMCPSDKClients,
+    reconnectExternalMCP: options.reconnectExternalMCP,
+    loadUIAsset: options.loadUIAsset,
+    configurePhoton: options.configurePhoton,
+    reloadPhoton: options.reloadPhoton,
+    schedulePhotonReload: options.schedulePhotonReload,
+    removePhoton: options.removePhoton,
+    updateMetadata: options.updateMetadata,
+    generatePhotonHelp: options.generatePhotonHelp,
+    loader: options.loader,
+    broadcast: options.broadcast,
+    subscriptionManager: options.subscriptionManager,
+    taskRuntime: options.taskRuntime,
+    workingDir: options.workingDir,
+    singleServerNames: options.singleServerNames,
+    ...overrides,
+  };
+}
+
 function splitNamespacedToolName(name: string): { serverName: string; methodName: string } | null {
   const dotIndex = name.indexOf('.');
   if (dotIndex !== -1) {
@@ -1093,7 +1117,28 @@ function advertisedMCPParamHeaders(
 // SESSION MANAGEMENT
 // ════════════════════════════════════════════════════════════════════════════════
 
-const sessions = new Map<string, MCPSession>();
+const transportScheduler: TransportLifecycleScheduler = {
+  setInterval: (callback, delayMs) => setInterval(callback, delayMs),
+  clearInterval: (handle) => clearInterval(handle as NodeJS.Timeout),
+  unref: (handle) => (handle as NodeJS.Timeout | undefined)?.unref?.(),
+};
+
+const sessions = new TransportLifecycle<MCPSession>({
+  idleTimeoutMs: 30 * 60 * 1000,
+  cleanupIntervalMs: 60 * 1000,
+  clock: { now: () => Date.now() },
+  scheduler: transportScheduler,
+  onExpired: (session) => {
+    disconnectSessionSubscriptions(session.id);
+    closeSessionSSE(session, 'session-expired');
+    rejectPendingServerRequests(session.id, 'session expired');
+  },
+  onClose: (session) => {
+    disconnectSessionSubscriptions(session.id);
+    closeSessionSSE(session, 'transport-closed');
+    rejectPendingServerRequests(session.id, 'transport closed');
+  },
+});
 const MAX_SSE_SESSIONS_PER_CLIENT = Math.max(
   4,
   Number.parseInt(process.env.PHOTON_MAX_SSE_SESSIONS_PER_CLIENT || '12', 10) || 12
@@ -1233,6 +1278,15 @@ interface PendingServerRequest {
 }
 const pendingServerRequests = new Map<string | number, PendingServerRequest>();
 let nextServerRequestId = 1;
+
+function rejectPendingServerRequests(sessionId: string, reason: string): void {
+  for (const [id, pending] of pendingServerRequests) {
+    if (pending.sessionId !== sessionId) continue;
+    if (pending.timer) clearTimeout(pending.timer);
+    pendingServerRequests.delete(id);
+    pending.reject(new Error(`requestSession: session ${sessionId} ${reason}`));
+  }
+}
 
 /**
  * Registry of `resources/subscribe` state for the streamable-HTTP transport.
@@ -1950,30 +2004,12 @@ function setupElicitationTimeout(
   }, ELICITATION_DEFER_MS);
 }
 
-// Clean up old sessions periodically (30 min timeout)
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
-
-let sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
-
-function startSessionCleanup(): void {
-  if (sessionCleanupInterval) return;
-  sessionCleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [id, session] of sessions) {
-      if (now - session.lastActivity.getTime() > SESSION_TIMEOUT_MS) {
-        sessions.delete(id);
-        disconnectSessionSubscriptions(id);
-      }
-    }
-  }, 60 * 1000);
-  sessionCleanupInterval.unref();
+export function startSessionCleanup(): void {
+  sessions.start();
 }
 
 export function stopSessionCleanup(): void {
-  if (sessionCleanupInterval) {
-    clearInterval(sessionCleanupInterval);
-    sessionCleanupInterval = null;
-  }
+  sessions.close();
   closeAllStatelessSubscriptions();
   for (const stores of statelessInputStores.values()) {
     stores.tool.close();
@@ -1983,9 +2019,6 @@ export function stopSessionCleanup(): void {
   appSessionStores.clear();
   idempotencyStores.clear();
 }
-
-// Start cleanup on module load
-startSessionCleanup();
 
 function getOrCreateSession(sessionId?: string, persist = true): MCPSession {
   if (sessionId && sessions.has(sessionId)) {
@@ -2195,6 +2228,7 @@ interface HandlerContext {
   broadcast?: (message: object) => void;
   responseStream?: { send: (message: object) => void };
   signal?: AbortSignal;
+  taskRuntime?: TaskRuntimePort;
   subscriptionManager?: {
     onClientViewingBoard: (
       sessionId: string,
@@ -4664,17 +4698,23 @@ const handlers: Record<string, RequestHandler> = {
         legacyTaskRequest && typeof legacyTaskRequest.ttl === 'number'
           ? legacyTaskRequest.ttl
           : undefined;
-      const task = createTask(photonName, methodName, args, ttl, {
-        protocol: modernTask ? 'extension-2026' : 'legacy-2025',
-        ...(modernTask ? { owner: buildTaskAccessBinding(ctx) } : {}),
-        traceContext: {
-          traceparent: ctx.requestContext?.traceparent,
-          tracestate: ctx.requestContext?.tracestate,
-          baggage: ctx.requestContext?.baggage,
-        },
-      });
+      const task = (ctx.taskRuntime ?? getTaskRuntime()).createTask(
+        photonName,
+        methodName,
+        args,
+        ttl,
+        {
+          protocol: modernTask ? 'extension-2026' : 'legacy-2025',
+          ...(modernTask ? { owner: buildTaskAccessBinding(ctx) } : {}),
+          traceContext: {
+            traceparent: ctx.requestContext?.traceparent,
+            tracestate: ctx.requestContext?.tracestate,
+            baggage: ctx.requestContext?.baggage,
+          },
+        }
+      );
       const controller = new AbortController();
-      registerController(task.id, controller);
+      (ctx.taskRuntime ?? getTaskRuntime()).registerController(task.id, controller);
 
       const executeFn = async (
         inputProvider: any,
@@ -4727,6 +4767,7 @@ const handlers: Record<string, RequestHandler> = {
 
       runTaskExecution(task.id, executeFn, {
         signal: controller.signal,
+        runtime: ctx.taskRuntime,
         caller: ctx.caller,
         outputHandler: taskOutputHandler,
         ...(modernTask
@@ -5220,19 +5261,26 @@ const handlers: Record<string, RequestHandler> = {
           // input loop, then mint a task whose result retains the gathered
           // input. The CreateTaskResult deliberately carries no requestState.
           if (methodInfo?.taskAfterInput === true && modernTasksNegotiated) {
-            const task = createTask(photonName, methodName, args, undefined, {
-              protocol: 'extension-2026',
-              owner: buildTaskAccessBinding(ctx),
-              traceContext: {
-                traceparent: ctx.requestContext?.traceparent,
-                tracestate: ctx.requestContext?.tracestate,
-                baggage: ctx.requestContext?.baggage,
-              },
-            });
+            const task = (ctx.taskRuntime ?? getTaskRuntime()).createTask(
+              photonName,
+              methodName,
+              args,
+              undefined,
+              {
+                protocol: 'extension-2026',
+                owner: buildTaskAccessBinding(ctx),
+                traceContext: {
+                  traceparent: ctx.requestContext?.traceparent,
+                  tracestate: ctx.requestContext?.tracestate,
+                  baggage: ctx.requestContext?.baggage,
+                },
+              }
+            );
             const controller = new AbortController();
-            registerController(task.id, controller);
+            (ctx.taskRuntime ?? getTaskRuntime()).registerController(task.id, controller);
             runTaskExecution(task.id, async () => result, {
               signal: controller.signal,
+              runtime: ctx.taskRuntime,
               caller: ctx.caller,
               inputMode: 'modern',
               transformResult: async (taskResult: unknown) =>
@@ -6140,15 +6188,21 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
-    const task = createTask(photonName, methodName, params, requestedTtl, {
-      traceContext: {
-        traceparent: ctx.requestContext?.traceparent,
-        tracestate: ctx.requestContext?.tracestate,
-        baggage: ctx.requestContext?.baggage,
-      },
-    });
+    const task = (ctx.taskRuntime ?? getTaskRuntime()).createTask(
+      photonName,
+      methodName,
+      params,
+      requestedTtl,
+      {
+        traceContext: {
+          traceparent: ctx.requestContext?.traceparent,
+          tracestate: ctx.requestContext?.tracestate,
+          baggage: ctx.requestContext?.baggage,
+        },
+      }
+    );
     const controller = new AbortController();
-    registerController(task.id, controller);
+    (ctx.taskRuntime ?? getTaskRuntime()).registerController(task.id, controller);
 
     const executeFn = async (inputProvider: any, outputHandler: any) => {
       if (ctx.loader) {
@@ -6169,6 +6223,7 @@ const handlers: Record<string, RequestHandler> = {
 
     runTaskExecution(task.id, executeFn, {
       signal: controller.signal,
+      runtime: ctx.taskRuntime,
       caller: ctx.caller,
     });
 
@@ -6188,7 +6243,7 @@ const handlers: Record<string, RequestHandler> = {
         error: { code: -32602, message: 'Missing required param: taskId' },
       };
     }
-    const task = getTask(taskId);
+    const task = (ctx.taskRuntime ?? getTaskRuntime()).getTask(taskId);
     if (ctx.wireAdapter.era === 'modern-2026') {
       if (!task || !taskAccessMatches(task, ctx)) {
         return {
@@ -6229,7 +6284,7 @@ const handlers: Record<string, RequestHandler> = {
       taskId: string;
       inputResponses: Record<string, unknown>;
     };
-    const task = getTask(taskId);
+    const task = (ctx.taskRuntime ?? getTaskRuntime()).getTask(taskId);
     if (!task || !taskAccessMatches(task, ctx)) {
       return {
         jsonrpc: '2.0',
@@ -6239,13 +6294,15 @@ const handlers: Record<string, RequestHandler> = {
     }
     // The draft requires unknown, duplicate, and already-satisfied keys to be
     // ignored. Only currently outstanding keys are consumed.
-    submitTaskInputResponses(taskId, inputResponses);
+    (ctx.taskRuntime ?? getTaskRuntime()).submitTaskInputResponses(taskId, inputResponses);
     return { jsonrpc: '2.0', id: req.id, result: {} };
   },
 
   'tasks/list': async (req, session, ctx) => {
     const { cursor } = (req.params || {}) as { cursor?: string };
-    let allTasks = listTasks().filter((task) => task.protocol !== 'extension-2026');
+    let allTasks = (ctx.taskRuntime ?? getTaskRuntime())
+      .listTasks()
+      .filter((task) => task.protocol !== 'extension-2026');
     // Filter scoped sessions before paginating so the cursor indexes
     // align with what the caller actually sees.
     if (session.claimScopeDir) {
@@ -6280,7 +6337,7 @@ const handlers: Record<string, RequestHandler> = {
         error: { code: -32602, message: 'Missing required param: taskId' },
       };
     }
-    const task = getTask(taskId);
+    const task = (ctx.taskRuntime ?? getTaskRuntime()).getTask(taskId);
     if (ctx.wireAdapter.era === 'modern-2026') {
       if (!task || !taskAccessMatches(task, ctx)) {
         return {
@@ -6290,15 +6347,19 @@ const handlers: Record<string, RequestHandler> = {
         };
       }
       if (!TERMINAL_STATES.includes(task.state)) {
-        getController(taskId)?.abort();
-        rejectTaskInput(taskId, 'Task cancelled');
-        transitionTask(taskId, ['working', 'input_required'], {
-          state: 'cancelled',
-          statusMessage: 'The task was cancelled by request.',
-          input: undefined,
-          inputRequests: undefined,
-        });
-        unregisterController(taskId);
+        (ctx.taskRuntime ?? getTaskRuntime()).getController(taskId)?.abort();
+        (ctx.taskRuntime ?? getTaskRuntime()).rejectTaskInput(taskId, 'Task cancelled');
+        (ctx.taskRuntime ?? getTaskRuntime()).transitionTask(
+          taskId,
+          ['working', 'input_required'],
+          {
+            state: 'cancelled',
+            statusMessage: 'The task was cancelled by request.',
+            input: undefined,
+            inputRequests: undefined,
+          }
+        );
+        (ctx.taskRuntime ?? getTaskRuntime()).unregisterController(taskId);
       }
       // Cancellation is cooperative, eventually consistent, and idempotent.
       return { jsonrpc: '2.0', id: req.id, result: {} };
@@ -6322,14 +6383,14 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
-    const controller = getController(taskId);
+    const controller = (ctx.taskRuntime ?? getTaskRuntime()).getController(taskId);
     if (controller) controller.abort();
 
-    const updated = updateTask(taskId, {
+    const updated = (ctx.taskRuntime ?? getTaskRuntime()).updateTask(taskId, {
       state: 'cancelled',
       statusMessage: 'The task was cancelled by request.',
     });
-    unregisterController(taskId);
+    (ctx.taskRuntime ?? getTaskRuntime()).unregisterController(taskId);
 
     return { jsonrpc: '2.0', id: req.id, result: toWireFormat(updated!) };
   },
@@ -6344,7 +6405,7 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
-    const task = getTask(taskId);
+    const task = (ctx.taskRuntime ?? getTaskRuntime()).getTask(taskId);
     if (
       !task ||
       task.protocol === 'extension-2026' ||
@@ -6418,9 +6479,9 @@ const handlers: Record<string, RequestHandler> = {
         { photonName: task.photon || 'task', methodName: task.method || taskId }
       );
       if (elicitResult.action === 'accept') {
-        resolveTaskInput(taskId, elicitResult.content);
+        (ctx.taskRuntime ?? getTaskRuntime()).resolveTaskInput(taskId, elicitResult.content);
       } else {
-        resolveTaskInput(taskId, null);
+        (ctx.taskRuntime ?? getTaskRuntime()).resolveTaskInput(taskId, null);
       }
     }
 
@@ -6432,7 +6493,10 @@ const handlers: Record<string, RequestHandler> = {
 
     try {
       while (true) {
-        const current = await waitForTerminalOrInput(taskId, abortController.signal);
+        const current = await (ctx.taskRuntime ?? getTaskRuntime()).waitForTerminalOrInput(
+          taskId,
+          abortController.signal
+        );
 
         if (TERMINAL_STATES.includes(current.state)) {
           return formatResult(current);
@@ -6445,16 +6509,16 @@ const handlers: Record<string, RequestHandler> = {
             { photonName: task.photon || 'task', methodName: task.method || taskId }
           );
           if (elicitResult.action === 'accept') {
-            resolveTaskInput(taskId, elicitResult.content);
+            (ctx.taskRuntime ?? getTaskRuntime()).resolveTaskInput(taskId, elicitResult.content);
           } else {
-            resolveTaskInput(taskId, null);
+            (ctx.taskRuntime ?? getTaskRuntime()).resolveTaskInput(taskId, null);
           }
           // Continue loop — wait for next state change
         }
       }
     } catch {
       // Timeout or abort — return current state info
-      const current = getTask(taskId);
+      const current = (ctx.taskRuntime ?? getTaskRuntime()).getTask(taskId);
       if (current && TERMINAL_STATES.includes(current.state)) {
         return formatResult(current);
       }
@@ -7673,6 +7737,7 @@ export interface StreamableHTTPOptions {
     getCapabilityContracts?: (mcp: any) => Array<{ name: string; exposure: ReadonlySet<string> }>;
   };
   broadcast?: (message: object) => void;
+  taskRuntime?: TaskRuntimePort;
   subscriptionManager?: {
     onClientViewingBoard: (
       sessionId: string,
@@ -7694,6 +7759,9 @@ export interface StreamableHTTPOptions {
  * response framing, and stateless request lifetimes.
  */
 export function createOfficialBeamMcpHandler(options: StreamableHTTPOptions): McpHttpHandler {
+  // Lifecycle is caller-owned: composing the official handler is the explicit
+  // startup boundary, rather than importing this module starting maintenance.
+  sessions.start();
   const legacyCapabilities = buildServerCapabilities(
     selectMCPWireAdapter(MCP_PROTOCOL_VERSIONS.LEGACY_2025_11_25, buildServerInfo())
   );
@@ -7889,22 +7957,7 @@ export function createOfficialBeamMcpHandler(options: StreamableHTTPOptions): Mc
       throw new ProtocolError(JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND, `Method not found: ${method}`);
     }
 
-    const handlerContext: HandlerContext = {
-      photons: options.photons,
-      photonMCPs: options.photonMCPs,
-      externalMCPs: options.externalMCPs,
-      externalMCPClients: options.externalMCPClients,
-      externalMCPSDKClients: options.externalMCPSDKClients,
-      reconnectExternalMCP: options.reconnectExternalMCP,
-      loadUIAsset: options.loadUIAsset,
-      configurePhoton: options.configurePhoton,
-      reloadPhoton: options.reloadPhoton,
-      schedulePhotonReload: options.schedulePhotonReload,
-      removePhoton: options.removePhoton,
-      updateMetadata: options.updateMetadata,
-      generatePhotonHelp: options.generatePhotonHelp,
-      loader: options.loader,
-      broadcast: options.broadcast,
+    const handlerContext = buildHandlerContext(options, {
       responseStream: {
         send: (message: object) => {
           if (!isRecord(message) || typeof message.method !== 'string') return;
@@ -7912,14 +7965,11 @@ export function createOfficialBeamMcpHandler(options: StreamableHTTPOptions): Mc
         },
       },
       signal: context.mcpReq.signal,
-      subscriptionManager: options.subscriptionManager,
-      workingDir: options.workingDir,
-      singleServerNames: options.singleServerNames,
       caller,
       requestContext,
       clientProfile: requestContext.client,
       wireAdapter,
-    };
+    });
 
     const response = await handler(request, session, handlerContext);
     if (response.error) {
@@ -8005,6 +8055,7 @@ export async function handleOfficialBeamMcpHttp(
   handler: McpHttpHandler,
   options: StreamableHTTPOptions
 ): Promise<boolean> {
+  sessions.start();
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   if (url.pathname !== '/mcp') return false;
 
@@ -8168,6 +8219,9 @@ export async function handleStreamableHTTP(
   if (url.pathname !== '/mcp') {
     return false;
   }
+  // Legacy callers own startup by entering the transport boundary; importing
+  // this module never starts maintenance on their behalf.
+  sessions.start();
 
   // CORS headers
   const corsOrigin = getCorsOrigin(req);
@@ -8870,30 +8924,12 @@ export async function handleStreamableHTTP(
         return true;
       }
 
-      const baseContext: HandlerContext = {
-        photons: options.photons,
-        photonMCPs: options.photonMCPs,
-        externalMCPs: options.externalMCPs,
-        externalMCPClients: options.externalMCPClients,
-        externalMCPSDKClients: options.externalMCPSDKClients,
-        reconnectExternalMCP: options.reconnectExternalMCP,
-        loadUIAsset: options.loadUIAsset,
-        configurePhoton: options.configurePhoton,
-        reloadPhoton: options.reloadPhoton,
-        schedulePhotonReload: options.schedulePhotonReload,
-        removePhoton: options.removePhoton,
-        updateMetadata: options.updateMetadata,
-        generatePhotonHelp: options.generatePhotonHelp,
-        loader: options.loader,
-        broadcast: options.broadcast,
+      const baseContext = buildHandlerContext(options, {
         responseStream: wantsSSE ? { send: sendResponseStreamMessage } : undefined,
         signal: requestAbort.signal,
-        subscriptionManager: options.subscriptionManager,
-        workingDir: options.workingDir,
-        singleServerNames: options.singleServerNames,
         caller,
         wireAdapter: responseWireAdapter,
-      };
+      });
 
       // Process requests
       const responses: JSONRPCResponse[] = [];

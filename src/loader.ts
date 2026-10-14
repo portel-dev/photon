@@ -24,7 +24,7 @@ import {
 import { parseCfBindings } from './cf-bindings-parser.js';
 import { CFLocalRuntime, mergeBindings, type CfBindingsConfig } from './runtime/cf-local.js';
 import { scanCfUsage, type CfUsage } from './cf-usage-scanner.js';
-import { extractHttpRoutesFromSource, type HttpRouteDef } from './shared/http-route-extractor.js';
+import { extractHttpRoutesFromSource } from './shared/http-route-extractor.js';
 import { extractExposesFromSource, type ExposeDef } from './shared/expose-route-extractor.js';
 import { normalizeFormatDeclaration } from './format/aliases.js';
 import type { CapabilitySurface } from './capability-contract.js';
@@ -330,6 +330,7 @@ import {
   getPhotonToolMethods,
   isPhotonClass,
 } from './photon-reflection.js';
+import { buildPhotonLoadResult } from './photon-load-result.js';
 
 /** Detect preferred package manager. Prefers bun for speed, falls back to npm. */
 function detectPreferredPackageManager(): string {
@@ -787,6 +788,15 @@ export class PhotonLoader {
     return typeof method === 'function'
       ? (message, context) => method.call(mcp.instance, message, context)
       : undefined;
+  }
+
+  /** Compatibility predicates retained for loader diagnostics and integrations. */
+  isClass(value: unknown): boolean {
+    return isPhotonClass(value);
+  }
+
+  getMCPName(mcpClass: new (...args: unknown[]) => unknown): string {
+    return getPhotonName(mcpClass);
   }
 
   /** Get all loaded photon instances (including sub-photons loaded via @photon). */
@@ -1607,10 +1617,7 @@ export class PhotonLoader {
       };
 
       const isMissingCompiledArtifact = (error: unknown): boolean =>
-        !!lastCompiledJsPath &&
-        (String(error).includes(lastCompiledJsPath) ||
-          (String(error).includes('.build/') && String(error).includes('.mjs')) ||
-          String(error).includes('ERR_MODULE_NOT_FOUND'));
+        !!lastCompiledJsPath && String(error).includes(lastCompiledJsPath);
 
       const loadCompiledModuleWithRetry = async (): Promise<any> => {
         const retryDelays = [0, 50, 250, 1000, 3000];
@@ -2477,17 +2484,7 @@ export class PhotonLoader {
       const classDesc = classDocblock.match(/^\s*\*\s+([^@*\n][^\n]*)/m)?.[1]?.trim();
       const isStateful = /@stateful\b/.test(classDocblock);
 
-      const result: PhotonClassExtended & {
-        /* classConstructor inherited from PhotonClass */
-        settingsSchema?: SettingsSchema;
-        icon?: string;
-        stateful?: boolean;
-        auth?: string;
-        authDirective?: PhotonAuthDirective;
-        _httpRoutes?: HttpRouteDef[];
-        _exposes?: ExposeDef[];
-        _accessClasses?: Record<string, any>;
-      } = {
+      return buildPhotonLoadResult({
         name,
         description: classDesc || `${name} MCP`,
         tools,
@@ -2495,30 +2492,18 @@ export class PhotonLoader {
         statics,
         instance,
         assets,
-        injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
-      };
-      result._accessClasses = { [MCPClass.name]: MCPClass, ...accessClassMapFromModule(module) };
-      if (classIcon) result.icon = classIcon;
-      if (isStateful) result.stateful = true;
-      if (extractedAuth) result.auth = extractedAuth;
-      if (extractedAuthDirective) result.authDirective = extractedAuthDirective;
-      if (extractedHttpRoutes?.length) result._httpRoutes = extractedHttpRoutes;
-      if (extractedExposes?.length) result._exposes = extractedExposes;
-
-      const sharedStates = this.extractSharedStateProperties(tsContent || '');
-      if (sharedStates.length > 0) {
-        (result as any).sharedStates = sharedStates;
-      }
-      // Store class constructor for static method access
-      result.classConstructor = MCPClass as unknown as Record<
-        string,
-        (...args: unknown[]) => unknown
-      >;
-      // Store settings schema for Beam UI
-      if (settingsSchema?.hasSettings) {
-        result.settingsSchema = settingsSchema;
-      }
-      return result;
+        injectedPhotons: injectedPhotonNames,
+        classConstructor: MCPClass as unknown as Record<string, (...args: unknown[]) => unknown>,
+        accessClasses: { [MCPClass.name]: MCPClass, ...accessClassMapFromModule(module) },
+        sharedStates: this.extractSharedStateProperties(tsContent || ''),
+        settingsSchema,
+        icon: classIcon,
+        stateful: isStateful,
+        auth: extractedAuth,
+        authDirective: extractedAuthDirective,
+        httpRoutes: extractedHttpRoutes,
+        exposes: extractedExposes,
+      });
     } catch (error) {
       this.logger.error(`❌ Failed to load ${filePath}: ${getErrorMessage(error)}`);
       throw error;
@@ -2949,17 +2934,7 @@ export class PhotonLoader {
     const classDesc = classDocblock.match(/^\s*\*\s+([^@*\n][^\n]*)/m)?.[1]?.trim();
     const isStateful = /@stateful\b/.test(classDocblock);
 
-    const result: PhotonClassExtended & {
-      classConstructor?: Record<string, unknown>;
-      settingsSchema?: SettingsSchema;
-      icon?: string;
-      stateful?: boolean;
-      auth?: string;
-      authDirective?: PhotonAuthDirective;
-      _httpRoutes?: HttpRouteDef[];
-      _exposes?: ExposeDef[];
-      _accessClasses?: Record<string, any>;
-    } = {
+    return buildPhotonLoadResult({
       name,
       description: classDesc || `${name} MCP`,
       tools,
@@ -2967,28 +2942,18 @@ export class PhotonLoader {
       statics,
       instance,
       assets,
-      injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
-    };
-    result._accessClasses = { [MCPClass.name]: MCPClass, ...accessClassMapFromModule(module) };
-    if (classIcon) result.icon = classIcon;
-    if (isStateful) result.stateful = true;
-    if (extractedAuth) result.auth = extractedAuth;
-    if (extractedAuthDirective) result.authDirective = extractedAuthDirective;
-    if (extractedHttpRoutes?.length) result._httpRoutes = extractedHttpRoutes;
-    if (extractedExposes?.length) result._exposes = extractedExposes;
-
-    const sharedStates = this.extractSharedStateProperties(tsContent);
-    if (sharedStates.length > 0) {
-      (result as any).sharedStates = sharedStates;
-    }
-    result.classConstructor = MCPClass as unknown as Record<
-      string,
-      (...args: unknown[]) => unknown
-    >;
-    if (settingsSchema?.hasSettings) {
-      result.settingsSchema = settingsSchema;
-    }
-    return result;
+      injectedPhotons: injectedPhotonNames,
+      classConstructor: MCPClass as unknown as Record<string, (...args: unknown[]) => unknown>,
+      accessClasses: { [MCPClass.name]: MCPClass, ...accessClassMapFromModule(module) },
+      sharedStates: this.extractSharedStateProperties(tsContent),
+      settingsSchema,
+      icon: classIcon,
+      stateful: isStateful,
+      auth: extractedAuth,
+      authDirective: extractedAuthDirective,
+      httpRoutes: extractedHttpRoutes,
+      exposes: extractedExposes,
+    });
   }
 
   /**
@@ -3210,7 +3175,16 @@ export class PhotonLoader {
         .relative(path.dirname(result), compiledImportPath)
         .split(path.sep)
         .join('/');
-      rewrites.set(localImport.specifier, relative.startsWith('.') ? relative : `./${relative}`);
+      const compiledSpecifier = relative.startsWith('.') ? relative : `./${relative}`;
+      // photon-core resolves relative imports to absolute file URLs before
+      // emitting ESM. Rewrite both the original source specifier and that
+      // generated URL so disposable Bun import directories can use the
+      // compiled sibling graph instead of reaching back into the source tree.
+      rewrites.set(localImport.specifier, compiledSpecifier);
+      const emittedSourceSpecifier = pathToFileURL(
+        path.resolve(path.dirname(absolutePath), localImport.specifier)
+      ).href;
+      rewrites.set(emittedSourceSpecifier, compiledSpecifier);
     }
 
     await this.rewriteCompiledLocalImports(result, rewrites);

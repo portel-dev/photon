@@ -120,17 +120,32 @@ export const PHOTON_CORE_VERSION: string =
   pkg.dependencies?.['@portel/photon-core'] || `^${pkg.version}`;
 
 /**
- * Get the actual installed version of @portel/photon-core
+ * Get the actual installed version of @portel/photon-core.
  * Unlike PHOTON_CORE_VERSION which is a semver range (e.g., "^2.5.0"),
  * this returns the resolved version (e.g., "2.5.4").
- * Used for cache invalidation — detects npm link changes that don't alter the range.
+ * Used for cache invalidation — detects package changes that don't alter the range.
+ *
+ * The package does not export its package.json subpath, so resolve the public
+ * entry point first and walk to the adjacent package metadata instead.
  */
 export function getResolvedPhotonCoreVersion(): string {
   try {
     const require = createRequire(import.meta.url);
-    const corePkg = require('@portel/photon-core/package.json');
-    return corePkg.version;
+    let directory = path.dirname(require.resolve('@portel/photon-core'));
+    while (directory !== path.dirname(directory)) {
+      const packagePath = path.join(directory, 'package.json');
+      try {
+        const corePkg = JSON.parse(readFileSync(packagePath, 'utf8')) as { version?: unknown };
+        if (typeof corePkg.version === 'string' && corePkg.version.length > 0) {
+          return corePkg.version;
+        }
+      } catch {
+        // Continue walking until the package root is found.
+      }
+      directory = path.dirname(directory);
+    }
   } catch {
-    return PHOTON_CORE_VERSION; // Fallback to range
+    // Fall back to the declared range when the installed package is unavailable.
   }
+  return PHOTON_CORE_VERSION;
 }

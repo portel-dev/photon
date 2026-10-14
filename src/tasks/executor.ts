@@ -5,15 +5,8 @@
  * Decoupled from transport — works with both Streamable HTTP and STDIO.
  */
 
-import { randomBytes } from 'crypto';
-import {
-  getTask,
-  updateTask,
-  transitionTask,
-  unregisterController,
-  taskEvents,
-  taskRuntimeKey,
-} from './store.js';
+import { getTask, getTaskRuntime } from './store.js';
+import type { TaskRuntimePort } from './ports.js';
 import {
   TERMINAL_STATES,
   type Task,
@@ -28,8 +21,32 @@ type InputRequestProvider = (
   requests: Record<string, TaskInputRequest>
 ) => Promise<Record<string, unknown>>;
 
+export function resolveTaskInput(taskId: string, value: unknown): boolean {
+  return getTaskRuntime().resolveTaskInput(taskId, value);
+}
+
+export function rejectTaskInput(taskId: string, reason: string): boolean {
+  return getTaskRuntime().rejectTaskInput(taskId, reason);
+}
+
+export function requestTaskInput(
+  taskId: string,
+  request: TaskInputRequest,
+  signal?: AbortSignal
+): Promise<unknown> {
+  return getTaskRuntime().requestTaskInput(taskId, request, signal);
+}
+
+export function submitTaskInputResponses(
+  taskId: string,
+  responses: Record<string, unknown>
+): { accepted: number; outstanding: number } {
+  return getTaskRuntime().submitTaskInputResponses(taskId, responses);
+}
+
 interface ExecutionOptions {
   signal: AbortSignal;
+  runtime?: TaskRuntimePort;
   caller?: any;
   outputHandler?: OutputHandler;
   inputMode?: 'legacy' | 'modern';
@@ -44,144 +61,10 @@ interface ExecutionOptions {
  * Pending input resolvers — when a task enters input_required,
  * the generator blocks on a promise. resolveTaskInput() resolves it.
  */
-interface PendingTaskInput {
-  resolve: (value: any) => void;
-  reject: (err: Error) => void;
-}
-
-const pendingInputs = new Map<string, Map<string, PendingTaskInput>>();
-
-function pendingKey(taskId: string): string {
-  return taskRuntimeKey(taskId);
-}
-
 /**
  * Resolve pending input for a task, resuming generator execution.
  * Returns true if there was pending input to resolve.
  */
-export function resolveTaskInput(taskId: string, value: any): boolean {
-  const runtimeKey = pendingKey(taskId);
-  const requests = pendingInputs.get(runtimeKey);
-  const pending = requests?.values().next().value;
-  if (!pending || !requests) return false;
-  const requestKey = requests.keys().next().value as string;
-  requests.delete(requestKey);
-  if (requests.size === 0) pendingInputs.delete(runtimeKey);
-  updateTask(taskId, { state: 'working', input: undefined, inputRequests: undefined });
-  pending.resolve(value);
-  return true;
-}
-
-function rejectAllTaskInputs(taskId: string, reason: string): boolean {
-  const key = pendingKey(taskId);
-  const requests = pendingInputs.get(key);
-  if (!requests) return false;
-  pendingInputs.delete(key);
-  for (const pending of requests.values()) pending.reject(new Error(reason));
-  return true;
-}
-
-/**
- * Reject pending input (e.g., on cancellation or timeout).
- */
-export function rejectTaskInput(taskId: string, reason: string): boolean {
-  return rejectAllTaskInputs(taskId, reason);
-}
-
-/**
- * Check if a task has pending input waiting.
- */
-export function hasPendingInput(taskId: string): boolean {
-  return (pendingInputs.get(pendingKey(taskId))?.size ?? 0) > 0;
-}
-
-function nextTaskInputKey(task: Task): string {
-  const sequence = (task.inputRequestSequence ?? 0) + 1;
-  return `input_${sequence}_${randomBytes(12).toString('base64url')}`;
-}
-
-/**
- * Persist a modern task input request before suspending execution. Keys are
- * unique for the lifetime of a task and responses are direct MCP result values.
- */
-export function requestTaskInput(
-  taskId: string,
-  request: TaskInputRequest,
-  signal?: AbortSignal
-): Promise<unknown> {
-  const task = awaitableTask(taskId);
-  const key = nextTaskInputKey(task);
-  const existing = task.inputRequests ?? {};
-  const runtimeKey = pendingKey(taskId);
-  const requests = pendingInputs.get(runtimeKey) ?? new Map<string, PendingTaskInput>();
-  pendingInputs.set(runtimeKey, requests);
-
-  return new Promise((resolve, reject) => {
-    const cleanup = () => signal?.removeEventListener('abort', onAbort);
-    const onAbort = () => {
-      requests.delete(key);
-      if (requests.size === 0) pendingInputs.delete(runtimeKey);
-      cleanup();
-      reject(new Error('Task cancelled'));
-    };
-    requests.set(key, {
-      resolve: (value) => {
-        cleanup();
-        resolve(value);
-      },
-      reject: (error) => {
-        cleanup();
-        reject(error);
-      },
-    });
-    updateTask(taskId, {
-      state: 'input_required',
-      statusMessage: 'Waiting for client input.',
-      inputRequests: { ...existing, [key]: request },
-      inputRequestSequence: (task.inputRequestSequence ?? 0) + 1,
-    });
-    if (signal?.aborted) onAbort();
-    else signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-function awaitableTask(taskId: string): Task {
-  const task = getTask(taskId);
-  if (!task) throw new Error(`Task not found: ${taskId}`);
-  return task;
-}
-
-export function submitTaskInputResponses(
-  taskId: string,
-  responses: Record<string, unknown>
-): { accepted: number; outstanding: number } {
-  const task = getTask(taskId);
-  const outstanding = task?.inputRequests ?? {};
-  const pending = pendingInputs.get(pendingKey(taskId));
-  if (!task || !pending) return { accepted: 0, outstanding: Object.keys(outstanding).length };
-
-  let accepted = 0;
-  const remaining = { ...outstanding };
-  const resolutions: Array<{ pending: PendingTaskInput; value: unknown }> = [];
-  for (const [key, value] of Object.entries(responses)) {
-    const resolver = pending.get(key);
-    if (!resolver || !Object.prototype.hasOwnProperty.call(outstanding, key)) continue;
-    pending.delete(key);
-    delete remaining[key];
-    accepted++;
-    resolutions.push({ pending: resolver, value });
-  }
-  if (pending.size === 0) pendingInputs.delete(pendingKey(taskId));
-  updateTask(taskId, {
-    ...(Object.keys(remaining).length === 0
-      ? { state: 'working' as const, statusMessage: 'Resuming execution...' }
-      : {}),
-    inputRequests: Object.keys(remaining).length > 0 ? remaining : undefined,
-  });
-  for (const resolution of resolutions) resolution.pending.resolve(resolution.value);
-  return { accepted, outstanding: Object.keys(remaining).length };
-}
-
 /**
  * Wait for a task to reach a specific state (or any state change).
  * Resolves with the updated task when the condition is met.
@@ -191,6 +74,7 @@ export function waitForStateChange(
   predicate?: (state: TaskState) => boolean,
   signal?: AbortSignal
 ): Promise<Task> {
+  const runtime = getTaskRuntime();
   return new Promise((resolve, reject) => {
     // Check abort
     if (signal?.aborted) {
@@ -212,11 +96,11 @@ export function waitForStateChange(
     };
 
     const cleanup = () => {
-      taskEvents.removeListener('stateChange', handler);
+      runtime.events.removeListener('stateChange', handler);
       signal?.removeEventListener('abort', onAbort);
     };
 
-    taskEvents.on('stateChange', handler);
+    runtime.events.on('stateChange', handler);
     signal?.addEventListener('abort', onAbort);
 
     // Subscribe before checking the persisted record. This closes the
@@ -259,6 +143,7 @@ export function runTaskExecution(
   options: ExecutionOptions
 ): void {
   const { signal, outputHandler: externalOutputHandler } = options;
+  const taskRuntime = options.runtime ?? getTaskRuntime();
 
   // inputProvider that blocks on pending input
   const inputProvider: InputProvider = async (ask: any) => {
@@ -266,60 +151,25 @@ export function runTaskExecution(
       if (!options.inputRequestBuilder) {
         throw new Error('Modern task input requires an input request builder');
       }
-      const response = await requestTaskInput(taskId, options.inputRequestBuilder(ask), signal);
+      const response = await taskRuntime.requestTaskInput(
+        taskId,
+        options.inputRequestBuilder(ask),
+        signal
+      );
       return options.extractInputResponse ? options.extractInputResponse(ask, response) : response;
     }
-    // Store the ask payload and transition to input_required
-    updateTask(taskId, {
-      state: 'input_required',
-      statusMessage: ask.message || 'Waiting for user input.',
-      input: ask,
-    });
-
-    // Block until resolveTaskInput() or rejectTaskInput() is called.
-    // Keep the abort listener in the resolver closure so it is removed on both
-    // successful input and cancellation.
-    return new Promise<any>((resolve, reject) => {
-      const onAbort = () => {
-        if (pendingInputs.has(pendingKey(taskId))) {
-          pendingInputs.delete(pendingKey(taskId));
-          reject(new Error('Task cancelled'));
-        }
-        signal.removeEventListener('abort', onAbort);
-      };
-      pendingInputs.set(
-        pendingKey(taskId),
-        new Map([
-          [
-            'legacy',
-            {
-              resolve: (value: any) => {
-                signal.removeEventListener('abort', onAbort);
-                resolve(value);
-              },
-              reject: (error: Error) => {
-                signal.removeEventListener('abort', onAbort);
-                reject(error);
-              },
-            },
-          ],
-        ])
-      );
-
-      if (signal.aborted) onAbort();
-      else signal.addEventListener('abort', onAbort, { once: true });
-    });
+    return taskRuntime.requestLegacyInput(taskId, ask, signal);
   };
 
   // outputHandler that updates task progress
   const outputHandler: OutputHandler = (data: any) => {
     if (data?.emit === 'progress' && typeof data.value === 'number') {
-      updateTask(taskId, {
+      taskRuntime.updateTask(taskId, {
         progress: { percent: data.value, message: data.message },
         statusMessage: data.message || undefined,
       });
     } else if (data?.emit === 'status') {
-      updateTask(taskId, {
+      taskRuntime.updateTask(taskId, {
         statusMessage: data.message || 'Processing...',
       });
     }
@@ -332,7 +182,10 @@ export function runTaskExecution(
   void (async () => {
     try {
       if (signal.aborted) {
-        updateTask(taskId, { state: 'cancelled', statusMessage: 'Task was cancelled.' });
+        taskRuntime.updateTask(taskId, {
+          state: 'cancelled',
+          statusMessage: 'Task was cancelled.',
+        });
         return;
       }
 
@@ -340,7 +193,7 @@ export function runTaskExecution(
       const wrappedInputProvider: InputProvider = async (ask) => {
         const result = await inputProvider(ask);
         // Resume: transition back to working
-        updateTask(taskId, {
+        taskRuntime.updateTask(taskId, {
           state: 'working',
           statusMessage: 'Resuming execution...',
           input: undefined,
@@ -354,9 +207,9 @@ export function runTaskExecution(
         }
         const entries = Object.entries(requests);
         const values = await Promise.all(
-          entries.map(([, request]) => requestTaskInput(taskId, request, signal))
+          entries.map(([, request]) => taskRuntime.requestTaskInput(taskId, request, signal))
         );
-        updateTask(taskId, {
+        taskRuntime.updateTask(taskId, {
           state: 'working',
           statusMessage: 'Resuming execution...',
           inputRequests: undefined,
@@ -368,7 +221,7 @@ export function runTaskExecution(
       const result = options.transformResult ? await options.transformResult(rawResult) : rawResult;
 
       if (!signal.aborted) {
-        transitionTask(taskId, ['working'], {
+        taskRuntime.transitionTask(taskId, ['working'], {
           state: 'completed',
           statusMessage: 'Operation completed successfully.',
           result,
@@ -376,7 +229,7 @@ export function runTaskExecution(
       }
     } catch (err) {
       if (signal.aborted) {
-        transitionTask(taskId, ['working', 'input_required'], {
+        taskRuntime.transitionTask(taskId, ['working', 'input_required'], {
           state: 'cancelled',
           statusMessage: 'Task was cancelled.',
           inputRequests: undefined,
@@ -384,7 +237,7 @@ export function runTaskExecution(
       } else {
         const protocolError = options.protocolErrorFrom?.(err);
         if (protocolError) {
-          transitionTask(taskId, ['working', 'input_required'], {
+          taskRuntime.transitionTask(taskId, ['working', 'input_required'], {
             state: 'failed',
             statusMessage: protocolError.message,
             error: protocolError,
@@ -392,7 +245,7 @@ export function runTaskExecution(
           });
         } else if (options.transformErrorToResult) {
           const result = await options.transformErrorToResult(err);
-          transitionTask(taskId, ['working', 'input_required'], {
+          taskRuntime.transitionTask(taskId, ['working', 'input_required'], {
             state: 'completed',
             statusMessage: 'Operation completed with a tool error.',
             result,
@@ -402,7 +255,7 @@ export function runTaskExecution(
           const message = err instanceof Error ? err.message : String(err);
           const error: string | TaskProtocolError =
             options.inputMode === 'modern' ? { code: -32603, message } : message;
-          transitionTask(taskId, ['working', 'input_required'], {
+          taskRuntime.transitionTask(taskId, ['working', 'input_required'], {
             state: 'failed',
             statusMessage: message,
             error,
@@ -412,8 +265,8 @@ export function runTaskExecution(
       }
     } finally {
       // Clean up any lingering pending input
-      rejectAllTaskInputs(taskId, 'Task execution ended');
-      unregisterController(taskId);
+      taskRuntime.rejectTaskInput(taskId, 'Task execution ended');
+      taskRuntime.unregisterController(taskId);
     }
   })();
 }

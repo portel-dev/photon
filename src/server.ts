@@ -55,6 +55,9 @@ import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/pho
 import { PHOTON_VERSION } from './version.js';
 import { createLogger, Logger, LoggerOptions, LogLevel } from './shared/logger.js';
 import { getErrorMessage, sanitizePublicErrorMessage } from './shared/error-handler.js';
+import { PhotonStatusService, type StatusNotificationPort } from './server-status-service.js';
+import { PhotonReloadService } from './photon-reload-service.js';
+export { HotReloadDisabledError } from './photon-reload-service.js';
 import {
   validateOrThrow,
   assertString,
@@ -143,13 +146,6 @@ async function loadJwtProfile(
     return { issuer: loaded.issuer.issuer, jwks: loaded.jwks };
   } catch {
     return null;
-  }
-}
-
-export class HotReloadDisabledError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'HotReloadDisabledError';
   }
 }
 
@@ -664,14 +660,17 @@ export class PhotonServer {
   };
   private sseSessions: Map<string, SSESession> = new Map();
   private devMode: boolean;
-  private hotReloadDisabled = false;
-  private lastReloadError?: {
-    message: string;
-    stack?: string;
-    timestamp: number;
-    attempts: number;
-  };
-  private statusClients: Set<ServerResponse> = new Set();
+  private readonly reloadService: PhotonReloadService;
+  private readonly statusService: PhotonStatusService;
+  private get hotReloadDisabled(): boolean {
+    return this.reloadService.getState().hotReloadDisabled;
+  }
+  private get lastReloadError() {
+    return this.reloadService.getState().lastReloadError;
+  }
+  private set hotReloadDisabled(value: boolean) {
+    this.reloadService.setDisabledForTests(value);
+  }
   private channelManager: ChannelManager;
   private daemonName: string | null = null;
   /** Tracked instance name for daemon drift recovery (STDIO path) */
@@ -702,8 +701,11 @@ export class PhotonServer {
   private clientCapabilitiesLogged = false;
   /** Client capability detection and negotiation */
   private capabilityNegotiator = new CapabilityNegotiator();
-  /** Write queue for serialized STDIO notifications (prevents interleaving from concurrent generators) */
-  private readonly notificationQueue: NotificationQueue<ServerNotification>;
+  /** Write queues keyed by protocol server so concurrent generators cannot interleave frames. */
+  private readonly notificationQueues = new WeakMap<
+    Server,
+    NotificationQueue<ServerNotification>
+  >();
 
   /** Compatibility alias for tests that seed raw capabilities directly on PhotonServer */
   public rawClientCapabilities = this.capabilityNegotiator.rawClientCapabilities;
@@ -727,15 +729,6 @@ export class PhotonServer {
    * automatically when SSE sessions disconnect.
    */
   private rootsByServer = new WeakMap<Server, Array<{ uri: string; name?: string }>>();
-  private currentStatus: {
-    type: 'info' | 'success' | 'error' | 'warn';
-    message: string;
-    timestamp: number;
-  } = {
-    type: 'info',
-    message: 'Ready',
-    timestamp: Date.now(),
-  };
   private logger: Logger;
 
   /** Get the loaded photon (available after start()) */
@@ -768,11 +761,6 @@ export class PhotonServer {
 
     this.options = options;
     this.devMode = options.devMode || false;
-    this.notificationQueue = new NotificationQueue(
-      { send: (notification) => this.server.notification(notification) },
-      (error) => this.logger.debug('Failed to send notification', { error: getErrorMessage(error) })
-    );
-
     // Progressive skill disclosure: descriptors are safe to include in the
     // initial server instructions; full bodies remain available through the
     // explicit photon_skill_read tool.
@@ -811,6 +799,32 @@ export class PhotonServer {
       baseLoggerOptions.scope = this.devMode ? 'dev' : 'runtime';
     }
     this.logger = createLogger(baseLoggerOptions);
+    this.statusService = new PhotonStatusService({
+      getPhoton: () => this.mcp,
+      getDevMode: () => this.devMode,
+      getHotReloadDisabled: () => this.hotReloadDisabled,
+      getLastReloadError: () => this.lastReloadError,
+      notificationPort: {
+        broadcast: async (status) => {
+          const payload = {
+            method: 'notifications/status',
+            params: { type: status.type, message: status.message },
+          };
+          try {
+            await this.server.notification(payload);
+          } catch (e) {
+            this.log('debug', 'Notification send failed', { error: getErrorMessage(e) });
+          }
+          for (const session of Array.from(this.sseSessions.values())) {
+            try {
+              await session.server.notification(payload);
+            } catch (e) {
+              this.log('debug', 'Session notification failed', { error: getErrorMessage(e) });
+            }
+          }
+        },
+      } satisfies StatusNotificationPort,
+    });
 
     const loaderVerbose =
       (baseLoggerOptions.level ?? 'info') !== 'warn' &&
@@ -823,6 +837,21 @@ export class PhotonServer {
     // Bridge `this.notifyResourceUpdated(uri)` from photon authors into the
     // server's SubscriptionRegistry so all subscribed clients get fanout.
     this.loader.setResourceUpdateNotifier((uri: string) => this.subscriptions.notify(uri));
+    this.reloadService = new PhotonReloadService({
+      filePath: () => this.options.filePath,
+      loader: this.loader,
+      photon: {
+        get: () => this.mcp,
+        set: (next) => {
+          this.mcp = next;
+        },
+      },
+      notifications: {
+        notifyListsChanged: () => this.notifyListsChanged(),
+        broadcastStatus: (type, message) => this.broadcastReloadStatus(type, message),
+      },
+      log: (level, message, meta) => this.log(level as LogLevel, message, meta),
+    });
 
     // Initialize ChannelManager — owns all channel/pub-sub logic
     // The sink is wired up lazily because `this.server` doesn't exist yet
@@ -966,8 +995,15 @@ export class PhotonServer {
    * Send a notification through the STDIO write queue.
    * Serializes writes so concurrent generators don't interleave JSON on stdout.
    */
-  private queueNotification(notification: ServerNotification, _server = this.server): void {
-    this.notificationQueue.enqueue(notification);
+  private queueNotification(notification: ServerNotification, server = this.server): void {
+    let queue = this.notificationQueues.get(server);
+    if (!queue) {
+      queue = new NotificationQueue({ send: (value) => server.notification(value) }, (error) =>
+        this.logger.debug('Failed to send notification', { error: getErrorMessage(error) })
+      );
+      this.notificationQueues.set(server, queue);
+    }
+    queue.enqueue(notification);
   }
 
   /**
@@ -1804,7 +1840,7 @@ export class PhotonServer {
     // SSE stream BEFORE the HTTP POST response body is written. Without this, the
     // client receives the tool result, deletes its _progressHandlers entry, and then
     // silently drops any notifications that arrive later on the SSE stream.
-    await this.notificationQueue.drain();
+    await this.notificationQueues.get(ctx.server)?.drain();
 
     return response;
   }
@@ -3684,12 +3720,12 @@ export class PhotonServer {
             const statusHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
             if (corsOrigin) statusHeaders['Access-Control-Allow-Origin'] = corsOrigin;
             res.writeHead(200, statusHeaders);
-            res.end(JSON.stringify(this.buildStatusSnapshot()));
+            res.end(JSON.stringify(this.statusService.snapshot()));
             return;
           }
 
           if (req.method === 'GET' && url.pathname === '/api/status-stream') {
-            this.handleStatusStream(req, res);
+            this.statusService.handleStream(req, res);
             return;
           }
         }
@@ -4436,10 +4472,7 @@ export class PhotonServer {
       }
       this.sseSessions.clear();
 
-      for (const client of this.statusClients) {
-        client.end();
-      }
-      this.statusClients.clear();
+      this.statusService.close();
 
       // Upgraded sockets are not normal HTTP connections, so Node's
       // closeAllConnections() does not include them.
@@ -4485,243 +4518,15 @@ export class PhotonServer {
     }
   }
 
-  private buildStatusSnapshot() {
-    const warnings: string[] = [];
-    const instance = this.mcp?.instance;
-    if (instance && '_photonConfigError' in instance && instance._photonConfigError) {
-      warnings.push('Photon configuration incomplete. Check env vars and MCP credentials.');
-    }
-
-    const assets = this.mcp?.assets || { ui: [], prompts: [], resources: [] };
-    const tools = this.mcp?.tools || [];
-
-    return {
-      photon: this.mcp?.name || null,
-      devMode: this.devMode,
-      hotReloadDisabled: this.hotReloadDisabled,
-      lastReloadError: this.lastReloadError || null,
-      status: this.currentStatus,
-      warnings,
-      summary: {
-        toolCount: tools.length,
-        tools: tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description || '',
-          hasUI: Boolean(assets.ui?.some((ui) => ui.linkedTool === tool.name)),
-        })),
-        uiAssets: (assets.ui || []).map((ui) => ({ id: ui.id, linkedTool: ui.linkedTool })),
-        promptCount: assets.prompts?.length || 0,
-        resourceCount: assets.resources?.length || 0,
-      },
-    };
-  }
-
-  private handleStatusStream(_req: IncomingMessage, res: ServerResponse) {
-    const ssHeaders: Record<string, string> = {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    };
-    const origin = getCorsOrigin(_req);
-    if (origin) ssHeaders['Access-Control-Allow-Origin'] = origin;
-    res.writeHead(200, ssHeaders);
-
-    res.write(`data: ${JSON.stringify(this.buildStatusSnapshot())}\n\n`);
-    this.statusClients.add(res);
-
-    const cleanup = () => {
-      this.statusClients.delete(res);
-    };
-
-    res.on('close', cleanup);
-    res.on('error', cleanup);
-  }
-
   private async broadcastReloadStatus(type: 'info' | 'warn' | 'error', message: string) {
-    this.currentStatus = { type, message, timestamp: Date.now() };
-    this.pushStatusUpdate();
-
-    const payload = {
-      method: 'notifications/status',
-      params: { type, message },
-    };
-
-    try {
-      await this.server.notification(payload);
-    } catch (e) {
-      this.log('debug', 'Notification send failed', { error: getErrorMessage(e) });
-    }
-
-    // Snapshot to avoid live-iterator + await issues
-    for (const session of Array.from(this.sseSessions.values())) {
-      try {
-        await session.server.notification(payload);
-      } catch (e) {
-        this.log('debug', 'Session notification failed', { error: getErrorMessage(e) });
-      }
-    }
-  }
-
-  private pushStatusUpdate() {
-    const frame = `data: ${JSON.stringify(this.currentStatus)}\n\n`;
-    for (const client of this.statusClients) {
-      client.write(frame);
-    }
+    await this.statusService.broadcast(type, message);
   }
 
   /**
    * Reload the MCP file (for dev mode hot reload)
    */
-  private reloadFailureCount = 0;
-  private readonly MAX_RELOAD_FAILURES = 3;
-  private reloadRetryTimeout?: NodeJS.Timeout;
-
   async reload() {
-    // Clear any pending retry
-    if (this.reloadRetryTimeout) {
-      clearTimeout(this.reloadRetryTimeout);
-      this.reloadRetryTimeout = undefined;
-    }
-
-    if (this.hotReloadDisabled) {
-      throw new HotReloadDisabledError(
-        'Hot reload temporarily disabled after repeated failures. Restart Photon or fix the errors to re-enable.'
-      );
-    }
-
-    try {
-      this.log('info', 'Reloading Photon');
-
-      // Store old instance in case we need to rollback
-      const oldInstance = this.mcp;
-
-      // Call shutdown hook on old instance with hot-reload context so the
-      // photon can skip destructive cleanup of resources the new instance
-      // will reuse (sockets, timers, DB connections, etc.).
-      if (oldInstance?.instance?.onShutdown) {
-        try {
-          await oldInstance.instance.onShutdown({ reason: 'hot-reload' });
-        } catch (shutdownError: any) {
-          this.log('warn', 'Shutdown hook failed during reload', { error: shutdownError.message });
-          // Continue with reload anyway
-        }
-      }
-
-      // Reload the file without running onInitialize — we'll invoke it
-      // manually below with hot-reload context and an oldInstance reference
-      // so the new instance can transfer non-copyable resources.
-      const newMcp = await this.loader.reloadFile(this.options.filePath, {
-        skipInitialize: true,
-      });
-
-      // Auto-transfer in-memory state (non-function own properties) from
-      // old to new. Covers maps, arrays, flags, caches without requiring
-      // the photon author to manually copy fields in onInitialize. Photons
-      // only need custom handling for non-copyable resources (sockets,
-      // timers, DB connections) via the oldInstance context below.
-      //
-      // Known tradeoff: hot reload preserves runtime state at the cost of
-      // not applying field-initializer source changes on the fly. Changes
-      // like `count = 0` → `count = 10`, or `items = ['seed']` → `items = []`
-      // will not take effect until the next full daemon restart. We pick this
-      // side because the mainstream reason to hot reload is to keep
-      // accumulated data alive while iterating on method bodies; any
-      // heuristic that tries to distinguish "intentional reset" from
-      // "unchanged initializer I haven't touched" drops state or drops
-      // edits depending on which direction it leans. Developers who change
-      // field initializer defaults should restart the daemon.
-      if (oldInstance?.instance && newMcp?.instance && typeof oldInstance.instance === 'object') {
-        const newRec = newMcp.instance as Record<string, unknown>;
-        const oldRec = oldInstance.instance as Record<string, unknown>;
-        for (const key of Object.keys(oldRec)) {
-          if (key === 'constructor') continue;
-          const value = oldRec[key];
-          if (typeof value === 'function') continue;
-          try {
-            newRec[key] = value;
-          } catch {
-            // Some properties may be read-only (e.g. settings proxy)
-          }
-        }
-      }
-
-      // Invoke onInitialize on the new instance with hot-reload context so
-      // the photon can re-subscribe to non-copyable resources using the
-      // provided oldInstance reference.
-      if (newMcp?.instance && typeof newMcp.instance.onInitialize === 'function') {
-        try {
-          await newMcp.instance.onInitialize({
-            reason: 'hot-reload',
-            oldInstance: oldInstance?.instance,
-          });
-        } catch (initError: any) {
-          // Bubble through so the outer catch flags PhotonInitializationError.
-          throw initError;
-        }
-      }
-
-      // Success! Update instance and reset failure count
-      this.mcp = newMcp;
-      this.reloadFailureCount = 0;
-      this.hotReloadDisabled = false;
-      this.lastReloadError = undefined;
-
-      // Send list_changed notifications to inform client of updates
-      await this.notifyListsChanged();
-
-      await this.broadcastReloadStatus('info', 'Hot reload complete');
-
-      this.log('info', 'Reload complete');
-    } catch (error) {
-      this.reloadFailureCount++;
-
-      this.log('error', 'Reload failed', {
-        attempt: this.reloadFailureCount,
-        maxAttempts: this.MAX_RELOAD_FAILURES,
-        error: getErrorMessage(error),
-      });
-
-      if (error instanceof Error && error.name === 'PhotonInitializationError') {
-        this.log('warn', 'onInitialize lifecycle hook failed', {
-          hints: [
-            'Database connection failure',
-            'API authentication error',
-            'Missing environment variables',
-            'Invalid configuration',
-          ],
-        });
-      }
-
-      this.lastReloadError = {
-        message: getErrorMessage(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: Date.now(),
-        attempts: this.reloadFailureCount,
-      };
-      await this.broadcastReloadStatus('error', `Hot reload failed: ${getErrorMessage(error)}`);
-
-      if (this.reloadFailureCount >= this.MAX_RELOAD_FAILURES) {
-        this.log('error', 'Maximum reload failures reached', {
-          maxAttempts: this.MAX_RELOAD_FAILURES,
-          action: 'keeping previous version active',
-        });
-        this.log('info', 'Server still running with previous version');
-
-        this.hotReloadDisabled = true;
-        this.reloadFailureCount = 0;
-        throw new HotReloadDisabledError(
-          'Hot reload disabled after repeated failures. Restart Photon dev server once the errors are resolved.'
-        );
-      }
-
-      const retryDelay = Math.min(5000 * this.reloadFailureCount, 15000);
-      this.log('warn', 'Reload failed - waiting for next change', {
-        retrySeconds: retryDelay / 1000,
-      });
-      this.log('info', 'Server still running with previous version');
-
-      throw error;
-    }
+    return this.reloadService.reload();
   }
 
   /**

@@ -395,7 +395,7 @@ function photonSourceAlreadyLoaded(photonName: string, photonPath: string): bool
   if (!current) return false;
 
   for (const [key, storedPath] of photonPaths.entries()) {
-    if (!key.endsWith(`::${photonName}`) || storedPath !== photonPath) continue;
+    if (photonFromCompositeKey(key) !== photonName || storedPath !== photonPath) continue;
     if (samePhotonSourceStat(photonSourceStats.get(key), current)) return true;
   }
 

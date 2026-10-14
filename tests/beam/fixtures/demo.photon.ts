@@ -39,7 +39,7 @@ export default class Demo {
       environment: 'test',
       version: '1.0.0',
       debug: true,
-      maxRetries: 3
+      maxRetries: 3,
     };
   }
 
@@ -51,7 +51,7 @@ export default class Demo {
     return [
       { id: 1, name: 'Alice', email: 'alice@example.com' },
       { id: 2, name: 'Bob', email: 'bob@example.com' },
-      { id: 3, name: 'Charlie', email: 'charlie@example.com' }
+      { id: 3, name: 'Charlie', email: 'charlie@example.com' },
     ];
   }
 
@@ -94,6 +94,13 @@ Call any method to see its output rendered in BEAM UI.
   }
 
   /**
+   * Weather-like method with two required coordinates.
+   */
+  async forecast(params: { latitude: number; longitude: number }): Promise<object> {
+    return { latitude: params.latitude, longitude: params.longitude };
+  }
+
+  /**
    * Method with optional parameter
    * @param name {@placeholder Enter your name} {@hint This will be used in the greeting} Name to greet
    * @param greeting {@placeholder Hi, Hey, Hello...} Optional greeting prefix
@@ -113,7 +120,7 @@ Call any method to see its output rendered in BEAM UI.
     return {
       query: params.query,
       results: ['Result 1', 'Result 2', 'Result 3'],
-      total: 3
+      total: 3,
     };
   }
 
@@ -141,14 +148,14 @@ Call any method to see its output rendered in BEAM UI.
           name: 'Test User',
           settings: {
             theme: 'dark',
-            notifications: true
-          }
-        }
+            notifications: true,
+          },
+        },
       },
       metadata: {
         created: '2024-01-01',
-        updated: '2024-01-15'
-      }
+        updated: '2024-01-15',
+      },
     };
   }
 
@@ -177,7 +184,7 @@ Call any method to see its output rendered in BEAM UI.
     return [
       { name: 'Alice Smith', email: 'alice@example.com', avatar: 'A', status: 'active' },
       { name: 'Bob Jones', email: 'bob@example.com', avatar: 'B', status: 'inactive' },
-      { name: 'Carol White', email: 'carol@example.com', avatar: 'C', status: 'active' }
+      { name: 'Carol White', email: 'carol@example.com', avatar: 'C', status: 'active' },
     ];
   }
 
@@ -187,9 +194,24 @@ Call any method to see its output rendered in BEAM UI.
    */
   async getProducts(): Promise<object[]> {
     return [
-      { productName: 'Laptop Pro', description: 'High-performance laptop', category: 'Electronics', price: 1299 },
-      { productName: 'Wireless Mouse', description: 'Ergonomic wireless mouse', category: 'Accessories', price: 49 },
-      { productName: 'USB-C Hub', description: 'Multi-port USB-C adapter', category: 'Accessories', price: 79 }
+      {
+        productName: 'Laptop Pro',
+        description: 'High-performance laptop',
+        category: 'Electronics',
+        price: 1299,
+      },
+      {
+        productName: 'Wireless Mouse',
+        description: 'Ergonomic wireless mouse',
+        category: 'Accessories',
+        price: 49,
+      },
+      {
+        productName: 'USB-C Hub',
+        description: 'Multi-port USB-C adapter',
+        category: 'Accessories',
+        price: 79,
+      },
     ];
   }
 
@@ -202,7 +224,7 @@ Call any method to see its output rendered in BEAM UI.
       displayName: 'John Developer',
       role: 'Senior Engineer',
       department: 'Engineering',
-      location: 'Remote'
+      location: 'Remote',
     };
   }
 
@@ -219,7 +241,7 @@ Call any method to see its output rendered in BEAM UI.
   async getContacts(): Promise<object[]> {
     return [
       { name: 'Support', email: 'support@company.com', createdAt: '2024-01-15' },
-      { name: 'Sales', email: 'sales@company.com', createdAt: '2024-02-20' }
+      { name: 'Sales', email: 'sales@company.com', createdAt: '2024-02-20' },
     ];
   }
 
@@ -235,11 +257,11 @@ Call any method to see its output rendered in BEAM UI.
     const steps = params.steps || 5;
 
     yield io.emit.status('Starting process...');
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     for (let i = 1; i <= steps; i++) {
       yield io.emit.progress(i / steps, `Processing step ${i} of ${steps}`);
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
     yield io.emit.progress(1, 'Complete!');
@@ -251,13 +273,13 @@ Call any method to see its output rendered in BEAM UI.
    */
   async *showSpinner(): AsyncGenerator<any> {
     yield io.emit.status('Loading data...');
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     yield io.emit.status('Processing...');
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     yield io.emit.status('Finalizing...');
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     return 'Done!';
   }

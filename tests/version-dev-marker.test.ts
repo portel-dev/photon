@@ -11,7 +11,17 @@
  */
 
 import assert from 'node:assert/strict';
-import { PHOTON_VERSION, IS_DEV_BUILD } from '../dist/version.js';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import {
+  PHOTON_VERSION,
+  IS_DEV_BUILD,
+  PHOTON_CORE_VERSION,
+  getResolvedPhotonCoreVersion,
+} from '../dist/version.js';
+
+const require = createRequire(import.meta.url);
 
 async function test(name: string, fn: () => Promise<void> | void): Promise<void> {
   try {
@@ -49,11 +59,35 @@ async function main() {
 
   await test('the semver base (pre-+) matches package.json version', async () => {
     const base = PHOTON_VERSION.split('+')[0];
-    const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const pkgPath = fileURLToPath(new URL('../package.json', import.meta.url));
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
     assert.equal(base, pkg.version);
+  });
+
+  await test('declared Core range remains separate from the resolved package version', () => {
+    assert.equal(PHOTON_CORE_VERSION, '^2.28.0');
+    const entry = require.resolve('@portel/photon-core');
+    let dir = dirname(entry);
+    let packagePath = '';
+    while (dir !== dirname(dir)) {
+      const candidate = join(dir, 'package.json');
+      try {
+        readFileSync(candidate, 'utf8');
+        packagePath = candidate;
+        break;
+      } catch {
+        dir = dirname(dir);
+      }
+    }
+    assert.ok(packagePath, 'installed Core package metadata should be discoverable');
+    const installed = JSON.parse(readFileSync(packagePath, 'utf8')) as { version?: string };
+    assert.equal(installed.version, '2.28.0');
+    assert.equal(
+      getResolvedPhotonCoreVersion(),
+      installed.version,
+      'cache identity must use the concrete installed Core version'
+    );
   });
 
   console.log('\nAll dev-build version marker tests passed.');

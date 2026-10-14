@@ -97,6 +97,33 @@ async function run() {
     assert.equal(methodRequiresInput(render!), true);
   });
 
+  await test('required schema input cannot be masked by stale intent metadata', () => {
+    const methodWithStaleIntent = method({
+      name: 'forecast',
+      description: '7-day weather forecast',
+      params: {
+        type: 'object',
+        properties: {
+          latitude: { type: 'number' },
+          longitude: { type: 'number' },
+        },
+        required: ['latitude', 'longitude'],
+      },
+      intent: {
+        action: 'view',
+        confidence: 0.8,
+        sources: ['schema'],
+        input: { requiresInput: false },
+      },
+    });
+
+    assert.equal(
+      methodRequiresInput(methodWithStaleIntent),
+      true,
+      'required latitude/longitude must keep Beam on the form'
+    );
+  });
+
   await test('delete intent is destructive even when inferred from name', () => {
     const render = buildPhotonRenderMeta(
       method({

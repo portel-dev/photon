@@ -24,6 +24,7 @@ export class FileWatcher {
   private assetFolderPath: string | null = null;
   private reloadTimeout: NodeJS.Timeout | null = null;
   private lifecycleGeneration = 0;
+  private lifecycleOperation: Promise<void> = Promise.resolve();
   private logger: Logger;
 
   constructor(server: PhotonServer, filePath: string, logger?: Logger) {
@@ -47,42 +48,44 @@ export class FileWatcher {
    * Start watching the file and asset folder
    */
   async start(): Promise<void> {
-    await this.stop(false);
-    const generation = ++this.lifecycleGeneration;
-    const watchPaths: string[] = [this.filePath];
+    return this.enqueueLifecycle(async () => {
+      await this.stopInternal(false);
+      const generation = ++this.lifecycleGeneration;
+      const watchPaths: string[] = [this.filePath];
 
-    if (this.assetFolderPath) {
-      watchPaths.push(this.assetFolderPath);
-      this.logger.info(
-        `Watching ${path.basename(this.filePath)} and ${path.basename(this.assetFolderPath)}/ for changes...`
-      );
-    } else {
-      this.logger.info(`Watching ${path.basename(this.filePath)} for changes...`);
-    }
-
-    this.watcher = chokidar.watch(watchPaths, {
-      persistent: true,
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: HOT_RELOAD_DEBOUNCE_MS,
-        pollInterval: 50,
-      },
-    });
-
-    this.watcher.on('change', (changedPath: string) => {
-      this.handleFileChange(changedPath, generation);
-    });
-
-    // Also watch for new files in asset folder
-    this.watcher.on('add', (changedPath: string) => {
-      if (this.assetFolderPath && changedPath.startsWith(this.assetFolderPath)) {
-        this.handleFileChange(changedPath, generation);
+      if (this.assetFolderPath) {
+        watchPaths.push(this.assetFolderPath);
+        this.logger.info(
+          `Watching ${path.basename(this.filePath)} and ${path.basename(this.assetFolderPath)}/ for changes...`
+        );
+      } else {
+        this.logger.info(`Watching ${path.basename(this.filePath)} for changes...`);
       }
-    });
 
-    this.watcher.on('error', (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Watcher error: ${message}`);
+      this.watcher = chokidar.watch(watchPaths, {
+        persistent: true,
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: HOT_RELOAD_DEBOUNCE_MS,
+          pollInterval: 50,
+        },
+      });
+
+      this.watcher.on('change', (changedPath: string) => {
+        this.handleFileChange(changedPath, generation);
+      });
+
+      // Also watch for new files in asset folder
+      this.watcher.on('add', (changedPath: string) => {
+        if (this.assetFolderPath && changedPath.startsWith(this.assetFolderPath)) {
+          this.handleFileChange(changedPath, generation);
+        }
+      });
+
+      this.watcher.on('error', (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Watcher error: ${message}`);
+      });
     });
   }
 
@@ -126,11 +129,14 @@ export class FileWatcher {
    * Stop watching
    */
   async stop(log = true): Promise<void> {
+    return this.enqueueLifecycle(() => this.stopInternal(log));
+  }
+
+  private async stopInternal(log: boolean): Promise<void> {
     this.lifecycleGeneration++;
-    if (this.watcher) {
-      await this.watcher.close();
-      this.watcher = null;
-    }
+    const watcher = this.watcher;
+    this.watcher = null;
+    if (watcher) await watcher.close();
 
     if (this.reloadTimeout) {
       clearTimeout(this.reloadTimeout);
@@ -138,5 +144,11 @@ export class FileWatcher {
     }
 
     if (log) this.logger.info('File watcher stopped');
+  }
+
+  private enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+    const next = this.lifecycleOperation.then(operation, operation);
+    this.lifecycleOperation = next.catch(() => undefined);
+    return next;
   }
 }

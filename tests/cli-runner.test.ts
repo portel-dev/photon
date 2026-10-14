@@ -530,10 +530,36 @@ async function run() {
 
   console.log('\n-- intent helpers --');
 
-  await test('methodRequiresInput prefers intent input metadata', () => {
+  await test('methodRequiresInput never masks required schema parameters', () => {
+    const method: MethodInfo = {
+      name: 'forecast',
+      params: {
+        type: 'object',
+        properties: {
+          latitude: { type: 'number' },
+          longitude: { type: 'number' },
+        },
+        required: ['latitude', 'longitude'],
+      },
+      intent: {
+        action: 'view',
+        confidence: 0.9,
+        sources: ['schema'],
+        input: { requiresInput: false },
+      },
+    };
+
+    assert.equal(methodRequiresInput(method), true);
+  });
+
+  await test('methodRequiresInput preserves explicit intent for optional schema', () => {
     const method: MethodInfo = {
       name: 'status',
-      params: [{ name: 'verbose', type: 'boolean', optional: false }],
+      params: {
+        type: 'object',
+        properties: { verbose: { type: 'boolean' } },
+        required: [],
+      },
       intent: {
         action: 'monitor',
         confidence: 0.9,

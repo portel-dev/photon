@@ -11,13 +11,15 @@ export interface IntentAwareMethod {
 
 export function methodRequiresInput(method: IntentAwareMethod | undefined): boolean {
   if (!method) return false;
-  if (method.intent?.input?.requiresInput !== undefined) {
-    return method.intent.input.requiresInput;
-  }
-  if (Array.isArray(method.params)) {
-    return method.params.some((param) => !param.optional);
-  }
-  return Array.isArray(method.params?.required) && method.params.required.length > 0;
+
+  const schemaRequiresInput = Array.isArray(method.params)
+    ? method.params.some((param) => !param.optional)
+    : Array.isArray(method.params?.required) && method.params.required.length > 0;
+
+  // Required schema fields cannot be hidden by stale or contradictory intent
+  // metadata. Intent remains authoritative when the schema is optional.
+  if (schemaRequiresInput) return true;
+  return method.intent?.input?.requiresInput === true;
 }
 
 export function isDestructiveIntent(method: IntentAwareMethod | undefined): boolean {

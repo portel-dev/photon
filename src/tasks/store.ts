@@ -11,6 +11,8 @@ import { readJSONSync } from '../shared/io.js';
 import { join } from 'path';
 import { randomBytes, randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
+import { TaskRuntime } from './runtime.js';
+import type { TaskRuntimePort } from './ports.js';
 import {
   type Task,
   type TaskAccessBinding,
@@ -57,12 +59,142 @@ function writeTaskFile(task: Task): void {
   renameSync(temporary, destination);
 }
 
-/** Event emitter for task state changes */
-export const taskEvents = new EventEmitter();
-taskEvents.setMaxListeners(50); // Multiple SSE sessions may listen
+/** Compatibility runtime is selected by task directory and created lazily. */
+const runtimes = new Map<string, TaskRuntimePort>();
 
-/** Active task AbortControllers for cancellation */
-const activeControllers = new Map<string, AbortController>();
+function runtimeForDirectory(directory: string): TaskRuntimePort {
+  const existing = runtimes.get(directory);
+  if (existing) return existing;
+  const runtime = new TaskRuntime({
+    getTask: (taskId) => readTaskFromDirectory(directory, taskId),
+    updateTask: (taskId, updates) => updateTaskInDirectory(directory, taskId, updates),
+    cleanup: () => cleanExpiredTasksInDirectory(directory),
+    recover: () => recoverInterruptedTasksInDirectory(directory),
+    createTask: (photon, method, params, ttl, options) =>
+      createTaskInDirectory(directory, photon, method, params, ttl, options),
+    listTasks: (photon) => listTasksInDirectory(directory, photon),
+  });
+  runtimes.set(directory, runtime);
+  return runtime;
+}
+
+function runtimeForCurrentDirectory(): TaskRuntimePort {
+  return runtimeForDirectory(resolveTasksDir());
+}
+
+export const taskEvents = new EventEmitter();
+taskEvents.setMaxListeners(50);
+
+function emitRuntimeEvent(
+  directory: string,
+  taskId: string,
+  state: Task['state'],
+  task: Task
+): void {
+  taskEvents.emit('stateChange', taskId, state, task);
+  runtimes.get(directory)?.events.emit('stateChange', taskId, state, task);
+}
+
+function recoverInterruptedTasksInDirectory(directory: string): number {
+  mkdirSync(directory, { recursive: true });
+  let recovered = 0;
+  for (const file of readdirSync(directory).filter((name) => name.endsWith('.json'))) {
+    try {
+      const task: Task = readJSONSync(join(directory, file));
+      if (TERMINAL_STATES.includes(task.state)) continue;
+      task.state = 'failed';
+      task.statusMessage = 'Task execution was interrupted by a server restart.';
+      task.error = {
+        code: -32603,
+        message: 'Task execution was interrupted by a server restart',
+        data: { code: 'PHOTON_TASK_INTERRUPTED_BY_RESTART' },
+      };
+      task.input = undefined;
+      task.inputRequests = undefined;
+      task.revision = (task.revision ?? 0) + 1;
+      task.updatedAt = new Date().toISOString();
+      writeTaskFileAt(directory, task);
+      recovered++;
+    } catch {
+      /* keep corrupt records isolated */
+    }
+  }
+  return recovered;
+}
+
+function listTasksInDirectory(directory: string, photon?: string): Task[] {
+  mkdirSync(directory, { recursive: true });
+  return readdirSync(directory)
+    .filter((file) => file.endsWith('.json'))
+    .map((file) => {
+      try {
+        return readJSONSync(join(directory, file));
+      } catch {
+        return null;
+      }
+    })
+    .filter((task): task is Task => !!task && (!photon || task.photon === photon))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+function readTaskFromDirectory(directory: string, id: string): Task | null {
+  const p = join(directory, `${id}.json`);
+  if (!existsSync(p)) return null;
+  try {
+    return readJSONSync(p);
+  } catch {
+    return null;
+  }
+}
+
+function writeTaskFileAt(directory: string, task: Task): void {
+  mkdirSync(directory, { recursive: true });
+  const destination = join(directory, `${task.id}.json`);
+  const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, JSON.stringify(task, null, 2), { encoding: 'utf8', mode: 0o600 });
+  renameSync(temporary, destination);
+}
+
+function updateTaskInDirectory(
+  directory: string,
+  id: string,
+  updates: Record<string, unknown>
+): Task | null {
+  const task = readTaskFromDirectory(directory, id);
+  if (!task) return null;
+  const oldState = task.state;
+  Object.assign(task, updates, {
+    revision: (task.revision ?? 0) + 1,
+    updatedAt: new Date().toISOString(),
+  });
+  writeTaskFileAt(directory, task);
+  if (updates.state && updates.state !== oldState)
+    emitRuntimeEvent(directory, id, task.state, task);
+  return task;
+}
+
+function cleanExpiredTasksInDirectory(directory: string, ttlOverride?: number): number {
+  mkdirSync(directory, { recursive: true });
+  let cleaned = 0;
+  const now = Date.now();
+  for (const file of readdirSync(directory).filter((f) => f.endsWith('.json'))) {
+    try {
+      const task: Task = readJSONSync(join(directory, file));
+      const isModern = task.protocol === 'extension-2026';
+      if (!isModern && !TERMINAL_STATES.includes(task.state)) continue;
+      const age = now - new Date(isModern ? task.createdAt : task.updatedAt).getTime();
+      if (age > (ttlOverride ?? task.ttl ?? DEFAULT_TTL)) {
+        runtimeForCurrentDirectory().getController(task.id)?.abort();
+        runtimeForCurrentDirectory().unregisterController(task.id);
+        unlinkSync(join(directory, file));
+        cleaned++;
+      }
+    } catch {
+      // Skip corrupt files.
+    }
+  }
+  return cleaned;
+}
 
 /** Include the resolved workspace in in-memory task coordination keys. */
 export function taskRuntimeKey(taskId: string): string {
@@ -70,18 +202,23 @@ export function taskRuntimeKey(taskId: string): string {
 }
 
 export function registerController(taskId: string, controller: AbortController): void {
-  activeControllers.set(taskRuntimeKey(taskId), controller);
+  runtimeForCurrentDirectory().registerController(taskId, controller);
 }
 
 export function unregisterController(taskId: string): void {
-  activeControllers.delete(taskRuntimeKey(taskId));
+  runtimeForCurrentDirectory().unregisterController(taskId);
 }
 
 export function getController(taskId: string): AbortController | undefined {
-  return activeControllers.get(taskRuntimeKey(taskId));
+  return runtimeForCurrentDirectory().getController(taskId);
 }
 
-export function createTask(
+export function getTaskRuntime(): TaskRuntimePort {
+  return runtimeForCurrentDirectory();
+}
+
+function createTaskInDirectory(
+  directory: string,
   photon: string,
   method: string,
   params?: Record<string, unknown>,
@@ -93,9 +230,7 @@ export function createTask(
     traceContext?: TracePropagationContext;
   } = {}
 ): Task {
-  ensureDir();
-  startTaskMaintenance();
-  recoverInterruptedTasks();
+  mkdirSync(directory, { recursive: true });
   const now = new Date().toISOString();
   const normalizedTtl =
     typeof ttl === 'number' && Number.isFinite(ttl) && ttl > 0
@@ -126,15 +261,30 @@ export function createTask(
     createdAt: now,
     updatedAt: now,
   };
-  writeTaskFile(task);
-  taskEvents.emit('stateChange', task.id, task.state, task);
+  writeTaskFileAt(directory, task);
+  emitRuntimeEvent(directory, task.id, task.state, task);
   return task;
+}
+
+export function createTask(
+  photon: string,
+  method: string,
+  params?: Record<string, unknown>,
+  ttl?: number,
+  options: {
+    protocol?: TaskProtocol;
+    owner?: TaskAccessBinding;
+    pollInterval?: number;
+    traceContext?: TracePropagationContext;
+  } = {}
+): Task {
+  return runtimeForCurrentDirectory().createTask(photon, method, params, ttl, options);
 }
 
 export function getTask(id: string): Task | null {
   ensureDir();
   startTaskMaintenance();
-  recoverInterruptedTasks();
+  runtimeForCurrentDirectory().recoverInterruptedTasks();
   const p = taskPath(id);
   if (!existsSync(p)) return null;
   try {
@@ -171,7 +321,7 @@ export function updateTask(
   writeTaskFile(task);
 
   if (updates.state && updates.state !== oldState) {
-    taskEvents.emit('stateChange', id, task.state, task);
+    emitRuntimeEvent(resolveTasksDir(), id, task.state, task);
   }
 
   return task;
@@ -195,7 +345,7 @@ export function transitionTask(
 export function listTasks(photon?: string): Task[] {
   ensureDir();
   startTaskMaintenance();
-  recoverInterruptedTasks();
+  runtimeForCurrentDirectory().recoverInterruptedTasks();
   const files = readdirSync(resolveTasksDir()).filter((f) => f.endsWith('.json'));
   const tasks: Task[] = [];
   for (const file of files) {
@@ -287,29 +437,19 @@ export function _getTasksDir(): string {
   return resolveTasksDir();
 }
 
-let taskMaintenanceTimer: NodeJS.Timeout | null = null;
-
 /** Start task retention maintenance for an owning runtime. Idempotent. */
 export function startTaskMaintenance(): void {
-  if (taskMaintenanceTimer) return;
-  try {
-    cleanExpiredTasks();
-  } catch {
-    // Best effort; a later interval retries cleanup.
-  }
-  taskMaintenanceTimer = setInterval(() => {
-    try {
-      cleanExpiredTasks();
-    } catch {
-      // Best effort.
-    }
-  }, 60_000);
-  taskMaintenanceTimer.unref();
+  const runtime = runtimeForCurrentDirectory();
+  runtime.startMaintenance();
 }
 
 /** Stop task retention maintenance so embedded runtimes and tests can dispose cleanly. */
 export function stopTaskMaintenance(): void {
-  if (!taskMaintenanceTimer) return;
-  clearInterval(taskMaintenanceTimer);
-  taskMaintenanceTimer = null;
+  for (const runtime of runtimes.values()) runtime.stopMaintenance();
+}
+
+/** Close all compatibility runtimes during embedding/server shutdown. */
+export function closeTaskRuntimes(): void {
+  for (const runtime of runtimes.values()) runtime.close();
+  runtimes.clear();
 }
