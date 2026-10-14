@@ -20,6 +20,7 @@ import './components/inputs/star-rating.js';
 import './components/inputs/segmented-control.js';
 import './components/inputs/code-input.js';
 import './components/inputs/markdown-input.js';
+import './components/inputs/semantic-action-input.js';
 
 // Toast notifications (invoke-form uses showToast)
 import './components/toast-manager.js';

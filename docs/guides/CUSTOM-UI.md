@@ -1226,6 +1226,23 @@ Custom calendar replaces the native browser date input. Supports typed input (`"
 | `date-range` | Two date pickers side by side |
 | `datetime-range` | Two date-time pickers side by side |
 
+### Semantic Coordinate Inputs
+
+Latitude and longitude fields use decimal-friendly inputs rather than integer-like steppers. They accept typed or pasted values and default to these ranges:
+
+- `latitude`: `-90..90`
+- `longitude`: `-180..180`
+
+A coordinate field can also offer a progressive **Use current location** action. The action requests browser permission only after an explicit click, fills numeric latitude/longitude values when available, and leaves manual entry available when permission is denied, unsupported, unavailable, or timed out. Location is kept in local form state until the user submits the form.
+
+Semantic resolution follows this order:
+
+```text
+explicit schema format → recognized parameter name → primitive type fallback
+```
+
+Recognized fallback names are conservative: `latitude`/`lat` and `longitude`/`lon`/`lng`. Standard JSON Schema `minimum`, `maximum`, and `multipleOf` constraints remain authoritative. Semantic actions are optional host enhancements; other MCP clients may render the same schema as ordinary inputs.
+
 ### Example
 
 ```typescript

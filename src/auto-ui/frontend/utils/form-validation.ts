@@ -1,9 +1,15 @@
+import { resolveNumericInput } from './semantic-input.js';
+
 export interface FormValidationField {
   name: string;
+  type?: string;
   required?: boolean;
   enum?: string[];
   min?: number;
   max?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
+  multipleOf?: number;
   format?: string;
   pattern?: string;
   minLength?: number;
@@ -53,12 +59,27 @@ export function validateElicitationFormFields(
     }
 
     if (typeof value === 'number') {
-      if (field.min != null && value < field.min) {
-        errors[field.name] = `Must be at least ${field.min}`;
+      const numeric = resolveNumericInput(field.name, {
+        type: field.type,
+        format: field.format,
+        minimum: field.min,
+        maximum: field.max,
+        multipleOf: field.multipleOf,
+      });
+      if (numeric.minimum != null && value < numeric.minimum) {
+        errors[field.name] = `Must be at least ${numeric.minimum}`;
         continue;
       }
-      if (field.max != null && value > field.max) {
-        errors[field.name] = `Must be at most ${field.max}`;
+      if (numeric.maximum != null && value > numeric.maximum) {
+        errors[field.name] = `Must be at most ${numeric.maximum}`;
+        continue;
+      }
+      if (field.exclusiveMinimum != null && value <= field.exclusiveMinimum) {
+        errors[field.name] = `Must be greater than ${field.exclusiveMinimum}`;
+        continue;
+      }
+      if (field.exclusiveMaximum != null && value >= field.exclusiveMaximum) {
+        errors[field.name] = `Must be less than ${field.exclusiveMaximum}`;
         continue;
       }
     }

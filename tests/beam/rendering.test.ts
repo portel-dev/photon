@@ -166,6 +166,97 @@ test('Form submission executes method', async () => {
   }, opts);
 });
 
+test('Direct method route keeps required-input form visible before submit', async () => {
+  await withBeam(async (beam) => {
+    await beam.page.goto(`http://localhost:${beam.port}/demo/forecast`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await beam.page.waitForSelector('#pv-invoke-form, #invoke-form', {
+      state: 'visible',
+      timeout: 10000,
+    });
+    await beam.expectElement('input[name="latitude"]');
+    await beam.expectElement('input[name="longitude"]');
+
+    const result = beam.page.locator('#pv-result-content, #result-content');
+    let visibleResult = false;
+    for (let i = 0; i < (await result.count()); i++) {
+      if (
+        await result
+          .nth(i)
+          .isVisible()
+          .catch(() => false)
+      ) {
+        visibleResult = true;
+        break;
+      }
+    }
+    assert.strictEqual(
+      visibleResult,
+      false,
+      'a required-input route must not show a result before submission'
+    );
+  }, opts);
+});
+
+test('Coordinate fields use decimal inputs instead of number steppers', async () => {
+  await withBeam(async (beam) => {
+    await beam.page.goto(`http://localhost:${beam.port}/demo/forecast`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await beam.page.waitForSelector('#pv-invoke-form, #invoke-form', {
+      state: 'visible',
+      timeout: 10000,
+    });
+
+    const controls = await beam.page.evaluate(() => {
+      const form = document.querySelector('beam-app')?.shadowRoot?.querySelector('invoke-form') as
+        | HTMLElement
+        | undefined;
+      const root = form?.shadowRoot;
+      const latitude = root?.querySelector('#field-latitude') as HTMLInputElement | null;
+      const longitude = root?.querySelector('#field-longitude') as HTMLInputElement | null;
+      return {
+        stepperCount: root?.querySelectorAll('number-stepper').length ?? 0,
+        latitude: latitude
+          ? {
+              type: latitude.type,
+              inputMode: latitude.inputMode,
+              min: latitude.min,
+              max: latitude.max,
+              step: latitude.step,
+            }
+          : null,
+        longitude: longitude
+          ? {
+              type: longitude.type,
+              inputMode: longitude.inputMode,
+              min: longitude.min,
+              max: longitude.max,
+              step: longitude.step,
+            }
+          : null,
+      };
+    });
+
+    assert.deepStrictEqual(controls.latitude, {
+      type: 'text',
+      inputMode: 'decimal',
+      min: '-90',
+      max: '90',
+      step: '0.000001',
+    });
+    assert.deepStrictEqual(controls.longitude, {
+      type: 'text',
+      inputMode: 'decimal',
+      min: '-180',
+      max: '180',
+      step: '0.000001',
+    });
+    assert.strictEqual(controls.stepperCount, 0, 'coordinates should not use steppers');
+  }, opts);
+});
+
 test('Parameterized methods with linked UIs mount the custom renderer', async () => {
   await withBeam(async (beam) => {
     // calculator.pressDigit has a required parameter and inherits the class-level

@@ -17,6 +17,21 @@ test('elicitation forms enforce required fields and schema patterns', () => {
   });
 });
 
+test('coordinate elicitation fields enforce semantic latitude and longitude bounds', () => {
+  const errors = validateElicitationFormFields(
+    [
+      { name: 'latitude', required: true, format: 'latitude' },
+      { name: 'longitude', required: true, format: 'longitude' },
+    ],
+    { latitude: 91, longitude: -181 }
+  );
+
+  assert.deepEqual(errors, {
+    latitude: 'Must be at most 90',
+    longitude: 'Must be at least -180',
+  });
+});
+
 test('credit-card formats enforce Luhn, expiry, and security-code rules', () => {
   const nextYear = String((new Date().getFullYear() + 1) % 100).padStart(2, '0');
   const valid = validateElicitationFormFields(

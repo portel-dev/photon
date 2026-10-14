@@ -7,6 +7,14 @@ import { confirmElicit } from '../utils/elicit.js';
 import { formatLabel } from '../utils/format-label.js';
 import { mcpClient } from '../services/mcp-client.js';
 import { callFormTool } from '../services/form-runtime.js';
+import { resolveNumericInput, isNumericSchema } from '../utils/semantic-input.js';
+import {
+  getSemanticAction,
+  requestCurrentLocation,
+  SemanticActionError,
+  type SemanticActionSchema,
+} from '../utils/semantic-actions.js';
+import './inputs/semantic-action-input.js';
 
 /**
  * Capitalize an enum value for display purposes.
@@ -110,6 +118,8 @@ interface MethodParam {
   /** Numeric constraints */
   minimum?: number;
   maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
   multipleOf?: number;
   /** String constraints */
   minLength?: number;
@@ -122,6 +132,8 @@ interface MethodParam {
   properties?: Record<string, MethodParam>;
   /** Extension: choice-from reference */
   'x-choiceFrom'?: string;
+  /** Declarative browser-side semantic action */
+  'x-action'?: { action?: string; target?: string; label?: string };
 }
 
 /** Top-level JSON Schema object with properties and required list */
@@ -734,6 +746,15 @@ export class InvokeForm extends LitElement {
   @state()
   private _jsonText = '';
 
+  @state()
+  private _semanticActionBusy = new Set<string>();
+
+  @state()
+  private _semanticActionStatus: Record<string, string> = {};
+
+  @state()
+  private _semanticActionErrors: Record<string, boolean> = {};
+
   private get _storageKey(): string {
     return `beam-form:${this.photonName}:${this.methodName}`;
   }
@@ -1238,6 +1259,22 @@ export class InvokeForm extends LitElement {
       `;
     }
 
+    // Coordinate fields are decimal values users normally type or paste, not
+    // quantities that benefit from a +/- stepper or a range slider.
+    if (isNumericSchema(schema)) {
+      const numeric = resolveNumericInput(key, schema);
+      if (numeric.isCoordinate || getSemanticAction(key, schema as SemanticActionSchema)) {
+        return this._renderCoordinateInput(
+          key,
+          schema,
+          this._values[key],
+          (value) => this._handleChange(key, value),
+          inputId,
+          hasError
+        );
+      }
+    }
+
     // Handle Number/Integer — slider only when BOTH minimum AND maximum are explicitly declared
     if (schema.type === 'number' || schema.type === 'integer') {
       const isInteger = schema.type === 'integer';
@@ -1248,11 +1285,7 @@ export class InvokeForm extends LitElement {
       if (hasMin && hasMax) {
         const min: number = schema.minimum;
         const max: number = schema.maximum;
-
-        // Infer integer step when type is 'number' but bounds are both whole numbers
-        const boundsAreIntegers = Number.isInteger(min) && Number.isInteger(max);
-        const step =
-          isInteger || (boundsAreIntegers && !schema.multipleOf) ? 1 : (schema.multipleOf ?? 0.01);
+        const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
         const defaultVal = schema.default ?? min;
         const currentValue = this._values[key] ?? defaultVal;
         const effectivelyInteger = isInteger || step === 1;
@@ -1298,9 +1331,6 @@ export class InvokeForm extends LitElement {
       const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
       const defaultVal = schema.default ?? (hasMin ? schema.minimum : 0);
       const currentValue = this._values[key] ?? defaultVal;
-      const displayValue = isInteger
-        ? String(Math.round(Number(currentValue)))
-        : String(currentValue);
       return html`
         <number-stepper
           id=${ifDefined(inputId)}
@@ -1623,6 +1653,119 @@ export class InvokeForm extends LitElement {
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
       />
     `;
+  }
+
+  private _renderCoordinateInput(
+    key: string,
+    schema: MethodParam,
+    value: unknown,
+    onChange: (value: string | number) => void,
+    inputId?: string,
+    hasError = false
+  ) {
+    const numeric = resolveNumericInput(key, schema);
+    const action = getSemanticAction(key, schema as SemanticActionSchema);
+    const currentValue =
+      typeof value === 'string' || typeof value === 'number'
+        ? value
+        : typeof schema.default === 'string' || typeof schema.default === 'number'
+          ? schema.default
+          : '';
+    const status = this._semanticActionStatus[key] || '';
+
+    return html`
+      <semantic-action-input
+        .value=${String(currentValue)}
+        .inputType=${'text'}
+        .inputMode=${'decimal'}
+        .inputId=${inputId || ''}
+        .min=${numeric.minimum !== undefined ? String(numeric.minimum) : ''}
+        .max=${numeric.maximum !== undefined ? String(numeric.maximum) : ''}
+        .step=${String(numeric.step)}
+        .action=${action?.action || ''}
+        .actionLabel=${action?.label || 'Use current location'}
+        .actionTitle=${action?.label || 'Use current location'}
+        .actionBusy=${this._semanticActionBusy.has(key)}
+        .status=${status}
+        .hasError=${hasError || Boolean(status)}
+        @change=${(e: CustomEvent<{ value: string }>) => {
+          const raw = e.detail.value.trim();
+          if (raw === '') {
+            onChange('');
+            return;
+          }
+          const parsed = Number(raw);
+          if (Number.isFinite(parsed)) onChange(parsed);
+        }}
+        @action=${() => void this._handleSemanticAction(key, schema)}
+      ></semantic-action-input>
+    `;
+  }
+
+  private _setSemanticActionState(keys: string[], busy: boolean, status = '') {
+    const nextBusy = new Set(this._semanticActionBusy);
+    for (const key of keys) {
+      if (busy) nextBusy.add(key);
+      else nextBusy.delete(key);
+    }
+    this._semanticActionBusy = nextBusy;
+    if (status) {
+      this._semanticActionStatus = {
+        ...this._semanticActionStatus,
+        ...Object.fromEntries(keys.map((key) => [key, status])),
+      };
+    }
+  }
+
+  private _coordinateFields(): Array<[string, MethodParam]> {
+    const properties = ((this._resolvedParams || this.params) as JsonSchemaParams).properties;
+    if (!properties) return [];
+    return Object.entries(properties).filter(([fieldKey, schema]) =>
+      Boolean(getSemanticAction(fieldKey, schema as SemanticActionSchema))
+    );
+  }
+
+  private async _handleSemanticAction(key: string, schema: MethodParam) {
+    const action = getSemanticAction(key, schema as SemanticActionSchema);
+    if (!action || action.action !== 'geolocation' || this._semanticActionBusy.has(key)) return;
+
+    const coordinateFields = this._coordinateFields();
+    const keys =
+      coordinateFields.length > 0 ? coordinateFields.map(([fieldKey]) => fieldKey) : [key];
+    this._setSemanticActionState(keys, true);
+
+    try {
+      const position = await requestCurrentLocation();
+      const nextValues = { ...this._values };
+      const targetKeys = new Map<string, string>();
+      for (const [fieldKey, fieldSchema] of coordinateFields) {
+        const target = getSemanticAction(fieldKey, fieldSchema as SemanticActionSchema)?.target;
+        if (target) targetKeys.set(target, fieldKey);
+      }
+      const latitudeKey =
+        targetKeys.get('latitude') || (action.target === 'latitude' ? key : undefined);
+      const longitudeKey =
+        targetKeys.get('longitude') || (action.target === 'longitude' ? key : undefined);
+      if (latitudeKey) nextValues[latitudeKey] = position.latitude;
+      if (longitudeKey) nextValues[longitudeKey] = position.longitude;
+      if (!latitudeKey && !longitudeKey)
+        nextValues[key] = action.target === 'longitude' ? position.longitude : position.latitude;
+
+      this._values = nextValues;
+      if (this.rememberValues) this._savePersistedValues();
+      const accuracy = position.coords.accuracy;
+      this._setSemanticActionState(
+        keys,
+        false,
+        accuracy != null ? `Location found (±${Math.round(accuracy)} m)` : 'Location found'
+      );
+    } catch (error) {
+      const message =
+        error instanceof SemanticActionError
+          ? error.message
+          : 'Location is unavailable. Enter coordinates manually.';
+      this._setSemanticActionState(keys, false, message);
+    }
   }
 
   /** Detect if a schema/key should render as a date/time input */

@@ -7,6 +7,14 @@ import {
   type FormValidationField,
 } from '../utils/form-validation.js';
 import { shieldCheck, sizedIcon } from '../icons.js';
+import { resolveNumericInput, isNumericSchema } from '../utils/semantic-input.js';
+import {
+  getSemanticAction,
+  requestCurrentLocation,
+  SemanticActionError,
+  type SemanticActionSchema,
+} from '../utils/semantic-actions.js';
+import './inputs/semantic-action-input.js';
 import './inputs/date-picker.js';
 import './inputs/number-stepper.js';
 
@@ -57,6 +65,9 @@ export interface ElicitationOption {
 export interface FormField extends FormValidationField {
   name: string;
   label?: string;
+  title?: string;
+  hint?: string;
+  'x-action'?: { action?: string; target?: string; label?: string };
   type?: string;
   required?: boolean;
   default?: any;
@@ -65,6 +76,8 @@ export interface FormField extends FormValidationField {
   enum?: string[];
   min?: number;
   max?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
   step?: number;
   format?: string; // date, date-time, time, credit-card, credit-card-expiry, credit-card-cvv
   pattern?: string;
@@ -684,6 +697,8 @@ export class ElicitationModal extends LitElement {
   @state() private _selectedValues: string[] = [];
   @state() private _formValues: Record<string, any> = {};
   @state() private _formErrors: Record<string, string> = {};
+  @state() private _semanticActionBusy = new Set<string>();
+  @state() private _semanticActionStatus: Record<string, string> = {};
 
   private _oauthPopup: Window | null = null;
   private _oauthCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -1113,6 +1128,9 @@ export class ElicitationModal extends LitElement {
     return Object.entries(schema.properties).map(([name, prop]: [string, any]) => ({
       name,
       label: prop.title || name,
+      title: prop.title,
+      hint: prop.description,
+      'x-action': prop['x-action'],
       type:
         prop.type === 'boolean'
           ? 'boolean'
@@ -1127,6 +1145,8 @@ export class ElicitationModal extends LitElement {
       enum: prop.enum,
       min: prop.minimum,
       max: prop.maximum,
+      exclusiveMinimum: prop.exclusiveMinimum,
+      exclusiveMaximum: prop.exclusiveMaximum,
       step: prop.multipleOf,
       format: prop.format,
       pattern: prop.pattern,
@@ -1197,6 +1217,42 @@ export class ElicitationModal extends LitElement {
           @change=${(e: CustomEvent) => this._updateFormValue(field.name, e.detail.value)}
         ></date-picker>
       `;
+    }
+
+    // Coordinates are decimal values users normally type or paste, not
+    // quantities that benefit from a range slider or +/- stepper.
+    if (isNumericSchema(field)) {
+      const numeric = resolveNumericInput(field.name, field);
+      const action = getSemanticAction(field.name, field as SemanticActionSchema);
+      if (numeric.isCoordinate || action) {
+        const currentValue = this._formValues[field.name] ?? field.default ?? '';
+        return html`
+          <semantic-action-input
+            .value=${String(currentValue)}
+            .inputType=${'text'}
+            .inputMode=${'decimal'}
+            .min=${numeric.minimum != null ? String(numeric.minimum) : ''}
+            .max=${numeric.maximum != null ? String(numeric.maximum) : ''}
+            .step=${String(numeric.step)}
+            .action=${action?.action || ''}
+            .actionLabel=${action?.label || 'Use current location'}
+            .actionTitle=${action?.label || 'Use current location'}
+            .actionBusy=${this._semanticActionBusy.has(field.name)}
+            .status=${this._semanticActionStatus[field.name] || ''}
+            .hasError=${hasError || Boolean(this._semanticActionStatus[field.name])}
+            @change=${(e: CustomEvent<{ value: string }>) => {
+              const raw = e.detail.value.trim();
+              if (raw === '') {
+                this._updateFormValue(field.name, '');
+                return;
+              }
+              const parsed = Number(raw);
+              if (Number.isFinite(parsed)) this._updateFormValue(field.name, parsed);
+            }}
+            @action=${() => void this._handleSemanticAction(field)}
+          ></semantic-action-input>
+        `;
+      }
     }
 
     // Number/Integer → slider + number input
@@ -1288,6 +1344,79 @@ export class ElicitationModal extends LitElement {
           this._updateFormValue(field.name, (e.target as HTMLInputElement).value)}
       />
     `;
+  }
+
+  private _setSemanticActionState(fields: string[], busy: boolean, status = '') {
+    const nextBusy = new Set(this._semanticActionBusy);
+    for (const field of fields) {
+      if (busy) nextBusy.add(field);
+      else nextBusy.delete(field);
+    }
+    this._semanticActionBusy = nextBusy;
+    if (status) {
+      this._semanticActionStatus = {
+        ...this._semanticActionStatus,
+        ...Object.fromEntries(fields.map((field) => [field, status])),
+      };
+    }
+  }
+
+  private _coordinateFields(): FormField[] {
+    return this._getFormFields().filter((field) =>
+      Boolean(getSemanticAction(field.name, field as SemanticActionSchema))
+    );
+  }
+
+  private async _handleSemanticAction(field: FormField) {
+    const action = getSemanticAction(field.name, field as SemanticActionSchema);
+    if (!action || action.action !== 'geolocation' || this._semanticActionBusy.has(field.name)) {
+      return;
+    }
+
+    const coordinateFields = this._coordinateFields();
+    const fields = coordinateFields.length > 0 ? coordinateFields : [field];
+    const fieldNames = fields.map((item) => item.name);
+    this._setSemanticActionState(fieldNames, true);
+
+    try {
+      const position = await requestCurrentLocation();
+      const targets = new Map<string, string>();
+      for (const item of coordinateFields) {
+        const target = getSemanticAction(item.name, item as SemanticActionSchema)?.target;
+        if (target) targets.set(target, item.name);
+      }
+      const nextValues = { ...this._formValues };
+      const latitudeField =
+        targets.get('latitude') || (action.target === 'latitude' ? field.name : undefined);
+      const longitudeField =
+        targets.get('longitude') || (action.target === 'longitude' ? field.name : undefined);
+      if (latitudeField) nextValues[latitudeField] = position.latitude;
+      if (longitudeField) nextValues[longitudeField] = position.longitude;
+      if (!latitudeField && !longitudeField) {
+        nextValues[field.name] =
+          action.target === 'longitude' ? position.longitude : position.latitude;
+      }
+      this._formValues = nextValues;
+      for (const name of fieldNames) {
+        if (this._formErrors[name]) {
+          const nextErrors = { ...this._formErrors };
+          delete nextErrors[name];
+          this._formErrors = nextErrors;
+        }
+      }
+      const accuracy = position.coords.accuracy;
+      this._setSemanticActionState(
+        fieldNames,
+        false,
+        accuracy != null ? `Location found (±${Math.round(accuracy)} m)` : 'Location found'
+      );
+    } catch (error) {
+      const message =
+        error instanceof SemanticActionError
+          ? error.message
+          : 'Location is unavailable. Enter coordinates manually.';
+      this._setSemanticActionState(fieldNames, false, message);
+    }
   }
 
   private _sliderFillStyle(value: number, min: number, max: number): string {

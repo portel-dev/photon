@@ -136,6 +136,30 @@ await test('preserves rich option images from Photon select metadata', () => {
   );
 });
 
+await test('keeps coordinate elicitation schemas as forms for semantic rendering', () => {
+  const presentation = presentMCPInputRequest('input_1', {
+    method: 'elicitation/create',
+    params: {
+      mode: 'form',
+      message: 'Enter coordinates',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          latitude: { type: 'number' },
+          longitude: { type: 'number' },
+        },
+        required: ['latitude', 'longitude'],
+      },
+    },
+  });
+
+  assert.equal(presentation.data.ask, 'form');
+  assert.deepEqual(presentation.data.schema?.properties, {
+    latitude: { type: 'number' },
+    longitude: { type: 'number' },
+  });
+});
+
 await test('keeps multi-field MCP forms intact', () => {
   const schema = {
     type: 'object',

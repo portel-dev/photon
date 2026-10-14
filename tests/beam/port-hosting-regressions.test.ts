@@ -174,6 +174,32 @@ async function run(): Promise<void> {
     );
   });
 
+  await test('semantic coordinate fields expose the shared location action in both form surfaces', () => {
+    const invokeSource = source('src/auto-ui/frontend/components/invoke-form.ts');
+    const modalSource = source('src/auto-ui/frontend/components/elicitation-modal.ts');
+
+    assert.match(
+      invokeSource,
+      /<semantic-action-input[\s\S]*Use current location[\s\S]*@action=/,
+      'invoke forms must render the shared semantic action input'
+    );
+    assert.match(
+      modalSource,
+      /<semantic-action-input[\s\S]*Use current location[\s\S]*@action=/,
+      'elicitation forms must render the shared semantic action input'
+    );
+    assert.match(
+      invokeSource,
+      /requestCurrentLocation\(/,
+      'invoke forms must trigger location only from the semantic action handler'
+    );
+    assert.match(
+      modalSource,
+      /requestCurrentLocation\(/,
+      'elicitation forms must trigger location only from the semantic action handler'
+    );
+  });
+
   await test('Beam method cards use the canonical method-selection lifecycle', () => {
     const cardSource = source('src/auto-ui/frontend/components/method-card.ts');
     const beamSource = source('src/auto-ui/frontend/components/beam-app.ts');
