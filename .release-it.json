@@ -3,8 +3,10 @@
     "commitMessage": "chore: release v${version}\n\nConstraint: release-it owns package version, changelog, tag, npm publish, and GitHub release steps.\nConfidence: high\nScope-risk: narrow\nDirective: Keep release commits mechanical; put product rationale in the preceding feature or fix commits.\nTested: release-it pre-release checks\nNot-tested: Manual post-publish install before this commit is created",
     "tagName": "v${version}",
     "requireCleanWorkingDir": true,
+    "requireBranch": "main",
     "requireUpstream": true,
     "requireCommits": true,
+    "pushRepo": "origin",
     "addUntrackedFiles": false
   },
   "github": {
@@ -21,6 +23,9 @@
   "hooks": {
     "before:init": ["bash scripts/pre-release-check.sh"],
     "after:bump": ["bun run build"],
+    "before:github:release": [
+      "PHOTON_RELEASE_VERSION=${version} node scripts/verify-release-ref.mjs --post-push"
+    ],
     "after:release": "echo Successfully released ${name} v${version} to ${repo.repository}"
   },
   "plugins": {
@@ -28,14 +33,14 @@
       "preset": {
         "name": "conventionalcommits",
         "types": [
-          {"type": "feat", "section": "Features"},
-          {"type": "fix", "section": "Bug Fixes"},
-          {"type": "chore", "hidden": true},
-          {"type": "docs", "hidden": true},
-          {"type": "style", "hidden": true},
-          {"type": "refactor", "hidden": true},
-          {"type": "perf", "section": "Performance"},
-          {"type": "test", "hidden": true}
+          { "type": "feat", "section": "Features" },
+          { "type": "fix", "section": "Bug Fixes" },
+          { "type": "chore", "hidden": true },
+          { "type": "docs", "hidden": true },
+          { "type": "style", "hidden": true },
+          { "type": "refactor", "hidden": true },
+          { "type": "perf", "section": "Performance" },
+          { "type": "test", "hidden": true }
         ]
       },
       "infile": "CHANGELOG.md",

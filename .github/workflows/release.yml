@@ -9,11 +9,33 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Verify release tag source
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_tag="v$(node -p "require('./package.json').version")"
+          test "$GITHUB_REF_NAME" = "$expected_tag" || {
+            echo "Release tag $GITHUB_REF_NAME does not match package version $expected_tag"
+            exit 1
+          }
+          git fetch --quiet origin main
+          tag_sha="$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")"
+          main_sha="$(git rev-parse refs/remotes/origin/main)"
+          test "$tag_sha" = "$GITHUB_SHA" || {
+            echo "Release tag resolves to $tag_sha, but GitHub dispatched $GITHUB_SHA"
+            exit 1
+          }
+          test "$tag_sha" = "$main_sha" || {
+            echo "Release tag resolves to $tag_sha, but origin/main is $main_sha"
+            exit 1
+          }
+          echo "Verified $GITHUB_REF_NAME -> $tag_sha (origin/main)."
 
       - uses: actions/setup-node@v6
         with:

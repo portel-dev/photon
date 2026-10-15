@@ -46,11 +46,16 @@ echo "  Pre-Release Verification"
 echo "═══════════════════════════════════════════════════"
 echo ""
 
-# ─── Pre-flight: git clean + registry sync ──────
-# These two checks have caused repeated release failures.
+# ─── Pre-flight: release refs + git clean + registry sync ──────
+# These checks prevent a release from being published from the wrong branch
+# or from creating a GitHub release before its tag reaches the canonical ref.
 # Run them first so the problem is visible immediately.
 
-echo "▶ Pre-flight: working directory and registry"
+echo "▶ Pre-flight: release refs, working directory, and registry"
+
+node scripts/verify-release-ref.mjs --preflight
+
+echo ""
 
 # Must be clean before anything else runs.
 GIT_DIRTY=$(git status --porcelain 2>/dev/null | grep -v '^\?\?' || true)
