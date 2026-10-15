@@ -607,7 +607,29 @@ export interface SubscribeOptions {
   maxReconnectAttempts?: number;
   /** Called when reconnection succeeds */
   onReconnect?: () => void;
+  /** Cancel a pending subscription and all future reconnect attempts. */
+  signal?: AbortSignal;
 }
+
+function createReconnectGate(schedule: () => void): {
+  request: () => void;
+  reset: () => void;
+} {
+  let pending = false;
+  return {
+    request: () => {
+      if (pending) return;
+      pending = true;
+      schedule();
+    },
+    reset: () => {
+      pending = false;
+    },
+  };
+}
+
+/** Narrow seam for deterministic lifecycle regression tests. */
+export const __test__ = { createReconnectGate };
 
 /**
  * Subscribe to a channel on a daemon
@@ -619,49 +641,156 @@ export async function subscribeChannel(
   handler: (message: unknown, eventId?: string) => void,
   options?: SubscribeOptions & { workingDir?: string }
 ): Promise<() => void> {
+  if (options?.signal?.aborted) {
+    throw Object.assign(new Error(`Subscription cancelled: ${channel}`), { name: 'AbortError' });
+  }
+
   let cancelled = false;
   let lastSeenEventId: string | undefined = options?.lastEventId;
-
-  // Always points at the LIVE socket, including replacements made by the
-  // reconnect path. The unsubscribe closure handed to the caller must
-  // close whatever socket is current, not the one that existed when they
-  // subscribed — closing a stale reference leaks the replacement
-  // connection on both ends (seen in the wild as tens of thousands of
-  // daemon FDs and kernel-wide ENFILE).
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectInFlight = false;
+  let reconnectGeneration = 0;
+  let reconnectAttempts = 0;
+  let initialSettled = false;
+  let initialResolve: ((unsubscribe: () => void) => void) | null = null;
+  let initialReject: ((reason: Error) => void) | null = null;
   let currentClient: net.Socket | null = null;
+  const activeClients = new Set<net.Socket>();
+  const maxAttempts = options?.maxReconnectAttempts ?? Infinity;
+
+  const abortError = (): Error => {
+    const error = new Error(`Subscription cancelled: ${channel}`);
+    error.name = 'AbortError';
+    return error;
+  };
+
+  const destroyClient = (client: net.Socket): void => {
+    activeClients.delete(client);
+    if (currentClient === client) currentClient = null;
+    if (!client.destroyed) client.destroy();
+  };
 
   const teardown = (): void => {
+    if (cancelled) return;
     cancelled = true;
-    const client = currentClient;
-    currentClient = null;
-    if (client && !client.destroyed) {
+    reconnectGeneration++;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    const unsubRequest =
+      JSON.stringify({
+        type: 'unsubscribe',
+        id: `unsub_${Date.now()}`,
+        photonName,
+        channel,
+      }) + '\n';
+    for (const client of activeClients) {
       try {
-        const unsubRequest: DaemonRequest = {
-          type: 'unsubscribe',
-          id: `unsub_${Date.now()}`,
-          photonName,
-          channel,
-        };
-        client.write(JSON.stringify(unsubRequest) + '\n');
+        if (!client.destroyed) client.write(unsubRequest);
       } catch {
-        // Socket may be mid-close; destroy below still releases the FD
+        // Socket may be mid-close; destroy below still releases the FD.
       }
-      client.end();
+      destroyClient(client);
+    }
+    activeClients.clear();
+    currentClient = null;
+    if (!initialSettled) {
+      initialSettled = true;
+      initialReject?.(abortError());
+      initialReject = null;
+      initialResolve = null;
     }
   };
 
-  const connect = async (): Promise<() => void> => {
+  const scheduleReconnect = (): void => {
+    if (cancelled || reconnectTimer || reconnectInFlight || reconnectAttempts >= maxAttempts) {
+      return;
+    }
+    reconnectAttempts++;
+    const generation = reconnectGeneration;
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
+    logger.debug(
+      reconnectAttempts === 1
+        ? `Subscription lost for ${channel}, reconnecting...`
+        : `Reconnecting ${channel} in ${delay}ms (attempt ${reconnectAttempts})`
+    );
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (cancelled || generation !== reconnectGeneration) return;
+      reconnectInFlight = true;
+      let retry = false;
+      void (async () => {
+        try {
+          await connect(generation, false);
+          if (cancelled || generation !== reconnectGeneration) {
+            throw abortError();
+          }
+          reconnectAttempts = 0;
+          logger.debug(`Reconnected subscription for ${channel}`);
+          options?.onReconnect?.();
+        } catch (error) {
+          retry = !cancelled;
+          logger.debug(`Reconnect attempt ${reconnectAttempts} failed for ${channel}`, {
+            error: getErrorMessage(error),
+          });
+        } finally {
+          reconnectInFlight = false;
+          if (retry) scheduleReconnect();
+        }
+      })();
+    }, delay);
+  };
+
+  const connect = async (generation: number, initial: boolean): Promise<void> => {
     await ensureDaemonReady();
+    if (cancelled || generation !== reconnectGeneration) throw abortError();
     const socketPath = getGlobalSocketPath();
     const subscribeId = `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const client = connectToDaemon(socketPath);
       currentClient = client;
+      activeClients.add(client);
       let subscribed = false;
+      let settled = false;
+      let disconnectHandled = false;
       let buffer = '';
 
+      const finishReject = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        destroyClient(client);
+        reject(error);
+      };
+      const handleDisconnect = (error: Error): void => {
+        if (disconnectHandled) return;
+        disconnectHandled = true;
+        destroyClient(client);
+        if (cancelled || generation !== reconnectGeneration) {
+          finishReject(abortError());
+          return;
+        }
+        if (options?.reconnect) {
+          if (initial) {
+            if (!initialSettled) {
+              initialSettled = true;
+              initialResolve?.(teardown);
+              initialResolve = null;
+              initialReject = null;
+            }
+          }
+          scheduleReconnect();
+        }
+        finishReject(error);
+      };
+
       client.on('connect', () => {
+        if (cancelled || generation !== reconnectGeneration) {
+          finishReject(abortError());
+          return;
+        }
         const request: DaemonRequest = {
           type: 'subscribe',
           id: subscribeId,
@@ -678,126 +807,84 @@ export async function subscribeChannel(
         buffer += chunk.toString();
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
         for (const line of lines) {
           if (!line.trim()) continue;
-
           try {
             const response: DaemonResponse = JSON.parse(line);
-
             if (response.id === subscribeId && response.type === 'result') {
+              if (cancelled || generation !== reconnectGeneration || currentClient !== client) {
+                finishReject(abortError());
+                continue;
+              }
               subscribed = true;
-              resolve(teardown);
-            }
-
-            if (response.type === 'refresh_needed') {
-              if (options?.onRefreshNeeded) {
-                options.onRefreshNeeded();
+              if (initial && !initialSettled) {
+                initialSettled = true;
+                initialResolve?.(teardown);
+                initialResolve = null;
+                initialReject = null;
+              }
+              if (!settled) {
+                settled = true;
+                resolve();
               }
             }
-
+            if (response.type === 'refresh_needed') options?.onRefreshNeeded?.();
             if (response.type === 'channel_message' && response.channel) {
               const isMatch = channel.endsWith(':*')
                 ? response.channel.startsWith(channel.slice(0, -1))
                 : response.channel === channel;
               if (isMatch) {
-                // Track last seen eventId for replay on reconnect
-                if (response.eventId) {
-                  lastSeenEventId = response.eventId;
-                }
+                if (response.eventId) lastSeenEventId = response.eventId;
                 handler(response.message, response.eventId);
               }
             }
-
-            // Handle shutdown signal — trigger immediate reconnect
             if (response.type === 'shutdown') {
-              if (subscribed && options?.reconnect && !cancelled) {
-                logger.debug(`Daemon shutting down, reconnecting ${channel}...`);
-                client.destroy();
-                scheduleReconnect();
+              if (subscribed && options?.reconnect) {
+                handleDisconnect(new DaemonShutdownError(response.reason));
               } else if (!subscribed) {
-                reject(new DaemonShutdownError(response.reason));
+                finishReject(new DaemonShutdownError(response.reason));
               }
               return;
             }
-
             if (response.type === 'error' && response.id === subscribeId) {
-              reject(new Error(response.error || 'Subscription failed'));
+              disconnectHandled = true;
+              finishReject(new Error(response.error || 'Subscription failed'));
             }
-          } catch (e) {
-            // Lines are fully buffered (split on '\n'), so a parse error here
-            // indicates actual protocol corruption — log it.
-            logger.warn('Failed to parse daemon channel message', { error: getErrorMessage(e) });
+          } catch (error) {
+            logger.warn('Failed to parse daemon channel message', {
+              error: getErrorMessage(error),
+            });
           }
         }
       });
-
-      client.on('error', (error) => {
-        if (!subscribed) {
-          if (options?.reconnect && !cancelled) {
-            // Initial connection failed — retry (e.g. daemon not running yet)
-            resolve(teardown);
-            scheduleReconnect();
-          } else {
-            reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-          }
-        } else if (options?.reconnect && !cancelled) {
-          if (!client.destroyed) client.destroy();
-          scheduleReconnect();
-        }
-      });
-
-      client.on('end', () => {
-        if (!subscribed) {
-          if (options?.reconnect && !cancelled) {
-            resolve(teardown);
-            scheduleReconnect();
-          } else {
-            reject(new Error('Connection closed before subscription confirmed'));
-          }
-        } else if (options?.reconnect && !cancelled) {
-          if (!client.destroyed) client.destroy();
-          scheduleReconnect();
-        }
-      });
+      client.on('error', (error) =>
+        handleDisconnect(new Error(`Connection error: ${getErrorMessage(error)}`))
+      );
+      client.on('end', () =>
+        handleDisconnect(new Error('Connection closed before subscription confirmed'))
+      );
     });
   };
 
-  let reconnectAttempts = 0;
-  const maxAttempts = options?.maxReconnectAttempts ?? Infinity;
+  if (options?.signal) options.signal.addEventListener('abort', teardown, { once: true });
 
-  const scheduleReconnect = () => {
-    if (cancelled || reconnectAttempts >= maxAttempts) return;
-    reconnectAttempts++;
-
-    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
-    if (reconnectAttempts === 1) {
-      logger.debug(`Subscription lost for ${channel}, reconnecting...`);
-    } else {
-      logger.debug(`Reconnecting ${channel} in ${delay}ms (attempt ${reconnectAttempts})`);
-    }
-
-    setTimeout(() => {
-      void (async () => {
-        if (cancelled) return;
-        try {
-          // Try reconnecting to existing daemon first; only start if it's down
-          await ensureDaemonReady();
-          await connect();
-          reconnectAttempts = 0;
-          logger.debug(`Reconnected subscription for ${channel}`);
-          options?.onReconnect?.();
-        } catch (e) {
-          logger.debug(`Reconnect attempt ${reconnectAttempts} failed for ${channel}`, {
-            error: getErrorMessage(e),
-          });
-          if (!cancelled) scheduleReconnect();
-        }
-      })();
-    }, delay);
-  };
-
-  return connect();
+  const initialPromise = new Promise<() => void>((resolve, reject) => {
+    initialResolve = resolve;
+    initialReject = reject;
+    void connect(reconnectGeneration, true).catch((error) => {
+      if (!initialSettled) {
+        initialSettled = true;
+        initialReject?.(error instanceof Error ? error : new Error(String(error)));
+        initialReject = null;
+        initialResolve = null;
+      }
+    });
+  });
+  try {
+    return await initialPromise;
+  } finally {
+    options?.signal?.removeEventListener('abort', teardown);
+  }
 }
 
 /**

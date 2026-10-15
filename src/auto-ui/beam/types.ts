@@ -104,6 +104,12 @@ export interface BeamState {
   apiRateLimiter: SimpleRateLimiter;
   /** HTTP server instance */
   server: import('http').Server | null;
+  /** Active HTTP connections owned by this Beam run. */
+  activeSockets: Set<import('net').Socket>;
+  /** Beam shutdown has started; late async resources must not be installed. */
+  stopping: boolean;
+  /** Channel subscriptions still establishing or reconnecting. */
+  pendingSubscriptions: Map<Promise<() => void>, AbortController>;
   /** Official SDK v2 MCP handler for the Beam endpoint. */
   mcpHandler?: import('../../mcp/sdk-v2-2026/server.js').McpHttpHandler | null;
   /** Initial Photon loading promise, used to drain startup before shutdown. */

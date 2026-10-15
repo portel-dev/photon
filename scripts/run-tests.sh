@@ -84,6 +84,8 @@ SUITES=(
   "streamable-http:$NODE_BIN --import tsx tests/streamable-http-transport.test.ts"
   "daemon-pubsub:$RUN tests/daemon-pubsub.test.ts"
   "daemon-subscribe-reconnect-leak:$RUN tests/daemon-subscribe-reconnect-leak.test.ts"
+  "daemon-client-reconnect:$RUN_TEST tests/daemon-client-reconnect.test.ts"
+  "beam-stop-lifecycle:$RUN_TEST tests/beam-stop-lifecycle.test.ts"
   "storage-injected-location:$RUN tests/storage-injected-location.test.ts"
   "daemon-chaos:PHOTON_TEST_NODE=$NODE_BIN $NODE_BIN --import tsx tests/daemon-chaos.test.ts"
   "env-proxy-set:$RUN tests/env-proxy-set.test.ts"

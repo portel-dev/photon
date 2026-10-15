@@ -1489,6 +1489,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     sessionViewState: new Map(),
     apiRateLimiter,
     server: null,
+    activeSockets: new Set(),
+    stopping: false,
+    pendingSubscriptions: new Map(),
     mcpHandler: null,
     watchers: [],
     pendingReloads: new Map(),
@@ -3864,8 +3867,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       // Enable TCP keepalive on all connections to prevent intermediary timeouts
       server.on('connection', (socket) => {
+        beamState.activeSockets.add(socket);
         socket.setKeepAlive(true, 60000); // Send keepalive probe every 60s
         socket.setTimeout(0); // Disable socket inactivity timeout
+        socket.once('close', () => beamState.activeSockets.delete(socket));
       });
     };
 
@@ -3918,10 +3923,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     const instanceNames = ['default'];
     for (const instanceName of instanceNames) {
       const channel = `${photonName}:${instanceName}:state-changed`;
-      if (ctx.subscribedStateChannels.has(channel)) continue;
+      if (beamState.stopping || ctx.subscribedStateChannels.has(channel)) continue;
       ctx.subscribedStateChannels.add(channel);
+      const controller = new AbortController();
 
-      subscribeChannel(
+      const subscriptionPromise = subscribeChannel(
         photonName,
         channel,
         (rawMessage: any) => {
@@ -3971,6 +3977,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         {
           reconnect: true,
           workingDir,
+          signal: controller.signal,
           onReconnect: () => logger.debug(`📡 Reconnected ${channel} subscription`),
           onRefreshNeeded: () => {
             logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
@@ -3982,8 +3989,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             });
           },
         }
-      )
+      );
+      beamState.pendingSubscriptions.set(subscriptionPromise, controller);
+      void subscriptionPromise
         .then((unsubscribe) => {
+          if (beamState.stopping) {
+            unsubscribe();
+            return;
+          }
           beamState.channelSubscriptions.set(channel, {
             photonName,
             channelPattern: channel,
@@ -3993,8 +4006,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           logger.info(`📡 Subscribed to ${channel} for cross-client sync`);
         })
         .catch((err) => {
-          logger.warn(`Failed to subscribe to ${channel}: ${getErrorMessage(err)}`);
-        });
+          if (!beamState.stopping) {
+            logger.warn(`Failed to subscribe to ${channel}: ${getErrorMessage(err)}`);
+          }
+        })
+        .finally(() => beamState.pendingSubscriptions.delete(subscriptionPromise));
     }
   }
 
@@ -4024,11 +4040,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
         // Subscribe to notifications channel (always-on, not just active)
         const notificationChannel = `${photonName}:${instanceName}:notifications`;
+        if (beamState.stopping) continue;
+        const controller = new AbortController();
 
         // Get this photon's notification subscriptions from @notify-on tags
         const watchFor = ctx.photonNotificationSubscriptions.get(photonName);
 
-        subscribeChannel(
+        const subscriptionPromise = subscribeChannel(
           photonName,
           notificationChannel,
           (message: any) => {
@@ -4055,10 +4073,17 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           {
             reconnect: true,
             workingDir,
+            signal: controller.signal,
             onReconnect: () => logger.debug(`📡 Reconnected ${notificationChannel} subscription`),
           }
-        )
+        );
+        beamState.pendingSubscriptions.set(subscriptionPromise, controller);
+        void subscriptionPromise
           .then((unsubscribe) => {
+            if (beamState.stopping) {
+              unsubscribe();
+              return;
+            }
             beamState.channelSubscriptions.set(notificationChannel, {
               photonName,
               channelPattern: notificationChannel,
@@ -4070,8 +4095,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             );
           })
           .catch((err) => {
-            logger.warn(`Failed to subscribe to ${notificationChannel}: ${getErrorMessage(err)}`);
-          });
+            if (!beamState.stopping) {
+              logger.warn(`Failed to subscribe to ${notificationChannel}: ${getErrorMessage(err)}`);
+            }
+          })
+          .finally(() => beamState.pendingSubscriptions.delete(subscriptionPromise));
       }
     } catch (err) {
       logger.warn(`Failed to set up notification subscriptions: ${getErrorMessage(err)}`);
@@ -4332,10 +4360,18 @@ export async function stopBeam(): Promise<void> {
 
   // Close every external MCP SDK client gracefully and clear the maps.
   await ctx.mcp.closeAllSDKClients();
+  ctx.subscribedStateChannels.clear();
+  ctx.photonNotificationSubscriptions.clear();
 }
 
 export async function __stopBeamStateForTests(state: BeamState): Promise<void> {
   activeBeamStates.delete(state);
+  state.stopping = true;
+
+  for (const controller of state.pendingSubscriptions.values()) {
+    controller.abort();
+  }
+  state.pendingSubscriptions.clear();
 
   // startBeam listens before it finishes compiling the initial Photon set.
   // Drain that work before closing the server or exiting so another process
@@ -4376,9 +4412,19 @@ export async function __stopBeamStateForTests(state: BeamState): Promise<void> {
 
   const server = state.server;
   state.server = null;
-  if (server?.listening) {
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    });
+  if (server) {
+    // Beam deliberately disables HTTP idle timeouts for long-lived SSE and
+    // streaming requests. Destroy connections before awaiting close so one
+    // browser tab cannot hold shutdown open until the CLI force-exit path.
+    for (const socket of state.activeSockets) {
+      socket.destroy();
+    }
+    state.activeSockets.clear();
+    server.closeAllConnections?.();
+    if (server.listening) {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
   }
 }
