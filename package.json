@@ -81,7 +81,7 @@
     "test:mcp-observability-2026": "tsx tests/mcp-observability-2026.test.ts",
     "test:mcp-stateless-resilience-2026": "tsx tests/mcp-stateless-resilience-2026.test.ts",
     "test:mcp-stateless-load-2026": "tsx tests/mcp-stateless-load-2026.test.ts",
-    "test:websocket": "vitest run tests/websocket-upgrade.test.ts",
+    "test:websocket": "vitest run tests/websocket-upgrade.test.ts --exclude '.claude/worktrees/**'",
     "test:smoke": "tsx tests/smoke.test.ts",
     "test:readme": "bash tests/readme-validation.sh",
     "test:schema": "tsx tests/schema-extractor.test.ts",
