@@ -90,7 +90,7 @@
     "test:loader": "tsx tests/loader.test.ts && tsx tests/runtime-config-store.test.ts",
     "test:server": "tsx tests/server.test.ts && tsx tests/sse-client-app-fallback.test.ts",
     "test:integration": "tsx tests/integration.test.ts",
-    "test:byte-compat": "RUN_E2E=1 vitest run tests/v128-byte-compat.test.ts",
+    "test:byte-compat": "RUN_E2E=1 vitest run tests/v128-byte-compat.test.ts --exclude '.claude/worktrees/**'",
     "test:format-registry": "vitest run tests/format-registry.test.ts",
     "test:content-negotiation": "RUN_E2E=1 vitest run tests/http-content-negotiation.test.ts",
     "test:ui-resources": "tsx tests/ui-resources.test.ts",
