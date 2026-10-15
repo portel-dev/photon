@@ -50,6 +50,7 @@ photon ps                   # what the daemon is hosting right now
 - **Daemon down?** The next CLI command or tool call auto-starts it and retries once, after waiting for the socket to respond (exponential backoff up to 10 seconds). Typical recovery is under 2 seconds.
 - **Client disconnects?** Subscriptions (Beam live updates, channel subscribers) reconnect with exponential backoff and replay missed events. The daemon buffers up to 5 minutes (max 500 events per channel); a longer gap triggers a full state refresh instead of a replay.
 - **Daemon restarts with stateful photons?** Persisted state reloads from disk as usual. Constructor env values are also replayed: the first time a stateful photon is constructed with its env present, the daemon snapshots the resolved constructor env (encrypted, scoped to that photon's `PHOTON_DIR` and source path). After a restart from an env-less shell, the snapshot fills the constructor parameters. Run the photon once with your normal environment and restarts take care of themselves. See the [Troubleshooting guide](../TROUBLESHOOTING.md) for the full setup pattern.
+- **Beam stops?** Ctrl+C cancels Beam-owned channel subscriptions, reconnect timers, HTTP connections, and watchers before Beam exits. The detached daemon intentionally remains available for other clients; use `photon daemon stop` when you want to stop the daemon itself.
 
 ## Environment variables
 

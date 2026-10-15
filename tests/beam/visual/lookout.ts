@@ -7,10 +7,23 @@
  */
 
 import { execFile as execFileCb } from 'child_process';
+import { fileURLToPath } from 'url';
+import * as path from 'path';
 import { promisify } from 'util';
 
 const execFile = promisify(execFileCb);
+const PHOTON_CLI =
+  process.env.PHOTON_CLI ||
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../bin/photon');
 const TIMEOUT = 120_000; // 2 minutes per inference call
+
+function photonArgs(args: string[]): string[] {
+  return ['cli', ...args];
+}
+
+function photonEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, NO_COLOR: '1' };
+}
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -65,14 +78,19 @@ export async function isAvailable(): Promise<boolean> {
   if (_available !== null) return _available;
 
   try {
-    const { stdout } = await execFile('photon', ['lookout', 'status', '--json', '-y'], {
-      timeout: 15_000,
-      env: { ...process.env, NO_COLOR: '1' },
-    });
+    const { stdout } = await execFile(
+      PHOTON_CLI,
+      photonArgs(['lookout', 'status', '--json', '-y']),
+      {
+        timeout: 15_000,
+        env: photonEnv(),
+      }
+    );
 
-    // --json wraps the return value; status returns an object with `ready: boolean`
+    // Browser screenshot tests only need the vision backend. Peekaboo is
+    // required for Lookout's desktop automation methods, not these tests.
     const data = JSON.parse(stdout.trim());
-    _available = data?.ready === true;
+    _available = data?.visionBackend?.ready === true || data?.ready === true;
   } catch {
     _available = false;
   }
@@ -141,9 +159,9 @@ export async function compare(
 
 async function run(args: string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFile('photon', [...args, '-y'], {
+    const { stdout } = await execFile(PHOTON_CLI, photonArgs([...args, '-y']), {
       timeout: TIMEOUT,
-      env: { ...process.env, NO_COLOR: '1' },
+      env: photonEnv(),
       maxBuffer: 1024 * 1024, // 1MB
     });
     return stdout;

@@ -5,9 +5,10 @@
  * (local Qwen3-VL on Apple Silicon) for semantic analysis.
  *
  * Prerequisites:
- *   - lookout photon installed (~/.photon/lookout.photon.ts)
- *   - MLX dependencies: pip install -U mlx-vlm
- *   - Apple Silicon Mac
+ *   - lookout photon installed (~/.photon/lookout.photon.ts or the active PHOTON_DIR)
+ *   - an OpenAI-compatible vision endpoint configured with LOOKOUT_VISION_URL,
+ *     LOOKOUT_VISION_MODEL, and LOOKOUT_VISION_KEY (OmniRoute works)
+ *   - Peekaboo is optional for these browser screenshots
  *
  * When prerequisites aren't met, all tests skip gracefully.
  * Existing DOM-based and binary snapshot tests are unaffected.
@@ -169,8 +170,10 @@ async function main() {
   // Gate: check lookout availability
   const ready = await isAvailable();
   if (!ready) {
-    console.log('  ⏭️  Lookout not available (no MLX or photon not installed).');
-    console.log('     Install: pip install -U mlx-vlm && photon install lookout\n');
+    console.log('  ⏭️  Lookout not available (photon missing or vision backend not ready).');
+    console.log(
+      '     Configure LOOKOUT_VISION_URL/LOOKOUT_VISION_MODEL, or install the local MLX backend.\n'
+    );
     process.exit(0);
   }
 

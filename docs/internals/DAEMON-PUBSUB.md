@@ -147,13 +147,25 @@ Sent to all subscribers when a message is published:
 ```typescript
 import { subscribeChannel } from '@portel/photon/daemon/client';
 
-const unsubscribe = await subscribeChannel('kanban', 'board:my-board', (message) => {
-  console.log('Received:', message);
-  // Update UI, trigger refresh, etc.
-});
+const controller = new AbortController();
+let unsubscribe: (() => void) | undefined;
 
-// Later: cleanup
-unsubscribe();
+try {
+  unsubscribe = await subscribeChannel('kanban', 'board:my-board', (message) => {
+    console.log('Received:', message);
+    // Update UI, trigger refresh, etc.
+  }, {
+    reconnect: true,
+    signal: controller.signal,
+  });
+
+  // Use the subscription while it is active.
+} finally {
+  // Cancels a pending connection or reconnect backoff as well as the
+  // established socket. Calling unsubscribe is safe when it resolved.
+  controller.abort();
+  unsubscribe?.();
+}
 ```
 
 ### Publish to a Channel
@@ -183,6 +195,10 @@ Key behaviors:
 - When a socket disconnects, all its subscriptions are cleaned up
 - Publishers don't receive their own messages (excludeSocket)
 - No persistence - channels are ephemeral
+- Reconnecting subscriptions use one in-flight reconnect attempt and one backoff timer per subscription
+- Pass an `AbortSignal` when the owner has a lifecycle boundary; aborting cancels pending connects, reconnect backoff, and the active socket
+
+When a Beam or embedded host stops, it must cancel its subscriptions. The daemon is a detached shared service and is not stopped merely because one client disconnects.
 
 ## Usage in Photons
 

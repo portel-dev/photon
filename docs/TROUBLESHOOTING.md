@@ -714,6 +714,48 @@ Error: Connection refused
 
 ---
 
+## Beam or Daemon Reports `ENFILE` / Too Many Open Files
+
+**Symptoms**:
+
+- `ENFILE: file table overflow`
+- `EMFILE: too many open files`
+- `pipe failed: too many open files`
+- Beam or another unrelated command cannot open files after a Beam session
+
+**Immediate recovery**:
+
+1. Stop the running Beam process with **Ctrl+C** and wait for it to exit.
+2. Check the daemon state:
+   ```bash
+   photon daemon status
+   ```
+3. If the problem persists, stop and let Photon restart the shared daemon:
+   ```bash
+   photon daemon stop
+   photon daemon start
+   ```
+4. If macOS still reports a system-wide file-table error, save your work and reboot; a reboot clears descriptors held by unrelated processes too.
+
+**Inspect before escalating**:
+
+```bash
+# List Photon runtimes
+ps -axo pid,ppid,etime,command | grep -E '[p]hoton|[b]un|[n]ode'
+
+# Count descriptors held by a suspected process
+lsof -nP -p <pid> | wc -l
+
+# Inspect total open descriptors
+lsof -nP | wc -l
+```
+
+Use a current Photon release. Beam owns and cleans up its HTTP connections, file watchers, daemon subscription sockets, and reconnect timers when it stops. The shared daemon remains detached by design and should be stopped explicitly with `photon daemon stop` when needed.
+
+If descriptor counts continue to grow after Beam exits, capture the process list, descriptor counts, Photon version, and the relevant daemon log before opening an issue.
+
+---
+
 ## Stale Cache After Upgrade
 
 ### "does not provide an export named 'Array'"
