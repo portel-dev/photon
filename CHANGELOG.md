@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.38.0](https://github.com/portel-dev/photon/compare/v1.37.0...v1.38.0) (2026-10-15)
+
+### Features
+
+* **ui:** add semantic location actions to forms ([08d5678](https://github.com/portel-dev/photon/commit/08d5678fb5632ac8f67e26ce5e7adca82bb35ab2))
+
+### Bug Fixes
+
+* apply role hierarchy consistently ([8baac84](https://github.com/portel-dev/photon/commit/8baac8488713ebce05cf795c6964cad065590a8a))
+* harden task execution boundaries ([c3d75ec](https://github.com/portel-dev/photon/commit/c3d75ec02dad85f100bb554e4fede5fa86b52fac))
+* isolate pending task input by workspace ([ba3df15](https://github.com/portel-dev/photon/commit/ba3df15356492f449611302200c189b3cd9df225))
+* isolate SSE session state ([de61936](https://github.com/portel-dev/photon/commit/de61936af4934e6ba32dec89e512ad9940471847))
+* isolate task controllers by workspace ([724ff62](https://github.com/portel-dev/photon/commit/724ff62c738c90980d39f59ea299fa487c103028))
+* make file watcher lifecycle idempotent ([da78434](https://github.com/portel-dev/photon/commit/da78434726eb3b6c945833790634eb7d37a25d76))
+* own server lifecycle resources ([ec4b5fc](https://github.com/portel-dev/photon/commit/ec4b5fcb52aa0bc880cfe0a922f8f7ec291afb9b))
+* preserve empty event replay signal ([2ee2d56](https://github.com/portel-dev/photon/commit/2ee2d562817f664225a5eec58cefc572cad41136))
+* preserve lifecycle and workspace boundaries ([1774c05](https://github.com/portel-dev/photon/commit/1774c05056fb1d3c8eb7c796f6afecb4310f289f))
+* preserve per-server notification routing ([dd6e76a](https://github.com/portel-dev/photon/commit/dd6e76a39eec431bf4a7eecc53301770e2ed1457))
+* remove legacy task workspace fallback ([55277a7](https://github.com/portel-dev/photon/commit/55277a755512f20d15dfac85904fe96cce10d9b0))
+* restore daemon replay semantics ([51ff13d](https://github.com/portel-dev/photon/commit/51ff13d87b315e72d6e9af0b974d298ea40a9204))
+* restore notification delivery ordering ([994f9de](https://github.com/portel-dev/photon/commit/994f9dece85e0981017866263162e631df7e8687))
+* restore notification queue compatibility ([07f136f](https://github.com/portel-dev/photon/commit/07f136fad7dd3491f93233193c8089cfa9817424))
+* route notifications to active server ([5c77e65](https://github.com/portel-dev/photon/commit/5c77e6577518e8b9ed76c5deb6f57a75d6530795))
+* scope legacy task access ([b0fc564](https://github.com/portel-dev/photon/commit/b0fc564787d00aefb577a753c71232f3c8e76229))
+* scope task maintenance lifecycle ([49a87c2](https://github.com/portel-dev/photon/commit/49a87c26e64df7e929408e92bd5ca8642f5361f5))
+* **serv:** normalize tenant host resolution ([#7](https://github.com/portel-dev/photon/issues/7)) ([33fbbe9](https://github.com/portel-dev/photon/commit/33fbbe90af6ccfd3fc9d12d2bc6935dff571d4e5))
+* stop Beam reconnect descriptor leaks ([787c6d7](https://github.com/portel-dev/photon/commit/787c6d7627e3e125187e4836b8a8254dd20347a7))
+
 ## [1.37.0](https://github.com/portel-dev/photon/compare/v1.36.1...v1.37.0) (2026-10-07)
 
 ### Features
