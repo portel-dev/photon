@@ -184,6 +184,7 @@ async function startBeam(): Promise<number> {
       env: {
         ...process.env,
         NODE_ENV: 'test',
+        PHOTON_DIR: FIXTURES,
         PHOTON_DAEMON_DISABLE_EAGER_LOAD: '1',
       },
     });
@@ -1437,15 +1438,13 @@ export default class ClientContextProbe {
     fs.mkdirSync(screenshotDir, { recursive: true });
 
     // Navigate to Beam
-    await page.goto(`http://localhost:${beamPort}`, {
+    await page.goto(`http://localhost:${beamPort}/promise-test`, {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
-    await page.waitForSelector('.photon-item', { timeout: 30000 }).catch(() => {});
+    await page.waitForSelector('.photon-item', { timeout: 30000 });
     // Wait for main content area (method cards) to render after auto-selection
-    await page
-      .waitForSelector('.method-card, .method-list, .main-area', { timeout: 10000 })
-      .catch(() => {});
+    await page.waitForSelector('method-card', { timeout: 10000 });
     await page.waitForTimeout(2000);
 
     // P1.1 — Beam shows photons in sidebar
@@ -1454,7 +1453,8 @@ export default class ClientContextProbe {
 
     await check('I1', 'P1.1', 'Beam shows photons in sidebar with methods', 'Beam', async () => {
       const result = await validateVisual(sidebarImg, [
-        'A sidebar or navigation panel with a list of items',
+        'A sidebar or navigation panel on the left',
+        'A list of items or entries in the sidebar',
         'Application title or branding visible',
       ]);
       assert.ok(result, 'Lookout returned no visual result');
@@ -1473,7 +1473,7 @@ export default class ClientContextProbe {
       'Beam',
       async () => {
         const result = await validateVisual(sidebarImg, [
-          'A split-pane layout with a sidebar on the left and content on the right',
+          'A sidebar on the left and a main content area on the right',
         ]);
         assert.ok(result, 'Lookout returned no visual result');
         assert.equal(
@@ -1486,31 +1486,36 @@ export default class ClientContextProbe {
 
     // P4.1 — Formats render in Beam
     // Click a photon and capture the method view
-    const photonItem = page.locator('.photon-item').first();
-    if (await photonItem.isVisible().catch(() => false)) {
-      await photonItem.click();
-      await page.waitForTimeout(2000);
+    const photonItem = page
+      .locator('.photon-item')
+      .filter({
+        has: page.getByText('promise-test', { exact: true }),
+      })
+      .first();
+    await photonItem.waitFor({ state: 'visible' });
+    await photonItem.click();
+    await page.waitForTimeout(2000);
 
-      // Scroll down — method cards may be below the fold
-      const main = page.locator('.main-content, main, .content').first();
-      await main.evaluate((el: Element) => el.scrollTo(0, el.scrollHeight)).catch(() => {});
-      await page.waitForTimeout(1000);
+    // Scroll down — method cards may be below the fold
+    const main = page.locator('.main-content, main, .content').first();
+    await main.evaluate((el: Element) => el.scrollTo(0, el.scrollHeight)).catch(() => {});
+    await page.waitForTimeout(1000);
 
-      const photonImg = path.join(screenshotDir, 'photon-view.png');
-      await page.screenshot({ path: photonImg, fullPage: true });
+    const photonImg = path.join(screenshotDir, 'photon-view.png');
+    await page.screenshot({ path: photonImg, fullPage: true });
 
-      await check('I4', 'P4.2', 'Beam shows method cards from signatures', 'Beam', async () => {
-        const result = await validateVisual(photonImg, [
-          'Cards or panels showing available actions',
-        ]);
-        assert.ok(result, 'Lookout returned no visual result');
-        assert.equal(
-          result.passed,
-          result.total,
-          `${result.failed} failed, ${result.unclear} unclear visual promises`
-        );
-      });
-    }
+    await check('I4', 'P4.2', 'Beam shows method cards from signatures', 'Beam', async () => {
+      const result = await validateVisual(photonImg, [
+        'Cards or panels showing available actions or methods',
+        'Each card has a title or description',
+      ]);
+      assert.ok(result, 'Lookout returned no visual result');
+      assert.equal(
+        result.passed,
+        result.total,
+        `${result.failed} failed, ${result.unclear} unclear visual promises`
+      );
+    });
 
     await browser.close();
     await stopBeam();

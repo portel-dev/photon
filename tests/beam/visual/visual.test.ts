@@ -354,6 +354,8 @@ async function main() {
     const result = await review(img);
     assert.ok(result, 'Lookout returned no result');
 
+    assert.notEqual(result.score, null, 'Lookout review must include a parsed score');
+
     if (result.score !== null) {
       assert.ok(
         result.score >= SCORE_THRESHOLD,
@@ -389,6 +391,8 @@ async function main() {
 
       const result = await compare(baselinePath, currentImg);
       assert.ok(result, 'Lookout returned no result');
+      assert.notEqual(result.beforeScore, null, 'Baseline review must include a parsed score');
+      assert.notEqual(result.afterScore, null, 'Current review must include a parsed score');
 
       assert.ok(
         result.newIssues === 0,

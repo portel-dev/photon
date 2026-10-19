@@ -9,7 +9,7 @@
 import { execFile as execFileCb } from 'child_process';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
-import { promisify } from 'util';
+import { promisify, stripVTControlCharacters } from 'util';
 
 const execFile = promisify(execFileCb);
 const PHOTON_CLI =
@@ -164,7 +164,7 @@ async function run(args: string[]): Promise<string | null> {
       env: photonEnv(),
       maxBuffer: 1024 * 1024, // 1MB
     });
-    return stdout;
+    return stripVTControlCharacters(stdout);
   } catch (err: any) {
     console.error(`  [lookout] CLI error: ${(err.stderr || err.message)?.slice(-1000)}`);
     return null;
