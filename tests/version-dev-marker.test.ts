@@ -66,7 +66,8 @@ async function main() {
   });
 
   await test('declared Core range remains separate from the resolved package version', () => {
-    assert.equal(PHOTON_CORE_VERSION, '^2.28.0');
+    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    assert.equal(PHOTON_CORE_VERSION, manifest.dependencies['@portel/photon-core']);
     const entry = require.resolve('@portel/photon-core');
     let dir = dirname(entry);
     let packagePath = '';
@@ -82,7 +83,7 @@ async function main() {
     }
     assert.ok(packagePath, 'installed Core package metadata should be discoverable');
     const installed = JSON.parse(readFileSync(packagePath, 'utf8')) as { version?: string };
-    assert.equal(installed.version, '2.28.0');
+    assert.match(installed.version ?? '', /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
     assert.equal(
       getResolvedPhotonCoreVersion(),
       installed.version,
