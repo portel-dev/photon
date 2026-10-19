@@ -40,7 +40,7 @@
     "test:cf-bindings": "vitest run tests/cf-bindings-parser.test.ts",
     "test:cf-runtime": "vitest run tests/cf-runtime-kv.test.ts",
     "test:cf-overrides": "vitest run tests/cf-overrides.test.ts",
-    "test:cf-deploy": "vitest run tests/cf-deploy-toml.test.ts tests/cf-host-workflow.test.ts tests/cf-generated-worker.test.ts --exclude '.claude/worktrees/**'",
+    "test:cf-deploy": "vitest run tests/cf-deploy-toml.test.ts tests/cf-host-workflow.test.ts tests/cf-generated-worker.test.ts tests/cf-template-emit-flush.test.ts --exclude '.claude/worktrees/**'",
     "test:cf-mcp-bearer": "vitest run tests/cf-mcp-bearer.test.ts",
     "test:viewport-aware-proxy": "vitest run tests/viewport-aware-proxy.test.ts",
     "test:viewport-manager": "vitest run tests/viewport-manager.test.ts",

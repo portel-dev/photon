@@ -1638,8 +1638,12 @@ abstract class BasePhotonDO extends DurableObject<Env> {
             progressToken: ctx?.mcpReq?._meta?.progressToken,
             sessionId: ctx?.sessionId,
             send: async (message: any) => {
-              if (message?.method) return ctx.mcpReq.send(message as any);
-              return ctx.mcpReq.notify(message as any);
+              // SDK send() is for requests requiring a response. Emit frames
+              // must use notify() so they flush on the active response stream.
+              if (message?.method?.startsWith('notifications/')) {
+                return ctx.mcpReq.notify(message as any);
+              }
+              return ctx.mcpReq.send(message as any);
             },
           };
 

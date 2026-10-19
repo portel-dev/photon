@@ -17,13 +17,9 @@
  * `src/server.ts:1340-1397`); the Worker template was missing the
  * matching wiring.
  *
- * This test reads the template as a string and asserts the SSE
- * forwarding is in place. We don't spin up a real Worker (would
- * require miniflare + DO state) — the textual presence of the
- * required calls is enough to catch a regression where someone
- * deletes the forwarder block again. The flow itself is exercised
- * end-to-end via the existing CF deploy/runtime suites once the
- * forwarder is live.
+ * Template sentinels pin the request-context wiring and helper injection.
+ * Live delivery before tool completion is covered by the generated Worker
+ * integration test in cf-generated-worker.test.ts.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -46,15 +42,14 @@ describe('CF worker template — emit SSE flush', () => {
     expect(template).toMatch(/progressToken\?\s*:\s*string\s*\|\s*number/);
   });
 
-  it('streamToolCall captures the client progressToken from _meta', () => {
-    expect(template).toMatch(/_meta\?\s*:\s*\{\s*progressToken\?/);
-    expect(template).toMatch(/clientProgressToken\s*\?\?\s*`progress_/);
+  it('captures the official SDK client progressToken without inventing one', () => {
+    expect(template).toMatch(/progressToken:\s*ctx\?\.mcpReq\?\._meta\?\.progressToken/);
+    expect(template).toMatch(/progressToken !== undefined \? \{ progressToken \} : \{\}/);
   });
 
   it('emit forwards through the active SSE request context', () => {
     // The forwarder must read the AsyncLocalStorage store and bail
-    // when no SSE call is in flight (so non-SSE invocations stay
-    // pure WebSocket fan-out).
+    // when no SDK request is in flight.
     expect(template).toMatch(/const\s+reqCtx\s*=\s*requestContext\.getStore\(\)/);
     expect(template).toMatch(/if\s*\(!reqCtx\)\s*return/);
   });
@@ -77,9 +72,9 @@ describe('CF worker template — emit SSE flush', () => {
     expect(template).toMatch(/kind\s*===\s*'render'[\s\S]{0,400}_render:\s*true/);
   });
 
-  it('channel websocket fan-out is preserved alongside SSE forwarding', () => {
-    // The websocket loop must still exist — both paths run, not one or the other.
-    expect(template).toMatch(/for\s*\(const\s+ws\s+of\s+ctx\.getWebSockets\(channel\)\)/);
+  it('keeps the channel-tagged WebSocket upgrade separate from request-scoped SSE', () => {
+    expect(template).toMatch(/this\.ctx\.acceptWebSocket\(server, \[channel\]\)/);
+    expect(template).toContain("url.searchParams.get('channel') ?? 'default'");
   });
 });
 

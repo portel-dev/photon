@@ -174,6 +174,7 @@ SUITES=(
   "cf-deploy-toml:$VITEST tests/cf-deploy-toml.test.ts"
   "cf-host-workflow:$VITEST tests/cf-host-workflow.test.ts"
   "cf-generated-worker:$VITEST tests/cf-generated-worker.test.ts"
+  "cf-emit-flush:$VITEST tests/cf-template-emit-flush.test.ts"
   "cf-mcp-jwt:$VITEST tests/cf-mcp-jwt.test.ts"
   "cf-ui-bridge-codegen:$VITEST tests/cf-ui-bridge-codegen.test.ts"
   "daemon-rpc-contract:$RUN tests/daemon-rpc-contract.test.ts"

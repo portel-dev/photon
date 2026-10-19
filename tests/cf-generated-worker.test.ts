@@ -15,6 +15,7 @@ describe('generated Cloudflare Worker', () => {
   let runtime: Miniflare | undefined;
   let scriptPath: string;
   let requestId = 0;
+  let progressGate = Promise.resolve();
 
   async function start() {
     const config = await fs.readFile(path.join(root, 'out/wrangler.toml'), 'utf8');
@@ -28,6 +29,10 @@ describe('generated Cloudflare Worker', () => {
       durableObjects: { PHOTON: { className, useSQLite: true } },
       durableObjectsPersist: path.join(root, 'state'),
       bindings: { PHOTON_MCP_BEARER: 'integration-secret' },
+      outboundService: async () => {
+        await progressGate;
+        return new Response('released');
+      },
     });
     await runtime.ready;
   }
@@ -84,6 +89,11 @@ export default class Counter {
     return { value };
   }
   async current() { return { value: (await this.memory.get('count')) ?? 0 }; }
+  async streaming() {
+    this.emit({ emit: 'progress', value: 0.5, message: 'working' });
+    await fetch('https://progress-gate.test/release');
+    return { done: true };
+  }
   /** @get /health */
   async health() { return new Response('healthy', { headers: { 'X-Photon-Test': 'route' } }); }
   /** @internal */
@@ -145,6 +155,7 @@ export default class Counter {
     expect(list.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual([
       'current',
       'increment',
+      'streaming',
     ]);
   });
 
@@ -170,6 +181,71 @@ export default class Counter {
     expect(await call('current', {}, 'persistent-a')).toEqual({ value: 3 });
     expect(await call('current', {}, 'persistent-b')).toEqual({ value: 7 });
   }, 30_000);
+
+  it('flushes progress with the client token before the tool can complete', async () => {
+    let release!: () => void;
+    progressGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const decoder = new TextDecoder();
+    let body = '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const events = () =>
+      body
+        .split('\n')
+        .filter((line) => line.startsWith('data: '))
+        .map((line) => JSON.parse(line.slice(6)));
+    try {
+      const progress = async () => {
+        const response = await rpc('tools/call', {
+          name: 'streaming',
+          arguments: {},
+          _meta: { progressToken: 'client-progress' },
+        });
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toContain('text/event-stream');
+        reader = response.body!.getReader();
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) throw new Error('Stream ended before progress');
+          body += decoder.decode(chunk.value, { stream: true });
+          // Parse only complete SSE events; a JSON payload can span read chunks.
+          const complete = body.slice(0, body.lastIndexOf('\n\n') + 2);
+          const notification = complete
+            .split('\n')
+            .filter((line) => line.startsWith('data: '))
+            .map((line) => JSON.parse(line.slice(6)))
+            .find((event) => event.method === 'notifications/progress');
+          if (notification) return notification;
+        }
+      };
+      const notification = await Promise.race([
+        progress(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Progress buffered until completion')), 10000);
+        }),
+      ]);
+      expect(notification.params).toMatchObject({
+        progressToken: 'client-progress',
+        progress: 50,
+        total: 100,
+        message: 'working',
+      });
+      expect(events().some((event) => event.result)).toBe(false);
+    } finally {
+      release();
+      clearTimeout(timer);
+    }
+    while (true) {
+      const chunk = await reader!.read();
+      if (chunk.done) break;
+      body += decoder.decode(chunk.value, { stream: true });
+    }
+    const result = events().find((event) => event.result);
+    expect(result.result.isError).not.toBe(true);
+    expect(JSON.parse(result.result.content[0].text)).toEqual({ done: true });
+  }, 15000);
 
   it('serves HTTP routes, generated UI, and its browser runtime assets', async () => {
     const health = await runtime!.dispatchFetch('https://worker.test/health');
