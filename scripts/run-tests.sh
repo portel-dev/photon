@@ -111,6 +111,7 @@ SUITES=(
   "phase6c:$RUN tests/phase6c-offline-sync.test.ts"
   "phase6d:$RUN tests/phase6d-integration.test.ts"
   "promises:$RUN tests/promises.test.ts"
+  "lookout-cli-output:$RUN tests/lookout-cli-output.test.ts"
   "readme:bash tests/readme-validation.sh"
   # v1.23 additions
   "a2ui-mapper:$RUN tests/a2ui-mapper.test.ts"

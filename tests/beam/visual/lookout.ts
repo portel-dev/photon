@@ -159,12 +159,18 @@ export async function compare(
 
 async function run(args: string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFile(PHOTON_CLI, photonArgs([...args, '-y']), {
+    const { stdout } = await execFile(PHOTON_CLI, photonArgs([...args, '--json', '-y']), {
       timeout: TIMEOUT,
       env: photonEnv(),
       maxBuffer: 1024 * 1024, // 1MB
     });
-    return stripVTControlCharacters(stdout);
+    // Human CLI output renders Markdown tables as terminal borders, which
+    // destroys the comparison report's score rows. Parse the JSON result
+    // instead so review, validation, and comparison retain their raw Markdown.
+    const output = JSON.parse(stripVTControlCharacters(stdout).trim());
+    if (typeof output === 'string') return output;
+    if (typeof output?.result === 'string') return output.result;
+    throw new Error('Lookout CLI did not return a report string');
   } catch (err: any) {
     console.error(`  [lookout] CLI error: ${(err.stderr || err.message)?.slice(-1000)}`);
     return null;
