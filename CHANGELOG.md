@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.38.1](https://github.com/portel-dev/photon/compare/v1.38.0...v1.38.1) (2026-10-19)
+
+### Bug Fixes
+
+* apply undo state patches within the requesting workspace ([d3955c4](https://github.com/portel-dev/photon/commit/d3955c4a7c09a2c0f3c535c92d3582499dad7480))
+* harden release source verification ([d4ea642](https://github.com/portel-dev/photon/commit/d4ea6422462088807306aac091ac47739612df4e))
+* stabilize collaboration recovery and Cloudflare hosting ([a010287](https://github.com/portel-dev/photon/commit/a010287af9e6b4631ddea39bf69676515bb52ba1))
+* stream Cloudflare emit notifications through the SDK ([39c43cc](https://github.com/portel-dev/photon/commit/39c43cc95bca71e552cecef057c703c7a302cf7d))
+
 ## [1.38.0](https://github.com/portel-dev/photon/compare/v1.37.0...v1.38.0) (2026-10-15)
 
 ### Features
