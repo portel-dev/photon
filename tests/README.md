@@ -15,6 +15,53 @@ bun run test
 
 Runs the complete test suite including unit tests, integration tests, load tests, and README validation.
 
+### Cloudflare deployment and generated Worker
+
+```bash
+bun run test:cf-deploy
+```
+
+Covers preview directory selection, deployment URL reporting, generated bindings,
+and execution of the generated Worker in Miniflare/workerd. Runtime checks include
+MCP initialization and discovery, bearer authentication, tool execution, HTTP
+routes, generated web assets, named-instance isolation, and persistence across a
+runtime restart. No Cloudflare account is required. Run `bun run build` first to
+provide the browser runtime assets embedded by deployment generation.
+
+### Human–agent collaboration milestone
+
+After `bun run build` and installing Chromium (`bunx playwright install chromium`):
+
+```bash
+bunx playwright test tests/beam/e2e/human-agent-collaboration.e2e.test.ts --reporter=line
+```
+
+Runs the shipped `examples/todo.photon.ts` task dashboard in an isolated workspace
+and daemon home. A real Chromium user and an authenticated MCP client add and
+complete tasks, recover from browser disconnection, preserve concurrent additions,
+cancel a destructive confirmation, reject unauthorized/invalid writes, and reload
+persisted state after Beam and daemon restart. It exercises the generated checklist
+view; custom dashboard resources have their own refresh contracts. The agent is a
+deterministic MCP client, so no model API or credentials are needed.
+
+The main `bun run test` runner includes this milestone. Read-only revalidation is
+also checked by `tests/intent-contract.test.ts`; it never infers safe replay from
+a method name or a lack of required arguments.
+
+### Photon library reuse
+
+```bash
+bunx vitest run tests/photon-library.test.ts --exclude '.claude/worktrees/**'
+```
+
+Exercises the public package API with real Photon source: initialization, ordinary
+method calls, runtime-owned caches, shutdown, persistent memory, local constructor
+composition, nested/shared dependency cleanup, and transitive/concurrent cycle
+rejection. They run against the installed registry dependency, without a sibling
+core alias. These tests do not establish remote dependency resolution or transport
+authorization.
+The main test runner includes these checks.
+
 ### README Validation
 ```bash
 bun run test:readme

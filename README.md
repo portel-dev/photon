@@ -185,7 +185,36 @@ When you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation, Beam validates
 
 ---
 
+## Reuse a Photon in application code
+
+Existing Photons can also be application dependencies. Load their source through
+the public API and call methods from your own Node code:
+
+```typescript
+import { createPhotonRuntime } from '@portel/photon';
+
+const runtime = createPhotonRuntime();
+try {
+  const todo = await runtime.photon<{
+    add(text: string): Promise<unknown>;
+  }>('./todo.photon.ts', { baseDir: '/srv/my-app/photons' });
+  await todo.add('Review the release');
+} finally {
+  await runtime.close();
+}
+```
+
+This manages initialization and shutdown without starting a server. It executes
+trusted code in your application process; the host owns authorization. The object
+is separate from a live Beam/daemon instance. Use MCP when your application needs
+to operate on that same live instance. For source resolution, persistence, and
+constructor-dependency lifecycle limits, see [Photon as a library](docs/internals/PHOTON-AS-LIBRARY.md).
+
+---
+
 ## Beam: Human Exploration
+
+[Run the shared task-board walkthrough](docs/tutorials/human-agent-task-board.md) to see a human and an MCP client operate the same state.
 
 Beam is the web dashboard. Every photon becomes an interactive form automatically. Run `photon`. That's the whole command.
 

@@ -128,8 +128,8 @@ To avoid confusion, here is what does **not** exist in the Photon runtime:
 - **No configuration file.** There is no `.photonrc.json`, `.photonrc`, or similar. All configuration comes from constructor parameters (mapped to environment variables), JSDoc tags, and file structure.
 - **No `MiddlewareRegistry` class.** Middleware is declared via JSDoc `@use` tags and `defineMiddleware()` exports. There is no programmatic registry.
 - **No `FormGenerator` or `ResultRenderer` class.** UI generation is internal to the Beam runtime and not exposed as a public API.
-- **No subpath exports.** The npm package `@portel/photon` exports a CLI binary only. There are no importable subpath modules like `@portel/photon/server`, `@portel/photon/security`, `@portel/photon/cache`, or `@portel/photon/monitoring`.
-- **No `PhotonServer` class.** The MCP server is managed internally by the runtime. Use `photon mcp <name>` to start it.
+- **Root imports for application code.** The npm package `@portel/photon` exports its CLI and a programmatic root API, including `photon()`, `createPhotonRuntime()`, and runtime classes. See [Photon as a library](PHOTON-AS-LIBRARY.md). There are no importable subpath modules like `@portel/photon/server`, `@portel/photon/security`, `@portel/photon/cache`, or `@portel/photon/monitoring`.
+- **CLI-managed servers by default.** Use `photon mcp <name>` to start a server. Advanced embedding can import the exported `PhotonServer` and `PhotonLoader` classes from the package root.
 - **WebSocket is not the MCP transport.** Beam's MCP control plane uses MCP
   Streamable HTTP. Photons may additionally expose explicit WebSocket upgrade
   routes for realtime web applications; those routes use the portable
@@ -418,7 +418,7 @@ Photons marked with `@stateful` have their state persisted to disk and shared ac
 | **Change notifications** | Best-effort | In-memory event buffers, lost on daemon restart |
 | **Recovery** | Guaranteed | Any client can re-execute a method to get current state |
 
-This is an **eventually-consistent** model: if a notification is missed, the client's view is stale until the next explicit request. The `_silentRefresh()` mechanism in Beam auto-re-executes on notification, but if that notification is lost, a manual re-execute always works.
+This is an **eventually-consistent** model: if a notification is missed, the client's view is stale until the next explicit request. Beam re-executes explicitly read-only views on notifications and periodically revalidates visible stateful views while online. Reconnection and visibility changes also trigger safe revalidation; other methods require explicit execution. Custom UIs own their refresh logic. A manual re-execute remains available.
 
 ### Sync Protocol: Delta Sync vs Full Sync
 

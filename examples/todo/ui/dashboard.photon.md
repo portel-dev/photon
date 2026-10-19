@@ -26,12 +26,17 @@ Each task is a simple `{text, done}` object stored in memory.
 - **reorder** — sets new order from text array
 - **list** — returns all tasks as `@format checklist`
 
-Tasks persist across method calls within the same session.
+Tasks are persisted by the stateful runtime. A human and MCP client addressing
+the same instance operate on the same list. The generated `list` checklist is
+marked `@readOnly`, so Beam can safely revalidate it after external changes or
+reconnection. This custom dashboard manages its own data-method bindings.
 Use `@stateful` instances for separate lists:
 
 ```
-todo list --instance groceries
-todo list --instance sprint-3
+photon use todo groceries
+photon cli todo list
+photon use todo sprint-3
+photon cli todo list
 ```
 
 </div>

@@ -19,7 +19,7 @@ marketing.
 | [6](#intent-6-composable) | Composable | 2 | 8 | P1 — Essential |
 | [7](#intent-7-portable) | Portable | 2 | 7 | P2 — Important |
 | [8](#intent-8-resilient-by-default) | Resilient by Default | 2 | 9 | P2 — Important |
-| [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P2 — Important |
+| [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P0 — Core |
 | [10](#intent-10-standards-aligned) | Standards-Aligned | 3 | 27 | P2 — Important |
 | | **Total** | **26** | **116** | |
 
@@ -29,6 +29,11 @@ marketing.
 - **Promises** are specific commitments derived from intents
 - **Assertions** are testable statements that validate each promise
 - **Targets** indicate where the assertion must hold (CLI, Beam, MCP, Runtime)
+
+Assertions describe supported configurations, not an implicit guarantee that every
+adapter implements every feature. A target is validated only by tests exercising
+that target. Exposure metadata, configured authentication, and resource availability
+remain part of the capability contract. Missing coverage is unvalidated, not a pass.
 
 ## How to Use This
 
@@ -43,9 +48,10 @@ marketing.
 
 *Write one TypeScript file. Get a CLI app, an MCP server, and a web application.*
 
-This is Photon's defining promise. A `.photon.ts` file is not a library, not a
-framework plugin, not a config file. It's a **complete application** expressed as
-a single class.
+This is Photon's defining promise. A `.photon.ts` file expresses a **complete
+application** as a single class. The same capability can also be loaded into Node
+code through Photon's library API; runtime-managed invocation preserves the
+capability's validation and execution lifecycle.
 
 ### P1.1 — One file, three interfaces
 
@@ -55,13 +61,15 @@ without any additional files, config, or build step.
 | # | Assertion | Target |
 |---|-----------|--------|
 | 1 | Running `photon <name> <method>` executes the method and prints output | CLI |
-| 2 | Connecting via MCP STDIO lists tools matching public methods | MCP |
-| 3 | Opening Beam shows the photon in the sidebar with all methods | Beam |
+| 2 | Connecting via MCP STDIO lists public methods exposed as tools | MCP |
+| 3 | Opening Beam shows the photon in the sidebar with its permitted actions | Beam |
 | 4 | The same method returns identical data across all three interfaces | All |
 
 ### P1.2 — No boilerplate
 
-No decorators, no registration, no server setup. A public method is a tool.
+No decorators, no registration, no server setup. An ordinary public method becomes
+a tool by convention; internal/lifecycle methods and HTTP-only endpoints are not
+automatically public tools.
 
 | # | Assertion | Target |
 |---|-----------|--------|
@@ -90,29 +98,33 @@ separate human UI. One method, two audiences.*
 
 ### P2.1 — Methods work for both audiences
 
-Every method is simultaneously a CLI command, an MCP tool, and a Beam action.
+Methods exposed as tools are available through CLI, MCP, and Beam, subject to
+exposure metadata and authorization. Internal methods, lifecycle hooks, and
+HTTP-only endpoints have their own ingress rules.
 
 | # | Assertion | Target |
 |---|-----------|--------|
-| 1 | A human can invoke any method via Beam UI without typing JSON | Beam |
+| 1 | A human can invoke permitted tool methods via Beam UI without typing JSON | Beam |
 | 2 | An agent can invoke the same method via MCP `tools/call` | MCP |
 | 3 | CLI `photon <name> <method> --param value` works for scripts and humans | CLI |
 | 4 | Output is structured data — renderable for humans, parseable for agents | All |
 
 ### P2.2 — Annotations guide both audiences
 
-`@readOnly`, `@destructive`, `@locked` inform both human UX and agent behavior.
+`@readOnly` and `@destructive` provide intent metadata for human UX and MCP clients.
+MCP hosts choose their own approval policy; these hints do not enforce safety or
+grant authorization. `@locked` is runtime coordination.
 
 | # | Assertion | Target |
 |---|-----------|--------|
-| 1 | `@readOnly` methods show no confirmation in Beam, auto-approve in MCP | Beam, MCP |
+| 1 | `@readOnly` marks MCP tools with `readOnlyHint`; the MCP host controls approval | Beam, MCP |
 | 2 | `@destructive` methods show confirmation in Beam, flag in MCP schema | Beam, MCP |
 | 3 | `@locked` serializes access — human and agent wait their turn | Runtime |
-| 4 | `@auth` identifies the caller whether human (OAuth) or agent (Bearer) | Runtime |
+| 4 | `@auth` requires verified caller context supplied by the configured authentication adapter | Runtime |
 
 ### P2.3 — Text-first, always
 
-Every method must work as plain text. Visual rendering is progressive enhancement.
+Every exposed tool method must work as plain text. Visual rendering is progressive enhancement.
 
 | # | Assertion | Target |
 |---|-----------|--------|
@@ -136,7 +148,7 @@ From install to working photon in under 60 seconds.
 | 1 | `bun add -g @portel/photon` → `photon beam` shows working UI | CLI, Beam |
 | 2 | No `~/.photon/` directory required before first run | CLI |
 | 3 | Marketplace photons are pre-cached or fast-fetched on first boot | Beam |
-| 4 | `photon install <name>` → immediately usable, no restart needed | CLI |
+| 4 | `photon add <name>` → immediately usable, no restart needed | CLI |
 
 ### P3.2 — Dependencies resolve themselves
 
@@ -209,7 +221,10 @@ cross-client sync — no database, no infra, no wiring.*
 
 ### P5.1 — Persistence without infrastructure
 
-State survives restarts. Memory persists across calls. No database required.
+State survives restarts with a persistent backend. Memory persists across calls.
+Named instances partition state; a shared instance intentionally shares state
+among its authorized callers. A named instance is not itself a user or tenant
+authorization boundary: access checks and instance routing must enforce that policy.
 
 | # | Assertion | Target |
 |---|-----------|--------|
@@ -220,13 +235,24 @@ State survives restarts. Memory persists across calls. No database required.
 
 ### P5.2 — Real-time events with zero wiring (CloudEvents 1.0)
 
-`this.emit()` fires events that reach every connected client automatically.
+`this.emit()` publishes notifications to subscribed clients. Notifications are
+best-effort; durable state is the source of truth. A reconnecting client must
+re-read state rather than assume it received every change. Shared-state guarantees
+apply to clients addressing the same server, photon, and named instance; separate
+processes do not automatically share an in-memory instance.
+
+Beam revalidates the visible result of an explicitly read-only (`@readOnly`)
+stateful method every three seconds while online, and when the browser returns
+online or becomes visible. It reuses the last submitted arguments and never
+replays an undeclared or destructive method as a background refresh. Custom UI
+resources manage their own subscriptions/refresh behavior. This is eventual
+view convergence, not guaranteed delivery of private events on every MCP era.
 
 | # | Assertion | Target |
 |---|-----------|--------|
 | 1 | `this.emit('update', data)` reaches Beam UI via SSE | Beam |
 | 2 | `@stateful` methods auto-emit execution events (method, params, result) | Runtime |
-| 3 | Multiple Beam tabs see the same state (cross-client sync) | Beam |
+| 3 | Visible read-only Beam views addressing the same instance converge after changes and reconnection | Beam |
 | 4 | `this.render()` pushes live output to both CLI and Beam | CLI, Beam |
 
 ### P5.3 — Observable by default
@@ -252,7 +278,7 @@ Activity log, audit trail, execution history — automatic for stateful photons.
 | # | Assertion | Target |
 |---|-----------|--------|
 | 1 | `@photon todo` injects a working todo instance into constructor | Runtime |
-| 2 | `this.call('todo', 'add', { text })` executes the target method | Runtime |
+| 2 | `this.call('todo.add', { text })` executes the target method | Runtime |
 | 3 | Transitive `@photon` deps auto-resolve from same marketplace source | Runtime |
 | 4 | `.on('todo:completed')` receives events from composed photons | Runtime |
 
@@ -262,7 +288,7 @@ Install, compose, extend. The ecosystem is the feature set.
 
 | # | Assertion | Target |
 |---|-----------|--------|
-| 1 | `photon install <name>` works from marketplace or GitHub | CLI |
+| 1 | `photon add <name>` works from marketplace or GitHub | CLI |
 | 2 | Installed photons appear in Beam sidebar immediately | Beam |
 | 3 | `photon search <query>` finds relevant photons | CLI |
 | 4 | Private marketplace sources are supported for team-internal photons | CLI |
@@ -275,18 +301,23 @@ Install, compose, extend. The ecosystem is the feature set.
 
 ### P7.1 — Standalone binary
 
-`photon build` compiles to a single executable. No runtime dependencies.
+`photon build` uses Bun to compile a standalone executable for a supported target.
+The resulting executable needs no Node.js, npm, or Photon installation. External
+CLI tools, MCP servers, credentials, and platform services remain external
+dependencies; compilation reports dependencies it cannot bundle.
 
 | # | Assertion | Target |
 |---|-----------|--------|
 | 1 | `photon build <name>` produces executable binary | CLI |
 | 2 | Binary runs without Node.js, npm, or Photon installed | Runtime |
-| 3 | `@dependencies` are bundled into the binary | Runtime |
+| 3 | Bundleable `@dependencies` are included; external dependencies are reported during build | Runtime |
 | 4 | Cross-platform targets: macOS ARM/Intel, Linux x64/ARM64 | CLI |
 
 ### P7.2 — Deploy anywhere
 
-Same photon deploys to bare metal, Docker, Cloudflare, AWS Lambda.
+The same source can target bare metal, Docker, Cloudflare, and AWS Lambda where
+its dependencies and runtime features are supported. Validate deployment behavior
+on the generated target; local invocation alone does not prove adapter parity.
 
 | # | Assertion | Target |
 |---|-----------|--------|
@@ -308,11 +339,17 @@ Functional tags compose into a Koa-style middleware pipeline with phase ordering
 | # | Assertion | Target |
 |---|-----------|--------|
 | 1 | `@retryable 3` retries failed calls up to 3 times | Runtime |
-| 2 | `@timeout 5000` kills execution after 5 seconds | Runtime |
+| 2 | `@timeout 5000` rejects the invocation after 5 seconds; underlying work may continue | Runtime |
 | 3 | `@cached 60` memoizes results for 60 seconds | Runtime |
 | 4 | `@throttled 10/min` rate-limits to 10 calls per minute | Runtime |
 | 5 | `@circuitBreaker 5 30s` fast-rejects after 5 failures, resets after 30s | Runtime |
 | 6 | Multiple tags compose: `@retryable 3` + `@timeout 5000` both apply | Runtime |
+
+A timeout bounds the caller's wait; it does not forcibly terminate JavaScript or
+roll back side effects. Cancellation is cooperative: supported execution paths
+propagate an `AbortSignal`, and application code and dependencies must honor it.
+Closing a stream is not proof that all underlying work has stopped. Cancellation,
+cleanup, and protection against late state writes require target-specific tests.
 
 ### P8.2 — Scheduled and async execution
 
@@ -334,7 +371,11 @@ not afterthoughts.*
 ### P9.1 — OAuth without boilerplate (MCP OAuth 2.1 / RFC 9728)
 
 Built-in OAuth 2.1 with PKCE, RFC 9728 Protected Resource Metadata, and
-transport-agnostic `@auth` enforcement via elicitation.
+`@auth` enforcement from authenticated caller context or supported elicitation.
+Authentication adapters establish identity; the loader consumes that context.
+Applications must declare the required authorization policy. A shared instance
+may be intentionally collaborative; private tenant state requires both isolated
+routing/storage and access checks, verified on each advertised transport.
 
 | # | Assertion | Target |
 |---|-----------|--------|
@@ -427,18 +468,36 @@ Each assertion maps to one of:
 
 Every assertion in this document must be backed by automation before it is treated as launch-safe.
 
-`bun run test:promises` validates the current release-gate subset and emits a machine-readable
-coverage report (`promise-report.json`) showing which intents are currently exercised by that
-suite. Assertions outside that subset must be covered by dedicated tests before they should be
-described as validated.
+`bun run test:promises` exercises a subset and emits a machine-readable check
+inventory (`promise-report.json`). Checks are not mapped one-to-one to assertion
+IDs: multiple checks may exercise one assertion, and skipped checks validate
+nothing. The inventory is not a completion or validated-coverage percentage.
+Assertions outside that subset require dedicated tests before being described as
+validated. A test that merely checks command help does not establish successful
+execution; errors must fail an execution check, and unavailable prerequisites
+must be reported as explicit skips.
+
+The task-board collaboration milestone requires behavioral coverage of a human
+and an MCP client reading and changing the same instance, seeing each other's
+changes, reconnecting and re-reading consistent state, and preserving persisted
+state after restart. Rejected access must leave state unchanged. Where a target
+advertises cancellation, cover cooperative cancellation and late-write prevention.
+These checks establish the exercised workflow, not general conflict resolution
+or exactly-once event delivery.
 
 ### Promise Priority
 
 | Priority | Intents | Release gate? |
 |----------|---------|---------------|
-| P0 — Core | 1, 2, 3 | Yes — blocks release |
+| P0 — Core | 1, 2, 3, 9 | Yes — blocks release for advertised capabilities |
 | P1 — Essential | 4, 5, 6 | Yes — blocks release |
-| P2 — Important | 7, 8, 9, 10 | Warning only |
+| P2 — Important | 7, 8, 10 | Warning only, except safety guarantees below |
+
+Authorization, tenant/instance isolation, cancellation, and lifecycle correctness
+block release wherever the release advertises those guarantees, regardless of
+feature priority. An unavailable prerequisite is a skip and leaves the related
+guarantee unvalidated; it cannot make a release gate pass. This table is release
+policy, not a claim that this single suite enforces every gate automatically.
 
 ---
 

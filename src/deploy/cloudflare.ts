@@ -1693,7 +1693,36 @@ function formatScopedBlock(
   }
 }
 
-export async function deployToCloudflare(options: CloudflareDeployOptions): Promise<void> {
+export interface CloudflareGeneratedProject {
+  outputDir: string;
+  workerName: string;
+}
+
+/** Resolve the production workers.dev URL printed by Wrangler, excluding preview URLs. */
+export function resolveCloudflareDeploymentUrl(
+  workerName: string,
+  output: string,
+  publicUrl?: string
+): string | undefined {
+  if (publicUrl) return publicUrl;
+  // Exact worker-name matching excludes version/branch preview hosts and links
+  // to other Workers that Wrangler may include in diagnostics.
+  for (const match of output.matchAll(/https:\/\/[a-z0-9.-]+/gi)) {
+    const url = new URL(match[0]);
+    const labels = url.hostname.split('.');
+    if (
+      labels.length === 4 &&
+      labels[0] === workerName.toLowerCase() &&
+      labels.slice(2).join('.') === 'workers.dev'
+    )
+      return url.origin;
+  }
+  return undefined;
+}
+
+export async function deployToCloudflare(
+  options: CloudflareDeployOptions
+): Promise<CloudflareGeneratedProject> {
   const { photonPath, devMode = false, dryRun = false, withLogs = false } = options;
 
   // Resolve photon file
@@ -1723,8 +1752,10 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // dir under the OS tmp dir and gets cleaned up after a successful deploy.
   // (On failure or dry-run we keep it so the user can debug or inspect.)
   const userProvidedOutputDir = Boolean(options.outputDir);
-  const outputDir =
-    options.outputDir || path.join(tmpdir(), `photon-cf-${photonName}-${process.pid}`);
+  const outputDir = path.resolve(
+    options.outputDir || path.join(tmpdir(), `photon-cf-${photonName}-${process.pid}`)
+  );
+  const project = { outputDir, workerName };
   await fs.mkdir(outputDir, { recursive: true });
   await fs.mkdir(path.join(outputDir, 'src'), { recursive: true });
 
@@ -2435,7 +2466,7 @@ class_name = "${p.doClass}"`
     logger.info(`  ${pm} install`);
     logger.info(`  ${pm} run dev      # Local development`);
     logger.info(`  ${pm} run deploy   # Deploy to Cloudflare`);
-    return;
+    return project;
   }
 
   // Check if wrangler is available
@@ -2532,13 +2563,19 @@ class_name = "${p.doClass}"`
   // Deploy
   logger.info('Deploying to Cloudflare Workers...');
 
+  let deployOutput = '';
   const deploy = spawn(detectRunner(), ['wrangler', 'deploy'], {
     cwd: outputDir,
-    stdio: 'inherit',
+    stdio: ['inherit', 'pipe', 'inherit'],
     env: envForWranglerDeploy,
+  });
+  deploy.stdout?.on('data', (chunk: Buffer) => {
+    process.stdout.write(chunk);
+    deployOutput += chunk.toString();
   });
 
   await new Promise<void>((resolve, reject) => {
+    deploy.once('error', reject);
     deploy.on('close', (code) => {
       if (code === 0) {
         void reconcileCloudflareRoute(routeConfig, workerName)
@@ -2553,13 +2590,19 @@ class_name = "${p.doClass}"`
           )
           .then(() => {
             logger.info('Deployment complete and latest version is serving 100% of traffic!');
-            logger.info(`\nYour MCP server is live at:`);
-            logger.info(
-              routeConfig.publicUrl || `https://${workerName}.<your-subdomain>.workers.dev`
+            const publicUrl = resolveCloudflareDeploymentUrl(
+              workerName,
+              deployOutput,
+              routeConfig.publicUrl
             );
-            if (devMode) {
-              logger.info(
-                `\nPlayground: ${routeConfig.publicUrl || `https://${workerName}.<your-subdomain>.workers.dev`}/playground`
+            if (publicUrl) {
+              const baseUrl = publicUrl.replace(/\/$/, '');
+              logger.info(`\nWeb: ${baseUrl}`);
+              logger.info(`MCP: ${baseUrl}/mcp`);
+              if (devMode) logger.info(`Playground: ${baseUrl}/playground`);
+            } else {
+              logger.warn(
+                `Could not determine the public URL for ${workerName}. Check its Domains & Routes in the Cloudflare dashboard.`
               );
             }
             // Clean up the scratch project dir on success, but only if the user
@@ -2611,6 +2654,7 @@ class_name = "${p.doClass}"`
       }
     });
   });
+  return project;
 }
 
 async function promoteLatestCloudflareVersion(
@@ -2769,14 +2813,8 @@ async function reconcileCloudflareRoute(
 }
 
 export async function devCloudflare(options: CloudflareDeployOptions): Promise<void> {
-  // Generate with dev mode, then run wrangler dev
-  await deployToCloudflare({ ...options, devMode: true, dryRun: true });
-
-  const photonName = path
-    .basename(options.photonPath)
-    .replace(/\.photon\.ts$/, '')
-    .replace(/[^a-z0-9-]/gi, '-');
-  const outputDir = options.outputDir || path.join(process.cwd(), `.cf-${photonName}`);
+  // Use the generator's actual directory for both installation and preview.
+  const { outputDir } = await deployToCloudflare({ ...options, devMode: true, dryRun: true });
 
   logger.info('Installing dependencies...');
   execSync(detectPM() + ' install', { cwd: outputDir, stdio: 'pipe' });
@@ -2789,11 +2827,22 @@ export async function devCloudflare(options: CloudflareDeployOptions): Promise<v
     env: wranglerEnv(),
   });
 
-  await new Promise<void>((resolve) => {
-    dev.on('close', () => resolve());
-    process.on('SIGINT', () => {
-      dev.kill();
-      resolve();
+  await new Promise<void>((resolve, reject) => {
+    const stop = () => dev.kill('SIGINT');
+    const cleanup = () => {
+      process.removeListener('SIGINT', stop);
+      process.removeListener('SIGTERM', stop);
+    };
+    dev.once('error', (error) => {
+      cleanup();
+      reject(error);
     });
+    dev.once('close', (code, signal) => {
+      cleanup();
+      if (code === 0 || signal === 'SIGINT' || signal === 'SIGTERM') resolve();
+      else reject(new Error(`Cloudflare preview failed (exit code ${code}).`));
+    });
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
   });
 }

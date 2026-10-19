@@ -57,7 +57,12 @@ import { ViewportManager, getPageSizeForClient } from '../services/viewport-mana
 import { buildBeamRoutePath, parseBeamRoutePath, shouldOpenAppTab } from '../utils/beam-route.js';
 import { formatLabel } from '../utils/format-label.js';
 import { isEmojiIcon } from '../utils/icon.js';
-import { getIntentOutputFormat, isDestructiveIntent, methodRequiresInput } from '../../intent.js';
+import {
+  canRevalidateMethod,
+  getIntentOutputFormat,
+  isDestructiveIntent,
+  methodRequiresInput,
+} from '../../intent.js';
 
 // Browser-side libraries loaded from script tags (vendored / CDN). Declared
 // here so beam-app can call them without `as any`. Signatures match
@@ -2412,8 +2417,30 @@ export class BeamApp extends LitElement {
   private _pwaIsStandalone = false;
   private _pwaCurrentPhoton: string | null = null;
 
+  private _stateRevalidationTimer?: ReturnType<typeof setInterval>;
+  private _revalidateVisibleState = () => {
+    if (
+      document.visibilityState === 'visible' &&
+      navigator.onLine &&
+      this._connected &&
+      this._mcpReady &&
+      this._view === 'form' &&
+      this._mainTab === 'methods' &&
+      this._selectedPhoton?.stateful &&
+      this._lastResult !== null &&
+      !this._isExecuting &&
+      canRevalidateMethod(this._selectedMethod)
+    )
+      void this._silentRefresh();
+  };
+
   connectedCallback() {
     super.connectedCallback();
+    // Notifications are best-effort. Re-read the active safe view to recover
+    // missed changes, including modern streams carrying only standard filters.
+    this._stateRevalidationTimer = setInterval(this._revalidateVisibleState, 3_000);
+    window.addEventListener('online', this._revalidateVisibleState);
+    document.addEventListener('visibilitychange', this._revalidateVisibleState);
 
     // Load saved theme preference
     const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme;
@@ -2527,6 +2554,9 @@ export class BeamApp extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    clearInterval(this._stateRevalidationTimer);
+    window.removeEventListener('online', this._revalidateVisibleState);
+    document.removeEventListener('visibilitychange', this._revalidateVisibleState);
     window.removeEventListener('popstate', this._handleRouteChange);
     window.removeEventListener('message', this._handleBridgeMessage);
     window.removeEventListener('keydown', this._handleKeydown);
@@ -3276,6 +3306,7 @@ export class BeamApp extends LitElement {
 
       // Handle refresh-needed via unified JSON-RPC format
       mcpClient.on('refresh-needed', (data: any) => {
+        this._revalidateVisibleState();
         this._forwardToIframes({
           jsonrpc: '2.0',
           method: 'photon/notifications/emit',
@@ -3297,20 +3328,18 @@ export class BeamApp extends LitElement {
         }
 
         // Only auto-refresh if we're viewing a SAFE (read-only) method on the changed photon.
-        // Methods with required params are mutations (add, remove, update) — replaying them
-        // would duplicate side-effects. Only parameterless methods (get, list, stats) are safe.
+        // Only explicit read-only metadata permits background re-execution.
+        // Zero arguments alone do not establish that a method is safe to replay.
         // Show warmth indicator on sidebar for the changed photon
         const sidebarEl = this.renderRoot?.querySelector?.('beam-sidebar');
         sidebarEl?.updatePhotonWarmth?.(data.photon);
 
-        const methodParams = this._selectedMethod?.params;
-        const hasRequiredParams = methodParams?.required?.length > 0;
         if (
           this._selectedPhoton?.name === data.photon &&
           this._selectedMethod &&
           this._lastResult !== null &&
           !this._isExecuting &&
-          !hasRequiredParams
+          canRevalidateMethod(this._selectedMethod)
         ) {
           void this._silentRefresh();
         }
@@ -3323,6 +3352,7 @@ export class BeamApp extends LitElement {
           if (this._selectedPhoton?.stateful && this._selectedPhoton.configured) {
             await this._restoreInstance(this._selectedPhoton.name);
           }
+          this._revalidateVisibleState();
         })();
       });
 
@@ -7859,13 +7889,28 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _isSilentRefreshing = false;
 
   private async _silentRefresh(): Promise<void> {
-    if (!this._mcpReady || !this._selectedPhoton || !this._selectedMethod) return;
-    if (this._isSilentRefreshing) return; // Prevent feedback loop
+    if (!this._mcpReady || !this._selectedPhoton || !canRevalidateMethod(this._selectedMethod))
+      return;
+    if (this._isSilentRefreshing) return;
+    const photonName = this._selectedPhoton.name;
+    const methodName = this._selectedMethod.name;
+    const instance = this._currentInstance;
+    const submittedArgs = this._lastFormParams;
 
     this._isSilentRefreshing = true;
     try {
-      const toolName = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
-      const result = await mcpClient.callTool(toolName, this._lastFormParams || {});
+      const toolName = `${photonName}/${methodName}`;
+      const result = await mcpClient.callTool(toolName, submittedArgs || {});
+      // A response for the previous view must not replace a newly selected one.
+      if (
+        this._selectedPhoton?.name !== photonName ||
+        this._selectedMethod?.name !== methodName ||
+        this._currentInstance !== instance ||
+        this._lastFormParams !== submittedArgs ||
+        this._isExecuting ||
+        !this.isConnected
+      )
+        return;
 
       if (!result.isError) {
         this._applyRenderMetaFromResult(result);

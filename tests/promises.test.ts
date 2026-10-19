@@ -12,7 +12,7 @@
  */
 
 import { strict as assert } from 'assert';
-import { execSync, spawn, ChildProcess } from 'child_process';
+import { execSync, execFileSync, spawnSync, spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -724,21 +724,71 @@ async function main() {
 
   // P6.2 — Marketplace as composition layer
 
-  await check('I6', 'P6.2', 'photon search returns results', 'CLI', async () => {
-    try {
-      const out = execSync(`node ${CLI_PATH} search test`, {
-        encoding: 'utf-8',
-        timeout: 15000,
-        env: { ...process.env, NO_COLOR: '1' },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      // Search should produce some output (even if empty results)
-      assert.ok(typeof out === 'string', 'Search command executed');
-    } catch (e: any) {
-      // Search may fail if no marketplace connection, but the command should exist
-      assert.ok(e.message.includes('search') || e.status !== undefined, 'Search command exists');
+  await check(
+    'I6',
+    'P6.2',
+    'photon search finds matching local marketplace metadata',
+    'CLI',
+    async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-promise-search-'));
+      try {
+        const marketplaceDir = path.join(root, 'catalog');
+        fs.mkdirSync(path.join(marketplaceDir, '.marketplace'), { recursive: true });
+        fs.writeFileSync(
+          path.join(marketplaceDir, '.marketplace', 'photons.json'),
+          JSON.stringify({
+            name: 'promise-catalog',
+            photons: [
+              {
+                name: 'promise-search-match',
+                version: '1.2.3',
+                description: 'Deterministic catalog match',
+              },
+              { name: 'unrelated-fixture', version: '1.0.0', description: 'Should be excluded' },
+            ],
+          })
+        );
+        // Disable built-ins explicitly: initialize() otherwise re-adds them and search
+        // can fetch remote manifests. Only this local fixture may satisfy the assertion.
+        const marketplaces = [
+          ...[
+            ['photons', 'portel-dev/photons'],
+            ['examples', 'portel-dev/photon-examples'],
+          ].map(([name, repo]) => ({
+            name,
+            repo,
+            source: repo,
+            sourceType: 'github',
+            enabled: false,
+            url: `https://raw.githubusercontent.com/${repo}/main`,
+          })),
+          {
+            name: 'promise-catalog',
+            source: marketplaceDir,
+            sourceType: 'local',
+            url: `file://${marketplaceDir}`,
+            enabled: true,
+          },
+        ];
+        fs.writeFileSync(path.join(root, 'marketplaces.json'), JSON.stringify({ marketplaces }));
+        const out = execFileSync(process.execPath, [CLI_PATH, 'search', 'promise-search-match'], {
+          cwd: root,
+          encoding: 'utf-8',
+          timeout: 15_000,
+          env: { ...process.env, PHOTON_DIR: root, NO_COLOR: '1', FORCE_COLOR: '0' },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        assert.ok(out.includes('promise-search-match'), `Expected matching photon: ${out}`);
+        assert.ok(
+          out.includes('1.2.3') && out.includes('promise-catalog'),
+          `Expected result metadata: ${out}`
+        );
+        assert.ok(!out.includes('unrelated-fixture'), 'Search must filter non-matching entries');
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   console.log('');
 
@@ -750,22 +800,72 @@ async function main() {
 
   // P7.1 — Standalone binary
 
-  await check('I7', 'P7.1', 'photon build command exists and parses args', 'CLI', async () => {
-    try {
-      const out = execSync(`node ${CLI_PATH} build --help`, {
-        encoding: 'utf-8',
-        timeout: 10000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      assert.ok(
-        out.includes('build') || out.includes('compile') || out.includes('target'),
-        `Build help: ${out.slice(0, 200)}`
-      );
-    } catch (e: any) {
-      // Even if build fails, the command should be registered
-      assert.ok(e.stdout?.includes('build') || e.stderr?.includes('build'), 'Build command exists');
-    }
-  });
+  const bunProbe = spawnSync('bun', ['--version'], { stdio: 'ignore' });
+  const nativeBuildSupported =
+    ['darwin', 'linux', 'win32'].includes(process.platform) &&
+    ['arm64', 'x64'].includes(process.arch);
+  if (bunProbe.status !== 0 || !nativeBuildSupported) {
+    skip(
+      'I7',
+      'P7.1',
+      'Built executable runs without a runtime on PATH',
+      'CLI, Runtime',
+      bunProbe.status !== 0
+        ? 'Bun compiler unavailable'
+        : 'Native Bun compilation target unavailable'
+    );
+  } else {
+    await check(
+      'I7',
+      'P7.1',
+      'Built executable runs without source or a runtime on PATH',
+      'CLI, Runtime',
+      async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-promise-build-'));
+        try {
+          const source = path.join(root, 'standalone.photon.ts');
+          const binary = path.join(
+            root,
+            process.platform === 'win32' ? 'standalone.exe' : 'standalone'
+          );
+          fs.copyFileSync(PROMISE_PHOTON, source);
+          execFileSync(process.execPath, [CLI_PATH, 'build', source, '--outfile', binary], {
+            cwd: path.join(__dirname, '..'),
+            encoding: 'utf-8',
+            timeout: 120_000,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+          assert.ok(fs.statSync(binary).size > 0, 'Build must produce a nonempty executable');
+          fs.rmSync(source);
+          const home = path.join(root, 'home');
+          const emptyPath = path.join(root, 'empty-path');
+          fs.mkdirSync(home);
+          fs.mkdirSync(emptyPath);
+          // Keep only OS prerequisites; no inherited Node, Bun, npm, Photon config,
+          // NODE_PATH, or preload flags can make the embedded method succeed.
+          const out = execFileSync(binary, ['greet', '--name', 'Standalone', '--json'], {
+            cwd: home,
+            env: {
+              PATH: emptyPath,
+              HOME: home,
+              USERPROFILE: home,
+              PHOTON_DIR: home,
+              PHOTON_HOME: home,
+              NO_COLOR: '1',
+              ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+              ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
+            },
+            encoding: 'utf-8',
+            timeout: 20_000,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+          assert.equal(JSON.parse(out.trim()), 'Hello, Standalone!');
+        } finally {
+          fs.rmSync(root, { recursive: true, force: true });
+        }
+      }
+    );
+  }
 
   // P7.2 — Deploy anywhere
 
@@ -1512,12 +1612,11 @@ export default class ClientContextProbe {
   }
 
   const coveredTotal = coveredResults.length;
-  const coveragePct = contractSpec.totalSections
-    ? ((coveredTotal / contractSpec.totalSections) * 100).toFixed(1)
-    : '0.0';
+  // Checks are not mapped one-to-one to documented assertion IDs. Repeated checks
+  // and skips cannot establish a validated-assertion percentage.
 
   console.log(
-    `  Coverage: ${coveredTotal}/${contractSpec.totalSections} documented assertions exercised by this suite (${coveragePct}%)`
+    `  Inventory: ${coveredTotal} promise checks; ${contractSpec.totalSections} documented assertions (not a coverage percentage)`
   );
 
   const uncoveredIntents = Object.entries(contractSpec.sectionByIntent)
@@ -1541,7 +1640,9 @@ export default class ClientContextProbe {
         coverage: {
           documentedAssertions: contractSpec.totalSections,
           suiteAssertions: coveredTotal,
-          coveragePercent: Number(coveragePct),
+          coveragePercent: null,
+          semantics:
+            'Check inventory only; no one-to-one assertion mapping. Counts include skipped checks.',
           overviewAssertions: contractSpec.totalOverview,
           byIntent: Object.fromEntries(
             Object.entries(contractSpec.sectionByIntent).map(([intent, declared]) => [

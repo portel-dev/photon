@@ -907,34 +907,69 @@ export default class RapidSave {
     );
   });
 
-  // ─── Test 11: Undo via MCP rolls back state ───
-  await test('_undo rolls back last mutation on stateful photon', async () => {
-    // Add two items
-    await mcpCallTool(sessionId, 'sync-list.add', { item: 'undo-test-1' }, 80);
-    await mcpCallTool(sessionId, 'sync-list.add', { item: 'undo-test-2' }, 81);
+  // ─── Test 11: In-process undo/redo via MCP preserves the mutation boundary ───
+  await test('_undo and _redo restore exact state on an in-process stateful photon', async () => {
+    // sync-list has no @worker tag or resource lifecycle hooks, so it runs
+    // in-process, where daemon undo/redo history is supported.
+    const firstAdd = await mcpCallTool(sessionId, 'sync-list.add', { item: 'undo-test-1' }, 80);
+    assert(
+      !firstAdd.error && !firstAdd.result?.isError,
+      `First add failed: ${JSON.stringify(firstAdd)}`
+    );
+    const baseline = parseToolResult(await mcpCallTool(sessionId, 'sync-list.get', {}, 85));
+    assert(
+      Array.isArray(baseline) && baseline.includes('undo-test-1'),
+      'First mutation must be visible'
+    );
+
+    const secondAdd = await mcpCallTool(sessionId, 'sync-list.add', { item: 'undo-test-2' }, 81);
+    assert(
+      !secondAdd.error && !secondAdd.result?.isError,
+      `Second add failed: ${JSON.stringify(secondAdd)}`
+    );
 
     // Get current state
     const beforeResp = await mcpCallTool(sessionId, 'sync-list.get', {}, 82);
     const before = parseToolResult(beforeResp);
     assert(
-      Array.isArray(before) && before.includes('undo-test-2'),
-      'Should have undo-test-2 before undo'
+      JSON.stringify(before) === JSON.stringify([...baseline, 'undo-test-2']),
+      'Second mutation must append exactly one item before undo'
     );
 
     // Call _undo
     const undoResp = await mcpCallTool(sessionId, 'sync-list._undo', {}, 83);
-    // _undo may fail if no undo history — that's acceptable for this test
-    if (undoResp.result?.isError) {
-      // Skip — daemon may not have undo history for this session
-      return;
-    }
+    assert(
+      !undoResp.error && !undoResp.result?.isError,
+      `_undo failed: ${JSON.stringify(undoResp)}`
+    );
+    const undoResult = parseToolResult(undoResp);
+    assert(
+      undoResult?.action === 'undo' && undoResult?.method === 'add',
+      `_undo must undo add: ${JSON.stringify(undoResult)}`
+    );
 
     // Verify state rolled back
     const afterResp = await mcpCallTool(sessionId, 'sync-list.get', {}, 84);
     const after = parseToolResult(afterResp);
     assert(
-      Array.isArray(after) && !after.includes('undo-test-2'),
-      `undo-test-2 should be removed after _undo, got: ${JSON.stringify(after)}`
+      JSON.stringify(after) === JSON.stringify(baseline),
+      `_undo must restore the complete preceding state, got: ${JSON.stringify(after)}`
+    );
+
+    const redoResp = await mcpCallTool(sessionId, 'sync-list._redo', {}, 86);
+    assert(
+      !redoResp.error && !redoResp.result?.isError,
+      `_redo failed: ${JSON.stringify(redoResp)}`
+    );
+    const redoResult = parseToolResult(redoResp);
+    assert(
+      redoResult?.action === 'redo' && redoResult?.method === 'add',
+      `_redo must replay add: ${JSON.stringify(redoResult)}`
+    );
+    const restored = parseToolResult(await mcpCallTool(sessionId, 'sync-list.get', {}, 87));
+    assert(
+      JSON.stringify(restored) === JSON.stringify(before),
+      `_redo must restore the complete mutated state, got: ${JSON.stringify(restored)}`
     );
   });
 

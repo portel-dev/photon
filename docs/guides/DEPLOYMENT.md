@@ -159,6 +159,22 @@ volumes:
 
 Photons deploy to Cloudflare Workers via a Durable Objects bridge. Each photon instance maps 1:1 to a Durable Object (DO), giving it persistent state, hibernation, and edge-local execution without any infrastructure setup.
 
+### Preview locally
+
+```bash
+photon host preview cloudflare my-photon
+```
+
+This generates the deployment project, installs its dependencies, and runs that
+project through `wrangler dev`. Use `--output <dir>` to keep it in a chosen
+location; installation and preview both use the generated directory.
+
+To inspect the generated Worker and configuration without starting it:
+
+```bash
+photon host deploy cloudflare my-photon --dry-run --output ./cf-preview
+```
+
 ### Deploy
 
 ```bash
@@ -170,6 +186,11 @@ Photon then lists the uploaded Worker versions and explicitly promotes the newes
 version to 100% of traffic. A successful upload without that promotion is treated
 as a failed deployment, so the command does not report a version as live unless
 the serving version was explicitly updated.
+
+After promotion, Photon reports the web and `/mcp` URLs using the configured
+public URL or the production `workers.dev` URL printed by Wrangler. `--dev` also
+reports the playground URL. If Wrangler does not report a production URL, Photon
+points to the dashboard rather than printing a placeholder hostname.
 
 Photon cannot infer whether a web UI is visually usable from deployment status
 alone. For a web Photon, the release smoke test should verify the canonical route

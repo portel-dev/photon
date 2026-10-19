@@ -44,6 +44,7 @@ export default class Todo {
 
   /**
    * Remove a task
+   * @destructive
    * @param text Task text to remove
    */
   remove(text: string) {
@@ -53,6 +54,7 @@ export default class Todo {
 
   /**
    * List all tasks
+   * @readOnly
    * @format checklist
    */
   list() {

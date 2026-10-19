@@ -61,7 +61,13 @@ export default class Tasks {
         write: false,
         format: 'esm',
         platform: 'neutral',
-        external: ['cloudflare:workers', 'node:async_hooks', 'cron-parser'],
+        // Runtime execution with these dependencies is covered by cf-generated-worker.test.ts.
+        external: [
+          'cloudflare:workers',
+          'node:async_hooks',
+          'cron-parser',
+          '@modelcontextprotocol/server',
+        ],
       })
     ).resolves.toBeDefined();
   });

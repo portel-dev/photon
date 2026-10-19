@@ -95,9 +95,16 @@ This pattern was already correctly wired in the **daemon** hot-reload path (`src
 
 If any `onInitialize` fails or times out, dependents fail to load. The existing `PhotonInitializationError` surfaces this.
 
-### 1.4 Loader-lite gap
+### 1.4 Loader-lite ownership
 
-`photon-loader-lite.ts` (the programmatic `photon()` API) calls `onInitialize` but does not call `onShutdown`. In the lite path the caller owns the instance lifecycle, so this is arguably correct for programmatic use. This design surfaces the gap; a decision on whether lite should expose an explicit `dispose` or match the full loader is tracked as an open question (section 5).
+The current programmatic API exposes `disposePhoton()`, `disposeAllPhotons()`,
+and application-owned `createPhotonRuntime().close()`, which invoke `onShutdown`
+for owned instances. The earlier missing-disposal design question is resolved.
+Core `2.28.1` propagates ownership through constructor dependencies and injected
+runtime helpers, with regression coverage for nested/shared shutdown and circular
+references. Photon requires this version or later. Closing does not wait indefinitely
+for initialization: late results are shut down once they settle. See [Photon as a library](PHOTON-AS-LIBRARY.md)
+for the supported boundary and tests.
 
 ---
 
@@ -232,7 +239,7 @@ Existing `onInitialize`/`onShutdown` behavior is unchanged.
 
 - **Class-level default `@webhook-auth`**: override per method. Useful for Stripe-only photons.
 - **IP allowlist** (`@webhook-source <cidr>`): for providers that publish source ranges.
-- **Loader-lite shutdown**: should `photon-loader-lite.ts` expose an explicit `dispose` that invokes `onShutdown`, or keep the "caller owns lifecycle" contract?
+- **Loader-lite dependency ownership**: resolved in core `2.28.1`, adopted by Photon and covered by nested/shared cleanup and circular-reference regressions.
 - **State/settings hooks**: `onStateLoad`, `onStateSave`, `onSettingsChange`.
 - **Webhook response schema enforcement**: pass-through today; may want opinionated shape later.
 

@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import {
+  canRevalidateMethod,
   getIntentOutputFormat,
   isDestructiveIntent,
   methodRequiresInput,
@@ -195,6 +196,18 @@ async function run() {
       output: { structured: true },
     });
     assert.equal(methodRequiresInput(render!), false);
+  });
+
+  await test('background refresh requires explicit safety and rejects conflicting destructive metadata', () => {
+    assert.equal(canRevalidateMethod({ params: { required: [] } }), false);
+    assert.equal(canRevalidateMethod({ intent: { action: 'list' } as any }), false);
+    assert.equal(canRevalidateMethod({ readOnlyHint: true }), true);
+    assert.equal(canRevalidateMethod({ intent: { safety: { readOnly: true } } as any }), true);
+    assert.equal(canRevalidateMethod({ readOnlyHint: true, destructiveHint: true }), false);
+    assert.equal(
+      canRevalidateMethod({ readOnlyHint: true, intent: { action: 'delete' } as any }),
+      false
+    );
   });
 
   console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);

@@ -850,6 +850,10 @@ class MCPClientService {
       // sidebar even if an older/mixed-version server omits x-photon-internal
       // on one of its system tools.
       if (!isExternalMCP && serverName === 'beam') continue;
+      // Runtime instance tools sort before public methods in tools/list. Their
+      // internal/minimal metadata describes the tool, not the owning photon.
+      // Do not let it hide the photon or erase its stateful capability.
+      if (!isExternalMCP && methodName.startsWith('_')) continue;
 
       if (isExternalMCP) {
         if (!externalMCPMap.has(serverName)) {

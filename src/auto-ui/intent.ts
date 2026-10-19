@@ -7,6 +7,7 @@ export interface IntentAwareMethod {
   format?: string;
   buttonLabel?: string;
   destructiveHint?: boolean;
+  readOnlyHint?: boolean;
 }
 
 export function methodRequiresInput(method: IntentAwareMethod | undefined): boolean {
@@ -32,4 +33,13 @@ export function isDestructiveIntent(method: IntentAwareMethod | undefined): bool
 
 export function getIntentOutputFormat(method: IntentAwareMethod | undefined): string | undefined {
   return method?.outputFormat ?? method?.format ?? method?.intent?.output?.format;
+}
+
+/** Background refresh must never infer safety from a method's arity or name. */
+export function canRevalidateMethod(method: IntentAwareMethod | undefined): boolean {
+  return (
+    !!method &&
+    !isDestructiveIntent(method) &&
+    (method.readOnlyHint === true || method.intent?.safety?.readOnly === true)
+  );
 }

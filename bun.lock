@@ -13,7 +13,7 @@
         "@modelcontextprotocol/sdk": "1.29.0",
         "@modelcontextprotocol/server": "2.0.0",
         "@portel/cli": "^1.1.0",
-        "@portel/photon-core": "^2.28.0",
+        "@portel/photon-core": "^2.28.1",
         "ajv": "^8.18.0",
         "boxen": "^8.0.1",
         "chalk": "^5.4.1",
@@ -49,6 +49,7 @@
         "autocannon": "^8.0.0",
         "c8": "^11.0.0",
         "codemirror": "^6.0.2",
+        "cron-parser": "^5.0.0",
         "eslint": "^10.3.0",
         "eslint-config-prettier": "^10.1.8",
         "knip": "^6.13.1",
@@ -509,7 +510,7 @@
 
     "@portel/mcp": ["@portel/mcp@1.0.1", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.18.0", "@portel/cli": "^1.0.0" } }, "sha512-4SaGxqPDdjx7mRSEDVKckRj/rbQgO8fbU2cFbe/sxnsgexUEIsRBBWgMfYloPfW5wHFd+0dCpwoFjcT2OqrQDw=="],
 
-    "@portel/photon-core": ["@portel/photon-core@2.28.0", "", { "dependencies": { "@portel/cli": "^1.1.0", "@portel/mcp": "^1.0.1", "chalk": "^5.3.0", "cli-highlight": "^2.1.11", "typescript": "^5.7.2" } }, "sha512-SSxIwcyDLx4SzirWOMc0MCUU2IIQTg6/DLn7QrEtoZobQ3H0j3XvRL7wfl21cng1K1J5XilLCgE7ju0CyqNEsQ=="],
+    "@portel/photon-core": ["@portel/photon-core@2.28.1", "", { "dependencies": { "@portel/cli": "^1.1.0", "@portel/mcp": "^1.0.1", "chalk": "^5.3.0", "cli-highlight": "^2.1.11", "typescript": "^5.7.2" } }, "sha512-HHIp/TS2/YL0QlT0hYK5fcBKtSHIqPyHO9bIE23icZ0mKj//Ya3zrRfHjfwo5EGhHn+NntykHKoIZhVYZZ1lKA=="],
 
     "@release-it/conventional-changelog": ["@release-it/conventional-changelog@11.0.0", "", { "dependencies": { "@conventional-changelog/git-client": "^2.7.0", "concat-stream": "^2.0.0", "conventional-changelog": "^7.2.0", "conventional-changelog-angular": "^8.3.1", "conventional-changelog-conventionalcommits": "^9.3.1", "conventional-recommended-bump": "^11.2.0", "semver": "^7.7.4" }, "peerDependencies": { "release-it": "^18.0.0 || ^19.0.0 || ^20.0.0" } }, "sha512-3/WyzObY+y+EejBt+J2vcojFPLUiGu14liRiaPWc0bNVluhRIsADeJ785Iq5ynnhdd1zcjMNh5lBmM/J6/KXig=="],
 
@@ -903,6 +904,8 @@
 
     "crelt": ["crelt@1.0.6", "", {}, "sha512-VQ2MBenTq1fWZUH9DJNGti7kKv6EeAuYr3cLwxUWhIu1baTaXh4Ib5W2CqHVqib4/MqbYGJqiL3Zb8GJZr3l4g=="],
 
+    "cron-parser": ["cron-parser@5.10.2", "", { "dependencies": { "luxon": "^3.7.2" } }, "sha512-JfAYMY0LZaWQTuict8PhtF/ksSnq8xefSDmQUnnoqvkPYkU/y3UP0DTWzJKFBz0P1IXsDG8q0vY3zHkoFZOhvw=="],
+
     "cross-argv": ["cross-argv@2.0.0", "", {}, "sha512-YIaY9TR5Nxeb8SMdtrU8asWVM4jqJDNDYlKV21LxtYcfNJhp1kEsgSa6qXwXgzN0WQWGODps0+TlGp2xQSHwOg=="],
 
     "cross-spawn": ["cross-spawn@7.0.6", "", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
@@ -1272,6 +1275,8 @@
     "log-symbols": ["log-symbols@7.0.1", "", { "dependencies": { "is-unicode-supported": "^2.0.0", "yoctocolors": "^2.1.1" } }, "sha512-ja1E3yCr9i/0hmBVaM0bfwDjnGy8I/s6PP4DFp+yP+a+mrHO4Rm7DtmnqROTUkHIkqffC84YY7AeqX6oFk0WFg=="],
 
     "lru-cache": ["lru-cache@7.18.3", "", {}, "sha512-jumlc0BIUrS3qJGgIkWZsyfAM7NCWiBcCDhnd+3NNM5KbBmLTgHVfWBcg6W+rLUsIpzpERPsvwUP7CckAQSOoA=="],
+
+    "luxon": ["luxon@3.7.2", "", {}, "sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew=="],
 
     "macos-release": ["macos-release@3.4.0", "", {}, "sha512-wpGPwyg/xrSp4H4Db4xYSeAr6+cFQGHfspHzDUdYxswDnUW0L5Ov63UuJiSr8NMSpyaChO4u1n0MXUvVPtrN6A=="],
 
