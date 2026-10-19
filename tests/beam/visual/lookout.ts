@@ -2,7 +2,7 @@
  * Lookout CLI Wrapper for Visual Testing
  *
  * Calls the lookout photon via CLI to perform AI-powered visual analysis.
- * Requires: lookout photon installed + MLX dependencies (Apple Silicon).
+ * Requires: lookout photon installed + a working OpenAI-compatible vision endpoint.
  * When unavailable, all methods return null — tests should skip gracefully.
  */
 
@@ -15,7 +15,7 @@ const execFile = promisify(execFileCb);
 const PHOTON_CLI =
   process.env.PHOTON_CLI ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../bin/photon');
-const TIMEOUT = 120_000; // 2 minutes per inference call
+const TIMEOUT = Number(process.env.LOOKOUT_TEST_TIMEOUT_MS || 120_000);
 
 function photonArgs(args: string[]): string[] {
   return ['cli', ...args];
@@ -71,7 +71,7 @@ export interface CompareResult {
 let _available: boolean | null = null;
 
 /**
- * Check if lookout is available (installed + MLX ready).
+ * Check if lookout is available (installed + vision backend ready).
  * Caches the result for the process lifetime.
  */
 export async function isAvailable(): Promise<boolean> {
@@ -166,7 +166,7 @@ async function run(args: string[]): Promise<string | null> {
     });
     return stdout;
   } catch (err: any) {
-    console.error(`  [lookout] CLI error: ${err.message?.slice(0, 200)}`);
+    console.error(`  [lookout] CLI error: ${(err.stderr || err.message)?.slice(-1000)}`);
     return null;
   }
 }
@@ -179,7 +179,7 @@ function parseReview(raw: string): ReviewResult {
 
   // Parse issue lines: 🔴 **[CRITICAL]** CATEGORY — location
   const issues: ReviewResult['issues'] = [];
-  const issueRegex = /\*\*\[(CRITICAL|WARNING|INFO)\]\*\*\s*(\S+)\s*—\s*(.+)\n\s+(.+)/g;
+  const issueRegex = /\*\*\[(CRITICAL|WARNING|INFO)\]\*\*\s*(.+?)\s*—\s*(.+)\n\s+(.+)/g;
   let match;
   while ((match = issueRegex.exec(raw)) !== null) {
     issues.push({
@@ -259,11 +259,11 @@ function parseCompare(raw: string): CompareResult {
   const afterIssues = issuesRow ? parseInt(issuesRow[2], 10) : 0;
 
   // Count "New Issues Introduced" section items
-  const newSection = raw.match(/## New Issues Introduced\n([\s\S]*?)(?=\n##|\n---|\z)/);
+  const newSection = raw.match(/## New Issues Introduced\n([\s\S]*?)(?=\n##|\n---|$)/);
   const newIssues = newSection ? (newSection[1].match(/\*\*\[/g) || []).length : 0;
 
   // Count "Issues Fixed" section items
-  const fixedSection = raw.match(/## Issues Fixed\n([\s\S]*?)(?=\n##|\n---|\z)/);
+  const fixedSection = raw.match(/## Issues Fixed\n([\s\S]*?)(?=\n##|\n---|$)/);
   const fixedIssues = fixedSection ? (fixedSection[1].match(/~~/g) || []).length / 2 : 0;
 
   return {

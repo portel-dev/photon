@@ -62,6 +62,28 @@ core alias. These tests do not establish remote dependency resolution or transpo
 authorization.
 The main test runner includes these checks.
 
+### Visual checks
+
+Use an installed Lookout photon and a working OpenAI-compatible vision backend.
+Browser screenshot checks require vision inference; Peekaboo desktop permissions
+are not required. To require execution instead of an unavailable-backend skip:
+
+```bash
+PHOTON_REQUIRE_VISUAL=1 bun run test:visual
+```
+
+Configure `LOOKOUT_VISION_URL`, `LOOKOUT_VISION_MODEL`, and `LOOKOUT_VISION_KEY`
+for the backend. Use an isolated `PHOTON_DIR`/`PHOTON_HOME` and
+`PHOTON_VISUAL_PHOTON` to select a deterministic test fixture. `PHOTON_CLI` can
+point to a Lookout CLI wrapper when analysis and Beam use separate workspaces.
+`LOOKOUT_TEST_TIMEOUT_MS` adjusts the per-inference timeout.
+
+Visual promises require explicit PASS results; missing scores and unclear results
+fail. The comparison baseline must show the same landing view: provide
+`PHOTON_VISUAL_BASELINE` as an absolute path or a path relative to
+`tests/beam/snapshots`. Without a matching baseline, the comparison is reported
+as skipped. The promise suite uses the same vision readiness and result parsing.
+
 ### README Validation
 ```bash
 bun run test:readme

@@ -30,6 +30,7 @@ const __dirname = path.dirname(__filename);
 const SCREENSHOT_DIR = path.join(__dirname, '..', 'snapshots', 'visual');
 const BASELINE_DIR = path.join(__dirname, '..', 'snapshots');
 const SCORE_THRESHOLD = 70;
+const VISUAL_PHOTON = process.env.PHOTON_VISUAL_PHOTON;
 
 // ── Beam Server & Browser ────────────────────────────────────
 
@@ -54,7 +55,9 @@ async function startBeam(): Promise<void> {
         setTimeout(async () => {
           for (let i = 0; i < 10; i++) {
             try {
-              const r = await fetch(`http://localhost:${beamPort}`);
+              const r = await fetch(
+                `http://localhost:${beamPort}${VISUAL_PHOTON ? '/' + encodeURIComponent(VISUAL_PHOTON) : ''}`
+              );
               if (r.ok) {
                 resolve();
                 return;
@@ -106,7 +109,7 @@ async function ensureDir(dir: string) {
 async function screenshot(name: string): Promise<string> {
   await ensureDir(SCREENSHOT_DIR);
   const filePath = path.join(SCREENSHOT_DIR, `${name}.png`);
-  await page.screenshot({ path: filePath, fullPage: true });
+  await page.screenshot({ path: filePath, fullPage: true, animations: 'disabled' });
   return filePath;
 }
 
@@ -117,7 +120,10 @@ async function waitForSidebar() {
 }
 
 async function clickFirstPhoton() {
-  const first = page.locator('.photon-item').first();
+  const items = page.locator('.photon-item');
+  const first = VISUAL_PHOTON
+    ? items.filter({ has: page.getByText(VISUAL_PHOTON, { exact: true }) }).first()
+    : items.first();
   await first.click();
   await page.waitForTimeout(1000);
 }
@@ -129,14 +135,11 @@ async function clickFirstMethod() {
   await mainContent.evaluate((el: Element) => el.scrollTo(0, el.scrollHeight));
   await page.waitForTimeout(1000);
 
-  // Try multiple selectors for method cards
-  const methodCard = page.locator('.method-card, .tool-card, [class*="method"]').first();
-  const visible = await methodCard.isVisible().catch(() => false);
-  if (visible) {
-    await methodCard.scrollIntoViewIfNeeded();
-    await methodCard.click();
-    await page.waitForTimeout(2000); // Wait for execution
-  }
+  const methodCard = page.locator('method-card').first();
+  await methodCard.waitFor({ state: 'visible' });
+  await methodCard.scrollIntoViewIfNeeded();
+  await methodCard.click();
+  await page.waitForSelector('result-viewer', { timeout: 15000 });
 }
 
 // ── Test Runner ──────────────────────────────────────────────
@@ -170,6 +173,8 @@ async function main() {
   // Gate: check lookout availability
   const ready = await isAvailable();
   if (!ready) {
+    if (process.env.PHOTON_REQUIRE_VISUAL === '1')
+      throw new Error('Required vision backend is unavailable');
     console.log('  ⏭️  Lookout not available (photon missing or vision backend not ready).');
     console.log(
       '     Configure LOOKOUT_VISION_URL/LOOKOUT_VISION_MODEL, or install the local MLX backend.\n'
@@ -182,10 +187,13 @@ async function main() {
   await initBrowser();
 
   // Navigate and wait for sidebar
-  await page.goto(`http://localhost:${beamPort}`, {
-    waitUntil: 'domcontentloaded',
-    timeout: 30000,
-  });
+  await page.goto(
+    `http://localhost:${beamPort}${VISUAL_PHOTON ? '/' + encodeURIComponent(VISUAL_PHOTON) : ''}`,
+    {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    }
+  );
 
   let sidebarReady = false;
   try {
@@ -194,10 +202,13 @@ async function main() {
   } catch {
     // SSE connection may be slow — retry with fresh navigation
     try {
-      await page.goto(`http://localhost:${beamPort}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
+      await page.goto(
+        `http://localhost:${beamPort}${VISUAL_PHOTON ? '/' + encodeURIComponent(VISUAL_PHOTON) : ''}`,
+        {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000,
+        }
+      );
       await page.waitForSelector('.photon-item', { timeout: 30000 });
       sidebarReady = true;
     } catch {
@@ -214,6 +225,7 @@ async function main() {
     const result = await review(img);
 
     assert.ok(result, 'Lookout returned no result');
+    assert.notEqual(result.score, null, 'Lookout review must include a parsed score');
     assert.ok(
       result.criticalCount === 0,
       `${result.criticalCount} critical issue(s):\n${result.issues
@@ -235,7 +247,7 @@ async function main() {
 
     assert.ok(result, 'Lookout returned no result');
     assert.ok(
-      result.failed === 0,
+      result.failed === 0 && result.unclear === 0 && result.passed === result.total,
       `${result.failed} promise(s) failed:\n${result.results
         .filter((r) => r.status === 'FAIL')
         .map((r) => `  - ${r.promise}: ${r.evidence}`)
@@ -255,7 +267,7 @@ async function main() {
 
       assert.ok(result, 'Lookout returned no result');
       assert.ok(
-        result.failed === 0,
+        result.failed === 0 && result.unclear === 0 && result.passed === result.total,
         `${result.failed} promise(s) failed:\n${result.results
           .filter((r) => r.status === 'FAIL')
           .map((r) => `  - ${r.promise}: ${r.evidence}`)
@@ -281,7 +293,7 @@ async function main() {
 
       assert.ok(result, 'Lookout returned no result');
       assert.ok(
-        result.failed === 0,
+        result.failed === 0 && result.unclear === 0 && result.passed === result.total,
         `${result.failed} promise(s) failed:\n${result.results
           .filter((r) => r.status === 'FAIL')
           .map((r) => `  - ${r.promise}: ${r.evidence}`)
@@ -302,6 +314,7 @@ async function main() {
 
       const result = await review(img);
       assert.ok(result, 'Lookout returned no result');
+      assert.notEqual(result.score, null, 'Lookout review must include a parsed score');
 
       if (result.score !== null) {
         assert.ok(
@@ -328,10 +341,13 @@ async function main() {
 
   await test('Overall UI health — score above threshold', async () => {
     // Navigate fresh to get a clean state
-    await page.goto(`http://localhost:${beamPort}`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
-    });
+    await page.goto(
+      `http://localhost:${beamPort}${VISUAL_PHOTON ? '/' + encodeURIComponent(VISUAL_PHOTON) : ''}`,
+      {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000,
+      }
+    );
     await page.waitForTimeout(2000);
     const img = await screenshot('overall-health');
 
@@ -350,19 +366,24 @@ async function main() {
 
   // ── Test 7: Regression detection ───────────────────────
 
-  const baselineFiles = await fs.readdir(BASELINE_DIR).catch(() => []);
-  const pngBaselines = (baselineFiles as string[]).filter(
-    (f: string) => f.endsWith('.png') && !f.endsWith('.new.png')
-  );
+  // A method-result screenshot is not a baseline for the landing page.
+  const baselineName = process.env.PHOTON_VISUAL_BASELINE || 'landing-page.png';
+  const pngBaselines = await fs
+    .access(path.resolve(BASELINE_DIR, baselineName))
+    .then(() => [baselineName])
+    .catch(() => []);
 
   if (pngBaselines.length > 0) {
     await test(`Regression check — ${pngBaselines[0]} baseline`, async () => {
-      const baselinePath = path.join(BASELINE_DIR, pngBaselines[0]);
+      const baselinePath = path.resolve(BASELINE_DIR, pngBaselines[0]);
       // Take current screenshot of similar view
-      await page.goto(`http://localhost:${beamPort}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
+      await page.goto(
+        `http://localhost:${beamPort}${VISUAL_PHOTON ? '/' + encodeURIComponent(VISUAL_PHOTON) : ''}`,
+        {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000,
+        }
+      );
       await page.waitForTimeout(2000);
       const currentImg = await screenshot('regression-current');
 

@@ -17,6 +17,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
+import {
+  isAvailable as lookoutAvailable,
+  validate as validateVisual,
+} from './beam/visual/lookout.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -220,60 +224,6 @@ async function stopBeam() {
 }
 
 // ── Lookout Helpers ──────────────────────────────────────────
-
-let _lookoutReady: boolean | null = null;
-
-async function lookoutAvailable(): Promise<boolean> {
-  if (_lookoutReady !== null) return _lookoutReady;
-  try {
-    const out = execSync(`${PHOTON_CLI} lookout status --json -y`, {
-      timeout: 15_000,
-      encoding: 'utf-8',
-      env: { ...process.env, NO_COLOR: '1' },
-    });
-    _lookoutReady = JSON.parse(out.trim())?.ready === true;
-  } catch {
-    _lookoutReady = false;
-  }
-  return _lookoutReady;
-}
-
-async function lookoutValidate(
-  imagePath: string,
-  promises: string[]
-): Promise<{ passed: number; failed: number; results: any[] }> {
-  const out = execSync(
-    `${PHOTON_CLI} lookout validate --image "${imagePath}" --promises '${JSON.stringify(promises)}' -y`,
-    {
-      timeout: 120_000,
-      encoding: 'utf-8',
-      env: { ...process.env, NO_COLOR: '1' },
-      maxBuffer: 1024 * 1024,
-    }
-  );
-
-  let passCount = 0;
-  let failCount = 0;
-  const results: any[] = [];
-
-  for (const promise of promises) {
-    const escaped = promise.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const passMatch = out.match(new RegExp(`✅.*?${escaped.slice(0, 30)}`, 'i'));
-    const failMatch = out.match(new RegExp(`❌.*?${escaped.slice(0, 30)}`, 'i'));
-
-    if (passMatch) {
-      passCount++;
-      results.push({ promise, status: 'PASS' });
-    } else if (failMatch) {
-      failCount++;
-      results.push({ promise, status: 'FAIL' });
-    } else {
-      results.push({ promise, status: 'UNCLEAR' });
-    }
-  }
-
-  return { passed: passCount, failed: failCount, results };
-}
 
 // ── Main Test Suite ──────────────────────────────────────────
 
@@ -1471,6 +1421,9 @@ export default class ClientContextProbe {
   // ═══════════════════════════════════════════════════════════
 
   const hasLookout = await lookoutAvailable();
+  if (process.env.PHOTON_REQUIRE_VISUAL === '1') {
+    assert.ok(hasLookout, 'Required vision backend is unavailable');
+  }
 
   if (hasLookout) {
     console.log('── Visual Assertions (Beam + Lookout) ──\n');
@@ -1500,11 +1453,16 @@ export default class ClientContextProbe {
     await page.screenshot({ path: sidebarImg, fullPage: true });
 
     await check('I1', 'P1.1', 'Beam shows photons in sidebar with methods', 'Beam', async () => {
-      const result = await lookoutValidate(sidebarImg, [
+      const result = await validateVisual(sidebarImg, [
         'A sidebar or navigation panel with a list of items',
         'Application title or branding visible',
       ]);
-      assert.ok(result.failed === 0, `${result.failed} visual promise(s) failed`);
+      assert.ok(result, 'Lookout returned no visual result');
+      assert.equal(
+        result.passed,
+        result.total,
+        `${result.failed} failed, ${result.unclear} unclear visual promises`
+      );
     });
 
     // P2.1 — Human can invoke via Beam UI
@@ -1514,10 +1472,15 @@ export default class ClientContextProbe {
       'Beam UI shows interactive interface for humans',
       'Beam',
       async () => {
-        const result = await lookoutValidate(sidebarImg, [
+        const result = await validateVisual(sidebarImg, [
           'A split-pane layout with a sidebar on the left and content on the right',
         ]);
-        assert.ok(result.failed === 0, `${result.failed} visual promise(s) failed`);
+        assert.ok(result, 'Lookout returned no visual result');
+        assert.equal(
+          result.passed,
+          result.total,
+          `${result.failed} failed, ${result.unclear} unclear visual promises`
+        );
       }
     );
 
@@ -1537,10 +1500,15 @@ export default class ClientContextProbe {
       await page.screenshot({ path: photonImg, fullPage: true });
 
       await check('I4', 'P4.2', 'Beam shows method cards from signatures', 'Beam', async () => {
-        const result = await lookoutValidate(photonImg, [
+        const result = await validateVisual(photonImg, [
           'Cards or panels showing available actions',
         ]);
-        assert.ok(result.failed === 0, `${result.failed} visual promise(s) failed`);
+        assert.ok(result, 'Lookout returned no visual result');
+        assert.equal(
+          result.passed,
+          result.total,
+          `${result.failed} failed, ${result.unclear} unclear visual promises`
+        );
       });
     }
 
