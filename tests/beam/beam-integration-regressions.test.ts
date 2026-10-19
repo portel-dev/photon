@@ -12,7 +12,7 @@
  * Run: bunx tsx tests/beam/beam-integration-regressions.test.ts
  */
 
-import { spawn, ChildProcess, execSync } from 'child_process';
+import { spawn, spawnSync, ChildProcess, execSync } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -27,6 +27,8 @@ const BEAM_URL = `http://localhost:${BEAM_PORT}`;
 
 let beamProcess: ChildProcess | null = null;
 let tmpDir: string;
+let testPhotonHome: string | undefined;
+const originalPhotonHome = process.env.PHOTON_HOME;
 const beamLogs: string[] = [];
 
 // ── Test infrastructure ──
@@ -56,6 +58,9 @@ async function test(name: string, fn: () => Promise<void>) {
 
 async function setup() {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'beam-regression-'));
+  testPhotonHome = path.join(tmpDir, '.photon-home');
+  await fs.mkdir(path.join(testPhotonHome, '.data'), { recursive: true });
+  process.env.PHOTON_HOME = testPhotonHome;
 
   // Stateful list photon for state sync tests
   await fs.writeFile(
@@ -183,6 +188,16 @@ function cleanup() {
   if (beamProcess) {
     beamProcess.kill('SIGTERM');
     beamProcess = null;
+  }
+  if (testPhotonHome) {
+    spawnSync('node', [path.join(__dirname, '../../dist/cli.js'), 'daemon', 'stop'], {
+      env: { ...process.env, PHOTON_HOME: testPhotonHome },
+      timeout: 10000,
+      stdio: 'ignore',
+    });
+    testPhotonHome = undefined;
+    if (originalPhotonHome === undefined) delete process.env.PHOTON_HOME;
+    else process.env.PHOTON_HOME = originalPhotonHome;
   }
 }
 

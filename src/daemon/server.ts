@@ -5437,7 +5437,7 @@ async function handleRequest(
         const opsToApply = isUndo ? entry.inversePatch : entry.patch;
 
         // Apply patch to live instance
-        await applyPatchToInstance(session.instance, photonName, opsToApply);
+        await applyPatchToInstance(session.instance, photonName, opsToApply, request.workingDir);
 
         // Persist the new state
         await persistInstanceState(
