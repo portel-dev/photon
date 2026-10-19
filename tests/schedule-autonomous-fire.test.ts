@@ -35,6 +35,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import type { ExecutionEntry } from '../src/daemon/execution-history.js';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-sched-e2e-'));
 const socketPath = path.join(tmpDir, 'daemon.sock');
@@ -57,6 +58,9 @@ export default class AutonomousProbe extends Photon {
   async tick() {
     const line = new Date().toISOString() + '\\n';
     fs.appendFileSync(${JSON.stringify(tickLog)}, line);
+    // The visible effect precedes method completion and execution accounting.
+    // Keep that window open so the test must wait for the matching record.
+    await new Promise(resolve => setTimeout(resolve, 1000));
     return line.trim();
   }
 }
@@ -182,6 +186,30 @@ async function waitForTick(timeoutMs = 75_000): Promise<string> {
   );
 }
 
+async function waitForExecutionRecord(taskId: string, timeoutMs = 10_000): Promise<ExecutionEntry> {
+  const execLog = path.join(schedulesDir, 'executions.jsonl');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(execLog)) {
+      const contents = fs.readFileSync(execLog, 'utf8');
+      // Only consume complete JSONL records if a read overlaps an append.
+      const complete = contents.slice(0, contents.lastIndexOf('\n') + 1);
+      const records = complete
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      const record = records.find(
+        (record) => record.jobId === `${photonName}:sched:${taskId}` && record.method === 'tick'
+      );
+      if (record) return record;
+    }
+    await wait(50);
+  }
+  throw new Error(
+    `No execution record for task ${taskId} in ${execLog} within ${timeoutMs}ms after the tick`
+  );
+}
+
 async function main(): Promise<void> {
   console.log('autonomous cron fire end-to-end test:');
 
@@ -227,17 +255,11 @@ async function main(): Promise<void> {
     // was the original symptom). Phantom registrations would have
     // produced rescheduled timer entries but no execution records;
     // a real fire produces both.
-    const execLog = path.join(tmpDir, '.data', photonName, 'schedules', 'executions.jsonl');
-    const haveExecRecord = fs.existsSync(execLog) && fs.readFileSync(execLog, 'utf-8').length > 0;
-    assert.ok(
-      haveExecRecord,
-      `${execLog} must contain at least one execution record after a fire. ` +
-        `An empty executions.jsonl paired with "tick.log has entries" would mean ` +
-        `the method ran but the daemon lost its accounting — also a regression.`
-    );
+    const execution = await waitForExecutionRecord(taskId);
+    assert.equal(execution.status, 'success', 'the matching scheduled execution must succeed');
+    assert.ok(execution.ts >= parsed, 'execution accounting must follow the method side effect');
+    assert.ok(execution.durationMs >= 0, 'execution duration must be recorded');
     console.log(`  \u2713 execution record landed in schedules/executions.jsonl`);
-
-    void taskId; // silence unused
   } finally {
     await stopDaemon(daemon);
     fs.rmSync(tmpDir, { recursive: true, force: true });
